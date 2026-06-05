@@ -1,0 +1,12 @@
+name: squirix CodeQL configuration
+
+disable-default-queries: false
+
+queries:
+  - uses: security-and-quality
+
+query-filters:
+  - exclude:
+      id: cs/linq/missed-where
+  - exclude:
+      id: cs/linq/missed-select

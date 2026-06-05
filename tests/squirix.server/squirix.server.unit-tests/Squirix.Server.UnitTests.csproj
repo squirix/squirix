@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <RootNamespace>Squirix.Server.UnitTests</RootNamespace>
+        <AssemblyName>Squirix.Server.UnitTests</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="NetArchTest.Rules"/>
+        <PackageReference Include="FakeItEasy"/>
+        <PackageReference Include="xunit.v3"/>
+        <PackageReference Include="xunit.v3.assert"/>
+        <PackageReference Include="xunit.runner.visualstudio"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="all"/>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Include="ApiSnapshots\SquirixServerPublicTypes.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\squirix\squirix.testkit\Squirix.TestKit.csproj"/>
+        <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
+        <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>Squirix.RepositoryRoot</_Parameter1>
+            <_Parameter2>$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine($(MSBuildProjectDirectory), '..', '..', '..'))'))</_Parameter2>
+        </AssemblyAttribute>
+    </ItemGroup>
+</Project>

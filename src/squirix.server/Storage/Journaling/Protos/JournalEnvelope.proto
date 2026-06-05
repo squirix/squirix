@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option csharp_namespace = "Squirix.Server.Storage.JournalProto";
+
+package squirix.journal;
+
+message JournalEnvelope {
+  uint64 seq    = 1;
+  int64  unix_ms = 2;
+
+  oneof op {
+    Put              put              = 10;
+    Remove           remove           = 11;
+    RemoveExpiration remove_expiration = 12;
+    TouchExpiration  touch_expiration  = 13;
+  }
+}
+
+message EntryPair { string key = 1; bytes entryJson = 2; string namespace = 3; }
+
+message Put              { EntryPair item = 1; string operation_id = 2; }
+message Remove           { string key = 1; string namespace = 2; }
+message RemoveExpiration { string key = 1; string namespace = 2; }
+message TouchExpiration  { string key = 1; string namespace = 2; int64 expires_unix_ms = 3; }

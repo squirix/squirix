@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <Version>$(SquirixPackageVersion)</Version>
+        <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
+        <AssemblyName>Squirix.Server.Host</AssemblyName>
+        <RootNamespace>Squirix.Server.Host</RootNamespace>
+        <PackageId>Squirix.Server.Tool</PackageId>
+        <Description>Standalone Squirix server host command-line tool.</Description>
+        <Authors>Squirix Team</Authors>
+        <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <IsPackable>true</IsPackable>
+        <PackAsTool>true</PackAsTool>
+        <ToolCommandName>squirix-server</ToolCommandName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\squirix.server\Squirix.Server.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="/"/>
+        <None Include="Squirix.settings.default.json" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+</Project>

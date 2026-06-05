@@ -1,0 +1,154 @@
+# Top-most EditorConfig file
+root = true
+
+# Global settings
+[*.{cs,csproj,props,targets,sln,json,md,yml,yaml,editorconfig,xml,txt,proto,ps1,runsettings,config,toml,http,svg,cshtml,razor,sql,sh,cmd,bat,mdc,csx}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+tab_width = 4
+max_line_length = 180
+
+# Use latest C# style rules
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+csharp_new_line_before_open_brace = all
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_place_expr_method_on_single_line = if_owner_is_single_line
+resharper_keep_existing_expr_member_arrangement = false
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_namespace_declarations = file_scoped
+csharp_prefer_static_local_function = true:error
+csharp_prefer_braces = when_multiline:error
+csharp_style_deconstructed_variable_declaration = true:warning
+csharp_style_expression_bodied_operators = false:warning
+csharp_style_expression_bodied_local_functions = false:warning
+# Prefer explicit discard when intentionally ignoring a value
+csharp_style_unused_value_expression_statement_preference = discard_variable:warning
+csharp_style_unused_value_assignment_preference = discard_variable:warning
+# Nullable and language (enforced via MSBuild too)
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
+csharp_space_after_cast = false
+
+# Elevate reliability/security/performance rules
+# Resource leaks and disposal
+# Dispose objects before losing scope
+dotnet_diagnostic.CA2000.severity = error
+# Disposable fields should be disposed
+dotnet_diagnostic.CA2213.severity = error
+# Use ValueTask correctly
+dotnet_diagnostic.CA2012.severity = error
+# Dispose methods should call base
+dotnet_diagnostic.CA1816.severity = error
+
+# Code readability (StyleCop)
+# Each attribute on its own line
+dotnet_diagnostic.SA1134.severity = error
+# Do not use regions
+dotnet_diagnostic.SA1124.severity = error
+# Disable SA1503 for single-line child statements
+dotnet_diagnostic.SA1503.severity = none
+# Require braces for multi-line statements
+dotnet_diagnostic.SA1519.severity = warning
+# Prefix with this - disabled
+dotnet_diagnostic.SA1101.severity = none
+# Allow leading underscore fields
+dotnet_diagnostic.SA1309.severity = none
+# Using directives placement
+dotnet_diagnostic.SA1200.severity = none
+# Missing XML comment for publicly visible type or member
+dotnet_diagnostic.SA1600.severity = none
+# No block-scoped namespace preference
+dotnet_diagnostic.IDE0160.severity = none
+# Use file-scoped namespaces
+dotnet_diagnostic.IDE0161.severity = error
+# Use primary constructor
+dotnet_diagnostic.IDE0290.severity = none
+# Enforce formatting, including single-line expression members when they fit the line width
+dotnet_diagnostic.IDE0055.severity = error
+# Performance
+# Mark members as static
+dotnet_diagnostic.CA1822.severity = warning
+# Unused private fields
+dotnet_diagnostic.CA1823.severity = warning
+# Avoid unnecessary zero-length array allocations
+dotnet_diagnostic.CA1825.severity = warning
+# Use span-based overloads
+dotnet_diagnostic.CA1845.severity = warning
+# Seal types for performance
+dotnet_diagnostic.CA1852.severity = warning
+# Cache and reuse Regex
+dotnet_diagnostic.CA1869.severity = warning
+
+# Exceptions/Usage correctness
+# Do not raise reserved exception types
+dotnet_diagnostic.CA2201.severity = warning
+# Instantiate argument exceptions correctly
+dotnet_diagnostic.CA2208.severity = warning
+
+# Async/Cancellation correctness
+# Forward CancellationToken
+dotnet_diagnostic.CA2016.severity = warning
+
+# Spacing/ordering guidelines
+# Elements ordering
+dotnet_diagnostic.SA1201.severity = warning
+
+# Reduce noise from commonly noisy rules
+# File header
+dotnet_diagnostic.SA1633.severity = none
+
+# Enforce member ordering by access so private members come after public/internal/protected
+# Elements should be ordered by access
+dotnet_diagnostic.SA1202.severity = error
+
+# Resharper
+resharper_redundant_empty_switch_section_highlighting = none
+resharper_xmldoc_indent_text = zero_indent
+resharper_arguments_string_literal = positional
+resharper_arguments_other = positional
+resharper_arguments_style_other_highlighting = suggestion
+resharper_arguments_style_string_literal_highlighting = suggestion
+resharper_arguments_literal = positional
+resharper_arguments_style_literal_highlighting = suggestion
+resharper_csharp_place_expr_method_on_single_line = always
+resharper_enforce_if_statement_braces_highlighting = warning
+resharper_convert_to_primary_constructor_highlighting = none
+resharper_csharp_wrap_chained_method_calls = wrap_if_long
+resharper_csharp_new_line_before_while = true
+resharper_csharp_place_simple_embedded_statement_on_same_line = never
+# Keep attributes on separate lines (full cleanup must not merge [ThreadStatic] onto the field; SA1134)
+csharp_place_field_attribute_on_same_line = false
+csharp_place_attribute_on_same_line = false
+resharper_csharp_place_field_attribute_on_same_line = false
+resharper_csharp_place_attribute_on_same_line = false
+resharper_csharp_keep_existing_linebreaks = false
+resharper_csharp_place_constructor_initializer_on_same_line = false
+resharper_place_constructor_initializer_on_same_line = false
+resharper_braces_for_ifelse = not_required_for_both
+resharper_braces_redundant = false
+resharper_loop_can_be_converted_to_query_highlighting = none
+resharper_loop_can_be_partly_converted_to_query_highlighting = none
+resharper_foreach_can_be_partly_converted_to_query_using_another_get_enumerator_highlighting = none
+resharper_arrange_redundant_parentheses_highlighting = none
+resharper_for_can_be_converted_to_foreach_highlighting = none
+resharper_lambda_expression_can_be_made_static_highlighting = warning
+resharper_redundant_suppress_nullable_warning_expression_highlighting = warning
+resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning
+resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning
+resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none
+
+# Visual Studio keys (Rider understands them too)
+csharp_indent_switch_labels = true
+csharp_indent_case_contents = true
+csharp_indent_case_contents_when_block = false
+
+[**/*Grpc.cs]
+dotnet_diagnostic.SA1518.severity = none
+
+# Analyzer execution settings
+# Enable concurrent execution and generated code handling are set via MSBuild props

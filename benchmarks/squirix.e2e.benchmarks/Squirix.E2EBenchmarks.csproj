@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>Squirix.E2EBenchmarks</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BenchmarkDotNet"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\tests\squirix.server\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
+    </ItemGroup>
+
+</Project>
+
+

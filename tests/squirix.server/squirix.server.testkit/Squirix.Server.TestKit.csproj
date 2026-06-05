@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <RootNamespace>Squirix.Server.TestKit</RootNamespace>
+        <AssemblyName>Squirix.Server.TestKit</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Grpc.Net.Client"/>
+        <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
+        <PackageReference Include="xunit.v3.assert"/>
+        <PackageReference Include="xunit.v3.extensibility.core"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
+    </ItemGroup>
+
+</Project>

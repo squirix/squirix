@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <Include>[Squirix]*,[Squirix.Server]*</Include>
+          <Exclude>[Squirix.TestKit]*,[Squirix]JetBrains.Annotations.*,[Squirix.Server]JetBrains.Annotations.*,[JetBrains.Annotations]*,[Squirix]Squirix.Grpc.*,[Squirix.Server]Squirix.Server.Storage.JournalProto.*</Exclude>
+          <ExcludeByFile>**/bin/**,**/obj/**,**/*.g.cs</ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

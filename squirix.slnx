@@ -1,0 +1,36 @@
+<Solution>
+    <Configurations>
+        <Platform Name="Any CPU"/>
+        <Platform Name="x64"/>
+        <Platform Name="x86"/>
+    </Configurations>
+    <Folder Name="/src/">
+        <Project Path="src/squirix.server.host/Squirix.Server.Host.csproj"/>
+        <Project Path="src/squirix.server/Squirix.Server.csproj"/>
+        <Project Path="src/squirix/Squirix.csproj"/>
+    </Folder>
+    <Folder Name="/tests/squirix/">
+        <Project Path="tests/squirix/squirix.testkit/Squirix.TestKit.csproj"/>
+        <Project Path="tests/squirix/squirix.integration-tests/Squirix.IntegrationTests.csproj"/>
+        <Project Path="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"/>
+    </Folder>
+    <Folder Name="/benchmarks/">
+        <Project Path="benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj"/>
+        <Project Path="benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj"/>
+    </Folder>
+    <Folder Name="/tests/">
+        <Project Path="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"/>
+    </Folder>
+    <Folder Name="/tests/squirix.server/">
+        <Project Path="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"/>
+        <Project Path="tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj"/>
+        <Project Path="tests/squirix.server/squirix.server.testkit/Squirix.Server.TestKit.csproj"/>
+        <Project Path="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"/>
+        <Project Path="tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj"/>
+    </Folder>
+    <Folder Name="/samples/">
+        <Project Path="samples/external-package-smoke/ExternalPackageSmoke.csproj"/>
+    </Folder>
+</Solution>
+
+

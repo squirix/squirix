@@ -1,0 +1,167 @@
+using System;
+using System.IO;
+using System.Reflection;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Hosting;
+
+namespace Squirix.Server.Host;
+
+internal static class SquirixServerProcess
+{
+    internal static async Task<int> RunAsync(string[] args)
+    {
+        try
+        {
+            var command = SquirixServerCommand.Parse(args);
+            return command.Name switch
+            {
+                "run" => await RunServerAsync(command).ConfigureAwait(false),
+                "init" => Initialize(command),
+                "validate-config" => ValidateConfig(command),
+                "doctor" => Doctor(command),
+                "version" => Version(),
+                "help" => Help(),
+                _ => throw new InvalidOperationException($"Unknown command '{command.Name}'. Run 'squirix-server help'."),
+            };
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int Doctor(SquirixServerCommand command)
+    {
+        var options = LoadOptions(command);
+        Console.WriteLine("[Squirix.Server] Doctor");
+        Console.WriteLine($"  Runtime: {Environment.Version}");
+        Console.WriteLine($"  OS: {Environment.OSVersion}");
+        Console.WriteLine($"  Cluster ID: {options.ClusterId}");
+        Console.WriteLine($"  Node ID: {options.NodeId}");
+        Console.WriteLine($"  URL: {options.Url}");
+        Console.WriteLine($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count)} configured");
+        Console.WriteLine(SquirixServerConfiguration.IsListenPortAvailable(options.Url) ? "  Listen port: available" : "  Listen port: NOT available (already in use)");
+        WriteDataDirectoryStatus(options.DataDirectory);
+        if (options.AllowHttpInAnyEnvironment)
+            Console.WriteLine("  WARNING: plaintext HTTP/2 is allowed.");
+        if (command.DevMode)
+            Console.WriteLine("  WARNING: --dev enables plaintext local HTTP/2.");
+        Console.WriteLine("  Configuration: valid");
+        return 0;
+    }
+
+    private static int Help()
+    {
+        Console.WriteLine(
+            """
+            Squirix.Server.Host
+
+            Commands:
+              run [--dev] [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              init [--settings PATH]
+              validate-config --settings PATH [--strict]
+              doctor [--dev] [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              version
+              help
+            """);
+        return 0;
+    }
+
+    private static int Initialize(SquirixServerCommand command)
+    {
+        var path = command.SettingsPath ?? "Squirix.settings.json";
+        if (File.Exists(path))
+            throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
+
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
+        _ = SquirixServerSettings.Load(path);
+        Console.WriteLine($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}");
+        return 0;
+    }
+
+    private static SquirixServerOptions LoadOptions(SquirixServerCommand command)
+    {
+        var settingsPath = ResolveSettingsPath(command);
+        var options = settingsPath is null ? new SquirixServerOptions() : SquirixServerSettings.Load(settingsPath);
+        SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.DevMode, command.Url, command.DataDirectory);
+        return options;
+    }
+
+    private static string? ResolveSettingsPath(SquirixServerCommand command) => SquirixServerConfiguration.ResolveSettingsPath(command.SettingsPath);
+
+    private static async Task<int> RunServerAsync(SquirixServerCommand command)
+    {
+        var options = LoadOptions(command);
+        var builder = WebApplication.CreateBuilder();
+        _ = builder.AddSquirixServer(target => SquirixServerConfiguration.CopyOptions(options, target), null, false);
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+
+        await app.StartAsync().ConfigureAwait(false);
+        Console.WriteLine("[Squirix.Server] Server is ready.");
+        Console.WriteLine($"  gRPC endpoint: {options.Url}");
+        Console.WriteLine($"  HTTP/2 health endpoint: {options.Url}/health");
+        Console.WriteLine("  Browser health endpoint: set SQUIRIX_HTTP1_PORT to enable the HTTP/1 sidecar.");
+        Console.WriteLine($"  Data directory: {options.DataDirectory ?? "<default>"}");
+        Console.WriteLine($"  Node ID: {options.NodeId}");
+        Console.WriteLine($"  Persistence: {(options.DataDirectory is null ? "default" : "configured")}");
+        Console.WriteLine($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}");
+        if (command.DevMode)
+            Console.WriteLine("  WARNING: --dev enables plaintext local HTTP/2.");
+        Console.WriteLine();
+        Console.WriteLine("Client:");
+        Console.WriteLine($"await using var client = await SquirixClient.ConnectAsync(\"{options.Url}\");");
+        Console.WriteLine();
+        Console.WriteLine("Waiting for shutdown (Ctrl+C)...");
+
+        using var shutdown = new ShutdownSignal();
+        await app.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
+        return 0;
+    }
+
+    private static int ValidateConfig(SquirixServerCommand command)
+    {
+        if (command.SettingsPath is null)
+            throw new InvalidOperationException("validate-config requires --settings PATH.");
+
+        if (!SquirixServerConfiguration.TryValidateSettingsFile(command.SettingsPath, command.Strict, out var error))
+            throw new InvalidOperationException(error);
+
+        var scope = command.Strict ? "full settings" : "cluster settings";
+        Console.WriteLine($"[Squirix.Server] {scope} valid: {Path.GetFullPath(command.SettingsPath)}");
+        return 0;
+    }
+
+    private static int Version()
+    {
+        var version = typeof(SquirixServerProcess).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ??
+                      typeof(SquirixServerProcess).Assembly.GetName().Version?.ToString() ?? "unknown";
+        Console.WriteLine(version);
+        return 0;
+    }
+
+    private static void WriteDataDirectoryStatus(string? dataDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(dataDirectory))
+        {
+            Console.WriteLine("  Data directory: <default>");
+            return;
+        }
+
+        Console.WriteLine($"  Data directory: {dataDirectory}");
+        try
+        {
+            _ = Directory.CreateDirectory(dataDirectory);
+            var probe = Path.Combine(dataDirectory, ".squirix-doctor-probe");
+            File.WriteAllText(probe, string.Empty);
+            File.Delete(probe);
+            Console.WriteLine("  Data directory access: writable");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Data directory access: NOT writable ({ex.Message})");
+        }
+    }
+}

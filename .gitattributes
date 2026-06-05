@@ -1,0 +1,41 @@
+﻿* text=auto eol=lf
+
+*.cs text eol=lf
+*.csproj text eol=lf
+*.sln text eol=lf
+*.slnx text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.editorconfig text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.proto text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.xml text eol=lf
+*.txt text eol=lf
+*.runsettings text eol=lf
+*.config text eol=lf
+*.toml text eol=lf
+*.http text eol=lf
+*.svg text eol=lf
+*.cshtml text eol=lf
+*.razor text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.cmd text eol=lf
+*.bat text eol=lf
+*.mdc text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+Dockerfile text eol=lf
+LICENSE text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.pdb binary

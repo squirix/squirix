@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Nullable>enable</Nullable>
+        <Version>$(SquirixPackageVersion)</Version>
+        <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
+        <AssemblyName>Squirix</AssemblyName>
+        <RootNamespace>Squirix</RootNamespace>
+        <PackageId>Squirix</PackageId>
+        <Authors>Squirix Team</Authors>
+        <Description>Squirix distributed cache client SDK for .NET 10 with typed ICache APIs, expiration, custom serialization, and client/server connectivity.</Description>
+        <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
+        <PackageTags>cache;distributed;grpc;client</PackageTags>
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Protobuf Include="..\shared\transport\grpc\Protos\SquirixCache.proto" GrpcServices="Client" ProtoRoot="..\shared\transport\grpc\Protos" Access="Internal"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Google.Protobuf"/>
+        <PackageReference Include="Grpc.Net.Client"/>
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
+        <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
+    </ItemGroup>
+</Project>

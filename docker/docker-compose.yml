@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  node-a:
+    build: ..
+    container_name: squirix-node-a
+    environment:
+      - SQUIRIX_HTTP1_PORT=5001
+      - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true
+      - SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true
+    ports:
+      - "5001:5001" # browser-friendly HTTP/1.1 endpoints (/health, /metrics)
+      - "9501:9500" # optional additional port if you reconfigure
+    volumes:
+      - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - nodea-data:/data
+    networks:
+      - squirix-net
+
+  node-b:
+    build: ..
+    container_name: squirix-node-b
+    environment:
+      - SQUIRIX_HTTP1_PORT=5001
+      - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true
+      - SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true
+    ports:
+      - "5002:5001"
+    volumes:
+      - ./node-b/Squirix.settings.json:/app/Squirix.settings.json:ro
+      - nodeb-data:/data
+    networks:
+      - squirix-net
+
+volumes:
+  nodea-data: {}
+  nodeb-data: {}
+
+networks:
+  squirix-net:
+    driver: bridge

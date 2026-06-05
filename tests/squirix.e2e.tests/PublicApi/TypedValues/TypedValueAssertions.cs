@@ -1,0 +1,37 @@
+using System.Linq;
+using Xunit;
+
+namespace Squirix.E2ETests.PublicApi.TypedValues;
+
+internal static class TypedValueAssertions
+{
+    public static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.DisplayName, actual.DisplayName);
+        Assert.Equal(expected.Email, actual.Email);
+        Assert.Equal(expected.Address, actual.Address);
+        Assert.Equal(expected.Roles, actual.Roles);
+        Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
+        foreach (var item in expected.Metadata)
+            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && value == item.Value, $"missing metadata {item.Key}");
+        Assert.Equal(expected.CreatedAt, actual.CreatedAt);
+        Assert.Equal(expected.Status, actual.Status);
+    }
+
+    public static void AssertCartEquals(TypedMutableCart expected, TypedMutableCart actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Total, actual.Total);
+        Assert.Equal(expected.UpdatedAt, actual.UpdatedAt);
+        Assert.Equal(expected.CouponCode, actual.CouponCode);
+        Assert.Equal(expected.Items.Count, actual.Items.Count);
+
+        foreach (var (expectedItem, actualItem) in expected.Items.Zip(actual.Items))
+        {
+            Assert.Equal(expectedItem.Sku, actualItem.Sku);
+            Assert.Equal(expectedItem.Quantity, actualItem.Quantity);
+            Assert.Equal(expectedItem.Price, actualItem.Price);
+        }
+    }
+}

@@ -1,0 +1,36 @@
+name: Publish core packages
+
+on:
+    workflow_dispatch:
+        inputs:
+            packageVersion:
+                description: Prerelease package version
+                required: true
+                default: 0.1.0-preview.1
+                type: string
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            -   uses: actions/checkout@v6
+
+            -   uses: actions/setup-dotnet@v5
+                with:
+                    dotnet-version: 10.0.x
+
+            -   name: Build core packages
+                run: |
+                    dotnet build src/squirix/Squirix.csproj --configuration Release -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+                    dotnet build src/squirix.server/Squirix.Server.csproj --configuration Release -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+
+            -   name: Pack core packages
+                run: |
+                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+
+            -   name: Publish core packages
+                run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "${{ secrets.GITHUB_TOKEN }}" --source "https://nuget.pkg.github.com/squirix/index.json" --skip-duplicate

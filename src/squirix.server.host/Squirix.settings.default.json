@@ -1,0 +1,13 @@
+{
+  "Squirix": {
+    "Cluster": {
+      "ClusterId": "dev-cluster",
+      "NodeId": "node-a",
+      "Url": "http://localhost:5001",
+      "VirtualNodes": 128,
+      "Peers": [
+        { "NodeId": "node-a", "Url": "http://localhost:5001" }
+      ]
+    }
+  }
+}

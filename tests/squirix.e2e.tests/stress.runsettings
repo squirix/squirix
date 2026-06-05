@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Run settings for intensive stress E2E runs from Rider/Visual Studio test explorers.
+
+  Usage (Rider): Settings > Build, Execution, Deployment > Unit Testing > Test Runner,
+  enable "Use specific run settings file" and select this file, then run the
+  Squirix.E2ETests.Stress.* tests. Adjust SQUIRIX_STRESS_SCALE to dial intensity.
+
+  Scale guidance: single-node drives 8 writers x 1000 x scale increments (~20k ops/sec).
+  The per-test hard deadline is 120s, so keep scale below ~250.
+-->
+<RunSettings>
+    <RunConfiguration>
+        <EnvironmentVariables>
+            <SQUIRIX_STRESS_SCALE>20</SQUIRIX_STRESS_SCALE>
+        </EnvironmentVariables>
+    </RunConfiguration>
+</RunSettings>
+

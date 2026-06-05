@@ -1,0 +1,36 @@
+using System;
+using Microsoft.Extensions.Options;
+
+namespace Squirix.Server.Node.MemoryPressure;
+
+/// <summary>
+/// Default evaluator using <see cref="IOptions{TOptions}" /> thresholds and limits.
+/// </summary>
+internal sealed class MemoryPressureStateEvaluator : IMemoryPressureStateEvaluator
+{
+    private readonly MemoryPressureOptions _options;
+
+    public MemoryPressureStateEvaluator(IOptions<MemoryPressureOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options.Value;
+    }
+
+    /// <inheritdoc />
+    public MemoryPressureState Evaluate(long estimatedCacheBytes)
+    {
+        if (estimatedCacheBytes < 0)
+            throw new ArgumentOutOfRangeException(nameof(estimatedCacheBytes), estimatedCacheBytes, "Estimated cache bytes cannot be negative.");
+
+        if (!_options.Enabled)
+            return MemoryPressureState.Normal;
+
+        var limit = _options.MaxEstimatedCacheBytes;
+        if (limit is null or <= 0 || estimatedCacheBytes == 0)
+            return MemoryPressureState.Normal;
+
+        var usedPercent = (double)estimatedCacheBytes / limit.Value * 100.0;
+        return usedPercent < _options.HighPressureThresholdPercent ? MemoryPressureState.Normal :
+            usedPercent < _options.CriticalPressureThresholdPercent ? MemoryPressureState.High : MemoryPressureState.Critical;
+    }
+}

@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      packageVersion:
+        description: "Package version to validate, for example 0.1.0-preview."
+        required: true
+        type: string
+      includeIntegrationTests:
+        description: "Run the full integration test suite in addition to selected stress checks."
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  pack-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify .NET 10 baseline
+        run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
+
+      - name: Validate release dry run
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ inputs.packageVersion }}
+          INCLUDE_INTEGRATION_TESTS: ${{ inputs.includeIntegrationTests }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${PACKAGE_VERSION#v}"
+          fi
+
+          arguments=(
+            "-ArtifactsDirectory"
+            "out"
+            "-PackageVersion"
+            "$version"
+            "-IncludePropertyTests"
+            "-IncludeStressChecks"
+          )
+
+          if [ "$INCLUDE_INTEGRATION_TESTS" = "true" ]; then
+            arguments+=("-IncludeIntegrationTests")
+          fi
+
+          dotnet run --file ./tools/internal/sqr-release-validate.cs -- "${arguments[@]}"
+
+      - name: Pack standalone server tool
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ inputs.packageVersion }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${PACKAGE_VERSION#v}"
+          fi
+
+          dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/packages -p:SquirixPackageVersion="$version"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: |
+            out/packages/*.nupkg
+            out/packages/*.snupkg
+
+      - name: Publish Squirix client package to nuget.org
+        if: github.event_name == 'push'
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [ -z "${NUGET_API_KEY}" ]; then
+            echo "NUGET_API_KEY secret is not configured." >&2
+            exit 1
+          fi
+          client_pkg="out/packages/Squirix.${version}.nupkg"
+          symbol_pkg="out/packages/Squirix.${version}.snupkg"
+          if [ ! -f "${client_pkg}" ]; then
+            echo "Expected client package not found: ${client_pkg}" >&2
+            ls -la out/packages/ >&2 || true
+            exit 1
+          fi
+          dotnet nuget push "${client_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          if [ -f "${symbol_pkg}" ]; then
+            dotnet nuget push "${symbol_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          fi
+
+      - name: Publish standalone server host
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ inputs.packageVersion }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version="${PACKAGE_VERSION#v}"
+          fi
+
+          dotnet publish src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/server-host -p:SquirixPackageVersion="$version"
+          cd out/server-host
+          zip -r ../Squirix.Server.Host.zip .
+
+      - name: Upload standalone server host
+        uses: actions/upload-artifact@v7
+        with:
+          name: squirix-server-host
+          path: out/Squirix.Server.Host.zip
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        id: create_release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            out/packages/*.nupkg
+            out/packages/*.snupkg
+            out/Squirix.Server.Host.zip

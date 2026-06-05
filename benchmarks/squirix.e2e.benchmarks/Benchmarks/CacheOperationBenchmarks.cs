@@ -1,0 +1,162 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
+using BenchmarkDotNet.Attributes;
+
+namespace Squirix.E2EBenchmarks.Benchmarks;
+
+/// <summary>
+/// End-to-end public API benchmarks for basic cache operations.
+/// </summary>
+[BenchmarkCategory("e2e", "read", "write", "mutation")]
+[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
+public class CacheOperationBenchmarks : CacheBenchmarkBase
+{
+    /// <summary>
+    /// Measures AddAsync for missing keys.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("write")]
+    public async Task AddShouldStoreMissingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            await Adapter.AddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Measures AddAsync conflict exception path for existing keys.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("write", "exception-path")]
+    public async Task AddShouldThrowForExistingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.AddConflictAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures GetEntryAsync hit path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("read")]
+    public async Task GetEntryShouldReturnHit()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.GetEntryHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures GetValueAsync hit path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("read")]
+    public async Task GetValueShouldReturnHit()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures GetValueAsync miss path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("read")]
+    public async Task GetValueShouldReturnMiss()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.GetValueMissAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures RemoveAsync for existing keys with inline reset.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("mutation")]
+    public async Task RemoveShouldDeleteExistingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+        {
+            var key = NextAddKey();
+            await Adapter.SetAsync(key, i, CancellationToken.None).ConfigureAwait(false);
+            Consumer.Consume(await Adapter.RemoveAsync(key, CancellationToken.None).ConfigureAwait(false));
+        }
+    }
+
+    /// <summary>
+    /// Measures RemoveAsync miss path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("mutation")]
+    public async Task RemoveShouldReturnFalseForMissingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.RemoveAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures SetAsync upsert path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("write")]
+    public async Task SetShouldStoreValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Measures TryAddAsync success path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("write")]
+    public async Task TryAddShouldAddMissingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.TryAddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures TryAddAsync conflict path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("write")]
+    public async Task TryAddShouldReturnFalseForExistingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(!await Adapter.TryAddAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures UpdateAsync hit path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("mutation")]
+    public async Task UpdateShouldModifyExistingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(await Adapter.UpdateAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Measures UpdateAsync miss path.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("mutation")]
+    public async Task UpdateShouldReturnFalseForMissingValue()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            Consumer.Consume(!await Adapter.UpdateAsync(NextMissKey(), i, CancellationToken.None).ConfigureAwait(false));
+    }
+}

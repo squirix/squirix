@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <RootNamespace>Squirix.ExternalPackageSmoke</RootNamespace>
+        <AssemblyName>ExternalPackageSmoke</AssemblyName>
+        <SmokeUsePackages Condition="'$(SmokeUsePackages)' == ''">false</SmokeUsePackages>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(SmokeUsePackages)' == 'true'">
+        <PackageReference Include="Squirix"/>
+        <PackageReference Include="Squirix.Server"/>
+    </ItemGroup>
+    <ItemGroup Condition="'$(SmokeUsePackages)' != 'true'">
+        <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
+        <ProjectReference Include="..\..\src\squirix.server\Squirix.Server.csproj"/>
+    </ItemGroup>
+</Project>

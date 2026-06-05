@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
+using Grpc.Core.Interceptors;
+using Grpc.Net.Client;
+using Squirix.Internal.Cluster.Membership;
+using Squirix.Internal.Cluster.Observability;
+using Squirix.Internal.Cluster.Reliability;
+using Squirix.Transport.Grpc.Cache;
+
+namespace Squirix.Internal.Cluster.Transport;
+
+/// <summary>
+/// Holds gRPC clients per peer and an execution policy (timeout/retry/concurrency) per peer.
+/// </summary>
+internal sealed class ClientPool : IClientPool
+{
+    private const int ConnectTimeoutMs = 5_000;
+    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
+
+    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
+    private int _disposed;
+    private volatile bool _draining;
+
+    public ClientPool(IEnumerable<Peer> peers, Func<string, ICallPolicy> policyFactory, HttpMessageHandler? handler = null, Interceptor? interceptor = null)
+    {
+        var peerList = peers as Peer[] ?? [.. peers];
+        var nodeIds = new string[peerList.Length];
+
+        for (var i = 0; i < peerList.Length; i++)
+        {
+            var p = peerList[i];
+            GrpcCleartextHttp2.EnableIfNeeded(p.Url);
+            var opts = new GrpcChannelOptions { HttpHandler = handler ?? GrpcCleartextHttp2.CreateChannelHandler(p.Url) };
+            var channel = GrpcChannel.ForAddress(p.Url, opts);
+            var invoker = channel.CreateCallInvoker();
+            if (interceptor is not null)
+                invoker = invoker.Intercept(interceptor);
+            _channels[p.NodeId] = channel;
+            _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
+            _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
+            nodeIds[i] = p.NodeId;
+        }
+
+        BootstrapNodeIds = [.. nodeIds];
+
+        // Register metrics observers once the dictionaries are populated
+        ClientPoolMetrics.RegisterObservers(() => _cacheClients.Count, () => _channels.Count, () => _draining);
+    }
+
+    public IReadOnlyList<string> BootstrapNodeIds { get; }
+
+    /// <summary>
+    /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
+    /// Unreachable endpoints are skipped; startup fails only when no endpoint can be reached.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The first reachable bootstrap node id.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no bootstrap endpoint is reachable.</exception>
+    public async ValueTask<string> WarmUpAsync(CancellationToken cancellationToken = default)
+    {
+        Exception? lastFailure = null;
+        string? primaryNodeId = null;
+        var failuresByNode = new Dictionary<string, Exception>(BootstrapNodeIds.Count, StringComparer.Ordinal);
+
+        foreach (var nodeId in BootstrapNodeIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_channels.TryGetValue(nodeId, out var channel))
+                continue;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(ConnectTimeoutMs);
+
+            try
+            {
+                await channel.ConnectAsync(cts.Token).ConfigureAwait(false);
+                ClientPoolMetrics.AddWarmup();
+                primaryNodeId ??= nodeId;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastFailure = new InvalidOperationException($"Failed to connect to endpoint '{nodeId}' within {ConnectTimeoutMs}ms.");
+                failuresByNode[nodeId] = lastFailure;
+            }
+            catch (Exception ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
+        }
+
+        if (primaryNodeId is null)
+            throw lastFailure ?? new InvalidOperationException("No bootstrap endpoints are configured.");
+        foreach (var pair in failuresByNode)
+        {
+            if (string.Equals(pair.Key, primaryNodeId, StringComparison.Ordinal))
+                continue;
+
+            ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped(pair.Key, pair.Value);
+        }
+
+        return primaryNodeId;
+    }
+
+    public void BeginDrain()
+    {
+        _draining = true;
+        foreach (var policy in _policies.Values)
+            policy.BeginDrain();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            return;
+
+        BeginDrain();
+        foreach (var item in _policies)
+        {
+            try
+            {
+                await item.Value.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
+            }
+        }
+
+        foreach (var ch in _channels)
+        {
+            try
+            {
+                ch.Value.Dispose();
+                ClientPoolMetrics.AddDisposal();
+            }
+            catch
+            {
+                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
+            }
+        }
+    }
+
+    public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
+
+    public ICallPolicy PolicyFor(string nodeId) => _policies[nodeId];
+}
