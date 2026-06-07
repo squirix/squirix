@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.1-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
+[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.2-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 **Squirix is an experimental distributed cache for modern .NET.**
@@ -15,7 +15,7 @@ state, routing, durability, and operational endpoints.
 | | |
 | --- | --- |
 | **Release line** | **0.1.0** (first public preview) |
-| **NuGet version** | `0.1.0-preview.1` |
+| **NuGet version** | `0.1.0-preview.2` |
 | **Maturity** | Early preview — **not production-ready** |
 | **Target framework** | .NET 10 only |
 | **License** | Apache-2.0 |
@@ -38,7 +38,7 @@ architecture, and operational feedback — not production adoption yet.
 ### 1. Run a development server
 
 ```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.1
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.2
 squirix-server run --dev --data-dir ./data
 ```
 
@@ -48,7 +48,7 @@ browser-friendly HTTP/1 sidecar for health or admin checks.
 ### 2. Add the client SDK
 
 ```powershell
-dotnet add package squirix --version 0.1.0-preview.1
+dotnet add package squirix --version 0.1.0-preview.2
 ```
 
 For cleartext HTTP/2 (h2c) during local development:
