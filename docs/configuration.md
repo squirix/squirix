@@ -13,6 +13,9 @@ Search order:
 - Current working directory
 - `AppContext.BaseDirectory`
 
+In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
+See [containerization.md](containerization.md) for dev and release image layouts.
+
 The standalone `squirix-server` host, `builder.AddSquirixServer(...)`, and `SquirixServer.StartAsync()` load
 `Squirix:Cluster` through `SquirixServerConfiguration` when a settings file is discovered or supplied. `StartAsync()`
 then hosts the node through the same `AddSquirixServer` / `MapSquirixServer` pipeline as the standalone executable.
@@ -121,6 +124,13 @@ Example:
     }
 }
 ```
+
+For local `--dev` hosts, `http://localhost:5001` is a common gRPC listen URL. In Docker Compose and other container
+networks, set `Url` and the local peer entry to the **service hostname** reachable by other nodes (for example
+`http://squirix-node-a:5000`), not `http://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
+
+When exposing a container to host client apps: map gRPC port **5000** and set `SQUIRIX_HTTP1_PORT=5001` for health/admin
+over HTTP/1. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 

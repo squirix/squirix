@@ -3,10 +3,11 @@
 `squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone process host lives in
 the separate `Squirix.Server.Host` project (`squirix-server`).
 
-| Package          | Purpose                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| `squirix`        | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)             |
-| `squirix.server` | Server runtime, hosting, durability, cluster owner routing, REST/gRPC host                        |
+| Package              | Purpose                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| `squirix`            | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)             |
+| `squirix.server`     | Server runtime, hosting, durability, cluster owner routing, REST/gRPC host                        |
+| `squirix.server.tool`| Standalone `squirix-server` global tool (process host)                                            |
 
 `Squirix.Server` does not reference the `Squirix` client SDK assembly. Server-owned cache model types live under
 `Squirix.Server.*`; wire compatibility with clients is through gRPC/REST contracts only.

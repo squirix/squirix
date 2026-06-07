@@ -1,0 +1,33 @@
+# Release image: install squirix-server from the squirix.server.tool NuGet package.
+# Default feed is nuget.org. Set LOCAL_PACKAGES=true and place *.nupkg in docker/nuget-packages/ to verify before publish.
+ARG SQUIRIX_VERSION=0.1.0-preview.4
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS tool-install
+ARG SQUIRIX_VERSION
+ARG LOCAL_PACKAGES=false
+WORKDIR /src
+
+COPY docker/nuget-packages/ /local-packages/
+
+RUN set -eux; \
+    install_args="squirix.server.tool --version ${SQUIRIX_VERSION} --tool-path /tools"; \
+    if [ "${LOCAL_PACKAGES}" = "true" ]; then \
+      dotnet nuget add source /local-packages --name squirix-local; \
+      dotnet tool install ${install_args} --add-source /local-packages; \
+    else \
+      dotnet tool install ${install_args}; \
+    fi
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+VOLUME ["/data"]
+RUN mkdir -p /data && chown "$APP_UID:$APP_UID" /data
+
+COPY --from=tool-install --chown=$APP_UID:$APP_UID /tools /tools
+ENV PATH="/tools:${PATH}"
+
+EXPOSE 5000
+
+USER $APP_UID
+
+ENTRYPOINT ["squirix-server"]

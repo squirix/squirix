@@ -71,6 +71,7 @@ jobs:
             version="${PACKAGE_VERSION#v}"
           fi
 
+          dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release
           dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj --configuration Release --output out/packages -p:SquirixPackageVersion="$version"
 
       - name: Upload package artifact
@@ -117,7 +118,7 @@ jobs:
             return "${exit_code}"
           }
 
-          for package_id in squirix squirix.server; do
+          for package_id in squirix squirix.server squirix.server.tool; do
             pkg="out/packages/${package_id}.${version}.nupkg"
             symbol_pkg="out/packages/${package_id}.${version}.snupkg"
             if [ ! -f "${pkg}" ]; then

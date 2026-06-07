@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.3-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
+[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.4-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 **squirix is an experimental distributed cache for modern .NET.**
@@ -15,7 +15,7 @@ owns cache state, routing, durability, and operational endpoints.
 | | |
 | --- | --- |
 | **Release line** | **0.1.0** (first public preview) |
-| **NuGet version** | `0.1.0-preview.3` |
+| **NuGet version** | `0.1.0-preview.4` |
 | **Maturity** | Early preview — **not production-ready** |
 | **Target framework** | .NET 10 only |
 | **License** | Apache-2.0 |
@@ -40,8 +40,36 @@ architecture, and operational feedback — not production adoption yet.
 **Docker** (fastest if you have Docker Desktop):
 
 ```powershell
-docker build -t squirix-server .
-docker run --rm -p 5001:5001 -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true squirix-server run --urls http://0.0.0.0:5001
+docker build -f Dockerfile.dev -t squirix-server .
+docker run --rm `
+  -p 5000:5000 `
+  -p 5001:5001 `
+  -e SQUIRIX_HTTP1_PORT=5001 `
+  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
+  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  squirix-server run --urls http://0.0.0.0:5000
+```
+
+Port **5000** is gRPC/HTTP/2 (map it for client apps). Port **5001** is the HTTP/1 sidecar for `curl`, health, and admin.
+
+**NuGet tool** (after install):
+
+```powershell
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
+squirix-server run --dev --data-dir ./data
+```
+
+**Release Docker image** (pinned NuGet tool version; requires `squirix.server.tool` on nuget.org):
+
+```powershell
+docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
+docker run --rm `
+  -p 5000:5000 `
+  -p 5001:5001 `
+  -e SQUIRIX_HTTP1_PORT=5001 `
+  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
+  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  squirix-server:0.1.0-preview.4 run --urls http://0.0.0.0:5000
 ```
 
 **From this repository** (requires a clone):
@@ -53,15 +81,15 @@ dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run -
 The host prints a gRPC endpoint and a ready-to-use client snippet. Set `SQUIRIX_HTTP1_PORT` when you need a
 browser-friendly HTTP/1 sidecar for health or admin checks.
 
-The `squirix.server.tool` global tool package is defined in-repo but is **not published to NuGet yet** in this preview
-line. Use Docker, a GitHub Release host archive, or the project command above until the tool package ships.
+Install the global tool from NuGet (`squirix.server.tool`; command `squirix-server`) or use the dev/release Dockerfiles
+described in [containerization](docs/containerization.md).
 
 More: [containerization](docs/containerization.md), [server mode](docs/server-mode.md).
 
 ### 2. Add the client SDK
 
 ```powershell
-dotnet add package squirix --version 0.1.0-preview.3
+dotnet add package squirix --version 0.1.0-preview.4
 ```
 
 For cleartext HTTP/2 (h2c) during local development:
@@ -72,6 +100,9 @@ $env:DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT = "1"
 
 ### 3. Connect and use a typed cache
 
+Use the gRPC endpoint from the host output. With `squirix-server run --dev` (or `dotnet run ... --dev`), that is
+`http://localhost:5001`. With the Docker example above, connect to `http://localhost:5000` (mapped gRPC port).
+
 ```csharp
 using System.Threading;
 using Squirix;
@@ -79,7 +110,7 @@ using Squirix;
 var cancellationToken = CancellationToken.None;
 
 await using var client = await SquirixClient.ConnectAsync(
-    "http://localhost:5001",
+    "http://localhost:5001", // or http://localhost:5000 when using the Docker gRPC mapping
     cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
@@ -123,9 +154,9 @@ NuGet ids use lowercase **`squirix.*`**. C# namespaces and exported types remain
 
 | NuGet package | Role | nuget.org |
 | --- | --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.3` |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, REST/gRPC host (library) | `0.1.0-preview.3` |
-| `squirix.server.tool` | Standalone `squirix-server` executable as a .NET global tool | not published yet |
+| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.4` |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, REST/gRPC host (library) | `0.1.0-preview.4` |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.4` |
 
 ```text
 application -> Squirix client SDK -> squirix server node(s)
@@ -134,7 +165,7 @@ application -> Squirix client SDK -> squirix server node(s)
 Server library consumers:
 
 ```powershell
-dotnet add package squirix.server --version 0.1.0-preview.3
+dotnet add package squirix.server --version 0.1.0-preview.4
 ```
 
 Or reference `Squirix.Server.csproj` from a clone during early preview evaluation.

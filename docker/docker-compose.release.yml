@@ -2,15 +2,17 @@ services:
   node-a:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
-    container_name: squirix-node-a
+      dockerfile: Dockerfile.release
+      args:
+        SQUIRIX_VERSION: 0.1.0-preview.4
+        LOCAL_PACKAGES: "true"
+    container_name: squirix-node-a-release
     environment:
       - SQUIRIX_HTTP1_PORT=5001
       - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true
       - SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true
     ports:
-      - "5001:5001" # browser-friendly HTTP/1.1 endpoints (/health, /metrics)
-      - "9501:9500" # optional additional port if you reconfigure
+      - "5001:5001"
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
@@ -20,8 +22,11 @@ services:
   node-b:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
-    container_name: squirix-node-b
+      dockerfile: Dockerfile.release
+      args:
+        SQUIRIX_VERSION: 0.1.0-preview.4
+        LOCAL_PACKAGES: "true"
+    container_name: squirix-node-b-release
     environment:
       - SQUIRIX_HTTP1_PORT=5001
       - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true

@@ -6,16 +6,18 @@ squirix is a client/server distributed cache engine. The primary production topo
 application -> Squirix client SDK -> Squirix.Server cluster
 ```
 
-The repository uses a two-package layout:
+The repository uses a **client/server library split** plus a standalone host tool on NuGet:
 
-| Package              | Purpose                                                                                                                   |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `squirix`            | Client SDK, exported cache API, typed client facade, serializer boundary, server-backed connection/routing/retry behavior |
-| `squirix.server`     | Distributed cache server engine, data placement, partition ownership, runtime, durability, hosting, REST/gRPC host        |
+| Package | Purpose |
+| --- | --- |
+| `squirix` | Client SDK |
+| `squirix.server` | Server runtime library (embed in ASP.NET Core) |
+| `squirix.server.tool` | Standalone `squirix-server` global tool |
 
-The standalone `Squirix.Server.Host` executable is a deployment project that references the `squirix.server` runtime
-library. It is published as a GitHub Release archive; the `squirix.server.tool` global tool package is defined in-repo
-but is **not published to NuGet yet** in this preview line.
+The architectural boundary is two runtime roles — application client vs server node — not two packages total.
+
+The standalone `Squirix.Server.Host` executable is published as the `squirix.server.tool` NuGet global tool (`squirix-server`)
+and as a GitHub Release archive.
 
 Package dependency rule:
 
