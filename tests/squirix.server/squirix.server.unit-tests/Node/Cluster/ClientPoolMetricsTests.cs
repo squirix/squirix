@@ -118,6 +118,71 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Repeated lookups for the same node must return the same gRPC client instance.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task ForNodeReusesSameClientAcrossManyLookups()
+    {
+        var peers = BuildPeers(1);
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        var first = pool.ForNode("n0");
+
+        for (var i = 0; i < 256; i++)
+            Assert.Same(first, pool.ForNode("n0"));
+    }
+
+    /// <summary>
+    /// Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
+    {
+        var size = new ConcurrentBag<int>();
+        var peerCount = new ConcurrentBag<int>();
+
+        var measurements = new Dictionary<string, ConcurrentBag<int>>(StringComparer.Ordinal)
+        {
+            [PoolSizeInstrumentName] = size,
+            [PoolPeerCountInstrumentName] = peerCount,
+        };
+
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = static (instrument, listener) =>
+        {
+            if (instrument.Meter.Name != MeterName)
+                return;
+
+            if (IsClientPoolGauge(instrument.Name))
+                listener.EnableMeasurementEvents(instrument);
+        };
+
+        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
+        {
+            if (measurements.TryGetValue(instrument.Name, out var bag))
+                bag.Add(measurement);
+        });
+
+        listener.Start();
+
+        var peers = BuildPeers(2);
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        var anchor = pool.ForNode("n0");
+
+        for (var i = 0; i < 256; i++)
+        {
+            _ = pool.ForNode(i % 2 == 0 ? "n0" : "n1");
+            listener.RecordObservableInstruments();
+        }
+
+        Assert.Same(anchor, pool.ForNode("n0"));
+        Assert.Contains(2, size);
+        Assert.Contains(2, peerCount);
+        Assert.DoesNotContain(size, static value => value > 2);
+    }
+
     private static Peer[] BuildPeers(int n)
     {
         var peers = new Peer[n];
