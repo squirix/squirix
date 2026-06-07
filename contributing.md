@@ -1,6 +1,7 @@
 # Contributing to squirix
 
-Thanks for checking out squirix. This project is still early, so every bug report, idea, or pull request is welcome.
+Thanks for checking out squirix. **Squirix 0.1.0** is an early preview — we especially welcome bug reports, API
+feedback, and durability questions via [GitHub Issues](https://github.com/squirix/squirix/issues).
 
 ## How to help
 

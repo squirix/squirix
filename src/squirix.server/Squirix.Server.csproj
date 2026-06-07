@@ -6,11 +6,13 @@
         <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
         <AssemblyName>Squirix.Server</AssemblyName>
         <RootNamespace>Squirix.Server</RootNamespace>
-        <PackageId>Squirix.Server</PackageId>
+        <PackageId>squirix.server</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Server runtime package for Squirix.</Description>
+        <Description>Server runtime for Squirix — consistent-hash routing, WAL journal, snapshots, compaction, recovery, REST/gRPC hosting, health/admin endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
-        <PackageTags>squirix;cache;distributed;server;hosting;journal;snapshot</PackageTags>
+        <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
+        <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;server;durability;journal;snapshot;opentelemetry</PackageTags>
+        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>

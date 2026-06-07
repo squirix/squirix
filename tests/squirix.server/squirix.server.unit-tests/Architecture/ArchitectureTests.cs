@@ -342,7 +342,7 @@ public sealed class ArchitectureTests
         Assert.DoesNotContain(project.Descendants(), static element => element.Name.LocalName == "OutputType");
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "AssemblyName"));
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "RootNamespace"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "PackageId"));
+        Assert.Equal(ServerArchitectureNamespaces.PackageId, ReadProperty(project, "PackageId"));
         Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "Version"));
         Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "PackageVersion"));
         Assert.Equal("Apache-2.0", ReadProperty(project, "PackageLicenseExpression"));

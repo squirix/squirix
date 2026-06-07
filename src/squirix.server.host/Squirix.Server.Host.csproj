@@ -7,10 +7,13 @@
         <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
         <AssemblyName>Squirix.Server.Host</AssemblyName>
         <RootNamespace>Squirix.Server.Host</RootNamespace>
-        <PackageId>Squirix.Server.Tool</PackageId>
-        <Description>Standalone Squirix server host command-line tool.</Description>
+        <PackageId>squirix.server.tool</PackageId>
+        <Description>Standalone squirix-server CLI and process host for local evaluation and deployment of Squirix.Server nodes. Early preview.</Description>
         <Authors>Squirix Team</Authors>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
+        <PackageTags>dotnet;cache;distributed-cache;tool;cli;server</PackageTags>
+        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <IsPackable>true</IsPackable>

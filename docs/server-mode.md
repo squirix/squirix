@@ -49,7 +49,7 @@ those exported operations. Mutations take `(key, value, options?, cancellationTo
 The standalone executable provides a low-friction local node:
 
 ```powershell
-dotnet tool install --global Squirix.Server.Tool
+dotnet tool install --global squirix.server.tool
 squirix-server run --dev --data-dir ./data
 ```
 
@@ -92,5 +92,5 @@ await app.RunAsync();
 `AddSquirixServer(...)` registers the server runtime and configures the primary Kestrel listener. `MapSquirixServer()`
 maps gRPC, REST, health, admin, and metrics endpoints.
 
-This is a custom server-hosting extension point, not a local cache mode. Application data access still goes through the
-`Squirix` client SDK and `SquirixClient.ConnectAsync(...)`, even when client and server run in the same process.
+This embeds the server runtime in an ASP.NET Core process. Application data access still goes through the `Squirix` client
+SDK and `SquirixClient.ConnectAsync(...)`, even when client and server run in the same process.

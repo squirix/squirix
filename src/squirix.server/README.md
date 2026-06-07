@@ -5,8 +5,8 @@
 
 | Package          | Purpose                                                                                           |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `Squirix`        | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)             |
-| `Squirix.Server` | Server runtime, hosting, durability, cluster owner routing, REST/gRPC host                        |
+| `squirix`        | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)             |
+| `squirix.server` | Server runtime, hosting, durability, cluster owner routing, REST/gRPC host                        |
 
 `Squirix.Server` does not reference the `Squirix` client SDK assembly. Server-owned cache model types live under
 `Squirix.Server.*`; wire compatibility with clients is through gRPC/REST contracts only.

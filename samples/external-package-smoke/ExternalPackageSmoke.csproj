@@ -9,8 +9,8 @@
         <SmokeUsePackages Condition="'$(SmokeUsePackages)' == ''">false</SmokeUsePackages>
     </PropertyGroup>
     <ItemGroup Condition="'$(SmokeUsePackages)' == 'true'">
-        <PackageReference Include="Squirix"/>
-        <PackageReference Include="Squirix.Server"/>
+        <PackageReference Include="squirix"/>
+        <PackageReference Include="squirix.server"/>
     </ItemGroup>
     <ItemGroup Condition="'$(SmokeUsePackages)' != 'true'">
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>

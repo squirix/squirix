@@ -10,7 +10,6 @@ var requiredDocs = new[]
 {
     "README.md",
     "docs/architecture.md",
-    "docs/local-mode.md",
     "docs/server-mode.md",
     "docs/operational-runbook.md",
 };

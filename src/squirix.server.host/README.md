@@ -1,9 +1,9 @@
-# Squirix.Server.Tool
+# squirix.server.tool
 
 Standalone Squirix server host.
 
 ```powershell
-dotnet tool install --global Squirix.Server.Tool
+dotnet tool install --global squirix.server.tool
 squirix-server run --dev --data-dir ./data
 ```
 

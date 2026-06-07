@@ -5,11 +5,13 @@
         <PackageVersion>$(SquirixPackageVersion)</PackageVersion>
         <AssemblyName>Squirix</AssemblyName>
         <RootNamespace>Squirix</RootNamespace>
-        <PackageId>Squirix</PackageId>
+        <PackageId>squirix</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Squirix distributed cache client SDK for .NET 10 with typed ICache APIs, expiration, custom serialization, and client/server connectivity.</Description>
+        <Description>Experimental distributed cache client SDK for .NET 10. Typed ICache&lt;T&gt; API, gRPC connectivity, custom serialization, and bootstrap failover to Squirix.Server nodes. Early preview — not production-ready.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
-        <PackageTags>cache;distributed;grpc;client</PackageTags>
+        <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
+        <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;key-value-store;client</PackageTags>
+        <PackageReleaseNotes>Squirix 0.1.0 first public preview. See https://github.com/squirix/squirix/blob/main/docs/release-notes/v0.1.0.md</PackageReleaseNotes>
         <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
         <IncludeSymbols>true</IncludeSymbols>
         <SymbolPackageFormat>snupkg</SymbolPackageFormat>

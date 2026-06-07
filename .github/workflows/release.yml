@@ -81,7 +81,7 @@ jobs:
             out/packages/*.nupkg
             out/packages/*.snupkg
 
-      - name: Publish Squirix client package to nuget.org
+      - name: Publish packages to nuget.org
         if: github.event_name == 'push'
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
@@ -93,17 +93,19 @@ jobs:
             echo "NUGET_API_KEY secret is not configured." >&2
             exit 1
           fi
-          client_pkg="out/packages/Squirix.${version}.nupkg"
-          symbol_pkg="out/packages/Squirix.${version}.snupkg"
-          if [ ! -f "${client_pkg}" ]; then
-            echo "Expected client package not found: ${client_pkg}" >&2
-            ls -la out/packages/ >&2 || true
-            exit 1
-          fi
-          dotnet nuget push "${client_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          if [ -f "${symbol_pkg}" ]; then
-            dotnet nuget push "${symbol_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-          fi
+          for package_id in squirix squirix.server; do
+            pkg="out/packages/${package_id}.${version}.nupkg"
+            symbol_pkg="out/packages/${package_id}.${version}.snupkg"
+            if [ ! -f "${pkg}" ]; then
+              echo "Expected package not found: ${pkg}" >&2
+              ls -la out/packages/ >&2 || true
+              exit 1
+            fi
+            dotnet nuget push "${pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if [ -f "${symbol_pkg}" ]; then
+              dotnet nuget push "${symbol_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            fi
+          done
 
       - name: Publish standalone server host
         env:

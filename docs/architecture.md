@@ -8,13 +8,13 @@ application -> Squirix client SDK -> Squirix.Server cluster
 
 The repository uses a two-package layout:
 
-| Package          | Purpose                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `Squirix`        | Client SDK, exported cache API, typed client facade, serializer boundary, server-backed connection/routing/retry behavior |
-| `Squirix.Server` | Distributed cache server engine, data placement, partition ownership, runtime, durability, hosting, REST/gRPC host        |
+| Package              | Purpose                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `squirix`            | Client SDK, exported cache API, typed client facade, serializer boundary, server-backed connection/routing/retry behavior |
+| `squirix.server`     | Distributed cache server engine, data placement, partition ownership, runtime, durability, hosting, REST/gRPC host        |
 
 The standalone `Squirix.Server.Host` executable is a deployment project that references the `Squirix.Server` runtime
-library. It is published as a release archive and as the `Squirix.Server.Tool` .NET global tool package.
+library. It is published as a release archive and as the `squirix.server.tool` .NET global tool package.
 
 Package dependency rule:
 
@@ -40,7 +40,8 @@ standalone process lifecycle.
 
 `Squirix` owns the exported v0.1 client surface (`SquirixClient`, `ISquirixClient`, `SquirixOptions`, `ICache<T>`,
 entry/result types, `ISquirixSerializer`), typed facade, serializer boundary, and server-backed client connection
-configuration with bootstrap failover. It does not expose exported local, embedded, or in-process client modes.
+configuration with bootstrap failover. Applications connect to `Squirix.Server` over gRPC/REST; the client package does
+not host cache state or run the durability stack in the application process.
 
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,
 `UpdateAsync`, `GetValueAsync`, `GetEntryAsync`, `GetExpirationAsync`, `GetOrAddAsync`, `RemoveAsync`, `TouchAsync`,
@@ -50,17 +51,14 @@ immediately in a distributed cache. Writes accept a value plus optional `CacheEn
 model returned by lookup APIs, not a mutation parameter. Compare-and-set, counters, batch, scan, watch, and tag
 invalidation are not part of the v0.1 exported client surface.
 
-The exported client factory is asynchronous and server-backed:
+The exported client entry point is asynchronous and remote:
 
-- `SquirixClient.ConnectAsync(string endpoint, ...)` connects to one external `Squirix.Server` endpoint.
+- `SquirixClient.ConnectAsync(string endpoint, ...)` connects to one `Squirix.Server` endpoint.
 - `SquirixClient.ConnectAsync(options => options.Endpoints.Add(...), ...)` connects with one or more bootstrap endpoints
   (HA standby URLs, not shards). See [bootstrap client failover](bootstrap-client-failover.md).
 
-`UseLocal()`, `UseEmbedded()`, and `UseInMemory()` are not exported client mode names. `UseCluster(...)` is also not an
-exported client mode name because cluster topology belongs to `Squirix.Server`.
-
-There is no embedded/local exported client path and no embedded test-client helper boundary. Tests that exercise
-exported client behavior should start a server host and connect through `SquirixClient.ConnectAsync(...)`.
+Cluster topology, partition ownership, and server-side durability belong to `Squirix.Server`. Tests that validate exported
+client behavior should start a server host and connect through `SquirixClient.ConnectAsync(...)`.
 
 `Squirix` must not reference `Squirix.Server`. Product code must not use `InternalsVisibleTo("Squirix.Server")` or
 access-check bypasses to join the packages.

@@ -31,9 +31,9 @@ _ = Directory.CreateDirectory(packageCacheRoot);
 _ = Directory.CreateDirectory(packageCacheDir);
 
 Environment.SetEnvironmentVariable("NUGET_PACKAGES", packageCacheDir);
-foreach (var packagePath in Directory.EnumerateFiles(packageDir, "Squirix.*.nupkg", SearchOption.TopDirectoryOnly))
+foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.nupkg", SearchOption.TopDirectoryOnly))
     File.Delete(packagePath);
-foreach (var packagePath in Directory.EnumerateFiles(packageDir, "Squirix.*.snupkg", SearchOption.TopDirectoryOnly))
+foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snupkg", SearchOption.TopDirectoryOnly))
     File.Delete(packagePath);
 
 var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
@@ -48,13 +48,13 @@ if (serverPackCode != 0)
 
 if (!HasClientPackage(packageDir))
 {
-    Console.Error.WriteLine("ERROR: Squirix client package was not produced.");
+    Console.Error.WriteLine("ERROR: squirix client package was not produced.");
     return 1;
 }
 
 if (!HasServerPackage(packageDir))
 {
-    Console.Error.WriteLine("ERROR: Squirix.Server package was not produced.");
+    Console.Error.WriteLine("ERROR: squirix.server package was not produced.");
     return 1;
 }
 
@@ -146,18 +146,18 @@ static string ResolveRepoRoot()
 
 static bool HasClientPackage(string directory)
 {
-    return Directory.EnumerateFiles(directory, "Squirix*.nupkg", SearchOption.TopDirectoryOnly)
+    return Directory.EnumerateFiles(directory, "squirix*.nupkg", SearchOption.TopDirectoryOnly)
                   .Any(static path =>
                   {
                       var name = Path.GetFileName(path);
-                      return name.StartsWith("Squirix.", StringComparison.Ordinal)
-                          && !name.StartsWith("Squirix.Server.", StringComparison.Ordinal);
+                      return name.StartsWith("squirix.", StringComparison.Ordinal)
+                          && !name.StartsWith("squirix.server.", StringComparison.Ordinal);
                   });
 }
 
 static bool HasServerPackage(string directory)
 {
-    return Directory.EnumerateFiles(directory, "Squirix.Server*.nupkg", SearchOption.TopDirectoryOnly).Any();
+    return Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).Any();
 }
 
 static int RunDotnet(string workingDirectory, IReadOnlyList<string> args)

@@ -172,8 +172,8 @@ jobs:
                     mkdir -p artifacts/packages
                     dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages
                     dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'Squirix.*.nupkg' ! -name 'Squirix.Server.*.nupkg' -print -quit)"
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'Squirix.Server.*.nupkg' -print -quit)"
+                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.*.nupkg' ! -name 'squirix.server.*.nupkg' -print -quit)"
+                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.server.*.nupkg' -print -quit)"
 
             -   name: Upload package artifacts
                 if: matrix.os == 'ubuntu-latest'
