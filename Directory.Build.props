@@ -1,6 +1,6 @@
 <Project>
     <PropertyGroup Label="Squirix NuGet">
-        <SquirixPackageVersion>0.1.0-preview.2</SquirixPackageVersion>
+        <SquirixPackageVersion>0.1.0-preview.3</SquirixPackageVersion>
     </PropertyGroup>
 
     <PropertyGroup>

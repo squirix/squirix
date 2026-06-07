@@ -1,13 +1,13 @@
 # Server mode
 
-Squirix is a client/server distributed cache engine. The production topology is:
+squirix is a client/server distributed cache engine. The production topology is:
 
 ```text
-application -> Squirix client SDK -> Squirix.Server cluster
+application -> Squirix client SDK -> squirix server cluster
 ```
 
-Server deployments use the `Squirix.Server.Host` executable, which references the `Squirix.Server` runtime library.
-Client applications reference `Squirix` and connect explicitly:
+Server deployments use the `Squirix.Server.Host` executable (`squirix-server`), which references the `squirix.server`
+runtime library on NuGet. Client applications reference the `squirix` package and connect explicitly:
 
 ```csharp
 await using var client = await SquirixClient.ConnectAsync(
@@ -46,10 +46,24 @@ those exported operations. Mutations take `(key, value, options?, cancellationTo
 
 ## Standalone host CLI
 
-The standalone executable provides a low-friction local node:
+The standalone executable provides a low-friction local node. **`squirix.server.tool` is not on NuGet yet** — use Docker,
+a GitHub Release host archive, or run from this repository:
 
 ```powershell
-dotnet tool install --global squirix.server.tool
+dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run --dev --data-dir ./data
+```
+
+Docker single-node example:
+
+```powershell
+docker build -t squirix-server .
+docker run --rm -p 5001:5001 -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true squirix-server run --urls http://0.0.0.0:5001
+```
+
+When the global tool ships to NuGet:
+
+```powershell
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.3
 squirix-server run --dev --data-dir ./data
 ```
 
@@ -71,7 +85,11 @@ health/admin sidecar. `--strict` on `validate-config` and `doctor` also validate
 
 ## Custom ASP.NET Core hosting
 
-Custom hosts can embed the server lifecycle in an ASP.NET Core process:
+Custom hosts embed the server runtime from the **`squirix.server`** NuGet package in an ASP.NET Core process:
+
+```powershell
+dotnet add package squirix.server --version 0.1.0-preview.3
+```
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);

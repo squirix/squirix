@@ -1,7 +1,7 @@
-# Squirix.Server
+# squirix.server
 
-`Squirix.Server` is the server-runtime library package for Squirix. The standalone process host lives in the separate
-`Squirix.Server.Host` project (`squirix-server`).
+`squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone process host lives in
+the separate `Squirix.Server.Host` project (`squirix-server`).
 
 | Package          | Purpose                                                                                           |
 | ---------------- | ------------------------------------------------------------------------------------------------- |

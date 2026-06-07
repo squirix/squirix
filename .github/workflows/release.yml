@@ -93,6 +93,30 @@ jobs:
             echo "NUGET_API_KEY secret is not configured." >&2
             exit 1
           fi
+
+          push_nuget_artifact() {
+            local artifact="$1"
+            local output=""
+            local exit_code=0
+
+            set +e
+            output="$(dotnet nuget push "${artifact}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate 2>&1)"
+            exit_code=$?
+            set -e
+
+            echo "${output}"
+            if [ "${exit_code}" -eq 0 ]; then
+              return 0
+            fi
+
+            if echo "${output}" | grep -Eiq 'already exists|Conflict|\(409\)'; then
+              echo "NuGet artifact already exists, continuing: ${artifact}"
+              return 0
+            fi
+
+            return "${exit_code}"
+          }
+
           for package_id in squirix squirix.server; do
             pkg="out/packages/${package_id}.${version}.nupkg"
             symbol_pkg="out/packages/${package_id}.${version}.snupkg"
@@ -101,9 +125,9 @@ jobs:
               ls -la out/packages/ >&2 || true
               exit 1
             fi
-            dotnet nuget push "${pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            push_nuget_artifact "${pkg}"
             if [ -f "${symbol_pkg}" ]; then
-              dotnet nuget push "${symbol_pkg}" --api-key "${NUGET_API_KEY}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+              push_nuget_artifact "${symbol_pkg}"
             fi
           done
 

@@ -6,7 +6,7 @@ on:
             packageVersion:
                 description: Prerelease package version
                 required: true
-                default: 0.1.0-preview.2
+                default: 0.1.0-preview.3
                 type: string
 
 jobs:

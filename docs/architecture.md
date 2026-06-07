@@ -13,8 +13,9 @@ The repository uses a two-package layout:
 | `squirix`            | Client SDK, exported cache API, typed client facade, serializer boundary, server-backed connection/routing/retry behavior |
 | `squirix.server`     | Distributed cache server engine, data placement, partition ownership, runtime, durability, hosting, REST/gRPC host        |
 
-The standalone `Squirix.Server.Host` executable is a deployment project that references the `Squirix.Server` runtime
-library. It is published as a release archive and as the `squirix.server.tool` .NET global tool package.
+The standalone `Squirix.Server.Host` executable is a deployment project that references the `squirix.server` runtime
+library. It is published as a GitHub Release archive; the `squirix.server.tool` global tool package is defined in-repo
+but is **not published to NuGet yet** in this preview line.
 
 Package dependency rule:
 

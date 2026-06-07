@@ -2,20 +2,20 @@
 
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.2-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
+[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.3-004880?logo=nuget&logoColor=white)](https://www.nuget.org/packages/squirix/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 
-**Squirix is an experimental distributed cache for modern .NET.**
+**squirix is an experimental distributed cache for modern .NET.**
 
-Applications use the `Squirix` client SDK to connect to a remote `Squirix.Server` node over gRPC. The server owns cache
-state, routing, durability, and operational endpoints.
+Applications use the `Squirix` client SDK (`squirix` on NuGet) to connect to a remote server node over gRPC. The server
+owns cache state, routing, durability, and operational endpoints.
 
 ## Status
 
 | | |
 | --- | --- |
 | **Release line** | **0.1.0** (first public preview) |
-| **NuGet version** | `0.1.0-preview.2` |
+| **NuGet version** | `0.1.0-preview.3` |
 | **Maturity** | Early preview — **not production-ready** |
 | **Target framework** | .NET 10 only |
 | **License** | Apache-2.0 |
@@ -37,18 +37,31 @@ architecture, and operational feedback — not production adoption yet.
 
 ### 1. Run a development server
 
+**Docker** (fastest if you have Docker Desktop):
+
 ```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.2
-squirix-server run --dev --data-dir ./data
+docker build -t squirix-server .
+docker run --rm -p 5001:5001 -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true squirix-server run --urls http://0.0.0.0:5001
+```
+
+**From this repository** (requires a clone):
+
+```powershell
+dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run --dev --data-dir ./data
 ```
 
 The host prints a gRPC endpoint and a ready-to-use client snippet. Set `SQUIRIX_HTTP1_PORT` when you need a
 browser-friendly HTTP/1 sidecar for health or admin checks.
 
+The `squirix.server.tool` global tool package is defined in-repo but is **not published to NuGet yet** in this preview
+line. Use Docker, a GitHub Release host archive, or the project command above until the tool package ships.
+
+More: [containerization](docs/containerization.md), [server mode](docs/server-mode.md).
+
 ### 2. Add the client SDK
 
 ```powershell
-dotnet add package squirix --version 0.1.0-preview.2
+dotnet add package squirix --version 0.1.0-preview.3
 ```
 
 For cleartext HTTP/2 (h2c) during local development:
@@ -76,11 +89,9 @@ var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
 
-Docker and multi-node samples: [containerization](docs/containerization.md).
-
 ## Features in 0.1.0
 
-- **Strict client/server architecture** — `Squirix` client SDK and `Squirix.Server` runtime with wire-contract boundaries
+- **Strict client/server architecture** — `Squirix` client SDK and server runtime with wire-contract boundaries
 - **Strongly typed cache API** — `ICache<T>`, explicit read results, expiration on writes
 - **gRPC transport** — shared `SquirixCache.proto` contract between client and server
 - **HTTP/2 REST endpoints** — subset of cache operations plus health, readiness, and admin routes
@@ -90,11 +101,11 @@ Docker and multi-node samples: [containerization](docs/containerization.md).
 - **Prometheus metrics** — text scrape at `/metrics` (configurable)
 - **OpenTelemetry tracing** — server-side journal operation spans
 - **Static cluster routing** — consistent-hash single-owner placement with bootstrap client failover
-- **Standalone host** — `squirix-server` global tool and optional ASP.NET Core embedding
+- **Standalone host** — `squirix-server` CLI and optional ASP.NET Core embedding
 
-## Why Squirix?
+## Why squirix?
 
-Squirix is designed for teams that want a **modern .NET-native distributed cache engine** with a clear separation between
+squirix is designed for teams that want a **modern .NET-native distributed cache engine** with a clear separation between
 application clients and server runtime:
 
 - **Typed application surface** instead of untyped string payloads at the SDK boundary
@@ -103,20 +114,30 @@ application clients and server runtime:
 - **Durability-first server design** with journal, snapshots, and recovery as first-class server concerns
 - **Focused 0.1 scope** — a narrow API that can evolve based on real feedback
 
-Squirix is **experimental** and **early-stage**. It is intended for evaluation, prototyping, and contributor
+squirix is **experimental** and **early-stage**. It is intended for evaluation, prototyping, and contributor
 experiments — not as a drop-in replacement for production cache infrastructure today.
 
 ## Packages
 
-| Package | Role |
-| --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
-| `squirix.server` | Server runtime — routing, durability, REST/gRPC host (library package) |
-| `squirix.server.tool` | Standalone `squirix-server` executable as a .NET global tool |
+NuGet ids use lowercase **`squirix.*`**. C# namespaces and exported types remain **`Squirix` / `Squirix.Server`**.
+
+| NuGet package | Role | nuget.org |
+| --- | --- | --- |
+| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.3` |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, REST/gRPC host (library) | `0.1.0-preview.3` |
+| `squirix.server.tool` | Standalone `squirix-server` executable as a .NET global tool | not published yet |
 
 ```text
-application -> Squirix client SDK -> Squirix.Server node(s)
+application -> Squirix client SDK -> squirix server node(s)
 ```
+
+Server library consumers:
+
+```powershell
+dotnet add package squirix.server --version 0.1.0-preview.3
+```
+
+Or reference `Squirix.Server.csproj` from a clone during early preview evaluation.
 
 ## Current limitations
 
