@@ -46,25 +46,43 @@ those exported operations. Mutations take `(key, value, options?, cancellationTo
 
 ## Standalone host CLI
 
-The standalone executable provides a low-friction local node. **`squirix.server.tool` is not on NuGet yet** — use Docker,
-a GitHub Release host archive, or run from this repository:
+The standalone executable provides a low-friction local node. Install from NuGet, Docker, or run from this repository:
+
+```powershell
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
+squirix-server run --dev --data-dir ./data
+```
+
+From source:
 
 ```powershell
 dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run --dev --data-dir ./data
 ```
 
-Docker single-node example:
+Docker single-node example (dev image from sources):
 
 ```powershell
-docker build -t squirix-server .
-docker run --rm -p 5001:5001 -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true squirix-server run --urls http://0.0.0.0:5001
+docker build -f Dockerfile.dev -t squirix-server .
+docker run --rm `
+  -p 5000:5000 `
+  -p 5001:5001 `
+  -e SQUIRIX_HTTP1_PORT=5001 `
+  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
+  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  squirix-server run --urls http://0.0.0.0:5000
 ```
 
-When the global tool ships to NuGet:
+Release image (NuGet tool; requires `squirix.server.tool` on nuget.org):
 
 ```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.3
-squirix-server run --dev --data-dir ./data
+docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
+docker run --rm `
+  -p 5000:5000 `
+  -p 5001:5001 `
+  -e SQUIRIX_HTTP1_PORT=5001 `
+  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
+  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  squirix-server:0.1.0-preview.4 run --urls http://0.0.0.0:5000
 ```
 
 Operational commands:
@@ -88,7 +106,7 @@ health/admin sidecar. `--strict` on `validate-config` and `doctor` also validate
 Custom hosts embed the server runtime from the **`squirix.server`** NuGet package in an ASP.NET Core process:
 
 ```powershell
-dotnet add package squirix.server --version 0.1.0-preview.3
+dotnet add package squirix.server --version 0.1.0-preview.4
 ```
 
 ```csharp

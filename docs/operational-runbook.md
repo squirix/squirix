@@ -5,6 +5,7 @@ This runbook covers diagnostics, upgrades, backups, restores, and recovery workf
 Related documents:
 
 - [diagnostics.md](diagnostics.md)
+- [containerization.md](containerization.md)
 - [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)
 - [storage-maintenance.md](storage-maintenance.md)
 
@@ -20,6 +21,15 @@ When a node behaves unexpectedly:
 3. Record the squirix version, serializer package/version, node id, peer set, and data directory path.
 4. Check whether the issue affects one node, one owner range, or the whole cluster.
 5. Back up the data directory before running repair, compaction, restore, or upgrade steps.
+
+Before changing cluster topology in containers, validate settings:
+
+```powershell
+squirix-server validate-config --settings ./Squirix.settings.json --strict
+```
+
+See [containerization.md](containerization.md) for Docker Compose examples (`Cluster.Url` must match the local peer
+entry).
 
 ## Diagnostics
 

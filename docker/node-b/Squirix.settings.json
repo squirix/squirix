@@ -2,7 +2,7 @@
   "Squirix": {
     "Cluster": {
       "NodeId": "B",
-      "Url": "http://0.0.0.0:5000",
+      "Url": "http://squirix-node-b:5000",
       "VirtualNodes": 128,
       "Peers": [
         { "NodeId": "A", "Url": "http://squirix-node-a:5000" },
