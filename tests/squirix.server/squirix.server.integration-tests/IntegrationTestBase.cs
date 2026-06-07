@@ -50,6 +50,7 @@ public abstract class IntegrationTestBase : IDisposable
         LoopbackHttp.DisableSystemProxyForLocalTests();
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
+        Environment.SetEnvironmentVariable("SQUIRIX_HTTP1_PORT", null);
     }
 
     /// <summary>
@@ -250,6 +251,8 @@ public abstract class IntegrationTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(true),
+            MaxReceiveMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+            MaxSendMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
     /// <summary>

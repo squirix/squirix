@@ -1,11 +1,14 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.TestKit.Limits;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Rest;
@@ -42,23 +45,24 @@ public sealed class CachePayloadLimitSmokeTests : SmokeTestBase
     }
 
     /// <summary>
-    /// Ensures that cache inserts with payloads over one megabyte fail with HTTP 413.
+    /// Ensures that cache inserts with payloads over the entry limit fail with HTTP 413.
     /// </summary>
     /// <returns>A task representing the asynchronous smoke test.</returns>
     [Fact]
-    public async Task PutRejectsPayloadsOverOneMegabyte()
+    public async Task PutRejectsPayloadsOverEntryLimit()
     {
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
 
-        var largeValue = new string('x', 1_049_000);
+        var largeValue = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
         var response = await HttpClient.PutAsJsonAsync($"{url}{Route}/big", new CacheEntry<string> { Value = largeValue }, DefaultCancellationToken);
 
         Assert.Equal((HttpStatusCode)StatusCodes.Status413PayloadTooLarge, response.StatusCode);
 
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
         Assert.Equal("PayloadTooLarge", payload.GetProperty("error").GetString());
+        Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), payload.GetProperty("detail").GetString(), StringComparison.Ordinal);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint.Grpc;
+using Squirix.Server.Limits;
 using Squirix.Server.Serialization;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -13,6 +14,8 @@ internal static class SquirixFrameworkServiceRegistration
         _ = services.AddGrpc(o =>
         {
             o.EnableDetailedErrors = true;
+            o.MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes;
+            o.MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes;
             o.Interceptors.Add<ResourceExhaustedExceptionInterceptor>();
             o.Interceptors.Add<GrpcInvocationContextInterceptor>();
             configureGrpc?.Invoke(o);

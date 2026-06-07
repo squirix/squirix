@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Storage.Journaling.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.Utils;
@@ -112,8 +113,11 @@ internal sealed class JournalWriter : IJournalCoordinator
         }
     }
 
-    public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken) =>
-        AppendPutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
+    public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    {
+        EntryPayloadSizeGuard.EnsureDiscriminatedJsonWithinLimit(discriminatedEntryJson);
+        return AppendPutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
+    }
 
     public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
         new JournalEnvelope

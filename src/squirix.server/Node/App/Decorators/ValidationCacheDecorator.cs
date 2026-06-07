@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.App.Decorators.Validation;
 using Squirix.Server.Runtime.Contracts;
 
@@ -23,6 +24,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureValueWithinLimit(value, 1);
         return _inner.AddAsync(cacheName, key, value, cancellationToken);
     }
 
@@ -30,6 +32,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
+        EnsureEntryWithinLimit(entry);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.AddAsync(cacheName, key, entry, cancellationToken);
     }
@@ -66,6 +69,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureValueWithinLimit(value, 1);
         return _inner.InsertAsync(cacheName, key, value, cancellationToken);
     }
 
@@ -73,15 +77,9 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
+        EnsureEntryWithinLimit(entry);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.InsertAsync(cacheName, key, entry, cancellationToken);
-    }
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        KeyInputValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -89,6 +87,13 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.RemoveAsync(cacheName, key, cancellationToken);
+    }
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -103,6 +108,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureValueWithinLimit(value, 1);
         return _inner.TryAddAsync(cacheName, key, value, cancellationToken);
     }
 
@@ -110,6 +116,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
+        EnsureEntryWithinLimit(entry);
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TryAddAsync(cacheName, key, entry, cancellationToken);
     }
@@ -127,4 +134,8 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.TryRemoveAsync(cacheName, key, cancellationToken);
     }
+
+    private static void EnsureEntryWithinLimit(CacheEntry<T> entry) => EntryPayloadSizeGuard.EnsureWithinLimit(entry);
+
+    private static void EnsureValueWithinLimit(T? value, long version) => EntryPayloadSizeGuard.EnsureWithinLimit(new CacheEntry<T> { Value = value, Version = version });
 }
