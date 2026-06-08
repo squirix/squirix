@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Security;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,7 +46,19 @@ internal static class StorageMaintenanceTool
                 if (string.IsNullOrWhiteSpace(currentPointerTarget))
                     issues.Add("CURRENT pointer is empty.");
             }
-            catch (Exception ex)
+            catch (IOException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (SecurityException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (NotSupportedException ex)
             {
                 issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
             }
