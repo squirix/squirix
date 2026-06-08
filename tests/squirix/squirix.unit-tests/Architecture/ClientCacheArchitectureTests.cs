@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using NetArchTest.Rules;
+using Squirix.TestKit.IO;
 using Xunit;
 
 namespace Squirix.UnitTests.Architecture;
@@ -152,7 +153,7 @@ public sealed class ClientCacheArchitectureTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "squirix.slnx")))
+            if (File.Exists(PathKit.Combine(dir.FullName, "squirix.slnx")))
             {
                 return dir.FullName;
             }
@@ -171,7 +172,7 @@ public sealed class ClientCacheArchitectureTests
 
     private static XDocument LoadProject(string relativePath)
     {
-        var path = Path.Combine(FindRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var path = PathKit.Combine(FindRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path), $"Expected project at {path}.");
         return XDocument.Load(path);
     }

@@ -85,14 +85,14 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
             if (_offset >= _length)
                 return false;
 
-            var read = JournalFrameReader.ReadNext(_stream, _offset, out var rentedBuffer, out var payloadLength);
+            var read = JournalFrameReader.ReadNext(_stream, _offset, out var buffer, out var payloadLength);
             if (read.Status == JournalFrameReadStatus.EndOfFile)
                 return false;
 
             if (read.Status != JournalFrameReadStatus.Success)
             {
-                if (rentedBuffer is not null)
-                    ArrayPool<byte>.Shared.Return(rentedBuffer);
+                if (buffer is not null)
+                    ArrayPool<byte>.Shared.Return(buffer);
 
                 if (ShouldThrowOnReadFailure(read.Status, _tolerateTruncatedTail))
                     throw new InvalidDataException($"journal segment corruption at offset {_offset}: {read.Status}.");
@@ -102,8 +102,8 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
 
             try
             {
-                ArgumentNullException.ThrowIfNull(rentedBuffer);
-                Current = RecordCodec.Deserialize(rentedBuffer.AsSpan(0, payloadLength));
+                ArgumentNullException.ThrowIfNull(buffer);
+                Current = RecordCodec.Deserialize(buffer.AsSpan(0, payloadLength));
                 _offset = read.NextFrameOffset;
                 return true;
             }
@@ -113,8 +113,8 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
             }
             finally
             {
-                if (rentedBuffer is not null)
-                    ArrayPool<byte>.Shared.Return(rentedBuffer);
+                if (buffer is not null)
+                    ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 

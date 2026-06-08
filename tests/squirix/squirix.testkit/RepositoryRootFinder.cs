@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Reflection;
+using Squirix.TestKit.IO;
 
 namespace Squirix.TestKit;
 
@@ -24,7 +25,7 @@ public static class RepositoryRootFinder
         var dir = new DirectoryInfo(startDirectory ?? AppContext.BaseDirectory);
         while (dir is not null)
         {
-            if (File.Exists(Path.Combine(dir.FullName, SolutionFileName)))
+            if (File.Exists(PathKit.Combine(dir.FullName, SolutionFileName)))
                 return Path.GetFullPath(dir.FullName);
 
             dir = dir.Parent;
@@ -63,7 +64,7 @@ public static class RepositoryRootFinder
             throw new InvalidOperationException($"Repository root not found. Expected '{SolutionFileName}' and '{SourceLayoutProbeFile}' when walking upward.");
     }
 
-    private static bool IsSourceLayoutRoot(string fullPath) => File.Exists(Path.Combine(fullPath, SolutionFileName)) && File.Exists(Path.Combine(fullPath, SourceLayoutProbeFile));
+    private static bool IsSourceLayoutRoot(string fullPath) => File.Exists(PathKit.Combine(fullPath, SolutionFileName)) && File.Exists(PathKit.Combine(fullPath, SourceLayoutProbeFile));
 
     private static string? WalkUpForSourceLayout(string? startPath)
     {

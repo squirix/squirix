@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
+using Squirix.E2EBenchmarks.Utils;
 using Squirix.Server.TestKit.AspNetCore;
 
 namespace Squirix.E2EBenchmarks.Infrastructure;
@@ -55,7 +56,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         for (var i = 0; i < nodeIds.Length; i++)
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
-        var root = Path.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N"));
+        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
 
@@ -63,7 +64,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         {
             foreach (var nodeId in nodeIds)
             {
-                var dataDir = Path.Combine(root, nodeId);
+                var dataDir = PathKit.Combine(root, nodeId);
                 _ = Directory.CreateDirectory(dataDir);
                 nodes[nodeId] = await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, dataDir, cancellationToken).ConfigureAwait(false);
             }

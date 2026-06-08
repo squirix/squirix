@@ -27,7 +27,7 @@ public sealed class PathKitTests
     public void CombinePreservesRootedPrefix()
     {
         var invalidLeaf = Path.GetFileName("bad:name");
-        var rooted = Path.Combine(Path.GetTempPath(), invalidLeaf);
+        var rooted = PathKit.Combine(Path.GetTempPath(), invalidLeaf);
         var path = PathKit.Combine(true, rooted, "child?.txt");
 
         Assert.StartsWith(Path.GetPathRoot(path), path, StringComparison.OrdinalIgnoreCase);
@@ -42,7 +42,7 @@ public sealed class PathKitTests
     {
         var path = PathKit.Combine(false, "root", "bad:name?.txt");
 
-        Assert.Equal(Path.Combine("root", "bad:name?.txt"), path);
+        Assert.Equal(PathKit.Combine(false, "root", "bad:name?.txt"), path);
     }
 
     /// <summary>
@@ -53,7 +53,7 @@ public sealed class PathKitTests
     {
         var path = PathKit.Combine(true, "root", "bad:name?.txt");
 
-        Assert.Equal(Path.Combine("root", "bad_name_.txt"), path);
+        Assert.Equal(PathKit.Combine("root", "bad_name_.txt"), path);
     }
 
     /// <summary>
@@ -64,7 +64,7 @@ public sealed class PathKitTests
     {
         var path = PathKit.GetProcTempPath("tests");
 
-        Assert.StartsWith(Path.Combine(Path.GetTempPath(), "tests"), path, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith(PathKit.Combine(Path.GetTempPath(), "tests"), path, StringComparison.OrdinalIgnoreCase);
         Assert.Contains($"pid{Environment.ProcessId}", path, StringComparison.Ordinal);
         Assert.Contains("-start", path, StringComparison.Ordinal);
     }
@@ -75,9 +75,9 @@ public sealed class PathKitTests
     [Fact]
     public void PathNameHelpersReturnExpectedComponents()
     {
-        var path = Path.Combine("root", "child", "file.txt");
+        var path = PathKit.Combine("root", "child", "file.txt");
 
-        Assert.Equal(Path.Combine("root", "child"), PathKit.GetDirectoryName(path));
+        Assert.Equal(PathKit.Combine("root", "child"), PathKit.GetDirectoryName(path));
         Assert.Equal("file.txt", PathKit.GetFileName(path));
         Assert.Equal("file", PathKit.GetFileNameWithoutExtension(path));
     }

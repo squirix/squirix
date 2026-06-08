@@ -17,7 +17,7 @@ internal static class Program
     private static async Task<int> Main()
     {
         // Isolated store so a third-party run does not pick up a developer's LocalApplicationData journal/snapshots.
-        var testRoot = Path.Combine(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
+        var testRoot = Path.Join(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
 
@@ -41,20 +41,19 @@ internal static class Program
 
         if (RunDotnet(["dev-certs", "https", "--trust"]) != 0 || RunDotnet(["dev-certs", "https", "--check", "--trust"]) != 0)
         {
-            throw new InvalidOperationException(
-                "The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
+            throw new InvalidOperationException("The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
         }
     }
 
     private static int RunDotnet(string[] args)
     {
-        using var process = Process.Start(new ProcessStartInfo
+        var processStartInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
             Arguments = string.Join(' ', args),
             UseShellExecute = false,
-        });
-
+        };
+        using var process = Process.Start(processStartInfo);
         process?.WaitForExit();
         return process?.ExitCode ?? 1;
     }

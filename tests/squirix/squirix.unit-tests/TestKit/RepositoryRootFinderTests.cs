@@ -29,8 +29,8 @@ public sealed class RepositoryRootFinderTests
     [Fact]
     public void FindReturnsRootFromNestedStartDirectory()
     {
-        var parent = Path.Combine(AppContext.BaseDirectory, "nested");
-        var nested = Path.Combine(parent, "deep");
+        var parent = PathKit.Combine(AppContext.BaseDirectory, "nested");
+        var nested = PathKit.Combine(parent, "deep");
         try
         {
             DirectoryKit.CreateDirectory(nested, AppContext.BaseDirectory);
@@ -63,7 +63,7 @@ public sealed class RepositoryRootFinderTests
         var temp = DirectoryKit.CreateTempDirectory("squirix-repo-root-missing");
         try
         {
-            var leaf = Path.Combine(temp, "a", "b");
+            var leaf = PathKit.Combine(temp, "a", "b");
             DirectoryKit.CreateDirectory(leaf, temp);
 
             _ = Assert.Throws<InvalidOperationException>(() => RepositoryRootFinder.Find(leaf));
@@ -83,10 +83,10 @@ public sealed class RepositoryRootFinderTests
         var temp = DirectoryKit.CreateTempDirectory("squirix-repo-root-explicit");
         try
         {
-            var fakeRoot = Path.Combine(temp, "repo");
+            var fakeRoot = PathKit.Combine(temp, "repo");
             DirectoryKit.CreateDirectory(fakeRoot, temp);
-            FileKit.WriteAllText(Path.Combine(fakeRoot, "squirix.slnx"), string.Empty);
-            var nested = Path.Combine(fakeRoot, "out", "bin");
+            FileKit.WriteAllText(PathKit.Combine(fakeRoot, "squirix.slnx"), string.Empty);
+            var nested = PathKit.Combine(fakeRoot, "out", "bin");
             DirectoryKit.CreateDirectory(nested, fakeRoot);
 
             var resolved = RepositoryRootFinder.Find(nested);

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Xml.Linq;
 using NetArchTest.Rules;
+using Squirix.Server.TestKit.IO;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -100,7 +101,7 @@ public sealed class ArchitectureTests
     public void JournalWriterFlushLoopShouldBeObservedByDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = File.ReadAllText(Path.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalWriter.cs"));
+        var text = File.ReadAllText(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalWriter.cs"));
 
         Assert.Contains("_flushLoopTask = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
         Assert.Contains("await _flushLoopTask.ConfigureAwait(false);", text, StringComparison.Ordinal);
@@ -174,7 +175,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void ProductionSourcesShouldNotUseIgnoresAccessChecksTo()
     {
-        var root = Path.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
+        var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
         var offenders = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Where(path => !path.Contains(objMarker, StringComparison.Ordinal))
                                  .Where(static path => File.ReadAllText(path).Contains("IgnoresAccessChecksTo", StringComparison.Ordinal))
@@ -286,7 +287,7 @@ public sealed class ArchitectureTests
         ];
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var assemblyInfoPath = Path.Combine(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
+        var assemblyInfoPath = PathKit.Combine(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
         var text = File.ReadAllText(assemblyInfoPath);
         var granted = new List<string>();
         var index = 0;
@@ -369,7 +370,7 @@ public sealed class ArchitectureTests
         Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var protoText = File.ReadAllText(Path.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Protos", "JournalEnvelope.proto"));
+        var protoText = File.ReadAllText(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Protos", "JournalEnvelope.proto"));
         Assert.Contains("option csharp_namespace = \"Squirix.Server.Storage.JournalProto\";", protoText, StringComparison.Ordinal);
         Assert.Contains("message JournalEnvelope", protoText, StringComparison.Ordinal);
         Assert.Contains("message Put", protoText, StringComparison.Ordinal);
@@ -462,7 +463,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void SharedGrpcTransportMapperSourcesShouldNotDependOnCoreInternalRuntimeTypes()
     {
-        var mapperDirectory = Path.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
+        var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
 
         var offenders = Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Select(static path => (Path: path, Text: File.ReadAllText(path)))
@@ -481,7 +482,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
     {
-        var mapperDirectory = Path.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
+        var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         var offenders = Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Select(static path => (Path: path, Text: File.ReadAllText(path)))
                                  .Where(static pair => !pair.Text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
                                  .Select(static pair => Path.GetFileName(pair.Path))
@@ -555,7 +556,7 @@ public sealed class ArchitectureTests
 
     private static XDocument LoadProject(string relativePath)
     {
-        var path = Path.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var path = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path), $"Expected project at {path}.");
         return LoadProjectByAbsolutePath(path);
     }
@@ -591,7 +592,7 @@ public sealed class ArchitectureTests
 
         return
         [
-            .. relativePaths.Select(static path => path.Replace('/', Path.DirectorySeparatorChar)).Select(path => (RelativePath: path, AbsolutePath: Path.Combine(root, path)))
+            .. relativePaths.Select(static path => path.Replace('/', Path.DirectorySeparatorChar)).Select(path => (RelativePath: path, AbsolutePath: PathKit.Combine(root, path)))
                             .Select(static pair =>
                              {
                                  Assert.True(File.Exists(pair.AbsolutePath), $"Expected server bootstrap source at {pair.AbsolutePath}.");

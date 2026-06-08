@@ -26,7 +26,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         try
         {
             var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
-            var staleManifest = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
             var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleManifest));
             store.Write(new Manifest { CurrentJournal = 1 });
             store.Write(new Manifest { CurrentJournal = 2 });
@@ -34,7 +34,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
             Assert.True(File.Exists(staleManifest));
             store.Write(new Manifest { CurrentJournal = 3 });
 
-            var latest = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
+            var latest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
             Assert.True(File.Exists(latest));
             Assert.True(File.Exists(staleManifest));
             Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
@@ -46,7 +46,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         }
         finally
         {
-            var stale = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
             if (File.Exists(stale))
             {
                 File.SetAttributes(stale, FileAttributes.Normal);
@@ -65,10 +65,10 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         var dir = DirectoryKit.CreateTempDirectory("snapshot-retention-delete-failure");
-        var staleSnapshot = Path.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}");
+        var staleSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}");
         try
         {
-            var currentSnapshot = Path.Combine(dir, $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}");
+            var currentSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}");
             File.WriteAllText(staleSnapshot, "stale snapshot");
             File.WriteAllText(currentSnapshot, "current snapshot");
             var options = new PersistenceOptions
@@ -116,12 +116,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         var dir = DirectoryKit.CreateTempDirectory("journal-retention-delete-failure");
-        var staleJournalSegment = Path.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
+        var staleJournalSegment = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
         try
         {
-            var currentJournalPath = Path.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
+            var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
             File.WriteAllText(staleJournalSegment, "stale journal");
-            File.WriteAllText(Path.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
+            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
             File.WriteAllText(currentJournalPath, "current journal");
             var options = new PersistenceOptions { DataDir = dir };
             var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleJournalSegment));
@@ -132,7 +132,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
                     LastSnapshot = new Manifest.SnapshotRef
                     {
                         Index = 1,
-                        Path = Path.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
+                        Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
                         CreatedUtc = DateTime.UtcNow,
                         LastAppliedSequence = 20,
                         ReplayFromJournalSegment = 3,
