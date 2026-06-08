@@ -24,6 +24,7 @@ internal static class BenchmarkRuntime
     {
         EnsureInitialized();
         ArgumentNullException.ThrowIfNull(options);
+        options.HttpMessageHandler ??= LoopbackHttp.CreateHandler();
     }
 
     [ModuleInitializer]

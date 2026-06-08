@@ -101,6 +101,9 @@ jobs:
             -   name: Verify file-based durability tools (sqr-*.cs)
                 run: dotnet run --file ./tools/internal/sqr-tools-verify.cs --
 
+            -   name: Ensure dev HTTPS certificate
+                run: dotnet dev-certs https --trust
+
             -   name: Verify file-based examples
                 run: dotnet run --file ./tools/internal/sqr-examples-verify.cs --
 
@@ -158,6 +161,10 @@ jobs:
 
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
+
+            -   name: Ensure dev HTTPS certificate
+                if: matrix.os == 'ubuntu-latest'
+                run: dotnet dev-certs https --trust
 
             -   name: Pack and external package smoke
                 if: matrix.os == 'ubuntu-latest'

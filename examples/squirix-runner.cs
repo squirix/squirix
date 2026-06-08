@@ -2,7 +2,10 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
+using System.Net.Http;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using Squirix;
@@ -36,7 +39,16 @@ try
     Directory.SetCurrentDirectory(demoRoot);
 
     await using var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
-    await using var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+#pragma warning disable CA2000 // Handler lifetime is owned by the connected SquirixClient session.
+    var httpHandler = CreateLoopbackDevelopmentHandler();
+#pragma warning restore CA2000
+    await using var client = await SquirixClient.ConnectAsync(
+        options =>
+        {
+            options.Endpoints.Add(endpoint);
+            options.HttpMessageHandler = httpHandler;
+        },
+        cancellationToken).ConfigureAwait(false);
     var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
     var users = await client.GetCacheAsync<string>("users", cancellationToken).ConfigureAwait(false);
 
@@ -135,6 +147,21 @@ static void TryDeleteDirectory(string path)
     {
         // Best-effort cleanup for a demo-only temp directory.
     }
+}
+
+[SuppressMessage("Security", "CA5359:Do not disable certificate validation", Justification = "Local demo runner targets loopback HTTPS with the ASP.NET Core development certificate.")]
+[SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The connected SquirixClient session owns the supplied handler for its lifetime.")]
+static SocketsHttpHandler CreateLoopbackDevelopmentHandler()
+{
+    return new SocketsHttpHandler
+    {
+        UseProxy = false,
+        EnableMultipleHttp2Connections = true,
+        SslOptions = new SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = static (_, _, _, _) => true,
+        },
+    };
 }
 
 static int NextFreePort()

@@ -33,6 +33,7 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | `ApiKey`              | Static API key sent as `x-api-key` on gRPC calls.                                                                 |
 | `BearerTokenProvider` | Optional bearer token for each gRPC call.                                                                         |
 | `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
+| `HttpMessageHandler`  | Optional gRPC transport handler; null uses the default HTTPS handler. Supply a loopback handler for local development-certificate endpoints when the OS trust store is not configured. |
 
 Example:
 
