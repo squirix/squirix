@@ -1,9 +1,7 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Net.Http;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
@@ -23,19 +21,12 @@ internal static class Program
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
 
+        EnsureDevelopmentCertificateTrusted();
+
         var endpoint = $"https://localhost:{NextFreePort()}";
         WriteSettings("external-smoke", endpoint);
         await using var host = await SquirixServer.StartAsync(CancellationToken.None);
-#pragma warning disable CA2000 // Handler lifetime is owned by the connected SquirixClient session.
-        var httpHandler = CreateLoopbackDevelopmentHandler();
-#pragma warning restore CA2000
-        await using var client = await SquirixClient.ConnectAsync(
-            options =>
-            {
-                options.Endpoints.Add(endpoint);
-                options.HttpMessageHandler = httpHandler;
-            },
-            CancellationToken.None);
+        await using var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None);
 
         await RunIsolationAsync(client, CancellationToken.None);
         await RunExpirationAsync(client, CancellationToken.None);
@@ -43,19 +34,29 @@ internal static class Program
         return 0;
     }
 
-    [SuppressMessage("Security", "CA5359:Do not disable certificate validation", Justification = "Package smoke targets loopback HTTPS with the ASP.NET Core development certificate.")]
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The connected SquirixClient session owns the supplied handler for its lifetime.")]
-    private static SocketsHttpHandler CreateLoopbackDevelopmentHandler()
+    private static void EnsureDevelopmentCertificateTrusted()
     {
-        return new SocketsHttpHandler
+        if (RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0)
+            return;
+
+        if (RunDotnet(["dev-certs", "https", "--trust"]) != 0 || RunDotnet(["dev-certs", "https", "--check", "--trust"]) != 0)
         {
-            UseProxy = false,
-            EnableMultipleHttp2Connections = true,
-            SslOptions = new SslClientAuthenticationOptions
-            {
-                RemoteCertificateValidationCallback = static (_, _, _, _) => true,
-            },
-        };
+            throw new InvalidOperationException(
+                "The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
+        }
+    }
+
+    private static int RunDotnet(string[] args)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = string.Join(' ', args),
+            UseShellExecute = false,
+        });
+
+        process?.WaitForExit();
+        return process?.ExitCode ?? 1;
     }
 
     private static int NextFreePort()

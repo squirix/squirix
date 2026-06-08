@@ -17,6 +17,7 @@ internal static class BenchmarkRuntime
         if (Interlocked.Exchange(ref _initialized, 1) == 1)
             return;
 
+        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         LoopbackHttp.DisableSystemProxyForLocalTests();
     }
 
@@ -24,7 +25,6 @@ internal static class BenchmarkRuntime
     {
         EnsureInitialized();
         ArgumentNullException.ThrowIfNull(options);
-        options.HttpMessageHandler ??= LoopbackHttp.CreateHandler();
     }
 
     [ModuleInitializer]

@@ -49,7 +49,7 @@ public sealed class SquirixClient : ISquirixClient
         var options = new SquirixOptions();
         configure(options);
 
-        return await ConnectAsync(options, options.HttpMessageHandler, cancellationToken).ConfigureAwait(false);
+        return await ConnectAsync(options, null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

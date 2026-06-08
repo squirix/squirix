@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Serialization;
@@ -39,17 +38,6 @@ public sealed class SquirixOptions
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
     public IList<string> Endpoints { get; } = [];
-
-    /// <summary>
-    /// Gets or sets an optional HTTP handler for gRPC transport.
-    /// When null, the default HTTPS handler is used.
-    /// </summary>
-    /// <remarks>
-    /// Custom handlers are useful for local loopback development with the ASP.NET Core development certificate,
-    /// corporate TLS inspection, or explicit proxy configuration. The created <see cref="SquirixClient" /> session
-    /// owns the handler lifetime when one is supplied.
-    /// </remarks>
-    public HttpMessageHandler? HttpMessageHandler { get; set; }
 
     /// <summary>
     /// Gets or sets the serializer implementation used by the client session created from these options.
