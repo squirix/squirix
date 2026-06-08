@@ -38,9 +38,12 @@ jobs:
                           - '!docs/**'
                           - '!.github/ISSUE_TEMPLATE/**'
                           - '!.github/PULL_REQUEST_TEMPLATE.md'
+                          - '!.markdownlint.json'
+                          - '!.markdownlint-cli2.jsonc'
                         docs:
                           - '**/*.md'
                           - 'docs/**'
+                          - 'contributing.md'
                           - '.markdownlint.json'
                           - '.markdownlint-cli2.jsonc'
 
