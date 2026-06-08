@@ -103,7 +103,7 @@ jobs:
 
             -   name: Ensure dev HTTPS certificate
                 shell: bash
-                run: ./tools/ci/ensure-dev-https-cert.sh
+                run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Verify file-based examples
                 run: dotnet run --file ./tools/internal/sqr-examples-verify.cs --
@@ -166,7 +166,7 @@ jobs:
             -   name: Ensure dev HTTPS certificate
                 if: matrix.os == 'ubuntu-latest'
                 shell: bash
-                run: ./tools/ci/ensure-dev-https-cert.sh
+                run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Pack and external package smoke
                 if: matrix.os == 'ubuntu-latest'
@@ -261,7 +261,7 @@ jobs:
 
             -   name: Ensure dev HTTPS certificate
                 shell: bash
-                run: ./tools/ci/ensure-dev-https-cert.sh
+                run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Run smoke tests
                 shell: bash
@@ -372,7 +372,7 @@ jobs:
 
             -   name: Ensure dev HTTPS certificate
                 shell: bash
-                run: ./tools/ci/ensure-dev-https-cert.sh
+                run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Run test suite
                 shell: bash
