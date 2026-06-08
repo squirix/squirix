@@ -11,16 +11,6 @@ namespace Squirix.Server.TestKit.Http;
 public static class LoopbackHttp
 {
     /// <summary>
-    /// Prevents local test traffic from using HTTP(S)_PROXY environment variables.
-    /// </summary>
-    public static void DisableSystemProxyForLocalTests()
-    {
-        const string noProxy = "localhost,127.0.0.1,::1";
-        Environment.SetEnvironmentVariable("NO_PROXY", noProxy);
-        Environment.SetEnvironmentVariable("no_proxy", noProxy);
-    }
-
-    /// <summary>
     /// Ensures loopback HTTPS clients can validate the ASP.NET Core development certificate.
     /// </summary>
     public static void EnsureDevelopmentCertificateTrusted()

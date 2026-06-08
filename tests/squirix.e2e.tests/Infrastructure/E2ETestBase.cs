@@ -13,7 +13,6 @@ public abstract class E2ETestBase
     static E2ETestBase()
     {
         LoopbackHttp.EnsureDevelopmentCertificateTrusted();
-        LoopbackHttp.DisableSystemProxyForLocalTests();
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 
