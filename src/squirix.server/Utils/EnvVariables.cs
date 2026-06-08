@@ -99,9 +99,12 @@ internal static class EnvVariables
     /// <exception cref="InvalidOperationException">The value is not recognized.</exception>
     private static bool ParseExplicitBool(string variableName, string trimmed)
     {
-        return trimmed.Equals("true", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("1", StringComparison.OrdinalIgnoreCase) ||
-               (trimmed.Equals("false", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("0", StringComparison.OrdinalIgnoreCase)
-                   ? false
-                   : throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{trimmed}'. Expected true, false, 1, or 0 (case-insensitive)."));
+        if (trimmed.Equals("true", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("1", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (trimmed.Equals("false", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("0", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{trimmed}'. Expected true, false, 1, or 0 (case-insensitive).");
     }
 }

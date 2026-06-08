@@ -128,7 +128,7 @@ public static class PathKit
 
             while (sb.Length > 0)
             {
-                var last = sb[sb.Length - 1];
+                var last = sb[^1];
                 if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
                     break;
                 sb.Length--;

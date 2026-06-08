@@ -4,6 +4,9 @@ namespace Squirix.Server.Errors;
 
 internal static class ResourceExhaustedExceptionExtensions
 {
+    /// <summary>
+    /// Maps <see cref="ResourceExhaustedException" /> to transport-specific error representations.
+    /// </summary>
     /// <param name="exception">The admission failure; mapping is fully deterministic and does not read instance state.</param>
     extension(ResourceExhaustedException exception)
     {

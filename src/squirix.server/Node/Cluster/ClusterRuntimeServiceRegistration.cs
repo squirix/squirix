@@ -26,6 +26,9 @@ namespace Squirix.Server.Node.Cluster;
 /// </remarks>
 internal static class ClusterRuntimeServiceRegistration
 {
+    /// <summary>
+    /// Extension methods that register cluster runtime services on <see cref="IServiceCollection" />.
+    /// </summary>
     /// <param name="services">The service collection.</param>
     extension(IServiceCollection services)
     {
