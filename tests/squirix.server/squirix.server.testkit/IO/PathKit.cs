@@ -119,17 +119,26 @@ public static class PathKit
         if (segments.Count == 0)
             return string.Empty;
 
-        var result = segments[0];
+        var sb = new StringBuilder(segments[0]);
         for (var i = 1; i < segments.Count; i++)
         {
             var segment = segments[i];
             if (Path.IsPathRooted(segment))
                 throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
 
-            result = result.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar + segment;
+            while (sb.Length > 0)
+            {
+                var last = sb[sb.Length - 1];
+                if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
+                    break;
+                sb.Length--;
+            }
+
+            _ = sb.Append(Path.DirectorySeparatorChar);
+            _ = sb.Append(segment);
         }
 
-        return result;
+        return sb.ToString();
     }
 
     /// <summary>
