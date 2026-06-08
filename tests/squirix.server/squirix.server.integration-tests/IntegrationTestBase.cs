@@ -49,7 +49,6 @@ public abstract class IntegrationTestBase : IDisposable
     static IntegrationTestBase()
     {
         LoopbackHttp.EnsureDevelopmentCertificateTrusted();
-        LoopbackHttp.DisableSystemProxyForLocalTests();
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
         Environment.SetEnvironmentVariable("SQUIRIX_HTTP1_PORT", null);

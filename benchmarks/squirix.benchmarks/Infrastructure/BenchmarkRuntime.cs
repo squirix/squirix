@@ -18,7 +18,6 @@ internal static class BenchmarkRuntime
             return;
 
         LoopbackHttp.EnsureDevelopmentCertificateTrusted();
-        LoopbackHttp.DisableSystemProxyForLocalTests();
     }
 
     internal static void ConfigureRemoteClient(SquirixOptions options)

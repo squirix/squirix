@@ -10,11 +10,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <RunEnvironmentVariables Include="NO_PROXY" Value="localhost,127.0.0.1,::1"/>
-        <RunEnvironmentVariables Include="no_proxy" Value="localhost,127.0.0.1,::1"/>
-    </ItemGroup>
-
-    <ItemGroup>
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>
