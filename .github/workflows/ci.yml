@@ -362,7 +362,6 @@ jobs:
 
             -   name: Run test suite
                 shell: bash
-                env:
                 run: |
                     set -o pipefail
                     FILTER_ARGS=()
