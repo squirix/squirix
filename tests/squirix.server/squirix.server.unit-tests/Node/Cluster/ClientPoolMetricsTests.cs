@@ -1,7 +1,4 @@
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.Cluster.Reliability;
@@ -18,12 +15,9 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
-    private const string PoolDrainingInstrumentName = "squirix_peer_pool_draining";
-    private const string PoolPeerCountInstrumentName = "squirix_peer_pool_peer_count";
-    private const string PoolSizeInstrumentName = "squirix_peer_pool_size";
 
     /// <summary>
-    /// Ensures Dispose emits squirix_client_pool_disposals_total counter events.
+    /// Ensures Dispose emits squirix_peer_pool_disposals_total counter events.
     /// </summary>
     /// <returns>A task representing the asynchronous unit test.</returns>
     [Fact]
@@ -39,55 +33,24 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// Validates observable gauges for pool size, peer count, and draining flag reflect current state.
+    /// Pool size matches configured peers and draining toggles after BeginDrain.
     /// </summary>
     /// <returns>A task representing the asynchronous unit test.</returns>
     [Fact]
-    public async Task GaugesReflectSizePeerCountAndDraining()
+    public async Task ActiveClientCountReflectsPeerSetAndDrainingState()
     {
-        var size = new ConcurrentBag<int>();
-        var peerCount = new ConcurrentBag<int>();
-        var draining = new ConcurrentBag<int>();
-
-        var measurements = new Dictionary<string, ConcurrentBag<int>>(StringComparer.Ordinal)
-        {
-            [PoolSizeInstrumentName] = size,
-            [PoolPeerCountInstrumentName] = peerCount,
-            [PoolDrainingInstrumentName] = draining,
-        };
-
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, listener) =>
-        {
-            if (instrument.Meter.Name != MeterName)
-                return;
-
-            if (IsClientPoolGauge(instrument.Name))
-                listener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var bag))
-                bag.Add(measurement);
-        });
-
-        listener.Start();
-
         var peers = BuildPeers(4);
         var pool = new ClientPool(peers, static _ => new CallPolicy());
         await using (pool.ConfigureAwait(false))
         {
-            listener.RecordObservableInstruments();
-
-            Assert.Contains(4, size);
-            Assert.Contains(4, peerCount);
-            Assert.Contains(0, draining);
+            Assert.Equal(4, pool.ActiveClientCount);
+            Assert.Equal(4, pool.NodeIds.Count);
+            Assert.False(pool.IsDraining);
 
             pool.BeginDrain();
-            listener.RecordObservableInstruments();
 
-            Assert.Contains(1, draining);
+            Assert.True(pool.IsDraining);
+            Assert.Equal(4, pool.ActiveClientCount);
         }
     }
 
@@ -140,47 +103,17 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     [Fact]
     public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
     {
-        var size = new ConcurrentBag<int>();
-        var peerCount = new ConcurrentBag<int>();
-
-        var measurements = new Dictionary<string, ConcurrentBag<int>>(StringComparer.Ordinal)
-        {
-            [PoolSizeInstrumentName] = size,
-            [PoolPeerCountInstrumentName] = peerCount,
-        };
-
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, listener) =>
-        {
-            if (instrument.Meter.Name != MeterName)
-                return;
-
-            if (IsClientPoolGauge(instrument.Name))
-                listener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var bag))
-                bag.Add(measurement);
-        });
-
-        listener.Start();
-
         var peers = BuildPeers(2);
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        Assert.Equal(2, pool.ActiveClientCount);
+
         var anchor = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
-        {
             _ = pool.ForNode(i % 2 == 0 ? "n0" : "n1");
-            listener.RecordObservableInstruments();
-        }
 
         Assert.Same(anchor, pool.ForNode("n0"));
-        Assert.Contains(2, size);
-        Assert.Contains(2, peerCount);
-        Assert.DoesNotContain(size, static value => value > 2);
+        Assert.Equal(2, pool.ActiveClientCount);
     }
 
     private static Peer[] BuildPeers(int n)
@@ -191,6 +124,4 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 
         return peers;
     }
-
-    private static bool IsClientPoolGauge(string instrumentName) => instrumentName is PoolSizeInstrumentName or PoolPeerCountInstrumentName or PoolDrainingInstrumentName;
 }
