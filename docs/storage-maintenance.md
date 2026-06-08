@@ -1,7 +1,7 @@
 # Storage maintenance
 
-This document covers journal maintenance built into `Squirix.Server` and offline operator workflows referenced from the
-runbook.
+For a persistence overview, see [persistence.md](persistence.md). This document covers journal maintenance built into
+`Squirix.Server` and offline operator workflows referenced from the runbook.
 
 ## Background journal compaction
 

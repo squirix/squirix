@@ -34,6 +34,9 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | `BearerTokenProvider` | Optional bearer token for each gRPC call.                                                                         |
 | `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
 
+For local HTTPS development, trust the ASP.NET Core development certificate with
+`dotnet dev-certs https --trust`.
+
 Example:
 
 ```csharp
@@ -125,7 +128,7 @@ Example:
 }
 ```
 
-For local `--dev` hosts, `https://localhost:5001` is a common gRPC listen URL. In Docker Compose and other container
+For local standalone hosts, `https://localhost:5001` is the default gRPC listen URL. In Docker Compose and other container
 networks, set `Url` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 

@@ -10,6 +10,7 @@
     "**/AGENTS.md",
     "**/.cursor/**",
     ".tools/**",
+    "artifacts/**",
     "BenchmarkDotNet.Artifacts/**",
     "**/*.tmp.md"
   ]

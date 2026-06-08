@@ -1,7 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
-using System.Net.Security;
 
 namespace Squirix.Server.TestKit.Http;
 
@@ -21,18 +21,30 @@ public static class LoopbackHttp
     }
 
     /// <summary>
-    /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy and trusts loopback HTTPS certificates.
+    /// Ensures loopback HTTPS clients can validate the ASP.NET Core development certificate.
+    /// </summary>
+    public static void EnsureDevelopmentCertificateTrusted()
+    {
+        if (IsDevelopmentCertificateTrusted())
+            return;
+
+        var exitCode = RunDotnet(["dev-certs", "https", "--trust"]);
+        if (exitCode != 0 || !IsDevelopmentCertificateTrusted())
+        {
+            throw new InvalidOperationException(
+                "The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
+        }
+    }
+
+    /// <summary>
+    /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
+    /// Requires the ASP.NET Core development certificate to be trusted. See <see cref="EnsureDevelopmentCertificateTrusted" />.
     /// </summary>
     /// <returns>A handler suitable for loopback HTTPS gRPC clients.</returns>
-    [SuppressMessage("Security", "CA5359:Do not disable certificate validation", Justification = "Loopback integration tests use the ASP.NET Core development certificate.")]
     public static SocketsHttpHandler CreateHandler() => new()
     {
         UseProxy = false,
         EnableMultipleHttp2Connections = true,
-        SslOptions = new SslClientAuthenticationOptions
-        {
-            RemoteCertificateValidationCallback = static (_, _, _, _) => true,
-        },
     };
 
     /// <summary>
@@ -53,5 +65,21 @@ public static class LoopbackHttp
             DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
             Timeout = timeout ?? TimeSpan.FromSeconds(30),
         };
+    }
+
+    private static bool IsDevelopmentCertificateTrusted() =>
+        RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0;
+
+    private static int RunDotnet(string[] args)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = string.Join(' ', args),
+            UseShellExecute = false,
+        });
+
+        process?.WaitForExit();
+        return process?.ExitCode ?? 1;
     }
 }

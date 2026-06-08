@@ -1,5 +1,8 @@
 # Architecture
 
+For a shorter product overview, see [client-server.md](client-server.md). This document covers package boundaries and
+wire-contract details.
+
 squirix is a client/server distributed cache engine. The primary production topology is:
 
 ```text

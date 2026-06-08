@@ -40,7 +40,9 @@ feedback, and durability questions via [GitHub Issues](https://github.com/squiri
 
 ## Documentation
 
-Documentation-only pull requests must pass `npx markdownlint-cli2` (see `.markdownlint-cli2.jsonc` in the repository root).
+Documentation-only pull requests must pass `npx markdownlint-cli2` (see `.markdownlint-cli2.jsonc` in the repository
+root). CI runs the same check automatically when a pull request changes Markdown files under `docs/`, `README.md`, or
+other `*.md` paths matched by the workflow filter.
 
 ## License
 
