@@ -1,4 +1,5 @@
 using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Internal;
@@ -48,8 +49,7 @@ public sealed class SquirixClient : ISquirixClient
         var options = new SquirixOptions();
         configure(options);
 
-        var session = await RemoteClientSessionFactory.ConnectAsync(options, cancellationToken).ConfigureAwait(false);
-        return new SquirixClient(session);
+        return await ConnectAsync(options, null, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -82,6 +82,14 @@ public sealed class SquirixClient : ISquirixClient
 
         var cache = _remoteSession.GetCache<T>(cacheName);
         return ValueTask.FromResult<ICache<T>>(new ClientScopedCache<T>(this, cache));
+    }
+
+    internal static async ValueTask<ISquirixClient> ConnectAsync(SquirixOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var session = await RemoteClientSessionFactory.ConnectAsync(options, handler, cancellationToken).ConfigureAwait(false);
+        return new SquirixClient(session);
     }
 
     internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);

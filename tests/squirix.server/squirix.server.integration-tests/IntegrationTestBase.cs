@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -41,7 +42,7 @@ public abstract class IntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
     private static readonly PortAllocator PortPool = CreatePortAllocator();
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler(true);
+    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
     private HttpClient? _httpClient;
 
@@ -182,6 +183,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="url" /> (the self node).
     /// </exception>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
@@ -224,14 +226,13 @@ public abstract class IntegrationTestBase : IDisposable
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
                 _ = output != null ? b.AddProvider(new XUnitKit.XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
-            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase),
             true,
             snapshotOptions,
             callPolicyFactory,
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            httpHandlerOverride,
+            httpHandlerOverride ?? LoopbackHttp.CreateHandler(),
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
@@ -242,7 +243,7 @@ public abstract class IntegrationTestBase : IDisposable
     }
 
     /// <summary>
-    /// Creates a gRPC channel configured for cleartext HTTP/2 against a test node URL.
+    /// Creates a gRPC channel configured for HTTPS against a test node URL.
     /// </summary>
     /// <param name="url">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
@@ -250,7 +251,7 @@ public abstract class IntegrationTestBase : IDisposable
         url,
         new GrpcChannelOptions
         {
-            HttpHandler = LoopbackHttp.CreateHandler(true),
+            HttpHandler = LoopbackHttp.CreateHandler(),
             MaxReceiveMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
         });
@@ -259,10 +260,10 @@ public abstract class IntegrationTestBase : IDisposable
     /// Allocates a unique HTTP URL for the next node using the shared port pool.
     /// </summary>
     /// <returns>
-    /// A loopback HTTP URL of the form <c>http://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
+    /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
     /// is a free port reserved from the shared pool.
     /// </returns>
-    protected static string GetNextHttpUrl() => $"http://127.0.0.1:{PortPool.Allocate()}";
+    protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
 
     private static string BuildTestScope(string? testName, string? extra)
     {

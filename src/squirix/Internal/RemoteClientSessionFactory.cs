@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
@@ -14,13 +15,11 @@ namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
-    public static async ValueTask<IRemoteClientSession> ConnectAsync(SquirixOptions options, CancellationToken cancellationToken)
+    public static async ValueTask<IRemoteClientSession> ConnectAsync(SquirixOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         var endpoints = NormalizeEndpoints(options.Endpoints);
-        for (var i = 0; i < endpoints.Length; i++)
-            GrpcCleartextHttp2.EnableIfNeeded(endpoints[i]);
 
         var peers = new Peer[endpoints.Length];
         for (var i = 0; i < endpoints.Length; i++)
@@ -38,7 +37,7 @@ internal static class RemoteClientSessionFactory
         try
         {
 #pragma warning disable CA2000
-            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), interceptor: interceptor);
+            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), handler, interceptor);
 #pragma warning restore CA2000
             var primaryNodeId = await clients.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var bootstrapNodeIds = new string[clients.BootstrapNodeIds.Count];
@@ -85,9 +84,11 @@ internal static class RemoteClientSessionFactory
         foreach (var endpoint in endpoints)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
-            var normalized = Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Scheme) && !string.IsNullOrWhiteSpace(uri.Host)
-                ? uri.ToString()
-                : throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
+            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Scheme) || string.IsNullOrWhiteSpace(uri.Host))
+                throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
+
+            GrpcTransportEndpoints.RequireHttps(uri.AbsoluteUri);
+            var normalized = uri.ToString();
 
             if (seen.Add(normalized))
                 result.Add(normalized);

@@ -1,11 +1,12 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Squirix.Server.TestKit.Http;
 
 namespace Squirix.Benchmarks.Infrastructure;
 
 /// <summary>
-/// Process-wide transport settings for remote client benchmarks against local HTTP/2 gRPC nodes.
+/// Process-wide transport settings for remote client benchmarks against local HTTPS gRPC nodes.
 /// </summary>
 internal static class BenchmarkRuntime
 {
@@ -16,8 +17,7 @@ internal static class BenchmarkRuntime
         if (Interlocked.Exchange(ref _initialized, 1) == 1)
             return;
 
-        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-        Environment.SetEnvironmentVariable("DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT", "true");
+        LoopbackHttp.DisableSystemProxyForLocalTests();
     }
 
     internal static void ConfigureRemoteClient(SquirixOptions options)

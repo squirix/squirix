@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
+using System.Net.Security;
 
 namespace Squirix.Server.TestKit.Http;
 
@@ -20,21 +21,19 @@ public static class LoopbackHttp
     }
 
     /// <summary>
-    /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy.
+    /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy and trusts loopback HTTPS certificates.
     /// </summary>
-    /// <param name="enableCleartextHttp2">When true, enables cleartext HTTP/2 for gRPC over <c>http://</c>.</param>
-    /// <returns>A handler suitable for loopback test clients.</returns>
-    public static SocketsHttpHandler CreateHandler(bool enableCleartextHttp2 = false)
+    /// <returns>A handler suitable for loopback HTTPS gRPC clients.</returns>
+    [SuppressMessage("Security", "CA5359:Do not disable certificate validation", Justification = "Loopback integration tests use the ASP.NET Core development certificate.")]
+    public static SocketsHttpHandler CreateHandler() => new()
     {
-        if (enableCleartextHttp2)
-            AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-
-        return new SocketsHttpHandler
+        UseProxy = false,
+        EnableMultipleHttp2Connections = true,
+        SslOptions = new SslClientAuthenticationOptions
         {
-            UseProxy = false,
-            EnableMultipleHttp2Connections = enableCleartextHttp2,
-        };
-    }
+            RemoteCertificateValidationCallback = static (_, _, _, _) => true,
+        },
+    };
 
     /// <summary>
     /// Creates an <see cref="HttpClient" /> for loopback REST or sidecar probes.
@@ -44,7 +43,10 @@ public static class LoopbackHttp
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "HttpClient owns the handler when disposeHandler is true.")]
     public static HttpClient CreateRestClient(TimeSpan? timeout = null)
     {
-        var handler = CreateHandler();
+        var handler = new SocketsHttpHandler
+        {
+            UseProxy = false,
+        };
         return new HttpClient(handler, true)
         {
             DefaultRequestVersion = System.Net.HttpVersion.Version11,

@@ -156,7 +156,7 @@ public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// Verifies peer URLs must be absolute HTTP or HTTPS endpoints.
+    /// Verifies peer URLs must be absolute HTTPS endpoints.
     /// </summary>
     [Fact]
     public void ClusterConfigValidatorRejectsInvalidPeerUrls()
@@ -169,6 +169,27 @@ public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
             Url = "https://localhost:6001",
             VirtualNodes = 128,
             Peers = [new Peer { NodeId = "n1", Url = "ftp://bad.example/" }],
+        };
+
+        var result = v.Validate(Options.DefaultName, cfg);
+
+        Assert.True(result.Failed);
+    }
+
+    /// <summary>
+    /// Verifies plaintext HTTP peer URLs are rejected.
+    /// </summary>
+    [Fact]
+    public void ClusterConfigValidatorRejectsPlaintextHttpPeerUrls()
+    {
+        var v = new SquirixOptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig
+        {
+            ClusterId = "c1",
+            NodeId = "n1",
+            Url = "https://localhost:6001",
+            VirtualNodes = 128,
+            Peers = [new Peer { NodeId = "n1", Url = "http://localhost:6001" }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);

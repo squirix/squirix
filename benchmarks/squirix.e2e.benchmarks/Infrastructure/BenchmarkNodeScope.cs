@@ -44,7 +44,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
-        var address = $"http://127.0.0.1:{AllocatePort()}";
+        var address = $"https://127.0.0.1:{AllocatePort()}";
         return StartAsync(nodeId, address, [(nodeId, address)], cancellationToken, true);
     }
 

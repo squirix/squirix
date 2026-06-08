@@ -78,7 +78,7 @@ internal static class ProtoEx
             CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue => (T?)(object)(int)value.Int64Value,
             CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double) => (T?)(object)value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => default,
-            CacheValue.KindOneofCase.StructValue => FromStruct<T>(value.StructValue),
+            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<T>(structValue),
             _ => FromStruct<T>(CacheValueToStruct(value)),
         };
 

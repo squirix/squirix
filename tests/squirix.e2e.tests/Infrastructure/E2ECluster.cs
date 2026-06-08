@@ -32,7 +32,7 @@ internal sealed class E2ECluster : IAsyncDisposable
     public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
         var url = _nodes[nodeId].Address;
-        var client = await SquirixClient.ConnectAsync(url, cancellationToken).ConfigureAwait(false);
+        var client = await E2ETestConnect.ConnectAsync(url, cancellationToken).ConfigureAwait(false);
         var handle = new E2EClientHandle(client);
         _clients.Add(handle);
         return handle;
@@ -81,7 +81,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         return target;
     }
 
-    private static string GetNextHttpUrl() => $"http://127.0.0.1:{AllocatePort()}";
+    private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
     private static async ValueTask<E2ECluster> StartAsync(string[] nodeIds, string? testName = null, CancellationToken cancellationToken = default)
     {

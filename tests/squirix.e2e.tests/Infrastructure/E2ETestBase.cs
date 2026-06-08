@@ -13,8 +13,6 @@ public abstract class E2ETestBase
     static E2ETestBase()
     {
         LoopbackHttp.DisableSystemProxyForLocalTests();
-        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-        Environment.SetEnvironmentVariable("DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT", "true");
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 

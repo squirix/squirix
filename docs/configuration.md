@@ -114,20 +114,20 @@ Example:
         "Cluster": {
             "ClusterId": "dev-cluster",
             "NodeId": "node-a",
-            "Url": "http://localhost:5001",
+            "Url": "https://localhost:5001",
             "VirtualNodes": 128,
             "Peers": [
-                { "NodeId": "node-a", "Url": "http://localhost:5001" },
-                { "NodeId": "node-b", "Url": "http://localhost:5002" }
+                { "NodeId": "node-a", "Url": "https://localhost:5001" },
+                { "NodeId": "node-b", "Url": "https://localhost:5002" }
             ]
         }
     }
 }
 ```
 
-For local `--dev` hosts, `http://localhost:5001` is a common gRPC listen URL. In Docker Compose and other container
+For local `--dev` hosts, `https://localhost:5001` is a common gRPC listen URL. In Docker Compose and other container
 networks, set `Url` and the local peer entry to the **service hostname** reachable by other nodes (for example
-`http://squirix-node-a:5000`), not `http://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
+`https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 
 When exposing a container to host client apps: map gRPC port **5000** and set `SQUIRIX_HTTP1_PORT=5001` for health/admin
 over HTTP/1. See [containerization.md](containerization.md).
@@ -140,7 +140,6 @@ section in settings (mapped into the same options model).
 | Field                       | Type   | Default                        | Validation                                                                 |
 | --------------------------- | ------ | ------------------------------ | -------------------------------------------------------------------------- |
 | `WaitForRecovery`           | bool   | `true`                         | Any boolean                                                                |
-| `AllowHttpInAnyEnvironment` | bool   | `false`                        | Any boolean; set `true` when using plaintext `http://` outside Development |
 | `DataDirectory`             | string | `null` (platform default path) | Optional; non-empty when set                                               |
 
 ### Recovery startup (`WaitForRecovery`)

@@ -29,7 +29,7 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
         await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await SquirixClient.ConnectAsync(
+        await using var client = await E2ETestConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(url);
@@ -53,7 +53,7 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
         await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithConfiguredApiKey), DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await SquirixClient.ConnectAsync(
+        await using var client = await E2ETestConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(url);
@@ -77,7 +77,7 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
         await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenApiKeyRequiredButNotConfigured), DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await SquirixClient.ConnectAsync(url, DefaultCancellationToken);
+        await using var client = await E2ETestConnect.ConnectAsync(url, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () => await cache.SetAsync("api-key-missing", "v", cancellationToken: DefaultCancellationToken));

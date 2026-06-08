@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -41,7 +42,7 @@ public abstract class SmokeTestBase : IDisposable
     private static readonly PortAllocator PortPool = new(PortRangeStart, PortRangeStart + PortRangeSize - 1);
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
 
-    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler(true);
+    private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
     private CancellationTokenSource? _defaultCts;
 
@@ -147,6 +148,7 @@ public abstract class SmokeTestBase : IDisposable
     /// </param>
     /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
@@ -190,14 +192,13 @@ public abstract class SmokeTestBase : IDisposable
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
                 _ = output != null ? b.AddProvider(new XUnitKit.XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
-            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase),
             true,
             snapshotOptions,
             callPolicyFactory,
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            null,
+            LoopbackHttp.CreateHandler(),
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
@@ -212,14 +213,14 @@ public abstract class SmokeTestBase : IDisposable
     /// Gets the next available HTTP URL bound to 127.0.0.1 with a dynamically allocated port.
     /// </summary>
     /// <returns>
-    /// A loopback URL of the form <c>http://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
+    /// A loopback URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
     /// is reserved from the shared port pool at the time of the call.
     /// </returns>
     /// <remarks>
     /// The port is allocated by the test process and is intended for ephemeral use during integration tests.
     /// Callers should bind immediately to minimize races with other processes.
     /// </remarks>
-    protected static string GetNextHttpUrl() => $"http://127.0.0.1:{PortPool.Allocate()}";
+    protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
 
     /// <summary>
     /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.

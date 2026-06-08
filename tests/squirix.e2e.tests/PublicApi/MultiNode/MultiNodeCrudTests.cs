@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Infrastructure;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.MultiNode;
@@ -9,19 +10,6 @@ namespace Squirix.E2ETests.PublicApi.MultiNode;
 /// </summary>
 public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
 {
-    /// <summary>
-    /// Verifies AddAsync(string, T) observes existing named-cache entries across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [Fact]
-    public async Task AddEntryOnNodeBThrowsWhenKeyInsertedOnNodeA()
-    {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cluster.CacheB.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
-    }
-
     /// <summary>
     /// Verifies AddAsync(string, T) observes existing named-cache entries across nodes.
     /// </summary>
@@ -121,7 +109,7 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
         var key = FindKeyOwnedBy("orders", "nodeB", "external-client-route");
-        await using var client = await SquirixClient.ConnectAsync(cluster.NodeAAddress, DefaultCancellationToken);
+        await using var client = await E2ETestConnect.ConnectAsync(cluster.NodeAAddress, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<object?>("orders", DefaultCancellationToken);
 
         await cache.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
@@ -143,19 +131,6 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
         var entry = await cluster.CacheB.GetEntryAsync("k1", DefaultCancellationToken);
 
         Assert.True(entry.Found);
-    }
-
-    /// <summary>
-    /// Verifies SetAsync(string, T) writes are visible from another node for the same named cache.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [Fact]
-    public async Task InsertEntryOnNodeAThenGetOnNodeBReturnsInsertedEntry()
-    {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-
-        Assert.Equal("v1", (await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
     /// <summary>
@@ -232,19 +207,6 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
 
         Assert.Equal("order-value", (await cluster.CacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
         Assert.Equal("customer-value", (await cluster.CustomerCacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
-    }
-
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) observes existing named-cache entries across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [Fact]
-    public async Task TryAddEntryOnNodeBReturnsFalseWhenKeyInsertedOnNodeA()
-    {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-
-        Assert.False(await cluster.CacheB.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>

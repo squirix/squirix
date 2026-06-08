@@ -158,7 +158,7 @@ public sealed class SquirixServerOptionsValidatorTests
     [Fact]
     public void LocalPeerUrlAlignedWithNodeUrlIsAccepted()
     {
-        var options = new SquirixServerOptions { NodeId = "node-a", Url = new Uri("http://localhost:5001") };
+        var options = new SquirixServerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") };
         options.Peers.Add(new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") });
         options.Peers.Add(new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") });
         options.Peers[0].Url = options.Url;

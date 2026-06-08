@@ -187,7 +187,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     {
         var peers = new Peer[n];
         for (var i = 0; i < n; i++)
-            peers[i] = new Peer { NodeId = $"n{i}", Url = $"http://localhost:{6500 + i}" };
+            peers[i] = new Peer { NodeId = $"n{i}", Url = $"https://localhost:{6500 + i}" };
 
         return peers;
     }

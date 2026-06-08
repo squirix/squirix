@@ -27,7 +27,7 @@ public sealed class ClientPoolWarmUpTests
             new Peer
             {
                 NodeId = "peer-0",
-                Url = "http://127.0.0.1:1",
+                Url = "https://127.0.0.1:1",
             },
         };
 

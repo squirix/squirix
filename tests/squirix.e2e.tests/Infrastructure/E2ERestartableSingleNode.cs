@@ -34,7 +34,7 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= new E2EClientHandle(await SquirixClient.ConnectAsync(Address, cancellationToken).ConfigureAwait(false));
+        _client ??= new E2EClientHandle(await E2ETestConnect.ConnectAsync(Address, cancellationToken).ConfigureAwait(false));
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
     }
 
@@ -53,7 +53,7 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
-    private static string GetNextHttpUrl() => $"http://127.0.0.1:{AllocatePort()}";
+    private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {

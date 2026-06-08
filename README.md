@@ -47,7 +47,7 @@ docker run --rm `
   -e SQUIRIX_HTTP1_PORT=5001 `
   -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
   -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
-  squirix-server run --urls http://0.0.0.0:5000
+  squirix-server run --urls https://0.0.0.0:5000
 ```
 
 Port **5000** is gRPC/HTTP/2 (map it for client apps). Port **5001** is the HTTP/1 sidecar for `curl`, health, and admin.
@@ -69,7 +69,7 @@ docker run --rm `
   -e SQUIRIX_HTTP1_PORT=5001 `
   -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
   -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
-  squirix-server:0.1.0-preview.4 run --urls http://0.0.0.0:5000
+  squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
 ```
 
 **From this repository** (requires a clone):
@@ -92,16 +92,10 @@ More: [containerization](docs/containerization.md), [server mode](docs/server-mo
 dotnet add package squirix --version 0.1.0-preview.4
 ```
 
-For cleartext HTTP/2 (h2c) during local development:
-
-```powershell
-$env:DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT = "1"
-```
-
 ### 3. Connect and use a typed cache
 
-Use the gRPC endpoint from the host output. With `squirix-server run --dev` (or `dotnet run ... --dev`), that is
-`http://localhost:5001`. With the Docker example above, connect to `http://localhost:5000` (mapped gRPC port).
+Use the HTTPS gRPC endpoint from the host output. With `squirix-server run --dev` (or `dotnet run ... --dev`), that is
+`https://localhost:5001`. With the Docker example above, connect to `https://localhost:5000` (mapped gRPC port).
 
 ```csharp
 using System.Threading;
@@ -110,7 +104,7 @@ using Squirix;
 var cancellationToken = CancellationToken.None;
 
 await using var client = await SquirixClient.ConnectAsync(
-    "http://localhost:5001", // or http://localhost:5000 when using the Docker gRPC mapping
+    "https://localhost:5001", // or https://localhost:5000 when using the Docker gRPC mapping
     cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
@@ -222,7 +216,7 @@ Prerequisite: .NET SDK as pinned in [`global.json`](global.json) (minimum **10.0
 ```powershell
 dotnet restore squirix.slnx
 dotnet build squirix.slnx --configuration Release
-$env:DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT = "1"
+dotnet dev-certs https --trust
 dotnet test squirix.slnx --configuration Release --no-build
 ```
 

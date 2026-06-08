@@ -94,9 +94,10 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
                 if (rentedBuffer is not null)
                     ArrayPool<byte>.Shared.Return(rentedBuffer);
 
-                return read.Status is JournalFrameReadStatus.ChecksumMismatch or JournalFrameReadStatus.OversizedFrame || !_tolerateTruncatedTail
-                    ? throw new InvalidDataException($"journal segment corruption at offset {_offset}: {read.Status}.")
-                    : Stop();
+                if (ShouldThrowOnReadFailure(read.Status, _tolerateTruncatedTail))
+                    throw new InvalidDataException($"journal segment corruption at offset {_offset}: {read.Status}.");
+
+                return Stop();
             }
 
             try
@@ -118,6 +119,9 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
         }
 
         public void Reset() => throw new NotSupportedException();
+
+        private static bool ShouldThrowOnReadFailure(JournalFrameReadStatus status, bool tolerateTruncatedTail) =>
+            !tolerateTruncatedTail || status is JournalFrameReadStatus.ChecksumMismatch or JournalFrameReadStatus.OversizedFrame;
 
         private bool Stop()
         {

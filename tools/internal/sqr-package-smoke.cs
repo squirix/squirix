@@ -69,7 +69,7 @@ try
     for (var attempt = 1; attempt <= maxAttempts; attempt++)
     {
         var port = GetFreeTcpPort();
-        var url = $"http://127.0.0.1:{port}";
+        var url = $"https://127.0.0.1:{port}";
         var json = BuildSettingsJson(url);
         File.WriteAllText(settingsPath, json);
 

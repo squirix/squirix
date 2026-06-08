@@ -15,7 +15,7 @@ internal sealed class ClusterConfig
 
     public required Peer[] Peers { get; init; } = [];
 
-    public required string Url { get; init; } = "http://localhost:6001";
+    public required string Url { get; init; } = "https://localhost:6001";
 
     public int VirtualNodes { get; init; } = 128;
 }

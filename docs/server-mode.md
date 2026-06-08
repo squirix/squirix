@@ -69,7 +69,7 @@ docker run --rm `
   -e SQUIRIX_HTTP1_PORT=5001 `
   -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
   -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
-  squirix-server run --urls http://0.0.0.0:5000
+  squirix-server run --urls https://0.0.0.0:5000
 ```
 
 Release image (NuGet tool; requires `squirix.server.tool` on nuget.org):
@@ -82,7 +82,7 @@ docker run --rm `
   -e SQUIRIX_HTTP1_PORT=5001 `
   -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
   -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
-  squirix-server:0.1.0-preview.4 run --urls http://0.0.0.0:5000
+  squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
 ```
 
 Operational commands:
@@ -97,7 +97,7 @@ squirix-server version
 
 `run` accepts `--urls`, `--data-dir`, `--settings`, `--dev`, and `--strict`. Without `--settings`, the host discovers
 `Squirix.settings.json` or `squirix.settings.json` in the working directory and application directory. `--dev` starts a
-local plaintext HTTP/2 node at `http://localhost:5001`; set `SQUIRIX_HTTP1_PORT` for a browser-friendly HTTP/1
+local HTTPS gRPC node at `https://localhost:5001`; set `SQUIRIX_HTTP1_PORT` for a browser-friendly HTTP/1
 health/admin sidecar. `--strict` on `validate-config` and `doctor` also validates optional `MemoryPressure` and
 `PrometheusMetrics` sections when present.
 

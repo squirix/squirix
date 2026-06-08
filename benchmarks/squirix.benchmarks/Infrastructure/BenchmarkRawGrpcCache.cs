@@ -47,7 +47,7 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
             endpoint,
             new GrpcChannelOptions
             {
-                HttpHandler = LoopbackHttp.CreateHandler(true),
+                HttpHandler = LoopbackHttp.CreateHandler(),
             });
 
         return new BenchmarkRawGrpcCache(channel, new SquirixCacheService.SquirixCacheServiceClient(channel), cacheName);

@@ -31,7 +31,7 @@ public sealed class ClientPoolChannelReuseTests
             new Peer
             {
                 NodeId = "node-a",
-                Url = "http://127.0.0.1:6500",
+                Url = "https://127.0.0.1:6500",
             },
         };
 
@@ -78,8 +78,8 @@ public sealed class ClientPoolChannelReuseTests
 
         var peers = new[]
         {
-            new Peer { NodeId = "node-a", Url = "http://127.0.0.1:6501" },
-            new Peer { NodeId = "node-b", Url = "http://127.0.0.1:6502" },
+            new Peer { NodeId = "node-a", Url = "https://127.0.0.1:6501" },
+            new Peer { NodeId = "node-b", Url = "https://127.0.0.1:6502" },
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());

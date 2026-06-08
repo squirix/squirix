@@ -71,10 +71,10 @@ docker run --rm `
   -e SQUIRIX_HTTP1_PORT=5001 `
   -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
   -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
-  squirix-server run --urls http://0.0.0.0:5000
+  squirix-server run --urls https://0.0.0.0:5000
 ```
 
-The primary listener on port **5000** inside the container is HTTP/2 (gRPC). Map `-p 5000:5000` when client apps on the
+The primary listener on port **5000** inside the container is HTTPS HTTP/2 (gRPC). Map `-p 5000:5000` when client apps on the
 host need gRPC access. Without `SQUIRIX_HTTP1_PORT`, plain HTTP/1 tools such as `curl` against the mapped port will fail.
 
 Endpoints (two-node `docker compose` example):

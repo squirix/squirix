@@ -20,17 +20,11 @@ public static class SquirixServerConfiguration
     /// Applies command-line overrides used by the standalone server host.
     /// </summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="devMode">When <see langword="true" />, enables local plaintext HTTP/2.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, bool devMode, string? url, string? dataDirectory)
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (devMode)
-        {
-            options.Url = new Uri("http://localhost:5001");
-            options.AllowHttpInAnyEnvironment = true;
-        }
 
         if (url is not null)
             options.Url = new Uri(url, UriKind.Absolute);
@@ -46,12 +40,7 @@ public static class SquirixServerConfiguration
     /// Applies runtime defaults after file or callback configuration.
     /// </summary>
     /// <param name="options">Server options to update.</param>
-    public static void ApplyRuntimeDefaults(SquirixServerOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        if (options.Url.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
-            options.AllowHttpInAnyEnvironment = true;
-    }
+    public static void ApplyRuntimeDefaults(SquirixServerOptions options) => ArgumentNullException.ThrowIfNull(options);
 
     /// <summary>
     /// Copies validated options into a target instance.
@@ -67,7 +56,6 @@ public static class SquirixServerConfiguration
         target.NodeId = source.NodeId;
         target.Url = source.Url;
         target.VirtualNodes = source.VirtualNodes;
-        target.AllowHttpInAnyEnvironment = source.AllowHttpInAnyEnvironment;
         target.WaitForRecovery = source.WaitForRecovery;
         target.DataDirectory = source.DataDirectory;
         target.Peers.Clear();

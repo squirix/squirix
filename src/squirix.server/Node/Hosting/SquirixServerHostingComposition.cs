@@ -31,7 +31,6 @@ internal static class SquirixServerHostingComposition
         ConfigureBuilder(
             builder,
             cluster,
-            options.AllowHttpInAnyEnvironment,
             options.WaitForRecovery,
             persistenceOptionsOverride: CreatePersistenceOptions(options),
             extensions: extensions);
@@ -40,7 +39,6 @@ internal static class SquirixServerHostingComposition
     public static void ConfigureBuilder(
         WebApplicationBuilder builder,
         ClusterConfig cluster,
-        bool allowHttpInAnyEnvironment,
         bool waitForRecovery,
         SnapshotTriggerOptions? snapshotOptions = null,
         Func<string, CallPolicy>? callPolicyFactory = null,
@@ -57,10 +55,9 @@ internal static class SquirixServerHostingComposition
         ArgumentNullException.ThrowIfNull(cluster);
 
         var uri = new Uri(cluster.Url);
-        var isHttps = uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
-        SquirixKestrelConfiguration.EnsureHttpMode(builder, cluster, isHttps, allowHttpInAnyEnvironment);
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, isHttps);
+        SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri);
 
         _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
