@@ -76,8 +76,8 @@ listen on port **5001**:
 
 ```powershell
 squirix-server init
-squirix-server run --dev --data-dir ./data
-squirix-server doctor --dev --data-dir ./data
+squirix-server run --data-dir ./data
+squirix-server doctor --data-dir ./data
 ```
 
 Cache consumers use the `Squirix` client SDK over gRPC, not types from this package.

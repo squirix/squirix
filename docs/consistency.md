@@ -16,4 +16,5 @@ routing configuration.
 - Automatic rebalancing or cluster-wide membership-driven routing in squirix v0.1.
 - Cross-owner atomic updates.
 
-For operational guidance, see [operational-runbook.md](operational-runbook.md) and [server-mode.md](server-mode.md).
+For routing and bootstrap endpoints, see [clustering.md](clustering.md). For operational guidance, see
+[operational-runbook.md](operational-runbook.md).

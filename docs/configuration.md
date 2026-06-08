@@ -125,7 +125,7 @@ Example:
 }
 ```
 
-For local `--dev` hosts, `https://localhost:5001` is a common gRPC listen URL. In Docker Compose and other container
+For local standalone hosts, `https://localhost:5001` is the default gRPC listen URL. In Docker Compose and other container
 networks, set `Url` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 

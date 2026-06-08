@@ -1,6 +1,7 @@
 # Diagnostics and Health
 
-This document describes the machine-readable health and diagnostics surfaces currently exposed by the node host.
+For a route summary, see [observability.md](observability.md). This document describes the machine-readable health and
+diagnostics surfaces currently exposed by the node host.
 
 ## Health routes
 
