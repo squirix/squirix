@@ -31,7 +31,7 @@ public sealed class AspNetCoreHostingExtensionsTests
         var port = new PortAllocator(27000, 27999).Allocate();
 
         _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"http://localhost:{port}"),
+            options => options.Url = new Uri($"https://localhost:{port}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
@@ -62,7 +62,7 @@ public sealed class AspNetCoreHostingExtensionsTests
         var port = new PortAllocator(29000, 29999).Allocate();
 
         _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"http://localhost:{port}"),
+            options => options.Url = new Uri($"https://localhost:{port}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions => extensions.MapEndpointsWithAuthorization = (_, enabled) => authEnabled = enabled);
 
@@ -90,7 +90,7 @@ public sealed class AspNetCoreHostingExtensionsTests
         _ = builder.AddSquirixServer(
             options =>
             {
-                options.Url = new Uri($"http://localhost:{port}");
+                options.Url = new Uri($"https://localhost:{port}");
                 options.DataDirectory = dataDir;
             },
             loadDiscoveredSettings: false,
@@ -120,7 +120,7 @@ public sealed class AspNetCoreHostingExtensionsTests
     {
         var dataDir = Path.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(26000, 26999).Allocate();
-        var url = $"http://localhost:{port}";
+        var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {

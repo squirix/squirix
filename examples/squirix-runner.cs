@@ -31,7 +31,7 @@ Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
 try
 {
     _ = Directory.CreateDirectory(demoRoot);
-    var endpoint = $"http://127.0.0.1:{NextFreePort()}";
+    var endpoint = $"https://127.0.0.1:{NextFreePort()}";
     WriteSettingsFile(demoRoot, endpoint);
     Directory.SetCurrentDirectory(demoRoot);
 

@@ -22,21 +22,47 @@ public sealed class SquirixClientConnectTests
     }
 
     /// <summary>
-    /// Verifies the options overload also fails when server is unreachable.
+    /// Verifies plaintext HTTP endpoints are rejected during bootstrap configuration.
+    /// </summary>
+    /// <returns>A task that completes when assertions pass.</returns>
+    [Fact]
+    public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
+    {
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies the string overload rejects plaintext HTTP endpoints.
+    /// </summary>
+    /// <returns>A task that completes when assertions pass.</returns>
+    [Fact]
+    public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
+    {
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
+            SquirixClient.ConnectAsync("http://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies the options overload fails when the HTTPS server is unreachable.
     /// </summary>
     /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task ConnectAsyncOptionsThrowsWhenServerUnreachable()
     {
         _ = await Assert.ThrowsAnyAsync<Exception>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), TestContext.Current.CancellationToken).AsTask());
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("https://127.0.0.1:1"), TestContext.Current.CancellationToken).AsTask());
     }
 
     /// <summary>
-    /// Verifies ConnectAsync fails when the server is unreachable.
+    /// Verifies ConnectAsync fails when the HTTPS server is unreachable.
     /// </summary>
     /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task ConnectAsyncThrowsWhenServerUnreachable() => _ =
-        await Assert.ThrowsAnyAsync<Exception>(static () => SquirixClient.ConnectAsync("http://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
+        await Assert.ThrowsAnyAsync<Exception>(static () => SquirixClient.ConnectAsync("https://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
 }

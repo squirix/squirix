@@ -22,7 +22,6 @@ jobs:
     permissions:
       contents: write
     env:
-      DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

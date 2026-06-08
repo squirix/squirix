@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit.Http;
 
 namespace Squirix.Server.TestKit.AspNetCore;
 
@@ -39,6 +41,7 @@ public static class TestNodeHostFactory
     /// <param name="configureExtensions">Optional server extension configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private static async ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
         string address,
@@ -60,6 +63,7 @@ public static class TestNodeHostFactory
         };
 
         var persistence = new PersistenceOptions { DataDir = dataDir };
+        var httpHandler = LoopbackHttp.CreateHandler();
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             static b =>
@@ -70,8 +74,8 @@ public static class TestNodeHostFactory
                 _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
-            address.StartsWith("http://", StringComparison.OrdinalIgnoreCase),
             persistenceOptionsOverride: persistence,
+            httpHandlerOverride: httpHandler,
             configureExtensions: configureExtensions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 

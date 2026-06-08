@@ -44,10 +44,6 @@ internal static class SquirixServerProcess
         Console.WriteLine($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count)} configured");
         Console.WriteLine(SquirixServerConfiguration.IsListenPortAvailable(options.Url) ? "  Listen port: available" : "  Listen port: NOT available (already in use)");
         WriteDataDirectoryStatus(options.DataDirectory);
-        if (options.AllowHttpInAnyEnvironment)
-            Console.WriteLine("  WARNING: plaintext HTTP/2 is allowed.");
-        if (command.DevMode)
-            Console.WriteLine("  WARNING: --dev enables plaintext local HTTP/2.");
         Console.WriteLine("  Configuration: valid");
         return 0;
     }
@@ -59,10 +55,10 @@ internal static class SquirixServerProcess
             Squirix.Server.Host
 
             Commands:
-              run [--dev] [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              run [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
               init [--settings PATH]
               validate-config --settings PATH [--strict]
-              doctor [--dev] [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              doctor [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
               version
               help
             """);
@@ -85,7 +81,7 @@ internal static class SquirixServerProcess
     {
         var settingsPath = ResolveSettingsPath(command);
         var options = settingsPath is null ? new SquirixServerOptions() : SquirixServerSettings.Load(settingsPath);
-        SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.DevMode, command.Url, command.DataDirectory);
+        SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.Url, command.DataDirectory);
         return options;
     }
 
@@ -108,8 +104,6 @@ internal static class SquirixServerProcess
         Console.WriteLine($"  Node ID: {options.NodeId}");
         Console.WriteLine($"  Persistence: {(options.DataDirectory is null ? "default" : "configured")}");
         Console.WriteLine($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}");
-        if (command.DevMode)
-            Console.WriteLine("  WARNING: --dev enables plaintext local HTTP/2.");
         Console.WriteLine();
         Console.WriteLine("Client:");
         Console.WriteLine($"await using var client = await SquirixClient.ConnectAsync(\"{options.Url}\");");

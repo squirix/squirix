@@ -10,7 +10,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <RunEnvironmentVariables Include="DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT" Value="true"/>
         <RunEnvironmentVariables Include="NO_PROXY" Value="localhost,127.0.0.1,::1"/>
         <RunEnvironmentVariables Include="no_proxy" Value="localhost,127.0.0.1,::1"/>
     </ItemGroup>

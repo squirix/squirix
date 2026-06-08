@@ -123,8 +123,6 @@ jobs:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
-            DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
-
         steps:
             -   name: Set Git Options
                 run: |
@@ -213,7 +211,6 @@ jobs:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
-            DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
         steps:
             -   name: Set Git Options
                 run: |
@@ -252,7 +249,7 @@ jobs:
                     chmod +x tests/squirix.server/squirix.server.smoke-tests/bin/Release/net10.0/Squirix.Server.SmokeTests || true
 
             -   name: Ensure dev HTTPS certificate
-                run: dotnet dev-certs https -q
+                run: dotnet dev-certs https --trust
 
             -   name: Run smoke tests
                 shell: bash
@@ -322,7 +319,6 @@ jobs:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
             DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
-            DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
         steps:
             -   name: Set Git Options
                 run: |
@@ -363,12 +359,11 @@ jobs:
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
 
             -   name: Ensure dev HTTPS certificate
-                run: dotnet dev-certs https -q
+                run: dotnet dev-certs https --trust
 
             -   name: Run test suite
                 shell: bash
                 env:
-                    DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
                 run: |
                     set -o pipefail
                     FILTER_ARGS=()
@@ -728,7 +723,6 @@ jobs:
         runs-on: windows-latest
         timeout-minutes: 45
         env:
-            DOTNET_SYSTEM_NET_HTTP_SOCKETSHTTPHANDLER_HTTP2UNENCRYPTEDSUPPORT: "1"
         steps:
             -   uses: actions/checkout@v6
             -   uses: actions/setup-dotnet@v5

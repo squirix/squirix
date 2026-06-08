@@ -217,7 +217,7 @@ gRPC handler configuration check:
 
 | Change                                                                                                                                                                                                                       | Result |
 |------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
-| Removed benchmark-only `new SocketsHttpHandler()` override so public benchmark uses product default `GrpcCleartextHttp2.CreateChannelHandler` (`UseProxy=false`, `EnableMultipleHttp2Connections=true` for cleartext HTTP/2) | Done   |
+| Removed benchmark-only `new SocketsHttpHandler()` override so public benchmark uses product default HTTPS channel handler | Done   |
 
 Short same-process read result after this correction:
 

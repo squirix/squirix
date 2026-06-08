@@ -29,14 +29,14 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     public async Task NonLoopbackListenWithApiKeysSucceeds()
     {
         var mainPort = AllocateFreePort();
-        var url = $"http://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort}";
         using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "external-secret");
         using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", null);
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers);
 
-        using var channel = CreateGrpcChannel($"http://127.0.0.1:{mainPort}");
+        using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
@@ -53,14 +53,14 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     public async Task NonLoopbackListenWithExplicitAllowSucceeds()
     {
         var mainPort = AllocateFreePort();
-        var url = $"http://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort}";
         using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
         using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers);
 
-        using var channel = CreateGrpcChannel($"http://127.0.0.1:{mainPort}");
+        using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var response = await client.ContainsAsync(new ContainsRequest { Key = "open-external", CacheName = "default" }, cancellationToken: DefaultCancellationToken);
         Assert.False(response.Exists);
@@ -93,7 +93,7 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     {
         var mainPort = AllocateFreePort();
         var sidecarPort = AllocateFreePort();
-        var url = $"http://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort}";
         using var sidecarEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_PORT", sidecarPort.ToString(CultureInfo.InvariantCulture));
         using var http1OverrideEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", null);
         using var externalAuthEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
@@ -112,7 +112,7 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     {
         var mainPort = AllocateFreePort();
         var sidecarPort = AllocateFreePort();
-        var url = $"http://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort}";
         using var sidecarEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_PORT", sidecarPort.ToString(CultureInfo.InvariantCulture));
         using var http1OverrideEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", "true");
         using var externalAuthEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
@@ -131,7 +131,7 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     public async Task ProductionExternalUrlRequiresAuthenticationOrExplicitAllow()
     {
         var mainPort = AllocateFreePort();
-        var url = $"http://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort}";
         using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
         using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", null);
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };

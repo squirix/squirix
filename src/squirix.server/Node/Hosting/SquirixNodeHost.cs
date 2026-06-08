@@ -21,7 +21,6 @@ internal static class SquirixNodeHost
     public static async Task<WebApplication> StartAsync(
         ClusterConfig cluster,
         Action<ILoggingBuilder>? configureLogging = null,
-        bool allowHttpInAnyEnvironment = false,
         bool waitForRecovery = true,
         SnapshotTriggerOptions? snapshotOptions = null,
         Func<string, CallPolicy>? callPolicyFactory = null,
@@ -46,7 +45,6 @@ internal static class SquirixNodeHost
         SquirixServerHostingComposition.ConfigureBuilder(
             builder,
             cluster,
-            allowHttpInAnyEnvironment,
             waitForRecovery,
             snapshotOptions,
             callPolicyFactory,

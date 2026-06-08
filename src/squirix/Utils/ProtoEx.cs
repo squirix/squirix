@@ -48,8 +48,8 @@ internal static class ProtoEx
             case CacheValue.KindOneofCase.None:
                 return default;
 
-            case CacheValue.KindOneofCase.StructValue:
-                return FromStruct<T>(value.StructValue, serializer);
+            case CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue:
+                return FromStruct<T>(structValue, serializer);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind.");
@@ -101,7 +101,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? (int)value.Int64Value : value.Int64Value,
         CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue => FromStruct<object?>(value.StructValue, serializer),
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue, serializer),
         _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
     };
 

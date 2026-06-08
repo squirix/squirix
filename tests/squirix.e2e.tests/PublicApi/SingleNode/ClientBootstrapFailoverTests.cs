@@ -21,7 +21,7 @@ public sealed class ClientBootstrapFailoverTests : E2ETestBase
         var urlB = cluster.GetAddress("nodeB");
         var key = new E2EKeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];
 
-        await using var client = await SquirixClient.ConnectAsync(
+        await using var client = await E2ETestConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(urlA);

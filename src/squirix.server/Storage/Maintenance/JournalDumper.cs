@@ -46,10 +46,14 @@ internal static class JournalDumper
     {
         return envelope.OpCase switch
         {
-            JournalEnvelope.OpOneofCase.Put => new JournalFramePreview(envelope.Seq, "Put", envelope.Put.Item?.Key, envelope.Put.Item?.Namespace, null),
-            JournalEnvelope.OpOneofCase.Remove => new JournalFramePreview(envelope.Seq, "Remove", envelope.Remove.Key, envelope.Remove.Namespace, null),
-            JournalEnvelope.OpOneofCase.RemoveExpiration => new JournalFramePreview(envelope.Seq, "RemoveExpiration", envelope.RemoveExpiration.Key, envelope.RemoveExpiration.Namespace, null),
-            JournalEnvelope.OpOneofCase.TouchExpiration => new JournalFramePreview(envelope.Seq, "TouchExpiration", envelope.TouchExpiration.Key, envelope.TouchExpiration.Namespace, null),
+            JournalEnvelope.OpOneofCase.Put when envelope.Put is { } put =>
+                new JournalFramePreview(envelope.Seq, "Put", put.Item?.Key, put.Item?.Namespace, null),
+            JournalEnvelope.OpOneofCase.Remove when envelope.Remove is { } remove =>
+                new JournalFramePreview(envelope.Seq, "Remove", remove.Key, remove.Namespace, null),
+            JournalEnvelope.OpOneofCase.RemoveExpiration when envelope.RemoveExpiration is { } removeExpiration =>
+                new JournalFramePreview(envelope.Seq, "RemoveExpiration", removeExpiration.Key, removeExpiration.Namespace, null),
+            JournalEnvelope.OpOneofCase.TouchExpiration when envelope.TouchExpiration is { } touchExpiration =>
+                new JournalFramePreview(envelope.Seq, "TouchExpiration", touchExpiration.Key, touchExpiration.Namespace, null),
             JournalEnvelope.OpOneofCase.None => new JournalFramePreview(envelope.Seq, "None", null, null, null),
             _ => new JournalFramePreview(envelope.Seq, envelope.OpCase.ToString(), null, null, null),
         };

@@ -117,7 +117,7 @@ T:Squirix.Server.SquirixServerAspNetCoreExtensions
 M:Squirix.Server.SquirixServerAspNetCoreExtensions::AddSquirixServer(Microsoft.AspNetCore.Builder.WebApplicationBuilder,System.Action<Squirix.Server.SquirixServerOptions>,System.String,System.Boolean,System.Action<Squirix.Server.SquirixServerExtensionOptions>)
 M:Squirix.Server.SquirixServerAspNetCoreExtensions::MapSquirixServer(Microsoft.AspNetCore.Builder.WebApplication)
 T:Squirix.Server.SquirixServerConfiguration
-M:Squirix.Server.SquirixServerConfiguration::ApplyCommandLineOverrides(Squirix.Server.SquirixServerOptions,System.Boolean,System.String,System.String)
+M:Squirix.Server.SquirixServerConfiguration::ApplyCommandLineOverrides(Squirix.Server.SquirixServerOptions,System.String,System.String)
 M:Squirix.Server.SquirixServerConfiguration::ApplyRuntimeDefaults(Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.SquirixServerConfiguration::CopyOptions(Squirix.Server.SquirixServerOptions,Squirix.Server.SquirixServerOptions)
 M:Squirix.Server.SquirixServerConfiguration::CreateHostingOptions(System.Action<Squirix.Server.SquirixServerOptions>,System.String,System.Boolean)
@@ -141,8 +141,6 @@ T:Squirix.Server.SquirixServerOptions
 M:Squirix.Server.SquirixServerOptions::.ctor()
 M:Squirix.Server.SquirixServerOptions::TryValidate(System.Collections.Generic.IReadOnlyList<System.String>&)
 M:Squirix.Server.SquirixServerOptions::Validate()
-P:Squirix.Server.SquirixServerOptions::AllowHttpInAnyEnvironment.get
-P:Squirix.Server.SquirixServerOptions::AllowHttpInAnyEnvironment.set
 P:Squirix.Server.SquirixServerOptions::ClusterId.get
 P:Squirix.Server.SquirixServerOptions::ClusterId.set
 P:Squirix.Server.SquirixServerOptions::DataDirectory.get

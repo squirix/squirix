@@ -17,13 +17,12 @@ namespace Squirix.Server.Node.Hosting;
 internal static class SquirixKestrelConfiguration
 {
     /// <summary>
-    /// Configures Kestrel listeners: primary HTTP/2 (TLS or cleartext per <paramref name="isHttps" />),
-    /// optional mTLS when <c>SQUIRIX_MTLS</c> is set, and optional plaintext HTTP/1 sidecar when <c>SQUIRIX_HTTP1_PORT</c> is set.
+    /// Configures Kestrel listeners: primary HTTPS HTTP/2, optional mTLS when <c>SQUIRIX_MTLS</c> is set,
+    /// and optional plaintext HTTP/1 sidecar when <c>SQUIRIX_HTTP1_PORT</c> is set.
     /// </summary>
     /// <param name="builder">The web application builder.</param>
-    /// <param name="uri">The primary listen URI (scheme selects TLS vs cleartext).</param>
-    /// <param name="isHttps">Whether the primary listener uses TLS.</param>
-    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, bool isHttps)
+    /// <param name="uri">The primary HTTPS listen URI.</param>
+    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(uri);
@@ -31,28 +30,21 @@ internal static class SquirixKestrelConfiguration
         _ = builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
-            if (!isHttps)
-                kestrel.AllowAlternateSchemes = true;
+            kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http2);
 
-            // Precompute flags once
             var mtlsEnabled = EnvVariables.ReadBool("SQUIRIX_MTLS");
             var allowSelfSigned = EnvVariables.ReadBool("SQUIRIX_MTLS_ALLOW_SELF_SIGNED");
-
-            if (!isHttps)
-                kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http2);
 
             var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
             if (isLoopbackHost)
             {
                 kestrel.ListenLocalhost(uri.Port, ConfigurePrimaryEndpoint);
-                if (!isHttps)
-                    TryAddHttp1SidecarListener(kestrel, false, builder.Environment.EnvironmentName);
+                TryAddHttp1SidecarListener(kestrel, false, builder.Environment.EnvironmentName);
             }
             else
             {
                 kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
-                if (!isHttps)
-                    TryAddHttp1SidecarListener(kestrel, true, builder.Environment.EnvironmentName);
+                TryAddHttp1SidecarListener(kestrel, true, builder.Environment.EnvironmentName);
             }
 
             return;
@@ -60,9 +52,6 @@ internal static class SquirixKestrelConfiguration
             void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
             {
                 listenOptions.Protocols = HttpProtocols.Http2;
-
-                if (!isHttps)
-                    return;
 
                 if (!mtlsEnabled)
                 {
@@ -99,27 +88,20 @@ internal static class SquirixKestrelConfiguration
     }
 
     /// <summary>
-    /// Enforces HTTPS-by-default outside Development and enables HTTP/2 cleartext when plaintext is explicitly allowed.
+    /// Ensures the node URL uses HTTPS gRPC transport.
     /// </summary>
-    /// <param name="builder">The web application builder.</param>
     /// <param name="cluster">Cluster configuration including the node URL.</param>
-    /// <param name="isHttps">Whether the primary listener uses TLS.</param>
-    /// <param name="allowHttpInAnyEnvironment">When <see langword="true" />, allows cleartext outside Development.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
     [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Switch is used to throw exception")]
-    public static void EnsureHttpMode(WebApplicationBuilder builder, ClusterConfig cluster, bool isHttps, bool allowHttpInAnyEnvironment)
+    public static void EnsureHttpsTransport(ClusterConfig cluster)
     {
-        var isDev = string.Equals(builder.Environment.EnvironmentName, "Development", StringComparison.OrdinalIgnoreCase);
-        switch (isHttps)
+        ArgumentNullException.ThrowIfNull(cluster);
+
+        if (!Uri.TryCreate(cluster.Url, UriKind.Absolute, out var uri) ||
+            !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            case false when !(isDev || allowHttpInAnyEnvironment):
-                throw new InvalidOperationException($"Squirix node must run over HTTPS in {builder.Environment.EnvironmentName}. Provided URL: {cluster.Url}");
-
-            case false:
-                AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
-                break;
-
-            default:
-                break;
+            throw new InvalidOperationException(
+                $"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
         }
     }
 

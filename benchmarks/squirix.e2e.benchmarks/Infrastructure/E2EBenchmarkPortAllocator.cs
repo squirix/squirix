@@ -12,7 +12,7 @@ internal static class E2EBenchmarkPortAllocator
 {
     private static int _next = 20_000 + (Environment.ProcessId % 10_000);
 
-    internal static string NextHttpUrl() => $"http://127.0.0.1:{NextPort()}";
+    internal static string NextHttpUrl() => $"https://127.0.0.1:{NextPort()}";
 
     private static int NextPort()
     {

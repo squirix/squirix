@@ -20,7 +20,7 @@ internal static class Program
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
 
-        var endpoint = $"http://localhost:{NextFreePort()}";
+        var endpoint = $"https://localhost:{NextFreePort()}";
         WriteSettings("external-smoke", endpoint);
         await using var host = await SquirixServer.StartAsync(CancellationToken.None);
         await using var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None);

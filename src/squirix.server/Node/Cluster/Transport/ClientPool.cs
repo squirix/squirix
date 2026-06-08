@@ -35,10 +35,10 @@ internal sealed class ClientPool : IClientPool
         for (var i = 0; i < peerList.Length; i++)
         {
             var p = peerList[i];
-            GrpcCleartextHttp2.EnableIfNeeded(p.Url);
+            GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
-                HttpHandler = handler ?? GrpcCleartextHttp2.CreateChannelHandler(p.Url),
+                HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             };

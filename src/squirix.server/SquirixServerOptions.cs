@@ -9,11 +9,6 @@ namespace Squirix.Server;
 public sealed class SquirixServerOptions
 {
     /// <summary>
-    /// Gets or sets a value indicating whether plaintext HTTP/2 is allowed outside the Development environment.
-    /// </summary>
-    public bool AllowHttpInAnyEnvironment { get; set; }
-
-    /// <summary>
     /// Gets or sets the cluster identifier.
     /// </summary>
     public string ClusterId { get; set; } = "cluster";
