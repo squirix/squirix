@@ -6,7 +6,7 @@ queries:
   - uses: security-and-quality
 
 # With build-mode: none (see codeql.yml), paths-ignore is honored for C#.
-# Excludes generated/build output from extraction and code scanning alerts.
+# filter-sarif removes any remaining alerts under these paths before SARIF upload.
 paths-ignore:
   - '**/*.g.cs'
   - '**/obj/**'
