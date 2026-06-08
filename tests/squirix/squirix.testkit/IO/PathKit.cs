@@ -160,10 +160,10 @@ public static class PathKit
                 throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
 
             var current = sb.ToString().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            sb.Clear();
-            sb.Append(current);
-            sb.Append(Path.DirectorySeparatorChar);
-            sb.Append(segment);
+            _ = sb.Clear();
+            _ = sb.Append(current);
+            _ = sb.Append(Path.DirectorySeparatorChar);
+            _ = sb.Append(segment);
         }
 
         return sb.ToString();
