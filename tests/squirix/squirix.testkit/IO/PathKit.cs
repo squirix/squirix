@@ -79,7 +79,7 @@ public static class PathKit
             segments.AddRange(sanitizedParts);
         }
 
-        return segments.Count == 0 ? string.Empty : Path.Combine([.. segments]);
+        return JoinSegments(segments);
     }
 
     /// <summary>
@@ -145,6 +145,28 @@ public static class PathKit
         }
 
         return $"pid{Environment.ProcessId}-start{startTicks}";
+    }
+
+    private static string JoinSegments(List<string> segments)
+    {
+        if (segments.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder(segments[0]);
+        for (var i = 1; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            if (Path.IsPathRooted(segment))
+                throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
+
+            var current = sb.ToString().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            _ = sb.Clear();
+            _ = sb.Append(current);
+            _ = sb.Append(Path.DirectorySeparatorChar);
+            _ = sb.Append(segment);
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>

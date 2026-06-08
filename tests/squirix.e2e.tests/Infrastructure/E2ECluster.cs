@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;
 
@@ -75,8 +76,8 @@ internal sealed class E2ECluster : IAsyncDisposable
     private static string BuildDataDir(string nodeId, string? testName)
     {
         var scope = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
-        var root = Path.Combine(Path.GetTempPath(), "squirix-e2e");
-        var target = Path.Combine(root, $"{scope}__{Environment.ProcessId}", nodeId, Guid.NewGuid().ToString("N"));
+        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e");
+        var target = PathKit.Combine(root, $"{scope}__{Environment.ProcessId}", nodeId, Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(target);
         return target;
     }

@@ -89,12 +89,12 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
     /// </summary>
     private static void BlockNextManifestWrite(string dataDir)
     {
-        var currentPath = Path.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
+        var currentPath = PathKit.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
         const string baselineName = $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}";
         File.WriteAllText(currentPath, baselineName);
 
         const string blockedName = $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}";
-        File.WriteAllText(Path.Combine(dataDir, blockedName), string.Empty);
+        File.WriteAllText(PathKit.Combine(dataDir, blockedName), string.Empty);
     }
 
     private static byte[] BuildLargePutPayload() => DiscriminatedEntryJsonWriter.BuildEntryJson(new string('y', 16_000), null, null, 1, null);
@@ -150,5 +150,5 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
         return envelopes;
     }
 
-    private static string SegmentPath(string dataDir, int segmentIndex) => Path.Combine(dataDir, $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
+    private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(dataDir, $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
 }

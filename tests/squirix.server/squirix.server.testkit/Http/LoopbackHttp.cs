@@ -62,13 +62,13 @@ public static class LoopbackHttp
 
     private static int RunDotnet(string[] args)
     {
-        using var process = Process.Start(new ProcessStartInfo
+        var processStartInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
             Arguments = string.Join(' ', args),
             UseShellExecute = false,
-        });
-
+        };
+        using var process = Process.Start(processStartInfo);
         process?.WaitForExit();
         return process?.ExitCode ?? 1;
     }

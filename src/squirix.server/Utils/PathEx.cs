@@ -51,7 +51,7 @@ internal static class PathEx
         }
 
         var root = EnsureTrailingDirectorySeparator(Path.GetFullPath(rootDirectory));
-        var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+        var fullPath = Path.GetFullPath(root + relativePath);
 
         return fullPath.StartsWith(root, PathComparison) ? fullPath : throw new ArgumentException("Path escapes the configured root directory.", nameof(relativePath));
     }
@@ -91,7 +91,7 @@ internal static class PathEx
             }
         }
 
-        return Combine(rootDirectory, Path.Combine(segments));
+        return Combine(rootDirectory, string.Join(Path.DirectorySeparatorChar, segments));
     }
 
     private static string EnsureTrailingDirectorySeparator(string path) => Path.EndsInDirectorySeparator(path) ? path : path + Path.DirectorySeparatorChar;

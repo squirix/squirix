@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Security;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,24 +38,34 @@ internal static class StorageMaintenanceTool
         var currentPointerPath = PathEx.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
         var currentPointerExists = File.Exists(currentPointerPath);
         string? currentPointerTarget = null;
-        switch (currentPointerExists)
+        if (currentPointerExists)
         {
-            case true:
-                try
-                {
-                    currentPointerTarget = File.ReadAllText(currentPointerPath).Trim();
-                    if (string.IsNullOrWhiteSpace(currentPointerTarget))
-                        issues.Add("CURRENT pointer is empty.");
-                }
-                catch (Exception ex)
-                {
-                    issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
-                }
-
-                break;
-            case false:
-                issues.Add("CURRENT pointer is missing.");
-                break;
+            try
+            {
+                currentPointerTarget = File.ReadAllText(currentPointerPath).Trim();
+                if (string.IsNullOrWhiteSpace(currentPointerTarget))
+                    issues.Add("CURRENT pointer is empty.");
+            }
+            catch (IOException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (SecurityException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+            catch (NotSupportedException ex)
+            {
+                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+            }
+        }
+        else
+        {
+            issues.Add("CURRENT pointer is missing.");
         }
 
         var manifestStore = new ManifestStore(new PersistenceOptions { DataDir = dataDir });

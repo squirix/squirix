@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.IO;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
@@ -84,7 +85,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var callbackCount = 0;
-        var dataDir = Path.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
+        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(28000, 28999).Allocate();
 
         _ = builder.AddSquirixServer(
@@ -118,7 +119,7 @@ public sealed class AspNetCoreHostingExtensionsTests
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        var dataDir = Path.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
+        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(26000, 26999).Allocate();
         var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(

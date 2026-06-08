@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using Squirix.Server.TestKit.IO;
 using Squirix.TestKit;
 using Xunit;
 
@@ -22,7 +23,7 @@ public sealed class PublicApiGoldenSnapshotTests
     public void GoldenSnapshotMatchesServerAssemblyExports()
     {
         var actual = ExportedTypeReflection.GetExportedApiIdentitySet(ServerAssembly);
-        var path = Path.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
+        var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
         Assert.True(File.Exists(path), $"Golden file missing: {path}");
         var expected = File.ReadAllLines(path).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToHashSet(StringComparer.Ordinal);
 

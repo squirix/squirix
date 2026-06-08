@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;
 
@@ -25,7 +26,7 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
 
     public static async ValueTask<E2ERestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
-        var root = Path.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
+        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
         var node = new E2ERestartableSingleNode(root, GetNextHttpUrl());
         await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);

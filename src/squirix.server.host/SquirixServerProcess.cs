@@ -71,7 +71,7 @@ internal static class SquirixServerProcess
         if (File.Exists(path))
             throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
 
-        File.Copy(Path.Combine(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
+        File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
         _ = SquirixServerSettings.Load(path);
         Console.WriteLine($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}");
         return 0;
@@ -148,7 +148,7 @@ internal static class SquirixServerProcess
         try
         {
             _ = Directory.CreateDirectory(dataDirectory);
-            var probe = Path.Combine(dataDirectory, ".squirix-doctor-probe");
+            var probe = Path.Join(dataDirectory, ".squirix-doctor-probe");
             File.WriteAllText(probe, string.Empty);
             File.Delete(probe);
             Console.WriteLine("  Data directory access: writable");

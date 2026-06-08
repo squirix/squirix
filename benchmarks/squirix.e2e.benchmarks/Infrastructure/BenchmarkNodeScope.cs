@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.E2EBenchmarks.Utils;
 using Squirix.Server.TestKit.AspNetCore;
 
 namespace Squirix.E2EBenchmarks.Infrastructure;
@@ -59,7 +60,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         BenchmarkRuntime.EnsureInitialized();
 
-        var dataDir = Path.Combine(Path.GetTempPath(), $"squirix-e2e-bench-{Guid.NewGuid():N}");
+        var dataDir = PathKit.Combine(Path.GetTempPath(), $"squirix-e2e-bench-{Guid.NewGuid():N}");
         _ = Directory.CreateDirectory(dataDir);
 
         var host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);

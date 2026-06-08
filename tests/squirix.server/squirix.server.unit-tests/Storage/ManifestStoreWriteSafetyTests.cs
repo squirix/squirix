@@ -24,14 +24,14 @@ public sealed class ManifestStoreWriteSafetyTests : ServerUnitTestBase
             var store = new ManifestStore(options);
             store.Write(new Manifest { CurrentJournal = 1 });
 
-            var first = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            var first = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
             Assert.True(File.Exists(first));
 
             store.Write(new Manifest { CurrentJournal = 2 });
 
-            var second = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}");
+            var second = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}");
             Assert.True(File.Exists(second));
-            Assert.Contains("000002", File.ReadAllText(Path.Combine(dir, $"{StorageFilePrefixes.Manifest}current")), StringComparison.Ordinal);
+            Assert.Contains("000002", File.ReadAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current")), StringComparison.Ordinal);
         }
         finally
         {
@@ -50,10 +50,10 @@ public sealed class ManifestStoreWriteSafetyTests : ServerUnitTestBase
         {
             var options = new PersistenceOptions { DataDir = dir };
             var store = new ManifestStore(options);
-            var existingPath = Path.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            var existingPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
             var existingBytes = """{"schemaVersion":1,"currentJournal":1}"""u8.ToArray();
             File.WriteAllBytes(existingPath, existingBytes);
-            File.WriteAllText(Path.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name");
+            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name");
 
             var ex = Assert.Throws<InvalidDataException>(() => store.Write(new Manifest { CurrentJournal = 2 }));
             Assert.Contains("current pointer", ex.Message, StringComparison.OrdinalIgnoreCase);

@@ -25,7 +25,6 @@ internal sealed class ClientPool : IClientPool
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
     private int _disposed;
-    private volatile bool _draining;
 
     public ClientPool(IEnumerable<Peer> peers, Func<string, ICallPolicy> policyFactory, HttpMessageHandler? handler = null, Interceptor? interceptor = null)
     {
@@ -58,8 +57,6 @@ internal sealed class ClientPool : IClientPool
     public IReadOnlyList<string> BootstrapNodeIds { get; }
 
     internal int ActiveClientCount => _cacheClients.Count;
-
-    internal bool IsDraining => _draining;
 
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
@@ -116,7 +113,6 @@ internal sealed class ClientPool : IClientPool
 
     public void BeginDrain()
     {
-        _draining = true;
         foreach (var policy in _policies.Values)
             policy.BeginDrain();
     }
