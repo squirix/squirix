@@ -5,6 +5,13 @@ disable-default-queries: false
 queries:
   - uses: security-and-quality
 
+# With build-mode: none (see codeql.yml), paths-ignore is honored for C#.
+# filter-sarif removes any remaining alerts under these paths before SARIF upload.
+paths-ignore:
+  - '**/*.g.cs'
+  - '**/obj/**'
+  - '**/bin/**'
+
 query-filters:
   - exclude:
       id: cs/linq/missed-where
