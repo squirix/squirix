@@ -4,6 +4,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using Grpc.Core;
 using Squirix.Server.Errors;
+using Squirix.Server.Limits;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -55,6 +56,7 @@ internal static class DomainTransportErrorMapper
         ThrowIfCallerCancellation(ex, cancellationToken);
         ThrowIfInvalidArgumentContract(ex);
         ThrowIfFailedPreconditionContract(ex);
+        ThrowIfPayloadTooLargeContract(ex);
         RethrowOriginal(ex);
     }
 
@@ -65,6 +67,18 @@ internal static class DomainTransportErrorMapper
     {
         if (OperationCancellationClassifier.IsCallerInitiatedGrpcCancellation(ex, cancellationToken))
             cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private static void ThrowIfPayloadTooLargeContract(RpcException ex)
+    {
+        if (ex.StatusCode != StatusCode.ResourceExhausted)
+            return;
+
+        var detail = ex.Status.Detail;
+        if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
+            return;
+
+        throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
     private static void ThrowIfFailedPreconditionContract(RpcException ex)

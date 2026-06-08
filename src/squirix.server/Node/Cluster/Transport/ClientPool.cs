@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
@@ -35,7 +36,12 @@ internal sealed class ClientPool : IClientPool
         {
             var p = peerList[i];
             GrpcCleartextHttp2.EnableIfNeeded(p.Url);
-            var opts = new GrpcChannelOptions { HttpHandler = handler ?? GrpcCleartextHttp2.CreateChannelHandler(p.Url) };
+            var opts = new GrpcChannelOptions
+            {
+                HttpHandler = handler ?? GrpcCleartextHttp2.CreateChannelHandler(p.Url),
+                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            };
             var channel = GrpcChannel.ForAddress(p.Url, opts);
             var invoker = channel.CreateCallInvoker();
             if (interceptor is not null)

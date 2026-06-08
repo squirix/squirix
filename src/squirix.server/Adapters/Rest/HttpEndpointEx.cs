@@ -13,6 +13,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint.Rest;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Runtime.Contracts;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 
@@ -263,8 +264,6 @@ internal static class HttpEndpointEx
 
         private static void MapCacheKeyValueEndpoints<T>(RouteGroupBuilder cache)
         {
-            const int maxPayloadBytes = 1_048_576;
-
             _ = cache.MapPut(
                 "/{key}",
                 static async (
@@ -278,9 +277,9 @@ internal static class HttpEndpointEx
                 {
                     if (HttpEndpoints.ValidateKey(key) is { } keyError)
                         return keyError;
-                    if (HttpEndpoints.ValidateContentLength(http, maxPayloadBytes) is { } lengthError)
+                    if (HttpEndpoints.ValidateContentLength(http, SquirixEntryLimits.MaxEntrySizeBytes) is { } lengthError)
                         return lengthError;
-                    if (HttpEndpoints.ValidateEntry(entry, jsonOptions.Value.SerializerOptions, maxPayloadBytes) is { } entryError)
+                    if (HttpEndpoints.ValidateEntry(entry, jsonOptions.Value.SerializerOptions, SquirixEntryLimits.MaxEntrySizeBytes) is { } entryError)
                         return entryError;
 
                     var existed = await apiSvc.GetEntryAsync(key, cancellationToken).ConfigureAwait(false) is not null;

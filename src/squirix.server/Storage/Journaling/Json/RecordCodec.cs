@@ -190,12 +190,11 @@ internal static class RecordCodec
             ValidateKey(dto.Remove.Key, "remove.key");
         if (dto.RemoveExpiration is not null)
             ValidateKey(dto.RemoveExpiration.Key, "removeExpiration.key");
-        if (dto.TouchExpiration is not null)
-        {
-            ValidateKey(dto.TouchExpiration.Key, "touchExpiration.key");
-            if (dto.TouchExpiration.ExpiresUnixMs <= 0)
-                throw new JsonException("journal touchExpiration.expiresUnixMs must be positive.");
-        }
+        if (dto.TouchExpiration is null)
+            return;
+        ValidateKey(dto.TouchExpiration.Key, "touchExpiration.key");
+        if (dto.TouchExpiration.ExpiresUnixMs <= 0)
+            throw new JsonException("journal touchExpiration.expiresUnixMs must be positive.");
     }
 
     private static void ValidateKey(string? key, string fieldName)
