@@ -54,10 +54,13 @@ internal sealed class ClientPool : IClientPool
 
         Array.Sort(nodeIds, StringComparer.Ordinal);
         NodeIds = nodeIds;
-        ClientPoolMetrics.RegisterObservers(() => _cacheClients.Count, () => _channels.Count, () => _draining);
     }
 
     public IReadOnlyCollection<string> NodeIds { get; }
+
+    internal int ActiveClientCount => _cacheClients.Count;
+
+    internal bool IsDraining => _draining;
 
     public void BeginDrain()
     {

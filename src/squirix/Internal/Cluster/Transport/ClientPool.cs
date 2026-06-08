@@ -53,12 +53,13 @@ internal sealed class ClientPool : IClientPool
         }
 
         BootstrapNodeIds = [.. nodeIds];
-
-        // Register metrics observers once the dictionaries are populated
-        ClientPoolMetrics.RegisterObservers(() => _cacheClients.Count, () => _channels.Count, () => _draining);
     }
 
     public IReadOnlyList<string> BootstrapNodeIds { get; }
+
+    internal int ActiveClientCount => _cacheClients.Count;
+
+    internal bool IsDraining => _draining;
 
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
