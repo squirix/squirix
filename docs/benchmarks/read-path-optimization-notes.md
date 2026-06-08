@@ -215,9 +215,9 @@ Queue-wait metric recording is allocation-free in this benchmark. The remaining 
 
 gRPC handler configuration check:
 
-| Change                                                                                                                                                                                                                       | Result |
-|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
-| Removed benchmark-only `new SocketsHttpHandler()` override so public benchmark uses product default HTTPS channel handler | Done   |
+| Change | Result |
+| --- | --- |
+| Removed benchmark-only handler override; benchmarks use default HTTPS channel handler | Done |
 
 Short same-process read result after this correction:
 

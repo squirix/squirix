@@ -45,13 +45,12 @@ jobs:
                           - '.markdownlint-cli2.jsonc'
 
     markdownlint:
-        name: Markdownlint
+        name: Documentation lint (markdownlint)
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
         if: |
             needs.changes.outputs.docs == 'true' ||
-            needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
         steps:
@@ -717,12 +716,86 @@ jobs:
                       page=$((page + 1))
                     done
 
+    ci-success:
+        name: CI success
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs:
+            - changes
+            - markdownlint
+            - verify-coding-conventions
+            - build
+            - smoke-fast-fail
+            - test-suites
+            - verify-test-discovery
+            - coverage
+        if: |
+            always() && (
+              needs.changes.outputs.docs == 'true' ||
+              needs.changes.outputs.code == 'true' ||
+              github.event_name == 'schedule' ||
+              github.event_name == 'workflow_dispatch'
+            )
+        steps:
+            -   name: Verify required checks for this change set
+                shell: bash
+                env:
+                    DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
+                    CODE_CHANGED: ${{ needs.changes.outputs.code }}
+                    EVENT_NAME: ${{ github.event_name }}
+                    RESULT_MARKDOWNLINT: ${{ needs.markdownlint.result }}
+                    RESULT_VERIFY: ${{ needs.verify-coding-conventions.result }}
+                    RESULT_BUILD: ${{ needs.build.result }}
+                    RESULT_SMOKE: ${{ needs.smoke-fast-fail.result }}
+                    RESULT_TEST: ${{ needs.test-suites.result }}
+                    RESULT_DISCOVERY: ${{ needs.verify-test-discovery.result }}
+                    RESULT_COVERAGE: ${{ needs.coverage.result }}
+                run: |
+                    set -euo pipefail
+                    failed=0
+
+                    require_docs=false
+                    require_code=false
+                    if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                      require_docs=true
+                    fi
+                    if [[ "$CODE_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                      require_code=true
+                    fi
+
+                    assert_success() {
+                      local name="$1"
+                      local required="$2"
+                      local result="$3"
+                      if [[ "$required" != "true" ]]; then
+                        echo "SKIP $name (not required for this change set)"
+                        return 0
+                      fi
+                      if [[ "$result" == "success" ]]; then
+                        echo "OK   $name"
+                        return 0
+                      fi
+                      echo "FAIL $name result=$result" >&2
+                      failed=1
+                    }
+
+                    assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
+                    assert_success "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
+                    assert_success "build" "$require_code" "$RESULT_BUILD"
+                    assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
+                    assert_success "test-suites" "$require_code" "$RESULT_TEST"
+                    assert_success "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
+                    assert_success "coverage" "$require_code" "$RESULT_COVERAGE"
+
+                    if [[ "$failed" -ne 0 ]]; then
+                      exit 1
+                    fi
+
     stability-stress:
         name: Stability Stress (manual)
         if: github.event_name == 'workflow_dispatch'
         runs-on: windows-latest
         timeout-minutes: 45
-        env:
         steps:
             -   uses: actions/checkout@v6
             -   uses: actions/setup-dotnet@v5
