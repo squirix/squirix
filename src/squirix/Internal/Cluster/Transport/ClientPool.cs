@@ -105,6 +105,11 @@ internal sealed class ClientPool : IClientPool
                 lastFailure = ex;
                 failuresByNode[nodeId] = ex;
             }
+            catch (InvalidOperationException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
         }
 
         if (primaryNodeId is null)

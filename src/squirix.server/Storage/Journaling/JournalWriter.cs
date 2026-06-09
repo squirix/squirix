@@ -561,6 +561,11 @@ internal sealed class JournalWriter : IJournalCoordinator
             TruncateActiveSegmentAfterFailedFrame(stream, frameStart);
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(stream, frameStart);
+            throw;
+        }
 
         sw.Stop();
         var elapsedMs = sw.Elapsed.TotalMilliseconds;

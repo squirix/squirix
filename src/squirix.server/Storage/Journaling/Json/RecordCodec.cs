@@ -36,6 +36,18 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
             throw;
         }
+        catch (InvalidOperationException)
+        {
+            JournalJsonCodecMetrics.AddOp("decode", "error");
+            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
+        catch (NullReferenceException)
+        {
+            JournalJsonCodecMetrics.AddOp("decode", "error");
+            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
     }
 
     public static byte[] Serialize(JournalEnvelope env)
@@ -56,6 +68,18 @@ internal static class RecordCodec
             throw;
         }
         catch (NotSupportedException)
+        {
+            JournalJsonCodecMetrics.AddOp("encode", "error");
+            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            JournalJsonCodecMetrics.AddOp("encode", "error");
+            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
+        catch (NullReferenceException)
         {
             JournalJsonCodecMetrics.AddOp("encode", "error");
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);

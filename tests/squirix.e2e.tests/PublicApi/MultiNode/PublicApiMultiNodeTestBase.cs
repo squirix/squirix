@@ -23,6 +23,10 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
         {
             return ex;
         }
+        catch (CacheConflictException ex)
+        {
+            return ex;
+        }
         catch (InvalidOperationException ex)
         {
             return ex;
