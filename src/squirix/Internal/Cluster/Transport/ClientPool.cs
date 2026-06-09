@@ -68,6 +68,7 @@ internal sealed class ClientPool : IClientPool
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
     /// Unreachable endpoints are skipped; startup fails only when no endpoint can be reached.
+    /// After a primary peer connects, remaining peers use a short fail-fast connect budget.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The first reachable bootstrap node id.</returns>
@@ -84,9 +85,13 @@ internal sealed class ClientPool : IClientPool
             if (!_channels.TryGetValue(nodeId, out var channel))
                 continue;
 
+            var connectOptions = primaryNodeId is null
+                ? _connectOptions
+                : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
+
             try
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, _connectOptions, cancellationToken).ConfigureAwait(false);
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken).ConfigureAwait(false);
                 ClientPoolMetrics.AddWarmup();
                 primaryNodeId ??= nodeId;
             }
