@@ -82,4 +82,4 @@ Additional references: [architecture](docs/architecture.md), [operational runboo
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE).

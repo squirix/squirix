@@ -60,4 +60,4 @@ other `*.md` paths matched by the workflow filter.
 
 ## License
 
-By contributing, you agree your code is under the [Apache 2.0 License](LICENSE).
+By contributing, you agree your code is under the [Apache 2.0 License](./LICENSE).
