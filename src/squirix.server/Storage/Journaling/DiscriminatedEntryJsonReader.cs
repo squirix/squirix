@@ -162,7 +162,11 @@ internal static class DiscriminatedEntryJsonReader
                     result = Convert.FromBase64String(inner.GetString() ?? string.Empty);
                     return true;
                 }
-                catch
+                catch (FormatException)
+                {
+                    return false;
+                }
+                catch (ArgumentException)
                 {
                     return false;
                 }

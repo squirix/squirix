@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.Benchmarks.Infrastructure;
-using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit.Benchmarking;

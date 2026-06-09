@@ -71,7 +71,11 @@ public sealed class JournalReaderSelectNewestSegmentsTests
             {
                 Directory.Delete(dir, true);
             }
-            catch
+            catch (IOException)
+            {
+                /* best-effort cleanup */
+            }
+            catch (UnauthorizedAccessException)
             {
                 /* best-effort cleanup */
             }
@@ -104,7 +108,11 @@ public sealed class JournalReaderSelectNewestSegmentsTests
             {
                 Directory.Delete(dir, true);
             }
-            catch
+            catch (IOException)
+            {
+                /* best-effort cleanup */
+            }
+            catch (UnauthorizedAccessException)
             {
                 /* best-effort cleanup */
             }

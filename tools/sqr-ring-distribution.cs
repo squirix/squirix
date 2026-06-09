@@ -94,7 +94,13 @@ try
 
     return 0;
 }
-catch (Exception ex)
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine("ERROR: unexpected internal failure");
+    Console.WriteLine(ex.Message);
+    return 3;
+}
+catch (ArgumentException ex)
 {
     Console.WriteLine("ERROR: unexpected internal failure");
     Console.WriteLine(ex.Message);

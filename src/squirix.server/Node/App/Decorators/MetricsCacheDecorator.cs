@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.Server.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -116,7 +118,27 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         {
             await action().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;
@@ -136,7 +158,27 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
             Record(cacheName, operation, classifyResult(value), startTimestamp);
             return value;
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
             throw;

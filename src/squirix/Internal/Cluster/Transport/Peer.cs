@@ -1,4 +1,4 @@
-namespace Squirix.Internal.Cluster.Membership;
+namespace Squirix.Internal.Cluster.Transport;
 
 internal sealed class Peer
 {

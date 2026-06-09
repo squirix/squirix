@@ -19,7 +19,11 @@ internal sealed class JournalReader
         {
             files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
         }
-        catch
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
         {
             return [];
         }
@@ -47,7 +51,7 @@ internal sealed class JournalReader
             {
                 digits = name.Substring(prefixLen, digitsLen);
             }
-            catch
+            catch (ArgumentOutOfRangeException)
             {
                 continue;
             }
@@ -102,7 +106,11 @@ internal sealed class JournalReader
         {
             files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
         }
-        catch
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
         {
             return [];
         }
@@ -128,7 +136,7 @@ internal sealed class JournalReader
             {
                 digits = name.Substring(prefixLen, digitsLen);
             }
-            catch
+            catch (ArgumentOutOfRangeException)
             {
                 continue;
             }

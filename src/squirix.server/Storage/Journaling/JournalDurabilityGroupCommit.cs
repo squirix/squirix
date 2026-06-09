@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -148,7 +149,21 @@ internal sealed class JournalDurabilityGroupCommit
                 {
                     await _flushAsync(cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (IOException ex)
+                {
+                    foreach (var waiter in batch)
+                        _ = waiter.TrySetException(ex);
+
+                    throw;
+                }
+                catch (ObjectDisposedException ex)
+                {
+                    foreach (var waiter in batch)
+                        _ = waiter.TrySetException(ex);
+
+                    throw;
+                }
+                catch (InvalidOperationException ex)
                 {
                     foreach (var waiter in batch)
                         _ = waiter.TrySetException(ex);
@@ -190,7 +205,15 @@ internal sealed class JournalDurabilityGroupCommit
         {
             // Superseded by an immediate batch flush or shutdown cancellation of the delay timer.
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            CancelPending(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            CancelPending(ex);
+        }
+        catch (InvalidOperationException ex)
         {
             CancelPending(ex);
         }

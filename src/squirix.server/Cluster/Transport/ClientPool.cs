@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -97,7 +98,11 @@ internal sealed class ClientPool : IClientPool
             {
                 await item.Value.DisposeAsync().ConfigureAwait(false);
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain.
+            }
+            catch (IOException)
             {
                 // Best-effort drain.
             }
@@ -110,7 +115,11 @@ internal sealed class ClientPool : IClientPool
                 ch.Value.Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain.
+            }
+            catch (IOException)
             {
                 // Best-effort drain.
             }

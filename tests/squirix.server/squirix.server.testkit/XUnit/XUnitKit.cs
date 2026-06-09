@@ -70,7 +70,7 @@ public static class XUnitKit
                     if (exception is not null)
                         _output.WriteLine(exception.ToString());
                 }
-                catch
+                catch (InvalidOperationException)
                 {
                     // Swallow logging errors in test environments
                 }

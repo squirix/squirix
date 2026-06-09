@@ -79,7 +79,7 @@ internal static class SquirixKestrelConfiguration
                     var ok = chain.Build(cert);
                     return ok || allowSelfSigned;
                 }
-                catch
+                catch (System.Security.Cryptography.CryptographicException)
                 {
                     return false;
                 }

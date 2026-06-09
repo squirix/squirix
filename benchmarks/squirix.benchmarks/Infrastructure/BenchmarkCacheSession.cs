@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -44,7 +45,12 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
             var cache = await clientLease.Client.GetCacheAsync<object?>(cacheName, cancellationToken).ConfigureAwait(false);
             return new BenchmarkCacheSession(clientLease, cache);
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            await clientLease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        catch (IOException)
         {
             await clientLease.DisposeAsync().ConfigureAwait(false);
             throw;

@@ -111,7 +111,7 @@ internal sealed class SnapshotCoordinator<T>
             {
                 SnapshotMetrics.DurationSeconds.WithLabels(_nodeId, result).Observe(sw.Elapsed.TotalSeconds);
             }
-            catch
+            catch (InvalidOperationException)
             {
                 // Metrics emission is best-effort and must not affect snapshot completion.
             }

@@ -162,7 +162,11 @@ internal static class DirectoryEx
 
                 return;
             }
-            catch when (attempt < retries - 1)
+            catch (IOException) when (attempt < retries - 1)
+            {
+                Thread.Sleep(delayMs);
+            }
+            catch (UnauthorizedAccessException) when (attempt < retries - 1)
             {
                 Thread.Sleep(delayMs);
             }
@@ -215,16 +219,28 @@ internal static class DirectoryEx
             if (fsi.LinkTarget is not null)
                 return true;
         }
-        catch
+        catch (IOException)
         {
             // Some FS/providers may throw; fall back to attributes
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Some FS/providers may throw; fall back to attributes
+        }
+        catch (NotSupportedException)
+        {
+            // LinkTarget may be unsupported on some providers; fall back to attributes
         }
 
         try
         {
             return (fsi.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
         }
-        catch
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
         {
             return false;
         }
@@ -260,7 +276,11 @@ internal static class DirectoryEx
             if (attrs.HasFlag(FileAttributes.ReadOnly))
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-        catch
+        catch (IOException)
+        {
+            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+        }
+        catch (UnauthorizedAccessException)
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
         }
