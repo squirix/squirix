@@ -78,6 +78,34 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     }
 
     /// <summary>
+    /// Verifies that the Prometheus <c>/metrics</c> scrape endpoint requires API key auth when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsReturn401WithoutKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
+
+        var respNoKey = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
+        req.Version = HttpVersion.Version20;
+        req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        req.Headers.Add("X-Api-Key", "smoke-key");
+        var ok = await HttpClient.SendAsync(req, DefaultCancellationToken);
+        Assert.True(ok.IsSuccessStatusCode, $"Expected success with API key, got {(int)ok.StatusCode} {ok.ReasonPhrase}");
+    }
+
+    /// <summary>
     /// Verifies that admin storage diagnostics are protected by the same API key policy.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>

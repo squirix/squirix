@@ -245,7 +245,7 @@ The optional `PrometheusMetrics` section configures the built-in Prometheus-comp
 | ------------- | ------ | -------------------- | ------------------------------------------------------------------------ |
 | `Enabled`     | bool   | `true`               | Any boolean                                                              |
 | `Path`        | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true`                  |
-| `RequireAuth` | bool   | `false`              | Any boolean; when `true` and server auth is enabled, requires `ApiOrJwt` |
+| `RequireAuth` | bool   | `true`               | Any boolean; when `true` and server auth is enabled, requires `ApiOrJwt`; set `false` to opt out |
 
 Example fragment:
 
@@ -255,7 +255,7 @@ Example fragment:
         "PrometheusMetrics": {
             "enabled": true,
             "path": "/metrics",
-            "requireAuth": false
+            "requireAuth": true
         }
     }
 }

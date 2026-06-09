@@ -9,6 +9,17 @@ namespace Squirix.Server.UnitTests.Node.Observability;
 public sealed class PrometheusMetricsSettingsTests
 {
     /// <summary>
+    /// Verifies host defaults require metrics auth when server authentication is enabled.
+    /// </summary>
+    [Fact]
+    public void EndpointOptionsDefaultRequireAuthIsTrue()
+    {
+        var options = new PrometheusMetricsEndpointOptions();
+
+        Assert.True(options.RequireAuth);
+    }
+
+    /// <summary>
     /// Verifies all properties default to <see langword="null" /> (JSON absent fields).
     /// </summary>
     [Fact]
