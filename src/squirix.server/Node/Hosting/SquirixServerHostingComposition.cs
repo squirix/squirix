@@ -107,7 +107,9 @@ internal static class SquirixServerHostingComposition
     }
 
     private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options) =>
-        string.IsNullOrWhiteSpace(options.DataDirectory) ? null : new PersistenceOptions { DataDir = options.DataDirectory };
+        string.IsNullOrWhiteSpace(options.DataDirectory)
+            ? null
+            : new PersistenceOptions { DataDir = options.DataDirectory, StrictFsync = true };
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
