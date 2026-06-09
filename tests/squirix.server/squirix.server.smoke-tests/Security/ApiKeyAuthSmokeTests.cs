@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.AspNetCore;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Security;
@@ -13,7 +13,6 @@ namespace Squirix.Server.SmokeTests.Security;
 /// Smoke tests verifying that API key authentication is enforced on cache endpoints
 /// when API key protection is enabled.
 /// </summary>
-[Collection(SmokeTestCollections.AuthSensitive)]
 public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
 {
     /// <summary>
@@ -24,11 +23,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task CacheEndpointsReturn401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var respNoKey = await HttpClient.PutAsJsonAsync($"{url}/api/v1/cache/smoke", new CacheEntry<string> { Value = "x", Version = 1L }, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);
@@ -49,11 +52,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task ClusterDiagnosticsReturn401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var ringWithoutKey = await HttpClient.GetAsync($"{url}/admin/ring", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, ringWithoutKey.StatusCode);
@@ -77,11 +84,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task StorageDiagnosticsReturns401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var respNoKey = await HttpClient.GetAsync($"{url}/admin/diagnostics/storage", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);
