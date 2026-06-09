@@ -169,31 +169,8 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Pack and external package smoke
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
                 run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
-
-            -   name: Pack package artifacts
-                if: matrix.os == 'ubuntu-latest'
-                shell: bash
-                run: |
-                    set -euo pipefail
-                    rm -rf artifacts/packages
-                    mkdir -p artifacts/packages
-                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages
-                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.*.nupkg' ! -name 'squirix.server.*.nupkg' -print -quit)"
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.server.*.nupkg' -print -quit)"
-
-            -   name: Upload package artifacts
-                if: matrix.os == 'ubuntu-latest'
-                uses: actions/upload-artifact@v7
-                with:
-                    name: package-artifacts-${{ matrix.framework }}
-                    retention-days: 7
-                    path: |
-                        artifacts/packages/*.nupkg
-                        artifacts/packages/*.snupkg
-                    if-no-files-found: error
 
             -   name: Upload build outputs for tests
                 uses: actions/upload-artifact@v7
@@ -714,7 +691,7 @@ jobs:
                       while IFS=$'\t' read -r id name; do
                         [[ -z "${id}" ]] && continue
                         case "${name}" in
-                          build-output-*|coverage-raw-*|test-results-*)
+                          build-output-*|coverage-raw-*|test-results-*|package-artifacts-*)
                             echo "Deleting artifact id=${id} name=${name}"
                             gh api --method DELETE "repos/${repo}/actions/artifacts/${id}"
                             ;;
