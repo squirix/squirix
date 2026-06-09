@@ -4,9 +4,10 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Node;
 using Squirix.Server.Node.Observability;
 
-namespace Squirix.Server.Node.Cluster.Reliability;
+namespace Squirix.Server.Cluster.Reliability;
 
 internal sealed class CallPolicy : ICallPolicy
 {

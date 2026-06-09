@@ -1,9 +1,8 @@
 using System;
-using Squirix.Server.Cluster;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Node.Cluster;
+namespace Squirix.Server.Cluster;
 
 /// <summary>
 /// Cluster-backed node ownership resolver for inbound endpoint routing checks.

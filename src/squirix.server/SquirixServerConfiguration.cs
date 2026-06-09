@@ -4,8 +4,8 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Bootstrap;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Serialization;
 using Squirix.Server.Utils;
 

@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;

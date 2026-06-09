@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Squirix.Server.Node.Cluster.Reliability;
+namespace Squirix.Server.Cluster.Reliability;
 
 internal interface ICallPolicy : IAsyncDisposable
 {

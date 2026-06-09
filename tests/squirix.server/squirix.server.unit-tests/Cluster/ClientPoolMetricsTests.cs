@@ -1,12 +1,12 @@
 using System;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
-using Squirix.Server.Node.Cluster.Transport;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Node.Cluster;
+namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>
 /// Tests for ClientPool methods and metrics.

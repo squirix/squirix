@@ -6,13 +6,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Limits;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc.Cache;
 
-namespace Squirix.Server.Node.Cluster.Transport;
+namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>
 /// Holds gRPC clients per peer and an execution policy per peer.

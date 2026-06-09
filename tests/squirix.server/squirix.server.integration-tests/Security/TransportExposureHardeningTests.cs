@@ -5,7 +5,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Http;
 using Squirix.Transport.Grpc.Cache;

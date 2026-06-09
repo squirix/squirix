@@ -1,8 +1,8 @@
 using System;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Node.Cluster;
+namespace Squirix.Server.Cluster;
 
 /// <summary>
 /// Cluster-backed node identity for admin endpoints.
