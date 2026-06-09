@@ -49,6 +49,8 @@ internal static class SquirixServerHostingComposition
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        SecurityOptions? securityOptionsOverride = null,
+        TransportExposureOptions? transportExposureOverride = null,
         SquirixServerExtensionOptions? extensions = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -57,7 +59,7 @@ internal static class SquirixServerHostingComposition
         var uri = new Uri(cluster.Url);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, transportExposureOverride);
 
         _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
@@ -66,8 +68,12 @@ internal static class SquirixServerHostingComposition
         _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
         _ = builder.Services.AddSquirixCachePipeline(extensions);
         _ = builder.Services.AddSquirixNodeEndpointServices();
-        var authEnabled = builder.Services.AddSquirixSecurityServices();
-        SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled, builder.Environment.EnvironmentName);
+        var authEnabled = builder.Services.AddSquirixSecurityServices(securityOptionsOverride);
+        SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(
+            uri,
+            authEnabled,
+            builder.Environment.EnvironmentName,
+            transportExposureOverride);
         _ = builder.Services.AddSquirixFrameworkServices(configureGrpc);
         _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         servicesConfigure?.Invoke(builder.Services);

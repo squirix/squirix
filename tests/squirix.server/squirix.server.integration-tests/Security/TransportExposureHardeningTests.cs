@@ -1,12 +1,10 @@
 using System;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.AspNetCore;
 using Squirix.Server.TestKit.Http;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -16,7 +14,6 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>
 /// Verifies transport hardening behavior for plaintext HTTP sidecar exposure.
 /// </summary>
-[Collection("AuthSensitive")]
 public sealed class TransportExposureHardeningTests : IntegrationTestBase
 {
     private static readonly HttpClient SidecarClient = LoopbackHttp.CreateRestClient(TimeSpan.FromSeconds(5));
@@ -28,13 +25,11 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     [Fact]
     public async Task NonLoopbackListenWithApiKeysSucceeds()
     {
-        var mainPort = AllocateFreePort();
+        var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
-        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "external-secret");
-        using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", null);
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["external-secret"] });
 
         using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -52,13 +47,15 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     [Fact]
     public async Task NonLoopbackListenWithExplicitAllowSucceeds()
     {
-        var mainPort = AllocateFreePort();
+        var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
-        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
-        using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions(),
+            transportExposure: new TestNodeTransportExposureOptions { AllowUnauthenticatedExternal = true });
 
         using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -74,12 +71,15 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     public async Task PlaintextHttpSidecarOnLoopbackIsAllowed()
     {
         var url = GetNextHttpUrl();
-        var sidecarPort = AllocateFreePort();
-        using var sidecarEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_PORT", sidecarPort.ToString(CultureInfo.InvariantCulture));
-        using var overrideEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", null);
+        var sidecarPort = AllocateDedicatedPort();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions(),
+            transportExposure: new TestNodeTransportExposureOptions { Http1SidecarPort = sidecarPort });
+
         var response = await SidecarClient.GetAsync($"http://127.0.0.1:{sidecarPort}/health", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -91,15 +91,20 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     [Fact]
     public async Task PlaintextHttpSidecarOnNonLoopbackWithoutOverrideIsRejected()
     {
-        var mainPort = AllocateFreePort();
-        var sidecarPort = AllocateFreePort();
+        var mainPort = AllocateDedicatedPort();
+        var sidecarPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
-        using var sidecarEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_PORT", sidecarPort.ToString(CultureInfo.InvariantCulture));
-        using var http1OverrideEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", null);
-        using var externalAuthEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions(),
+            transportExposure: new TestNodeTransportExposureOptions
+            {
+                Http1SidecarPort = sidecarPort,
+                AllowUnauthenticatedExternal = true,
+            }));
         Assert.Contains("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", ex.Message, StringComparison.Ordinal);
     }
 
@@ -110,15 +115,22 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     [Fact]
     public async Task PlaintextHttpSidecarOnNonLoopbackWithOverrideIsAllowed()
     {
-        var mainPort = AllocateFreePort();
-        var sidecarPort = AllocateFreePort();
+        var mainPort = AllocateDedicatedPort();
+        var sidecarPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
-        using var sidecarEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_PORT", sidecarPort.ToString(CultureInfo.InvariantCulture));
-        using var http1OverrideEnv = new TempEnvironmentVariable("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL", "true");
-        using var externalAuthEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", "true");
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions(),
+            transportExposure: new TestNodeTransportExposureOptions
+            {
+                Http1SidecarPort = sidecarPort,
+                AllowUnauthenticatedExternal = true,
+                AllowInsecureHttp1SidecarExternal = true,
+            });
+
         var response = await SidecarClient.GetAsync($"http://127.0.0.1:{sidecarPort}/health", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -130,21 +142,12 @@ public sealed class TransportExposureHardeningTests : IntegrationTestBase
     [Fact]
     public async Task ProductionExternalUrlRequiresAuthenticationOrExplicitAllow()
     {
-        var mainPort = AllocateFreePort();
+        var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
-        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
-        using var allowEnv = new TempEnvironmentVariable("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", null);
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()));
         Assert.Contains("SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_API_KEYS", ex.Message, StringComparison.Ordinal);
-    }
-
-    private static int AllocateFreePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 }

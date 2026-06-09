@@ -31,6 +31,8 @@ internal static class SquirixNodeHost
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        SecurityOptions? securityOptionsOverride = null,
+        TransportExposureOptions? transportExposureOverride = null,
         Action<SquirixServerExtensionOptions>? configureExtensions = null,
         CancellationToken cancellationToken = default)
     {
@@ -55,6 +57,8 @@ internal static class SquirixNodeHost
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
+            securityOptionsOverride,
+            transportExposureOverride,
             extensions);
 
         var app = builder.Build();

@@ -16,7 +16,7 @@ public sealed class ClientBootstrapConnectTests : E2ETestBase
     [Fact]
     public async Task ClientConnectsWhenAnyBootstrapEndpointIsReachable()
     {
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientConnectsWhenAnyBootstrapEndpointIsReachable), DefaultCancellationToken);
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientConnectsWhenAnyBootstrapEndpointIsReachable), cancellationToken: DefaultCancellationToken);
         var liveUrl = cluster.GetAddress("nodeA");
 
         await using var client = await E2ETestConnect.ConnectAsync(

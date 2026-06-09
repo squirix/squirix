@@ -22,7 +22,10 @@ internal static class SquirixKestrelConfiguration
     /// </summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="uri">The primary HTTPS listen URI.</param>
-    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri)
+    /// <param name="transportExposureOverride">
+    /// Optional transport exposure override. When <c>null</c>, environment variables are read.
+    /// </param>
+    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TransportExposureOptions? transportExposureOverride = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(uri);
@@ -39,12 +42,12 @@ internal static class SquirixKestrelConfiguration
             if (isLoopbackHost)
             {
                 kestrel.ListenLocalhost(uri.Port, ConfigurePrimaryEndpoint);
-                TryAddHttp1SidecarListener(kestrel, false, builder.Environment.EnvironmentName);
+                TryAddHttp1SidecarListener(kestrel, false, builder.Environment.EnvironmentName, transportExposureOverride);
             }
             else
             {
                 kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
-                TryAddHttp1SidecarListener(kestrel, true, builder.Environment.EnvironmentName);
+                TryAddHttp1SidecarListener(kestrel, true, builder.Environment.EnvironmentName, transportExposureOverride);
             }
 
             return;
@@ -105,9 +108,15 @@ internal static class SquirixKestrelConfiguration
         }
     }
 
-    private static void TryAddHttp1SidecarListener(KestrelServerOptions k, bool listenAnyIp, string environmentName)
+    private static void TryAddHttp1SidecarListener(
+        KestrelServerOptions k,
+        bool listenAnyIp,
+        string environmentName,
+        TransportExposureOptions? transportExposureOverride)
     {
-        var http1PortOrNull = EnvVariables.ReadInt("SQUIRIX_HTTP1_PORT");
+        var http1PortOrNull = transportExposureOverride is not null
+            ? transportExposureOverride.Http1SidecarPort
+            : EnvVariables.ReadInt("SQUIRIX_HTTP1_PORT");
         if (http1PortOrNull is null)
             return;
 
@@ -117,7 +126,8 @@ internal static class SquirixKestrelConfiguration
 
         if (listenAnyIp)
         {
-            if (!EnvVariables.ReadBool("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL"))
+            var allowInsecureHttp1SidecarExternal = transportExposureOverride?.AllowInsecureHttp1SidecarExternal ?? EnvVariables.ReadBool("SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL");
+            if (!allowInsecureHttp1SidecarExternal)
             {
                 throw new InvalidOperationException(
                     $"Refusing plaintext HTTP sidecar on non-loopback interface (SQUIRIX_HTTP1_PORT={http1Port}). " +

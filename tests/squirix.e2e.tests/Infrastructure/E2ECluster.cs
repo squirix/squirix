@@ -24,11 +24,11 @@ internal sealed class E2ECluster : IAsyncDisposable
         _nodes = nodes;
     }
 
-    public static ValueTask<E2ECluster> StartSingleNodeAsync(string? testName = null, CancellationToken cancellationToken = default) =>
-        StartAsync(["nodeA"], testName, cancellationToken);
+    public static ValueTask<E2ECluster> StartSingleNodeAsync(string? testName = null, TestNodeSecurityOptions? security = null, CancellationToken cancellationToken = default) =>
+        StartAsync(["nodeA"], testName, security, cancellationToken);
 
-    public static ValueTask<E2ECluster> StartTwoNodeAsync(string? testName = null, CancellationToken cancellationToken = default) =>
-        StartAsync(["nodeA", "nodeB"], testName, cancellationToken);
+    public static ValueTask<E2ECluster> StartTwoNodeAsync(string? testName = null, TestNodeSecurityOptions? security = null, CancellationToken cancellationToken = default) =>
+        StartAsync(["nodeA", "nodeB"], testName, security, cancellationToken);
 
     public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
@@ -84,7 +84,7 @@ internal sealed class E2ECluster : IAsyncDisposable
 
     private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
-    private static async ValueTask<E2ECluster> StartAsync(string[] nodeIds, string? testName = null, CancellationToken cancellationToken = default)
+    private static async ValueTask<E2ECluster> StartAsync(string[] nodeIds, string? testName, TestNodeSecurityOptions? security, CancellationToken cancellationToken = default)
     {
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
@@ -100,7 +100,7 @@ internal sealed class E2ECluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
-                var host = await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, BuildDataDir(nodeId, testName), cancellationToken).ConfigureAwait(false);
+                var host = await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, BuildDataDir(nodeId, testName), security, cancellationToken).ConfigureAwait(false);
                 nodes[nodeId] = new E2ENode(host);
             }
 
