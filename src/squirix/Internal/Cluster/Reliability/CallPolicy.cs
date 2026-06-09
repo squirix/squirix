@@ -143,9 +143,13 @@ internal sealed class CallPolicy : ICallPolicy
                         last = ex;
                         last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
                     }
-                    catch (Exception ex)
+                    catch (RpcException rx)
                     {
-                        // Non-transient: stop retrying
+                        last = rx;
+                        break;
+                    }
+                    catch (HttpRequestException ex)
+                    {
                         last = ex;
                         break;
                     }
