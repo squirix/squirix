@@ -525,7 +525,7 @@ jobs:
              github.event_name == 'schedule' ||
              github.event_name == 'workflow_dispatch')
         env:
-            COVERAGE_MIN_LINE_RATE: "0.20"
+            COVERAGE_MIN_LINE_RATE: "0.40"
         steps:
             -   name: Download raw coverage files
                 uses: actions/download-artifact@v7
