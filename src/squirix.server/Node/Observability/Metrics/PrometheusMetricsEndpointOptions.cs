@@ -14,11 +14,4 @@ internal sealed class PrometheusMetricsEndpointOptions
     /// Gets or sets the request path for metrics scraping. Defaults to <c>/metrics</c>.
     /// </summary>
     public string Path { get; set; } = "/metrics";
-
-    /// <summary>
-    /// Gets or sets a value indicating whether non-loopback clients must authenticate to scrape metrics.
-    /// Defaults to <see langword="true" />: loopback scrapes stay anonymous, remote clients require API/JWT auth.
-    /// Set to <see langword="false" /> to allow unauthenticated scrapes from any client.
-    /// </summary>
-    public bool RequireAuth { get; set; } = true;
 }

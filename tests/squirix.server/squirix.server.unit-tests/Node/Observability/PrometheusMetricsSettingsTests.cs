@@ -9,17 +9,6 @@ namespace Squirix.Server.UnitTests.Node.Observability;
 public sealed class PrometheusMetricsSettingsTests
 {
     /// <summary>
-    /// Verifies host defaults require metrics auth when server authentication is enabled.
-    /// </summary>
-    [Fact]
-    public void EndpointOptionsDefaultRequireAuthIsTrue()
-    {
-        var options = new PrometheusMetricsEndpointOptions();
-
-        Assert.True(options.RequireAuth);
-    }
-
-    /// <summary>
     /// Verifies all properties default to <see langword="null" /> (JSON absent fields).
     /// </summary>
     [Fact]
@@ -29,7 +18,6 @@ public sealed class PrometheusMetricsSettingsTests
 
         Assert.Null(settings.Enabled);
         Assert.Null(settings.Path);
-        Assert.Null(settings.RequireAuth);
     }
 
     /// <summary>
@@ -42,12 +30,10 @@ public sealed class PrometheusMetricsSettingsTests
         {
             Enabled = true,
             Path = "/custom-metrics",
-            RequireAuth = true,
         };
 
         Assert.True(settings.Enabled);
         Assert.Equal("/custom-metrics", settings.Path);
-        Assert.True(settings.RequireAuth);
     }
 
     /// <summary>
@@ -75,21 +61,18 @@ public sealed class PrometheusMetricsSettingsTests
         {
             Enabled = true,
             Path = "/metrics",
-            RequireAuth = false,
         };
 
         var settings = new PrometheusMetricsSettings
         {
             Enabled = false,
             Path = "/prom",
-            RequireAuth = true,
         };
 
         var merged = settings.MergeInto(baseline);
 
         Assert.False(merged.Enabled);
         Assert.Equal("/prom", merged.Path);
-        Assert.True(merged.RequireAuth);
     }
 
     /// <summary>
@@ -103,7 +86,6 @@ public sealed class PrometheusMetricsSettingsTests
         {
             Enabled = true,
             Path = "/metrics",
-            RequireAuth = true,
         };
 
         var settings = new PrometheusMetricsSettings();
@@ -112,6 +94,5 @@ public sealed class PrometheusMetricsSettingsTests
 
         Assert.True(merged.Enabled);
         Assert.Equal("/metrics", merged.Path);
-        Assert.True(merged.RequireAuth);
     }
 }

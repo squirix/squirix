@@ -241,11 +241,10 @@ cancellation). Memory pressure is a separate policy and is not configured by the
 The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
 `MapSquirixServer()`.
 
-| Field         | Type   | Default in node host | Validation                                                               |
-| ------------- | ------ | -------------------- | ------------------------------------------------------------------------ |
-| `Enabled`     | bool   | `true`               | Any boolean                                                              |
-| `Path`        | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true`                  |
-| `RequireAuth` | bool   | `true`               | When `true`, loopback scrapes stay anonymous; remote clients require `ApiOrJwt`. Set `false` to allow any client |
+| Field     | Type   | Default in node host | Validation                                              |
+| --------- | ------ | -------------------- | ------------------------------------------------------- |
+| `Enabled` | bool   | `true`               | Any boolean                                             |
+| `Path`    | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true` |
 
 Example fragment:
 
@@ -254,8 +253,7 @@ Example fragment:
     "Squirix": {
         "PrometheusMetrics": {
             "enabled": true,
-            "path": "/metrics",
-            "requireAuth": true
+            "path": "/metrics"
         }
     }
 }

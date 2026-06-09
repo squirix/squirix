@@ -15,8 +15,7 @@ internal static class SquirixMetricsEndpointExtensions
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">The request path to expose metrics on. Defaults to <c>/metrics</c>.</param>
-    /// <param name="accessMode">Loopback-or-authenticated by default when <see cref="PrometheusMetricsEndpointOptions.RequireAuth" /> is enabled.</param>
-    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics", MetricsEndpointAccessMode accessMode = MetricsEndpointAccessMode.Anonymous)
+    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics")
     {
         _ = PrometheusMetricsScraper.Instance;
 
@@ -24,7 +23,7 @@ internal static class SquirixMetricsEndpointExtensions
             path,
             async ctx =>
             {
-                if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx, accessMode))
+                if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx))
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return;

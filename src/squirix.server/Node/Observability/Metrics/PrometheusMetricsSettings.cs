@@ -9,8 +9,6 @@ internal sealed class PrometheusMetricsSettings
 
     public string? Path { get; init; }
 
-    public bool? RequireAuth { get; init; }
-
     /// <summary>
     /// Merges these settings onto a baseline (JSON <see langword="null" /> fields keep baseline values).
     /// </summary>
@@ -20,6 +18,5 @@ internal sealed class PrometheusMetricsSettings
     {
         Enabled = Enabled ?? baseline.Enabled,
         Path = string.IsNullOrWhiteSpace(Path) ? baseline.Path : Path,
-        RequireAuth = RequireAuth ?? baseline.RequireAuth,
     };
 }

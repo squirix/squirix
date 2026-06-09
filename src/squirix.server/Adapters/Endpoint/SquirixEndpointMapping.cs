@@ -15,12 +15,7 @@ internal static class SquirixEndpointMapping
 
         var metricsOptions = app.Services.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
         if (metricsOptions.Enabled)
-        {
-            var accessMode = metricsOptions.RequireAuth
-                ? MetricsEndpointAccessMode.LoopbackOrAuthenticated
-                : MetricsEndpointAccessMode.Anonymous;
-            app.MapSquirixMetrics(metricsOptions.Path, accessMode);
-        }
+            app.MapSquirixMetrics(metricsOptions.Path);
 
         app.MapAdminEndpoints(app.Environment, authEnabled);
 

@@ -25,7 +25,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http, MetricsEndpointAccessMode.LoopbackOrAuthenticated));
+        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 
     /// <summary>
@@ -42,7 +42,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.False(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http, MetricsEndpointAccessMode.LoopbackOrAuthenticated));
+        Assert.False(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 
     /// <summary>
@@ -60,23 +60,6 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http, MetricsEndpointAccessMode.LoopbackOrAuthenticated));
-    }
-
-    /// <summary>
-    /// Verifies anonymous mode allows remote unauthenticated clients.
-    /// </summary>
-    [Fact]
-    public void IsRequestAuthorizedAllowsRemoteWhenAnonymousModeEnabled()
-    {
-        var http = new DefaultHttpContext
-        {
-            Connection =
-            {
-                RemoteIpAddress = IPAddress.Parse("203.0.113.10"),
-            },
-        };
-
-        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http, MetricsEndpointAccessMode.Anonymous));
+        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 }

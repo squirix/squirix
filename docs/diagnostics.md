@@ -162,10 +162,9 @@ Important:
 
 - Admin routes use the same route-level authorization policy as the rest of `/admin`.
 - When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. By default
-  (`PrometheusMetrics.RequireAuth=true`), loopback scrapes (for example Prometheus on the same host) stay anonymous;
-  remote clients must present the same `X-Api-Key` header or JWT bearer token used for cache/admin routes. Set
-  `PrometheusMetrics.RequireAuth` to `false` only when unauthenticated remote scrapes are explicitly acceptable.
+- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. Loopback scrapes (for example
+  Prometheus on the same host) stay anonymous; remote clients must present the same `X-Api-Key` header or JWT bearer
+  token used for cache/admin routes. There is no settings flag to disable this rule.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 
