@@ -82,7 +82,11 @@ internal static class BackpressureMetrics
             {
                 total += selector(observer);
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Keep metrics observation resilient if one observer source is torn down concurrently.
+            }
+            catch (InvalidOperationException)
             {
                 // Keep metrics observation resilient if one observer source is torn down concurrently.
             }

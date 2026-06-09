@@ -24,7 +24,13 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
             return env;
         }
-        catch
+        catch (JsonException)
+        {
+            JournalJsonCodecMetrics.AddOp("decode", "error");
+            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
+        catch (NotSupportedException)
         {
             JournalJsonCodecMetrics.AddOp("decode", "error");
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
@@ -43,7 +49,13 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
             return bytes;
         }
-        catch
+        catch (JsonException)
+        {
+            JournalJsonCodecMetrics.AddOp("encode", "error");
+            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
+            throw;
+        }
+        catch (NotSupportedException)
         {
             JournalJsonCodecMetrics.AddOp("encode", "error");
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);

@@ -45,7 +45,11 @@ public static class FileKit
             if (!string.IsNullOrEmpty(path))
                 File.Delete(path);
         }
-        catch
+        catch (IOException)
+        {
+            /* ignore */
+        }
+        catch (UnauthorizedAccessException)
         {
             /* ignore */
         }

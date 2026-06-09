@@ -33,7 +33,22 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
             Record("deserialize", true, start);
             return result;
         }
-        catch (Exception ex)
+        catch (JsonException ex)
+        {
+            RecordFailure("deserialize", ex, start);
+            throw;
+        }
+        catch (NotSupportedException ex)
+        {
+            RecordFailure("deserialize", ex, start);
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RecordFailure("deserialize", ex, start);
+            throw;
+        }
+        catch (IOException ex)
         {
             RecordFailure("deserialize", ex, start);
             throw;
@@ -50,7 +65,22 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
             _inner.Serialize(destination, value);
             Record("serialize", true, start);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
+        {
+            RecordFailure("serialize", ex, start);
+            throw;
+        }
+        catch (NotSupportedException ex)
+        {
+            RecordFailure("serialize", ex, start);
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RecordFailure("serialize", ex, start);
+            throw;
+        }
+        catch (IOException ex)
         {
             RecordFailure("serialize", ex, start);
             throw;
@@ -70,7 +100,22 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
             Record(op, true, sw);
             return result;
         }
-        catch (Exception ex)
+        catch (JsonException ex)
+        {
+            RecordFailure(op, ex, sw);
+            throw;
+        }
+        catch (NotSupportedException ex)
+        {
+            RecordFailure(op, ex, sw);
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RecordFailure(op, ex, sw);
+            throw;
+        }
+        catch (IOException ex)
         {
             RecordFailure(op, ex, sw);
             throw;

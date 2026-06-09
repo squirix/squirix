@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -223,7 +224,27 @@ internal sealed class RecoveryService<T> : IHostedService
             LogManager.RecoveryComplete(_log, replayState.FromSegment, replayState.LastAppliedSequence);
             _journalStartupGate.Open();
         }
-        catch
+        catch (IOException)
+        {
+            LogManager.JournalRecoveryFailed(_log);
+            throw;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            LogManager.JournalRecoveryFailed(_log);
+            throw;
+        }
+        catch (InvalidDataException)
+        {
+            LogManager.JournalRecoveryFailed(_log);
+            throw;
+        }
+        catch (InvalidOperationException)
+        {
+            LogManager.JournalRecoveryFailed(_log);
+            throw;
+        }
+        catch (JsonException)
         {
             LogManager.JournalRecoveryFailed(_log);
             throw;
@@ -240,7 +261,27 @@ internal sealed class RecoveryService<T> : IHostedService
         {
             // Host shutdown path.
         }
-        catch
+        catch (IOException)
+        {
+            // Non-blocking mode must not silently continue after failed recovery.
+            _applicationLifetime?.StopApplication();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Non-blocking mode must not silently continue after failed recovery.
+            _applicationLifetime?.StopApplication();
+        }
+        catch (InvalidDataException)
+        {
+            // Non-blocking mode must not silently continue after failed recovery.
+            _applicationLifetime?.StopApplication();
+        }
+        catch (InvalidOperationException)
+        {
+            // Non-blocking mode must not silently continue after failed recovery.
+            _applicationLifetime?.StopApplication();
+        }
+        catch (JsonException)
         {
             // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
@@ -278,12 +319,25 @@ internal sealed class RecoveryService<T> : IHostedService
             {
                 snapshot = await SnapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (IOException)
             {
-                LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotReference.Path);
-                RequireFullJournalReplayRange(context.ManifestCurrentJournal);
-                fromSegment = context.FirstJournalSegmentOrDefault;
-                lastAppliedSeq = 0;
+                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+            }
+            catch (JsonException)
+            {
+                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+            }
+            catch (InvalidDataException)
+            {
+                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+            }
+            catch (InvalidOperationException)
+            {
+                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
             }
 
             if (snapshot is null)
@@ -304,6 +358,14 @@ internal sealed class RecoveryService<T> : IHostedService
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
         return new ReplayState(fromSegment, lastAppliedSeq);
+    }
+
+    private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
+    {
+        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
+        RequireFullJournalReplayRange(context.ManifestCurrentJournal);
+        fromSegment = context.FirstJournalSegmentOrDefault;
+        lastAppliedSeq = 0;
     }
 
     private sealed record ReplayContext(

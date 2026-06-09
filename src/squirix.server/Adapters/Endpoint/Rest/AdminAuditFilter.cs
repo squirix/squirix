@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -47,7 +48,25 @@ internal sealed class AdminAuditFilter : IEndpointFilter
             _sink.Record(new AdminAuditEvent(DateTime.UtcNow, action, user, remote, statusCode, null));
             return result;
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            AdminActionFailedMessage(_logger, action, user, remote, ex);
+            _sink.Record(new AdminAuditEvent(DateTime.UtcNow, action, user, remote, StatusCodes.Status500InternalServerError, ex.Message));
+            throw;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AdminActionFailedMessage(_logger, action, user, remote, ex);
+            _sink.Record(new AdminAuditEvent(DateTime.UtcNow, action, user, remote, StatusCodes.Status500InternalServerError, ex.Message));
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AdminActionFailedMessage(_logger, action, user, remote, ex);
+            _sink.Record(new AdminAuditEvent(DateTime.UtcNow, action, user, remote, StatusCodes.Status500InternalServerError, ex.Message));
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             AdminActionFailedMessage(_logger, action, user, remote, ex);
             _sink.Record(new AdminAuditEvent(DateTime.UtcNow, action, user, remote, StatusCodes.Status500InternalServerError, ex.Message));

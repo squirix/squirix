@@ -106,7 +106,14 @@ internal sealed class E2ECluster : IAsyncDisposable
 
             return new E2ECluster(nodes);
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            foreach (var node in nodes.Values)
+                await node.DisposeAsync().ConfigureAwait(false);
+
+            throw;
+        }
+        catch (IOException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);

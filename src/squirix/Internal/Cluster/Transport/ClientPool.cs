@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Limits;
@@ -89,7 +90,17 @@ internal sealed class ClientPool : IClientPool
                 ClientPoolMetrics.AddWarmup();
                 primaryNodeId ??= nodeId;
             }
-            catch (Exception ex)
+            catch (RpcException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
+            catch (IOException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
+            catch (HttpRequestException ex)
             {
                 lastFailure = ex;
                 failuresByNode[nodeId] = ex;
@@ -127,7 +138,11 @@ internal sealed class ClientPool : IClientPool
             {
                 await item.Value.DisposeAsync().ConfigureAwait(false);
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
+            }
+            catch (IOException)
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
@@ -140,7 +155,11 @@ internal sealed class ClientPool : IClientPool
                 ch.Value.Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
+            }
+            catch (IOException)
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }

@@ -115,7 +115,11 @@ public static class SquirixServerConfiguration
             {
                 listener.Stop();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+            }
+            catch (SocketException)
             {
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
@@ -194,7 +198,12 @@ public static class SquirixServerConfiguration
             error = string.Join(Environment.NewLine, failures);
             return false;
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (JsonException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+        catch (InvalidOperationException ex)
         {
             error = ex.Message;
             return false;
@@ -294,7 +303,11 @@ public static class SquirixServerConfiguration
             {
                 listener.Stop();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+            }
+            catch (SocketException)
             {
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }

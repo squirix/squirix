@@ -218,7 +218,15 @@ internal sealed class JournalWriter : IJournalCoordinator
         {
             // The timer may be disposed while the loop is waiting for the next tick.
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
         {
             failures.Add(ex);
         }
@@ -235,7 +243,15 @@ internal sealed class JournalWriter : IJournalCoordinator
                 _ = _ioGate.Release();
             }
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
         {
             failures.Add(ex);
         }
@@ -244,7 +260,15 @@ internal sealed class JournalWriter : IJournalCoordinator
         {
             await DisposeStreamAsync().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
         {
             failures.Add(ex);
         }
@@ -527,7 +551,12 @@ internal sealed class JournalWriter : IJournalCoordinator
             BinaryPrimitives.WriteUInt32LittleEndian(footer, crc);
             stream.Write(footer);
         }
-        catch
+        catch (IOException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(stream, frameStart);
+            throw;
+        }
+        catch (ObjectDisposedException)
         {
             TruncateActiveSegmentAfterFailedFrame(stream, frameStart);
             throw;
@@ -644,7 +673,17 @@ internal sealed class JournalWriter : IJournalCoordinator
         {
             // Flush loop may outlive the writer by one tick; dispose completes the timer and pump exits without surfacing as an error.
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            Volatile.Write(ref _flushLoopFailure, ex);
+            throw;
+        }
+        catch (ObjectDisposedException ex)
+        {
+            Volatile.Write(ref _flushLoopFailure, ex);
+            throw;
+        }
+        catch (InvalidOperationException ex)
         {
             Volatile.Write(ref _flushLoopFailure, ex);
             throw;

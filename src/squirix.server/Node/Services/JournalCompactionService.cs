@@ -111,7 +111,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 {
                     CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
                 }
-                catch
+                catch (InvalidOperationException)
                 {
                     // Metrics emission is best-effort and must not fail compaction flow.
                 }
@@ -131,7 +131,28 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             // Treat cancellation as skipped to avoid backoff escalation
             return AttemptResult.Skipped;
         }
-        catch
+        catch (IOException)
+        {
+            _consecutiveFailures++;
+            ChangeState(CompactionState.Failed);
+            LogManager.CompactionFailed(_log);
+            return AttemptResult.Failed;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _consecutiveFailures++;
+            ChangeState(CompactionState.Failed);
+            LogManager.CompactionFailed(_log);
+            return AttemptResult.Failed;
+        }
+        catch (InvalidOperationException)
+        {
+            _consecutiveFailures++;
+            ChangeState(CompactionState.Failed);
+            LogManager.CompactionFailed(_log);
+            return AttemptResult.Failed;
+        }
+        catch (InvalidDataException)
         {
             _consecutiveFailures++;
             ChangeState(CompactionState.Failed);

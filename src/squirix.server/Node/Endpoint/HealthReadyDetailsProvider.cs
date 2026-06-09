@@ -58,14 +58,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
         double? snapshotAgeSeconds = null;
         if (manifest.LastSnapshot?.Path != null)
         {
-            try
-            {
-                snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
-            }
-            catch
-            {
-                snapshotAgeSeconds = null;
-            }
+            snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
         }
 
         var compactionState = _compaction.State switch

@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Squirix.Internal.Cluster.Bootstrap;
-using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Serialization;

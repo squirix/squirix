@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -119,7 +121,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         {
             await action().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;
@@ -140,7 +162,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
             result = classifyResult(value);
             return value;
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;

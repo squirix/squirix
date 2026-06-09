@@ -48,6 +48,7 @@ internal sealed class KeyedLockStriper
         stripes.Sort();
 
         var acquired = 0;
+        var succeeded = false;
         try
         {
             for (; acquired < stripes.Length; acquired++)
@@ -55,14 +56,16 @@ internal sealed class KeyedLockStriper
 
             var lockedStripes = ArrayPool<int>.Shared.Rent(count);
             stripes[..count].CopyTo(lockedStripes);
+            succeeded = true;
             return new Releaser(_locks, lockedStripes, count, true);
         }
-        catch
+        finally
         {
-            for (var i = acquired - 1; i >= 0; i--)
-                Monitor.Exit(_locks[stripes[i]]);
-
-            throw;
+            if (!succeeded)
+            {
+                for (var i = acquired - 1; i >= 0; i--)
+                    Monitor.Exit(_locks[stripes[i]]);
+            }
         }
     }
 

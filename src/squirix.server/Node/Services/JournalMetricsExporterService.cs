@@ -97,7 +97,11 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             {
                 total += new FileInfo(f).Length;
             }
-            catch
+            catch (IOException)
+            {
+                // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
+            }
+            catch (UnauthorizedAccessException)
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
             }

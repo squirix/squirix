@@ -54,7 +54,11 @@ internal static class FileEx
             File.Delete(validatedPath);
             return true;
         }
-        catch (Exception)
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
         {
             return false;
         }
