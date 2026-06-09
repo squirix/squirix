@@ -62,7 +62,7 @@ public static class TestNodeHostFactory
             Peers = peers,
         };
 
-        var persistence = new PersistenceOptions { DataDir = dataDir };
+        var persistence = new PersistenceOptions { DataDir = dataDir, StrictFsync = true };
         var httpHandler = LoopbackHttp.CreateHandler();
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
