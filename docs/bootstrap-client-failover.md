@@ -17,6 +17,9 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 - When at least one peer connects but others fail warm-up, the client emits
   `squirix_client_pool_bootstrap_warmup_skipped_total` (tags: `node_id`, `reason`) and an OpenTelemetry activity
   `client.bootstrap.warmup.peer_skipped` per skipped peer. Connect semantics are unchanged.
+- Client integration tests (`ClientPoolWarmUpTests`) cover unreachable-only warm-up with fail-fast connect options.
+  E2E internal tests (`ClientPoolBootstrapWarmUpTests`) cover live + dead peers; public SDK smoke tests use a single
+  live endpoint to avoid production warmup deadlines on dead peers.
 
 ## Per-operation failover (v0.1 exported client)
 
@@ -29,6 +32,12 @@ maps to one or more gRPC calls on the server.
 
 Transport failover covers gRPC transport errors (for example `Unavailable`, `DeadlineExceeded`). Application-level
 outcomes (`NotFound`, validation errors) are not failover signals.
+
+
+## Testing
+
+Multi-endpoint bootstrap warm-up (reachable plus unreachable peers) is covered in client integration tests:
+`tests/squirix/squirix.integration-tests/Transport/ClientPoolWarmUpTests.cs`. E2E uses a single live endpoint smoke test for the public `SquirixClient` connect path.
 
 ## What this is not
 
