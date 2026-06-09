@@ -1,5 +1,4 @@
 using System;
-using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Runtime.Contracts;
 
