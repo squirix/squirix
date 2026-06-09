@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 using Xunit;
 

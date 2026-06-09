@@ -5,7 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.TestKit;
 using Xunit;
 

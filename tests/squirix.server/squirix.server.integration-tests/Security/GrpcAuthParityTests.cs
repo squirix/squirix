@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;

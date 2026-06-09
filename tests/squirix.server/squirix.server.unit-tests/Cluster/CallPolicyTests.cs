@@ -3,13 +3,13 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Node.Cluster.Reliability;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Utils;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Node.Cluster;
+namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>
 /// Unit tests for deadline-aware retry and timeout handling in <see cref="CallPolicy" />.

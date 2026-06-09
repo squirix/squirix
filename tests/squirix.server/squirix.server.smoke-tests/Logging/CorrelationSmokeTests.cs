@@ -5,7 +5,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Logging;

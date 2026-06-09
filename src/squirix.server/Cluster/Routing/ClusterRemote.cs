@@ -3,13 +3,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Squirix.Server.Node.Cluster.Reliability;
-using Squirix.Server.Node.Cluster.Transport;
+using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.Entry;
 
-namespace Squirix.Server.Node.Cluster.Routing;
+namespace Squirix.Server.Cluster.Routing;
 
 /// <summary>
 /// Forwards cache operations to a remote owner via <see cref="SquirixCacheService" />.

@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Admin;

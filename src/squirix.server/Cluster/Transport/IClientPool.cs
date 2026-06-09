@@ -1,8 +1,8 @@
 using System;
-using Squirix.Server.Node.Cluster.Reliability;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Transport.Grpc.Cache;
 
-namespace Squirix.Server.Node.Cluster.Transport;
+namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>
 /// Small pool for squirix gRPC clients keyed by NodeId.

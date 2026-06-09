@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Http;

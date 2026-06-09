@@ -1,7 +1,7 @@
 using System;
 using System.Net.Http;
 
-namespace Squirix.Server.Node.Cluster.Transport;
+namespace Squirix.Server.Cluster.Transport;
 
 /// <summary>
 /// Validates and configures gRPC transport endpoints for server-to-server transport.

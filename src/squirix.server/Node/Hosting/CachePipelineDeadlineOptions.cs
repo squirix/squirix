@@ -1,7 +1,7 @@
 using System;
 using JetBrains.Annotations;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.Hosting;

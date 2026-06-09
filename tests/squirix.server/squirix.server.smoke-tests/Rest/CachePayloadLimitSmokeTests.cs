@@ -5,9 +5,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.Limits;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.TestKit.Limits;
 using Xunit;
 

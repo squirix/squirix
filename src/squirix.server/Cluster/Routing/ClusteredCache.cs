@@ -2,10 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Server.Node.Cluster.Transport;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Node.Cluster.Routing;
+namespace Squirix.Server.Cluster.Routing;
 
 /// <summary>
 /// Routes cache operations to the static owner using gRPC on remote peers.

@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
 
-namespace Squirix.Server.Node.Cluster.Transport;
+namespace Squirix.Server.Cluster.Transport;
 
 internal static class GrpcChannelConnectWarmup
 {

@@ -7,6 +7,8 @@ internal static class ServerArchitectureNamespaces
 {
     internal const string Adapters = Root + ".Adapters";
 
+    internal const string Cluster = Root + ".Cluster";
+
     internal const string LocalCache = Root + ".LocalCache";
 
     internal const string Node = Root + ".Node";

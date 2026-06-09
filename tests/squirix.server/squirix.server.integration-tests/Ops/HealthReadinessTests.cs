@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Cluster.Membership;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;

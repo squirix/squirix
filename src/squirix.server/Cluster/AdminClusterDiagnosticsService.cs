@@ -1,11 +1,10 @@
 using System;
 using System.Collections.Generic;
-using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Node.Cluster;
+namespace Squirix.Server.Cluster;
 
 /// <summary>
 /// Static cluster topology and ring diagnostics for admin REST endpoints.

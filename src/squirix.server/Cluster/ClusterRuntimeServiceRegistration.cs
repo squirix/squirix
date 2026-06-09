@@ -1,18 +1,17 @@
 using System;
 using System.Net.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Routing;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.App.Decorators;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
-using Squirix.Server.Node.Cluster.Routing;
-using Squirix.Server.Node.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 
-namespace Squirix.Server.Node.Cluster;
+namespace Squirix.Server.Cluster;
 
 /// <summary>
 /// Cluster-owned DI registrations for static topology transport and the hosted <see cref="ClusteredCache{T}" /> singleton.
