@@ -44,8 +44,6 @@ public abstract class SmokeTestBase : IDisposable
 
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
-    private CancellationTokenSource? _defaultCts;
-
     private HttpClient? _httpClient;
 
     static SmokeTestBase()
@@ -57,23 +55,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>
     /// Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.
     /// </summary>
-    protected CancellationToken DefaultCancellationToken
-    {
-        get
-        {
-            var existing = Volatile.Read(ref _defaultCts);
-            if (existing != null)
-                return existing.Token;
-
-            var created = new CancellationTokenSource(TimeSpan.FromMilliseconds(30000));
-            var prior = Interlocked.CompareExchange(ref _defaultCts, created, null);
-            if (prior == null)
-                return created.Token;
-
-            created.Dispose();
-            return prior.Token;
-        }
-    }
+    protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
     /// <summary>
     /// Gets a reusable <see cref="HttpClient" /> configured for gRPC/HTTP2 smoke testing.
@@ -88,7 +70,6 @@ public abstract class SmokeTestBase : IDisposable
     {
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
-        _defaultCts?.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -148,7 +129,10 @@ public abstract class SmokeTestBase : IDisposable
     /// </param>
     /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
