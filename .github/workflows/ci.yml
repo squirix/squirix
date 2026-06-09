@@ -1,11 +1,11 @@
 name: CI
 
 on:
-    # Push/PR to main: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
+    # Push/PR to main or develop: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
     push:
-        branches: [ main ]
+        branches: [ main, develop ]
     pull_request:
-        branches: [ main ]
+        branches: [ main, develop ]
     # Weekly full cross-OS run (same test matrix as manual dispatch).
     schedule:
         - cron: "0 6 * * 1"
@@ -596,7 +596,7 @@ jobs:
                         throw "Line coverage is below the configured threshold."
                     }
             - name: Report
-              if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+              if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
               uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
               with:
                   reports: coverage/**/coverage.cobertura.xml
@@ -605,7 +605,7 @@ jobs:
                   assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
                   classfilters: '+*;-JetBrains.Annotations.*'
             -   name: Upload coverage artifact
-                if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+                if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-report
@@ -620,7 +620,7 @@ jobs:
                       cat coverage/report/Summary.txt >> $GITHUB_STEP_SUMMARY
                       echo '```' >> $GITHUB_STEP_SUMMARY
                     else
-                      echo "Coverage gate executed. HTML report generation is enabled only for main/schedule/manual runs." >> $GITHUB_STEP_SUMMARY
+                      echo "Coverage gate executed. HTML report generation is enabled only for main/develop/schedule/manual runs." >> $GITHUB_STEP_SUMMARY
                     fi
 
     test-duration-summary:
