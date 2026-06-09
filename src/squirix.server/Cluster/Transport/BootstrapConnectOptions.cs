@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.Node.Cluster.Transport;
 
 internal readonly struct BootstrapConnectOptions
 {

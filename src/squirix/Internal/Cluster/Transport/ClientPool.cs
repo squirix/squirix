@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
+using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Limits;
@@ -68,7 +67,6 @@ internal sealed class ClientPool : IClientPool
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
     /// Unreachable endpoints are skipped; startup fails only when no endpoint can be reached.
-    /// After a primary peer connects, remaining peers use a short fail-fast connect budget.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The first reachable bootstrap node id.</returns>
@@ -85,32 +83,13 @@ internal sealed class ClientPool : IClientPool
             if (!_channels.TryGetValue(nodeId, out var channel))
                 continue;
 
-            var connectOptions = primaryNodeId is null
-                ? _connectOptions
-                : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-
             try
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken).ConfigureAwait(false);
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, _connectOptions, cancellationToken).ConfigureAwait(false);
                 ClientPoolMetrics.AddWarmup();
                 primaryNodeId ??= nodeId;
             }
-            catch (RpcException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[nodeId] = ex;
-            }
-            catch (IOException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[nodeId] = ex;
-            }
-            catch (HttpRequestException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[nodeId] = ex;
-            }
-            catch (InvalidOperationException ex)
+            catch (Exception ex)
             {
                 lastFailure = ex;
                 failuresByNode[nodeId] = ex;
@@ -148,11 +127,7 @@ internal sealed class ClientPool : IClientPool
             {
                 await item.Value.DisposeAsync().ConfigureAwait(false);
             }
-            catch (ObjectDisposedException)
-            {
-                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
-            }
-            catch (IOException)
+            catch
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
@@ -165,11 +140,7 @@ internal sealed class ClientPool : IClientPool
                 ch.Value.Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch (ObjectDisposedException)
-            {
-                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
-            }
-            catch (IOException)
+            catch
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }
