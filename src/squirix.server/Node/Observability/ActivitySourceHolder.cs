@@ -4,7 +4,14 @@ namespace Squirix.Server.Node.Observability;
 
 internal static class ActivitySourceHolder
 {
-    public static readonly ActivitySource Squirix = new("Squirix");
+    internal const string SourceName = "Squirix";
 
-    public static Activity? StartInternal(string name) => Squirix.StartActivity(name, ActivityKind.Internal, (ActivityContext)default);
+    private static readonly ActivitySource Source = new(SourceName);
+
+    public static Activity? StartClient(string name) => Source.StartActivity(name, ActivityKind.Client);
+
+    public static Activity? StartInternal(string name) => Source.StartActivity(name);
+
+    public static Activity? StartServer(string name, in ActivityContext parentContext = default) =>
+        parentContext != default ? Source.StartActivity(name, ActivityKind.Server, parentContext) : Source.StartActivity(name, ActivityKind.Server);
 }

@@ -29,7 +29,7 @@ public sealed class CorrelationClientInterceptorTests
         var interceptor = CreateInterceptor();
         var method = CreateUnaryStringMethod();
 
-        using var activity = ActivitySourceHolder.Squirix.StartActivity(ActivityKind.Client);
+        using var activity = ActivitySourceHolder.StartClient(method.FullName);
 
         Assert.NotNull(activity);
 
@@ -63,7 +63,7 @@ public sealed class CorrelationClientInterceptorTests
         var method = CreateUnaryStringMethod();
         var staleHeaders = new Metadata { { "traceparent", "00-stale-stale-00" } };
 
-        using var activity = ActivitySourceHolder.Squirix.StartActivity(ActivityKind.Client);
+        using var activity = ActivitySourceHolder.StartClient(method.FullName);
 
         Assert.NotNull(activity);
 
@@ -98,7 +98,7 @@ public sealed class CorrelationClientInterceptorTests
         var interceptor = CreateInterceptor();
         var method = CreateUnaryStringMethod();
         var staleHeaders = new Metadata { { "tracestate", "old=state" } };
-        using var activity = ActivitySourceHolder.Squirix.StartActivity(ActivityKind.Client);
+        using var activity = ActivitySourceHolder.StartClient(method.FullName);
         Assert.NotNull(activity);
         activity.TraceStateString = "vendor=value";
 
@@ -146,7 +146,7 @@ public sealed class CorrelationClientInterceptorTests
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = static source => source.Name == "Squirix",
+            ShouldListenTo = static source => source.Name == ActivitySourceHolder.SourceName,
             Sample = static (ref _) => ActivitySamplingResult.AllData,
         };
 

@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
@@ -17,12 +16,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     [Fact]
     public void BeginAppliesStrictFsyncAndGroupCommitTags()
     {
-        Activity? captured = null;
-        using var listener = CreateSquirixActivityListener(activity =>
-        {
-            if (activity.DisplayName == "journal.put")
-                captured = activity;
-        });
+        using var listener = CreateSquirixSamplingListener();
 
         var tracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
@@ -34,10 +28,9 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         using var scope = tracer.Begin(JournalOperationKind.Put, in context);
 
         Assert.NotNull(scope);
-        Assert.NotNull(captured);
-        Assert.Equal("journal.put", captured.DisplayName);
-        Assert.Equal(true, captured.GetTagItem("journal.strict_fsync"));
-        Assert.Equal(false, captured.GetTagItem("journal.group_commit"));
+        var activity = AssertActivity("journal.put");
+        Assert.Equal(true, activity.GetTagItem("journal.strict_fsync"));
+        Assert.Equal(false, activity.GetTagItem("journal.group_commit"));
     }
 
     /// <summary>
@@ -46,29 +39,34 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     [Fact]
     public void BeginOmitsDurabilityTagsWhenContextValuesAreNull()
     {
-        Activity? captured = null;
-        using var listener = CreateSquirixActivityListener(activity =>
-        {
-            if (activity.DisplayName == "journal.put")
-                captured = activity;
-        });
+        using var listener = CreateSquirixSamplingListener();
 
         var tracer = new OpenTelemetryJournalOperationTracer();
         using var scope = tracer.Begin(JournalOperationKind.Put, default);
 
         Assert.NotNull(scope);
-        Assert.NotNull(captured);
-        Assert.Null(captured.GetTagItem("journal.strict_fsync"));
-        Assert.Null(captured.GetTagItem("journal.group_commit"));
+        var activity = AssertActivity("journal.put");
+        Assert.Null(activity.GetTagItem("journal.strict_fsync"));
+        Assert.Null(activity.GetTagItem("journal.group_commit"));
     }
 
-    private static ActivityListener CreateSquirixActivityListener(Action<Activity> onStarted)
+    private static Activity AssertActivity(string expectedDisplayName)
+    {
+        var activity = Activity.Current;
+        Assert.NotNull(activity);
+        Assert.Equal(expectedDisplayName, activity.DisplayName);
+        return activity;
+    }
+
+    /// <summary>
+    /// Enables sampling so the Squirix activity source returns a non-null activity.
+    /// </summary>
+    private static ActivityListener CreateSquirixSamplingListener()
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = static source => source.Name == "Squirix",
+            ShouldListenTo = static source => source.Name == ActivitySourceHolder.SourceName,
             Sample = static (ref _) => ActivitySamplingResult.AllData,
-            ActivityStarted = onStarted,
         };
         ActivitySource.AddActivityListener(listener);
         return listener;

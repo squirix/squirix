@@ -52,8 +52,7 @@ internal static class Correlation
             var meta = opt.Headers ?? [];
 
             // Ensure there is an Activity to propagate; keep it cheap.
-            var source = ActivitySourceHolder.Squirix;
-            var activity = Activity.Current ?? source.StartActivity(method, ActivityKind.Client);
+            var activity = Activity.Current ?? ActivitySourceHolder.StartClient(method);
 
             if (activity is null)
                 return new CallOptions(meta, opt.Deadline, opt.CancellationToken, opt.WriteOptions, opt.PropagationToken, opt.Credentials);
@@ -112,15 +111,11 @@ internal static class Correlation
 
         private static Activity? StartServerActivity(string? traceParent, string? traceState, string method)
         {
-            var source = ActivitySourceHolder.Squirix;
             ActivityContext parent = default;
             if (!string.IsNullOrEmpty(traceParent))
                 _ = ActivityContext.TryParse(traceParent, traceState, out parent);
 
-            const ActivityKind kind = ActivityKind.Server;
-            var activity = parent != default ? source.StartActivity(method, kind, parent) : source.StartActivity(method, kind);
-
-            return activity;
+            return ActivitySourceHolder.StartServer(method, in parent);
         }
     }
 
