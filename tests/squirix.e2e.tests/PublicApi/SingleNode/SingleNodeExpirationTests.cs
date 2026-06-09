@@ -416,7 +416,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
             "v",
             new CacheEntryOptions
             {
-                ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(250),
+                ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(500),
             },
             DefaultCancellationToken);
 
@@ -427,7 +427,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
         Assert.True(expiration.HasExpiration);
         Assert.True(expiration.Expiration > TimeSpan.Zero);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(350), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(600), DefaultCancellationToken);
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
