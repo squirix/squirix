@@ -13,20 +13,10 @@ internal static class SquirixMetricsEndpointExtensions
     /// Maps a lightweight Prometheus-compatible metrics endpoint that scrapes <see cref="System.Diagnostics.Metrics" />
     /// instruments from the <c>Squirix</c> meter.
     /// </summary>
-    /// <param name="app">The web application.</param>
-    /// <param name="path">The request path to expose metrics on. Defaults to <c>/metrics</c>.</param>
-    /// <param name="requireAuth">When <see langword="true" />, requires API/JWT authorization on the endpoint.</param>
-    internal static void MapSquirixMetrics(this WebApplication app, string path = "/metrics", bool requireAuth = false) =>
-        ((IEndpointRouteBuilder)app).MapSquirixMetrics(path, requireAuth);
-
-    /// <summary>
-    /// Maps a lightweight Prometheus-compatible metrics endpoint that scrapes <see cref="System.Diagnostics.Metrics" />
-    /// instruments from the <c>Squirix</c> meter.
-    /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">The request path to expose metrics on. Defaults to <c>/metrics</c>.</param>
     /// <param name="requireAuth">When <see langword="true" />, requires API/JWT authorization on the endpoint.</param>
-    private static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics", bool requireAuth = false)
+    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics", bool requireAuth = false)
     {
         _ = PrometheusMetricsScraper.Instance;
 
