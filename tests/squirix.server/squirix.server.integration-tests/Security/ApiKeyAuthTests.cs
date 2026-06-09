@@ -6,7 +6,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
@@ -18,6 +18,7 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <remarks>
 /// Initializes a new instance of the <see cref="ApiKeyAuthTests" /> class.
 /// </remarks>
+[Collection("AuthSensitive")]
 public sealed class ApiKeyAuthTests : IntegrationTestBase
 {
     /// <summary>
@@ -28,10 +29,11 @@ public sealed class ApiKeyAuthTests : IntegrationTestBase
     [Fact]
     public async Task RestCacheEndpointsAllowAnonymousWhenDisabled()
     {
+        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions());
+        await using var node = await StartNodeAsync(url, peers);
 
         using var stringContent = new StringContent("{\"Value\":\"v\",\"Version\":1}", Encoding.UTF8, "application/json");
         var resp = await HttpClient.PutAsync($"{url}/api/v1/cache/ping", stringContent, DefaultCancellationToken);
@@ -46,10 +48,11 @@ public sealed class ApiKeyAuthTests : IntegrationTestBase
     [Fact]
     public async Task RestCacheEndpointsRequireApiKeyWhenEnabled()
     {
+        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "secret1");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["secret1"] });
+        await using var node = await StartNodeAsync(url, peers);
 
         var respNoKey = await HttpClient.PutAsJsonAsync($"{url}/api/v1/cache/foo", new CacheEntry<string> { Value = "v", Version = 1L }, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);

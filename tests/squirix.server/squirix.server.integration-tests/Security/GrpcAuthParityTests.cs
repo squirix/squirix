@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.IdentityModel.Tokens;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -14,6 +14,7 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>
 /// Verifies gRPC authentication parity with REST/admin when ApiOrJwt is enabled.
 /// </summary>
+[Collection("AuthSensitive")]
 public sealed class GrpcAuthParityTests : IntegrationTestBase
 {
     /// <summary>
@@ -23,9 +24,10 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     [Fact]
     public async Task GrpcInvalidApiKeyIsRejected()
     {
+        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "grpc-secret");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["grpc-secret"] });
+        await using var node = await StartNodeAsync(url, peers);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -52,17 +54,13 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
         const string issuer = "https://integration.squirix.test";
         const string audience = "grpc-cache";
 
+        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
+        using var jwtKeyEnv = new TempEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", base64Key);
+        using var jwtIssuerEnv = new TempEnvironmentVariable("SQUIRIX_JWT_ISSUER", issuer);
+        using var jwtAudienceEnv = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", audience);
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions
-            {
-                JwtSigningKey = base64Key,
-                JwtIssuer = issuer,
-                JwtAudience = audience,
-            });
+        await using var node = await StartNodeAsync(url, peers);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -82,9 +80,10 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     [Fact]
     public async Task GrpcMissingAuthIsRejectedWhenApiKeyEnabled()
     {
+        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "grpc-secret");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["grpc-secret"] });
+        await using var node = await StartNodeAsync(url, peers);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -103,9 +102,10 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     [Fact]
     public async Task GrpcValidApiKeySucceeds()
     {
+        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "grpc-secret");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["grpc-secret"] });
+        await using var node = await StartNodeAsync(url, peers);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -129,17 +129,13 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
         const string issuer = "https://integration.squirix.test";
         const string audience = "grpc-cache";
 
+        using var apiKeysEnv = new TempEnvironmentVariable("SQUIRIX_API_KEYS", null);
+        using var jwtKeyEnv = new TempEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", base64Key);
+        using var jwtIssuerEnv = new TempEnvironmentVariable("SQUIRIX_JWT_ISSUER", issuer);
+        using var jwtAudienceEnv = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", audience);
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions
-            {
-                JwtSigningKey = base64Key,
-                JwtIssuer = issuer,
-                JwtAudience = audience,
-            });
+        await using var node = await StartNodeAsync(url, peers);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
