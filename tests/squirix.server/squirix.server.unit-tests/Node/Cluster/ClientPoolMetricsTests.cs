@@ -15,22 +15,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
-
-    /// <summary>
-    /// Ensures Dispose emits squirix_peer_pool_disposals_total counter events.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task DisposeIncrementsDisposalsTotal()
-    {
-        using var sink = new MeasurementSink(MeterName);
-        var peers = BuildPeers(2);
-        var pool = new ClientPool(peers, static _ => new CallPolicy());
-
-        await pool.DisposeAsync();
-
-        Assert.True(sink.HasEvent(PoolDisposalsTotalInstrumentName));
-    }
+    private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
     /// <summary>
     /// Pool size matches configured peers and draining toggles after BeginDrain.
@@ -55,30 +40,19 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// Ensures NodeIds is a deterministic snapshot of the pool membership.
+    /// Ensures Dispose emits squirix_peer_pool_disposals_total counter events.
     /// </summary>
     /// <returns>A task representing the asynchronous unit test.</returns>
     [Fact]
-    public async Task NodeIdsReturnsStableSortedSnapshot()
+    public async Task DisposeIncrementsDisposalsTotal()
     {
-        var peers = BuildPeers(3);
+        using var sink = new MeasurementSink(MeterName);
+        var peers = BuildPeers(2);
         var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await using var poolHandle = pool;
 
-        Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
-    }
+        await pool.DisposeAsync();
 
-    /// <summary>
-    /// Ensures WarmUpAsync fails fast when configured peer endpoints are unreachable.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task WarmUpThrowsWhenEndpointsAreUnreachable()
-    {
-        var peers = BuildPeers(1);
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
-        Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
+        Assert.True(sink.HasEvent(PoolDisposalsTotalInstrumentName));
     }
 
     /// <summary>
@@ -94,6 +68,20 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 
         for (var i = 0; i < 256; i++)
             Assert.Same(first, pool.ForNode("n0"));
+    }
+
+    /// <summary>
+    /// Ensures NodeIds is a deterministic snapshot of the pool membership.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task NodeIdsReturnsStableSortedSnapshot()
+    {
+        var peers = BuildPeers(3);
+        var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var poolHandle = pool;
+
+        Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
     }
 
     /// <summary>
@@ -114,6 +102,19 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 
         Assert.Same(anchor, pool.ForNode("n0"));
         Assert.Equal(2, pool.ActiveClientCount);
+    }
+
+    /// <summary>
+    /// Ensures WarmUpAsync fails fast when configured peer endpoints are unreachable.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task WarmUpThrowsWhenEndpointsAreUnreachable()
+    {
+        var peers = BuildPeers(1);
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
+        Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }
 
     private static Peer[] BuildPeers(int n)

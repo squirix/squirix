@@ -14,6 +14,7 @@ namespace Squirix.IntegrationTests.Transport;
 public sealed class ClientPoolWarmUpTests
 {
     private static readonly CancellationToken DefaultCancellationToken = TestContext.Current.CancellationToken;
+    private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
     /// <summary>
     /// Verifies warm-up fails when no bootstrap endpoint can be reached.
@@ -31,7 +32,7 @@ public sealed class ClientPoolWarmUpTests
             },
         };
 
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
         Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }

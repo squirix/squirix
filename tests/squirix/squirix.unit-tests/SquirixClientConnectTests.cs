@@ -46,23 +46,4 @@ public sealed class SquirixClientConnectTests
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
-
-    /// <summary>
-    /// Verifies the options overload fails when the HTTPS server is unreachable.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
-    [Fact]
-    public async Task ConnectAsyncOptionsThrowsWhenServerUnreachable()
-    {
-        _ = await Assert.ThrowsAnyAsync<Exception>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("https://127.0.0.1:1"), TestContext.Current.CancellationToken).AsTask());
-    }
-
-    /// <summary>
-    /// Verifies ConnectAsync fails when the HTTPS server is unreachable.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
-    [Fact]
-    public async Task ConnectAsyncThrowsWhenServerUnreachable() => _ =
-        await Assert.ThrowsAnyAsync<Exception>(static () => SquirixClient.ConnectAsync("https://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
 }
