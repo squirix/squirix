@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.LocalCache;
+using Squirix.Server.Node.App;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Cluster;
@@ -23,11 +24,13 @@ internal static class SquirixCachePipelineRegistration
         _ = services.AddSingleton<ClientCache<object?>>(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
             sp.GetRequiredService<ILocalCacheMutationOperations<object?>>()));
+        _ = services.AddSingleton<DurableMutationExecutor>();
         _ = services.AddSingleton<JournalLoggingCacheDecorator<object?>>(static sp => new JournalLoggingCacheDecorator<object?>(
             sp.GetRequiredService<ClusterConfig>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<ClientCache<object?>>(),
-            sp.GetRequiredService<IJournalCoordinator>()));
+            sp.GetRequiredService<IJournalCoordinator>(),
+            sp.GetRequiredService<DurableMutationExecutor>()));
         _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
             sp.GetRequiredService<ClusterConfig>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
