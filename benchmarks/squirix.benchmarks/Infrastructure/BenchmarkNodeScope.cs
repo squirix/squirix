@@ -39,7 +39,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         }
         finally
         {
-            TryDeleteDirectory(_dataDir);
+            DirectoryKit.TryDeleteDirectory(_dataDir);
         }
     }
 
@@ -87,23 +87,8 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         catch
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            TryDeleteDirectory(dataDir);
+            DirectoryKit.TryDeleteDirectory(dataDir);
             throw;
-        }
-    }
-
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, true);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
         }
     }
 }

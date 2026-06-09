@@ -11,6 +11,9 @@ namespace Squirix.UnitTests.Internal.Cluster.Transport;
 /// </summary>
 public sealed class ClientPoolChannelReuseTests
 {
+    private const int LoopIterationCount = 256;
+    private static readonly string[] ExpectedNodes = ["node-a", "node-b"];
+
     /// <summary>
     /// Repeated lookups for the same node must return the same gRPC client instance.
     /// </summary>
@@ -30,7 +33,7 @@ public sealed class ClientPoolChannelReuseTests
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());
         var first = pool.ForNode("node-a");
 
-        for (var i = 0; i < 256; i++)
+        for (var i = 0; i < LoopIterationCount; i++)
             Assert.Same(first, pool.ForNode("node-a"));
     }
 
@@ -49,11 +52,11 @@ public sealed class ClientPoolChannelReuseTests
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());
         Assert.Equal(2, pool.ActiveClientCount);
-        Assert.Equal(2, pool.BootstrapNodeIds.Count);
+        Assert.Equal(ExpectedNodes, pool.BootstrapNodeIds);
 
         var anchor = pool.ForNode("node-a");
 
-        for (var i = 0; i < 256; i++)
+        for (var i = 0; i < LoopIterationCount; i++)
             _ = pool.ForNode(i % 2 == 0 ? "node-a" : "node-b");
 
         Assert.Same(anchor, pool.ForNode("node-a"));

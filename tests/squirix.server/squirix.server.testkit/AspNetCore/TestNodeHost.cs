@@ -2,8 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.TestKit.AspNetCore;
@@ -62,33 +60,8 @@ public sealed class TestNodeHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        IAsyncDisposable? journal = null;
-        try
-        {
-            journal = _app.Services.GetService<IJournalCoordinator>();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-
-        try
-        {
-            await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-
-        if (journal is not null)
-        {
-            try
-            {
-                await journal.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
+        await SuppressObjectDisposedAsync(() => new ValueTask(_app.StopAsync(CancellationToken.None))).ConfigureAwait(false);
+        await SuppressObjectDisposedAsync(() => _app.DisposeAsync()).ConfigureAwait(false);
 
         try
         {
@@ -99,14 +72,18 @@ public sealed class TestNodeHost : IAsyncDisposable
             // Best-effort: another teardown path may already have removed or released the segment files.
         }
 
+        _scope?.Dispose();
+    }
+
+    private static async ValueTask SuppressObjectDisposedAsync(Func<ValueTask> action)
+    {
         try
         {
-            await _app.DisposeAsync().ConfigureAwait(false);
+            await action().ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
+            // Best-effort teardown during test host shutdown.
         }
-
-        _scope?.Dispose();
     }
 }

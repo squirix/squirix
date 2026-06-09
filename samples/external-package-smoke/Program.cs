@@ -14,7 +14,7 @@ internal static class Program
 {
     private const string IsolationSharedKey = "shared-key";
 
-    private static async Task<int> Main()
+    public static async Task<int> Main()
     {
         // Isolated store so a third-party run does not pick up a developer's LocalApplicationData journal/snapshots.
         var testRoot = Path.Join(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
@@ -45,19 +45,6 @@ internal static class Program
         }
     }
 
-    private static int RunDotnet(string[] args)
-    {
-        var processStartInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments = string.Join(' ', args),
-            UseShellExecute = false,
-        };
-        using var process = Process.Start(processStartInfo);
-        process?.WaitForExit();
-        return process?.ExitCode ?? 1;
-    }
-
     private static int NextFreePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -65,19 +52,18 @@ internal static class Program
         return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
-    private static async Task RunIsolationAsync(ISquirixClient client, CancellationToken ct)
+    private static int RunDotnet(string[] args)
     {
-        var a = await client.GetCacheAsync<string>("smoke-a", ct);
-        var b = await client.GetCacheAsync<string>("smoke-b", ct);
-        await a.SetAsync(IsolationSharedKey, "from-a", cancellationToken: ct);
-        await b.SetAsync(IsolationSharedKey, "from-b", cancellationToken: ct);
-        if (!string.Equals((await a.GetValueAsync(IsolationSharedKey, ct)).Value, "from-a", StringComparison.Ordinal) || !string.Equals(
-                (await b.GetValueAsync(IsolationSharedKey, ct)).Value,
-                "from-b",
-                StringComparison.Ordinal))
+        var info = new ProcessStartInfo
         {
-            throw new InvalidOperationException("Named cache isolation failed.");
-        }
+            FileName = "dotnet",
+            UseShellExecute = false,
+        };
+        foreach (var arg in args)
+            info.ArgumentList.Add(arg);
+        using var process = Process.Start(info);
+        process?.WaitForExit();
+        return process?.ExitCode ?? 1;
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
@@ -89,6 +75,20 @@ internal static class Program
         if (result.Found)
         {
             throw new InvalidOperationException("Expected expiration key to be absent after wait.");
+        }
+    }
+
+    private static async Task RunIsolationAsync(ISquirixClient client, CancellationToken ct)
+    {
+        var a = await client.GetCacheAsync<string>("smoke-a", ct);
+        var b = await client.GetCacheAsync<string>("smoke-b", ct);
+        await a.SetAsync(IsolationSharedKey, "from-a", cancellationToken: ct);
+        await b.SetAsync(IsolationSharedKey, "from-b", cancellationToken: ct);
+        var v1 = (await a.GetValueAsync(IsolationSharedKey, ct)).Value;
+        var v2 = (await b.GetValueAsync(IsolationSharedKey, ct)).Value;
+        if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Named cache isolation failed.");
         }
     }
 

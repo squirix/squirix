@@ -21,8 +21,10 @@ internal sealed class AdminAuditSink
     public void Record(AdminAuditEvent @event)
     {
         _events.Enqueue(@event);
-        while (_events.Count > _capacity && _events.TryDequeue(out _))
+        while (_events.Count > _capacity)
         {
+            if (!_events.TryDequeue(out _))
+                break;
         }
     }
 }

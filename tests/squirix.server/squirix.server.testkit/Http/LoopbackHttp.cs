@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
 using System.Net.Http;
 
 namespace Squirix.Server.TestKit.Http;
@@ -10,22 +11,6 @@ namespace Squirix.Server.TestKit.Http;
 /// </summary>
 public static class LoopbackHttp
 {
-    /// <summary>
-    /// Ensures loopback HTTPS clients can validate the ASP.NET Core development certificate.
-    /// </summary>
-    public static void EnsureDevelopmentCertificateTrusted()
-    {
-        if (IsDevelopmentCertificateTrusted())
-            return;
-
-        var exitCode = RunDotnet(["dev-certs", "https", "--trust"]);
-        if (exitCode != 0 || !IsDevelopmentCertificateTrusted())
-        {
-            throw new InvalidOperationException(
-                "The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
-        }
-    }
-
     /// <summary>
     /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
     /// Requires the ASP.NET Core development certificate to be trusted. See <see cref="EnsureDevelopmentCertificateTrusted" />.
@@ -51,24 +36,39 @@ public static class LoopbackHttp
         };
         return new HttpClient(handler, true)
         {
-            DefaultRequestVersion = System.Net.HttpVersion.Version11,
+            DefaultRequestVersion = HttpVersion.Version11,
             DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
             Timeout = timeout ?? TimeSpan.FromSeconds(30),
         };
     }
 
-    private static bool IsDevelopmentCertificateTrusted() =>
-        RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0;
+    /// <summary>
+    /// Ensures loopback HTTPS clients can validate the ASP.NET Core development certificate.
+    /// </summary>
+    public static void EnsureDevelopmentCertificateTrusted()
+    {
+        if (IsDevelopmentCertificateTrusted())
+            return;
+
+        var exitCode = RunDotnet(["dev-certs", "https", "--trust"]);
+        if (exitCode != 0 || !IsDevelopmentCertificateTrusted())
+        {
+            throw new InvalidOperationException("The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
+        }
+    }
+
+    private static bool IsDevelopmentCertificateTrusted() => RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0;
 
     private static int RunDotnet(string[] args)
     {
-        var processStartInfo = new ProcessStartInfo
+        var info = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = string.Join(' ', args),
             UseShellExecute = false,
         };
-        using var process = Process.Start(processStartInfo);
+        foreach (var arg in args)
+            info.ArgumentList.Add(arg);
+        using var process = Process.Start(info);
         process?.WaitForExit();
         return process?.ExitCode ?? 1;
     }
