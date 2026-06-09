@@ -10,7 +10,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 public sealed class ClientBootstrapConnectTests : E2ETestBase
 {
     /// <summary>
-    /// Verifies client connect succeeds when only one configured bootstrap endpoint is reachable.
+    /// Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.
     /// </summary>
     /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
