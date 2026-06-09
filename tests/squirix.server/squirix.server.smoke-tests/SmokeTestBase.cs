@@ -13,11 +13,11 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
@@ -42,14 +42,13 @@ public abstract class SmokeTestBase : IDisposable
     private static readonly PortAllocator PortPool = new(PortRangeStart, PortRangeStart + PortRangeSize - 1);
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
 
-    private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
-
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
     private HttpClient? _httpClient;
 
     static SmokeTestBase()
     {
+        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 
@@ -121,9 +120,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="output">Optional xUnit output helper for log capture.</param>
     /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
     /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
-    /// <param name="security">
-    /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
-    /// </param>
+    /// <param name="disableSecurity">When <c>true</c>, temporarily clears security-related environment variables so admin endpoints remain unauthenticated.</param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
     /// <param name="runtimeOptions">Optional cache runtime options such as strict type binding policy.</param>
     /// <param name="memoryPressureOptions">Optional memory pressure options; when <c>null</c>, defaults merged from settings and environment are used.</param>
@@ -147,7 +144,7 @@ public abstract class SmokeTestBase : IDisposable
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
-        TestNodeSecurityOptions? security = null,
+        bool disableSecurity = true,
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
@@ -189,11 +186,11 @@ public abstract class SmokeTestBase : IDisposable
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
-            (security ?? UnauthenticatedSecurity).ToServerOptions(),
             null,
             cancellationToken);
 
-        return new TestNodeHost(app, url, persistenceOptionsOverride.DataDir);
+        using var securityScopeOwner = new DisposableOwnership(disableSecurity ? SuppressSecurity() : null);
+        return new TestNodeHost(app, url, persistenceOptionsOverride.DataDir, securityScopeOwner.Transfer());
     }
 
     /// <summary>
@@ -280,6 +277,12 @@ public abstract class SmokeTestBase : IDisposable
         return PathKit.Combine(true, appData, "SquirixSmoke");
     }
 
+    /// <summary>
+    /// Temporarily clears security-related environment variables so tests can access admin endpoints without auth.
+    /// </summary>
+    /// <returns>A disposable scope that restores the previous security environment when disposed.</returns>
+    private static SecurityScope SuppressSecurity() => new();
+
     private string ConstructDataDir(string? dataDir, string selfNodeId, string testScope, bool clean)
     {
         var dataRoot = PathKit.Combine(true, GetStableRoot(), GetType().Name, testScope, "cluster");
@@ -309,5 +312,56 @@ public abstract class SmokeTestBase : IDisposable
             SnapshotIntervalSec = 60,
             StrictFsync = true,
         };
+    }
+
+    private sealed class DisposableOwnership : IDisposable
+    {
+        private IDisposable? _value;
+
+        public DisposableOwnership(IDisposable? value)
+        {
+            _value = value;
+        }
+
+        public IDisposable? Transfer()
+        {
+            var value = _value;
+            _value = null;
+            return value;
+        }
+
+        public void Dispose()
+        {
+            _value?.Dispose();
+            _value = null;
+        }
+    }
+
+    private sealed class SecurityScope : IDisposable
+    {
+        private readonly TempEnvironmentVariable _apiKeys = new("SQUIRIX_API_KEYS", null);
+        private readonly TempEnvironmentVariable _certificatePassword = new("ASPNETCORE_Kestrel__Certificates__Default__Password", null);
+        private readonly TempEnvironmentVariable _certificatePath = new("ASPNETCORE_Kestrel__Certificates__Default__Path", null);
+        private readonly TempEnvironmentVariable _jwtAllowHttpMetadata = new("SQUIRIX_JWT_ALLOW_HTTP_METADATA", null);
+        private readonly TempEnvironmentVariable _jwtAudience = new("SQUIRIX_JWT_AUDIENCE", null);
+        private readonly TempEnvironmentVariable _jwtAuthority = new("SQUIRIX_JWT_AUTHORITY", null);
+        private readonly TempEnvironmentVariable _jwtIssuer = new("SQUIRIX_JWT_ISSUER", null);
+        private readonly TempEnvironmentVariable _jwtSigning = new("SQUIRIX_JWT_SIGNING_KEY", null);
+        private readonly TempEnvironmentVariable _mtlsAllowSelfSigned = new("SQUIRIX_MTLS_ALLOW_SELF_SIGNED", null);
+        private readonly TempEnvironmentVariable _mtlsEnabled = new("SQUIRIX_MTLS", null);
+
+        public void Dispose()
+        {
+            _mtlsEnabled.Dispose();
+            _mtlsAllowSelfSigned.Dispose();
+            _jwtAllowHttpMetadata.Dispose();
+            _jwtSigning.Dispose();
+            _jwtIssuer.Dispose();
+            _jwtAudience.Dispose();
+            _jwtAuthority.Dispose();
+            _certificatePath.Dispose();
+            _certificatePassword.Dispose();
+            _apiKeys.Dispose();
+        }
     }
 }

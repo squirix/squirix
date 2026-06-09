@@ -15,23 +15,21 @@ internal static class SquirixMetricsEndpointExtensions
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">The request path to expose metrics on. Defaults to <c>/metrics</c>.</param>
-    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics")
+    /// <param name="requireAuth">When <see langword="true" />, requires API/JWT authorization on the endpoint.</param>
+    internal static void MapSquirixMetrics(this IEndpointRouteBuilder endpoints, string path = "/metrics", bool requireAuth = false)
     {
         _ = PrometheusMetricsScraper.Instance;
 
-        _ = endpoints.MapGet(
+        var route = endpoints.MapGet(
             path,
-            async ctx =>
+            static async ctx =>
             {
-                if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx))
-                {
-                    ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    return;
-                }
-
                 ctx.Response.ContentType = "text/plain; version=0.0.4";
                 var text = PrometheusMetricsScraper.Instance.Scrape();
                 await ctx.Response.WriteAsync(text);
             });
+
+        if (requireAuth)
+            _ = route.RequireAuthorization("ApiOrJwt");
     }
 }

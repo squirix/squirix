@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Reliability;
@@ -11,9 +10,8 @@ namespace Squirix.IntegrationTests.Transport;
 /// <summary>
 /// Client-only transport integration coverage for cluster peer pool warm-up.
 /// </summary>
-public sealed class ClientPoolWarmUpTests
+public sealed class ClientPoolWarmUpTests : IntegrationTestBase
 {
-    private static readonly CancellationToken DefaultCancellationToken = TestContext.Current.CancellationToken;
     private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
     /// <summary>
