@@ -42,11 +42,11 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.GetValueAsync(cacheName, key, ct), cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.InsertAsync(cacheName, key, value, ct), cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.SetAsync(cacheName, key, value, ct), cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.InsertAsync(cacheName, key, entry, ct), cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.SetAsync(cacheName, key, entry, ct), cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.RemoveExpirationAsync(cacheName, key, ct), cancellationToken);

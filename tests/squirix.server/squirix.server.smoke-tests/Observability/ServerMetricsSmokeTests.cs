@@ -41,7 +41,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     [GeneratedRegex("""^squirix_journal_appends_total\{.*op="insert".*\} \d+""", RegexOptions.Multiline)]
     private static partial Regex AppendsTotalRegex();
 
-    [GeneratedRegex("""^squirix_ops_total\{.*operation="insert".*\} \d+""", RegexOptions.Multiline)]
+    [GeneratedRegex("""^squirix_ops_total\{.*operation="set".*\} \d+""", RegexOptions.Multiline)]
     private static partial Regex OpsTotalRegex();
 
     private async Task<string> GetWithRetryAsync(string metricsUrl, TimeSpan delay, int attempts)

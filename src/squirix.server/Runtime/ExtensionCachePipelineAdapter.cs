@@ -32,10 +32,10 @@ internal sealed class ExtensionCachePipelineAdapter<T> : ILogicalNamespacedCache
 
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _decorated.GetValueAsync(cacheName, key, cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _decorated.InsertAsync(cacheName, key, value, cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _decorated.InsertAsync(cacheName, key, value, cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _entryDecorated?.InsertAsync(cacheName, key, entry, cancellationToken) ?? _core.InsertAsync(cacheName, key, entry, cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _entryDecorated?.InsertAsync(cacheName, key, entry, cancellationToken) ?? _core.SetAsync(cacheName, key, entry, cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _core.RemoveExpirationAsync(cacheName, key, cancellationToken);
 

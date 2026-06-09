@@ -65,21 +65,21 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.GetValueAsync(cacheName, key, cancellationToken);
     }
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
         EnsureValueWithinLimit(value, 1);
-        return _inner.InsertAsync(cacheName, key, value, cancellationToken);
+        return _inner.SetAsync(cacheName, key, value, cancellationToken);
     }
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
         EnsureEntryWithinLimit(entry);
         cancellationToken.ThrowIfCancellationRequested();
-        return _inner.InsertAsync(cacheName, key, entry, cancellationToken);
+        return _inner.SetAsync(cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)

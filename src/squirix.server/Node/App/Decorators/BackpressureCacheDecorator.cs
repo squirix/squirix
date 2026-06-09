@@ -56,14 +56,14 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, value, cancellationToken),
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, value, cancellationToken),
         cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, entry, cancellationToken),
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, entry, cancellationToken),
         cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(

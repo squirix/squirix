@@ -30,7 +30,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     }
 
     public ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        InsertAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
 
     public async ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
@@ -47,14 +47,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        InsertAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
 
-    public async ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
         {
-            await _inner.InsertAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -66,7 +66,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
             async ct =>
             {
-                await _inner.InsertAsync(cacheName, key, entry, ct).ConfigureAwait(false);
+                await _inner.SetAsync(cacheName, key, entry, ct).ConfigureAwait(false);
                 return true;
             },
             cancellationToken).ConfigureAwait(false);
