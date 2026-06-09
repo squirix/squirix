@@ -16,9 +16,9 @@ internal sealed class PrometheusMetricsEndpointOptions
     public string Path { get; set; } = "/metrics";
 
     /// <summary>
-    /// Gets or sets a value indicating whether the metrics endpoint requires the same API/JWT authorization as protected REST routes
-    /// when server authentication is enabled. Defaults to <see langword="true" />; set to <see langword="false" /> to allow
-    /// unauthenticated scrapes while API key or JWT auth protects other routes.
+    /// Gets or sets a value indicating whether non-loopback clients must authenticate to scrape metrics.
+    /// Defaults to <see langword="true" />: loopback scrapes stay anonymous, remote clients require API/JWT auth.
+    /// Set to <see langword="false" /> to allow unauthenticated scrapes from any client.
     /// </summary>
     public bool RequireAuth { get; set; } = true;
 }

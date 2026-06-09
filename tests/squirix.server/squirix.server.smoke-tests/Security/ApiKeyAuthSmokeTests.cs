@@ -78,11 +78,11 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     }
 
     /// <summary>
-    /// Verifies that the Prometheus <c>/metrics</c> scrape endpoint requires API key auth when server auth is enabled.
+    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous while remote scrapes require API key auth.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
-    public async Task MetricsReturn401WithoutKeyWhenAuthEnabled()
+    public async Task MetricsAllowLoopbackWithoutKeyButRequireKeyForRemoteWhenAuthEnabled()
     {
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
@@ -94,15 +94,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        var respNoKey = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);
+        var loopback = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
+        Assert.True(loopback.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopback.StatusCode} {loopback.ReasonPhrase}");
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Add("X-Api-Key", "smoke-key");
-        var ok = await HttpClient.SendAsync(req, DefaultCancellationToken);
-        Assert.True(ok.IsSuccessStatusCode, $"Expected success with API key, got {(int)ok.StatusCode} {ok.ReasonPhrase}");
+        var authenticated = await HttpClient.SendAsync(req, DefaultCancellationToken);
+        Assert.True(authenticated.IsSuccessStatusCode, $"Expected success with API key, got {(int)authenticated.StatusCode} {authenticated.ReasonPhrase}");
     }
 
     /// <summary>
