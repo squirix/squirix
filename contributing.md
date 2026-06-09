@@ -15,11 +15,25 @@ feedback, and durability questions via [GitHub Issues](https://github.com/squiri
 - Use issues for proposals or ideas.
 - Keep it short and explain the use case.
 
+### Branching model
+
+- **`develop`** — integration branch for day-to-day work. Open pull requests against `develop`.
+- **`main`** — stable release branch. Changes land here via a release pull request (`develop` → `main`).
+- **Releases** — tag a commit on `main` with `v*` (for example `v0.2.0`) to trigger the Release workflow.
+
+Typical flow:
+
+```text
+feature/my-fix → develop → main → tag vX.Y.Z
+```
+
 ### Submit changes
 
-1. Fork the repo and create a branch:
+1. Fork the repo, branch from `develop`, and create a feature branch:
 
    ```bash
+   git checkout develop
+   git pull
    git checkout -b my-fix
    ```
 
@@ -30,7 +44,7 @@ feedback, and durability questions via [GitHub Issues](https://github.com/squiri
    dotnet test squirix.slnx --configuration Release
    ```
 
-3. Open a pull request with a short description.
+3. Open a pull request targeting `develop` with a short description.
 
 ## Guidelines
 
