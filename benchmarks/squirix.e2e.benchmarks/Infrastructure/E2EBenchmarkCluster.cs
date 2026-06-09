@@ -4,8 +4,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
-using Squirix.E2EBenchmarks.Utils;
 using Squirix.Server.TestKit.AspNetCore;
+using DirectoryKit = Squirix.E2EBenchmarks.Utils.DirectoryKit;
+using PathKit = Squirix.E2EBenchmarks.Utils.PathKit;
 
 namespace Squirix.E2EBenchmarks.Infrastructure;
 
@@ -40,7 +41,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         }
         finally
         {
-            TryDeleteDirectory(_rootDataDir);
+            DirectoryKit.TryDeleteDirectory(_rootDataDir);
         }
     }
 
@@ -75,7 +76,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            TryDeleteDirectory(root);
+            DirectoryKit.TryDeleteDirectory(root);
             throw;
         }
     }
@@ -84,20 +85,5 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     {
         _client ??= await BenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Address, cancellationToken).ConfigureAwait(false);
         return await _client.Client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
-    }
-
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-                Directory.Delete(path, true);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
     }
 }

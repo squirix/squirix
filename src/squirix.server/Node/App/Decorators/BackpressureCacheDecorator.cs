@@ -105,15 +105,12 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         if (!task.IsCompleted)
             return RunWithLeaseAwaited(lease, task);
 
-        try
+        using (lease)
         {
             task.GetAwaiter().GetResult();
-            return ValueTask.CompletedTask;
         }
-        finally
-        {
-            lease.Dispose();
-        }
+
+        return ValueTask.CompletedTask;
     }
 
     private static ValueTask<TResult> RunWithLease<TResult>(Func<ValueTask<TResult>> action, BackpressureLease lease)
@@ -122,37 +119,25 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         if (!task.IsCompletedSuccessfully)
             return RunWithLeaseAwaited(lease, task);
 
-        try
+        using (lease)
         {
             return ValueTask.FromResult(task.Result);
-        }
-        finally
-        {
-            lease.Dispose();
         }
     }
 
     private static async ValueTask RunWithLeaseAwaited(BackpressureLease lease, ValueTask task)
     {
-        try
+        using (lease)
         {
             await task.ConfigureAwait(false);
-        }
-        finally
-        {
-            lease.Dispose();
         }
     }
 
     private static async ValueTask<TResult> RunWithLeaseAwaited<TResult>(BackpressureLease lease, ValueTask<TResult> task)
     {
-        try
+        using (lease)
         {
             return await task.ConfigureAwait(false);
-        }
-        finally
-        {
-            lease.Dispose();
         }
     }
 
@@ -182,13 +167,9 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         if (!task.IsCompletedSuccessfully)
             return RunWithLeaseAwaited(lease, task);
 
-        try
+        using (lease)
         {
             return ValueTask.FromResult(task.Result);
-        }
-        finally
-        {
-            lease.Dispose();
         }
     }
 

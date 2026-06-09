@@ -30,16 +30,9 @@ internal static class JournalWriterTracing
         Func<ValueTask> action,
         Action<IJournalOperationTraceScope?>? onSuccess = null)
     {
-        var scope = tracer.Begin(kind, in context);
-        try
-        {
-            await action().ConfigureAwait(false);
-            onSuccess?.Invoke(scope);
-        }
-        finally
-        {
-            scope?.Dispose();
-        }
+        using var scope = tracer.Begin(kind, in context);
+        await action().ConfigureAwait(false);
+        onSuccess?.Invoke(scope);
     }
 
     public static async ValueTask<TResult> TraceAsync<TResult>(
@@ -48,15 +41,8 @@ internal static class JournalWriterTracing
         JournalOperationTraceContext context,
         Func<ValueTask<TResult>> action)
     {
-        var scope = tracer.Begin(kind, in context);
-        try
-        {
-            return await action().ConfigureAwait(false);
-        }
-        finally
-        {
-            scope?.Dispose();
-        }
+        using var scope = tracer.Begin(kind, in context);
+        return await action().ConfigureAwait(false);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

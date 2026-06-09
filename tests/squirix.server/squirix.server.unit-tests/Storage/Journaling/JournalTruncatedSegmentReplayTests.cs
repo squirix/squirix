@@ -36,17 +36,11 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
             File.WriteAllBytes(path, bytes);
             var mutatedBeforeRead = File.ReadAllBytes(path);
 
-            try
+            _ = Assert.Throws<InvalidDataException>(() =>
             {
                 foreach (var unused in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
-                {
                     _ = unused;
-                }
-            }
-            catch (InvalidDataException)
-            {
-            }
-
+            });
             Assert.Equal(mutatedBeforeRead, File.ReadAllBytes(path));
         }
         finally

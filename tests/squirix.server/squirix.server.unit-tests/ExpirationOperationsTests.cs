@@ -22,9 +22,8 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
         await cache.InsertAsync("k1", new CacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMilliseconds(150), Version = 1 }, DefaultCancellationToken);
 
         // Ensure expiration is present initially
-        var expiration1 = await cache.GetExpirationAsync("k1", DefaultCancellationToken);
-        _ = Assert.NotNull(expiration1);
-        Assert.True(expiration1.Value > TimeSpan.Zero);
+        var expiration1 = Assert.NotNull(await cache.GetExpirationAsync("k1", DefaultCancellationToken));
+        Assert.True(expiration1 > TimeSpan.Zero);
 
         // RemoveExpiration should clear expiration and return true.
         var ok = await cache.RemoveExpirationAsync("k1", DefaultCancellationToken);

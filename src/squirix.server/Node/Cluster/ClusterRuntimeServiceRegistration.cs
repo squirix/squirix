@@ -55,8 +55,8 @@ internal static class ClusterRuntimeServiceRegistration
         /// <returns><paramref name="services" /> for chaining.</returns>
         public IServiceCollection AddSquirixClusterServices(ClusterConfig cluster, Func<string, CallPolicy>? callPolicyFactory, HttpMessageHandler? httpHandlerOverride)
         {
-            _ = services.AddSingleton(new MutableNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
-            _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<MutableNodeLocator>());
+            _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
+            _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver, NodeOwnershipResolver>();
             _ = services.AddSingleton<INodeEndpointIdentity, NodeEndpointIdentity>();
             _ = services.AddSingleton<IAdminClusterDiagnostics, AdminClusterDiagnosticsService>();
