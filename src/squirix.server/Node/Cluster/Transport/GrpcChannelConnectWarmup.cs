@@ -1,6 +1,9 @@
 using System;
+using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Grpc.Net.Client;
 
 namespace Squirix.Server.Node.Cluster.Transport;
@@ -44,7 +47,15 @@ internal static class GrpcChannelConnectWarmup
                 lastFailure = new InvalidOperationException(
                     $"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds}ms.");
             }
-            catch (Exception ex)
+            catch (HttpRequestException ex)
+            {
+                lastFailure = ex;
+            }
+            catch (IOException ex)
+            {
+                lastFailure = ex;
+            }
+            catch (RpcException ex)
             {
                 lastFailure = ex;
             }
