@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Runtime;
+using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
 using Xunit;
@@ -71,6 +72,38 @@ public sealed class AspNetCoreHostingExtensionsTests
         _ = app.MapSquirixServer();
 
         Assert.False(authEnabled);
+    }
+
+    /// <summary>
+    /// Ensures a configured data directory keeps the server's default strict fsync persistence mode.
+    /// </summary>
+    [Fact]
+    public void DataDirectoryOverridePreservesStrictFsyncDefault()
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
+        var port = new PortAllocator(25000, 25999).Allocate();
+
+        _ = builder.AddSquirixServer(
+            options =>
+            {
+                options.Url = new Uri($"https://localhost:{port}");
+                options.DataDirectory = dataDir;
+            },
+            loadDiscoveredSettings: false);
+
+        using var app = builder.Build();
+        var persistence = app.Services.GetRequiredService<PersistenceOptions>();
+
+        Assert.Equal(dataDir, persistence.DataDir);
+        Assert.True(persistence.StrictFsync);
+
+        if (Directory.Exists(dataDir))
+            Directory.Delete(dataDir, true);
     }
 
     /// <summary>
