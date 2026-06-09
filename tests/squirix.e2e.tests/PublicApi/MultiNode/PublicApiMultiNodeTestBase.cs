@@ -44,7 +44,7 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
 
     internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>([CallerMemberName] string testName = "")
     {
-        var cluster = await E2ECluster.StartTwoNodeAsync(testName, DefaultCancellationToken);
+        var cluster = await E2ECluster.StartTwoNodeAsync(testName, cancellationToken: DefaultCancellationToken);
         try
         {
             var clientA = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);

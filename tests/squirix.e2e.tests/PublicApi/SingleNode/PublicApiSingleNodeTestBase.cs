@@ -18,7 +18,7 @@ public abstract class PublicApiSingleNodeTestBase : E2ETestBase
 
     internal static async ValueTask<ISquirixClient> ConnectClientAsync([CallerMemberName] string testName = "")
     {
-        var cluster = await E2ECluster.StartSingleNodeAsync(testName, DefaultCancellationToken);
+        var cluster = await E2ECluster.StartSingleNodeAsync(testName, cancellationToken: DefaultCancellationToken);
 
         try
         {

@@ -17,15 +17,23 @@ internal static class SquirixExternalAccessSecurity
     /// <param name="listenUri">Primary node listen URI from cluster configuration.</param>
     /// <param name="authEnabled">Whether API key or JWT authentication was registered.</param>
     /// <param name="environmentName">Host environment name (for warning text).</param>
+    /// <param name="transportExposureOverride">
+    /// Optional transport exposure override. When <c>null</c>, environment variables are read.
+    /// </param>
     /// <exception cref="InvalidOperationException">Non-loopback listen without credentials or explicit override.</exception>
-    public static void EnsureDataPlaneAuthenticatedForListenUri(Uri listenUri, bool authEnabled, string environmentName)
+    public static void EnsureDataPlaneAuthenticatedForListenUri(
+        Uri listenUri,
+        bool authEnabled,
+        string environmentName,
+        TransportExposureOptions? transportExposureOverride = null)
     {
         ArgumentNullException.ThrowIfNull(listenUri);
 
         if (authEnabled || IsLoopbackHost(listenUri.Host))
             return;
 
-        if (EnvVariables.ReadBool(AllowUnauthenticatedExternalVariable))
+        var allowUnauthenticatedExternal = transportExposureOverride?.AllowUnauthenticatedExternal ?? EnvVariables.ReadBool(AllowUnauthenticatedExternalVariable);
+        if (allowUnauthenticatedExternal)
         {
             if (!string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase))
             {

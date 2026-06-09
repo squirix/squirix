@@ -263,7 +263,35 @@ Example fragment:
 
 See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and security notes.
 
+## In-process test hosts
+
+Production and standalone `squirix-server` processes configure API keys and JWT through environment variables (see below).
+In-process test hosts (`SquirixNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
+so parallel tests do not share process-wide environment state.
+
+Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit` when starting a node in tests. When provided, the override
+replaces environment-variable lookup for that startup only; omit it on `IntegrationTestBase.StartNodeAsync` to keep
+env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
+
+```csharp
+// E2E / integration auth
+await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["secret"] });
+
+// Smoke default: unauthenticated without touching process env
+await StartNodeAsync(url, peers);
+```
+
+JWT-protected nodes follow the same pattern (`JwtSigningKey`, `JwtIssuer`, `JwtAudience`). OIDC authority URLs
+(`SQUIRIX_JWT_AUTHORITY`) remain env-only until a test needs a programmatic override. E2E tests run with xUnit
+parallelization enabled; auth and transport scenarios must use explicit overrides rather than
+process environment variables. Use `TestNodeTransportExposureOptions` for sidecar and non-loopback exposure settings
+(`Http1SidecarPort`, `AllowUnauthenticatedExternal`, `AllowInsecureHttp1SidecarExternal`). Integration and smoke hosts
+default to a cleared transport override so leaked env vars do not affect parallel runs.
+
 ## Environment variables
+
+Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
+the same auth pipeline used by in-process overrides above.
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -28,7 +28,7 @@ public sealed class MixedMutationStressTests : StressE2ETestBase
         var token = deadline.Token;
 
         var keys = CreateKeySet(StressLoadProfiles.ScaleOperations(50));
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), token);
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);

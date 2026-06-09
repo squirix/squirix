@@ -24,29 +24,40 @@ public static class TestNodeHostFactory
     /// <param name="dataDir">Persistence data directory.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
-    public static async ValueTask<TestNodeHost> StartNodeAsync(
+    public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
         string dataDir,
-        CancellationToken cancellationToken = default) => await StartNodeAsync(nodeId, address, topology, dataDir, null, cancellationToken).ConfigureAwait(false);
+        CancellationToken cancellationToken = default) =>
+        StartNodeAsync(nodeId, address, topology, dataDir, null, null, cancellationToken);
 
     /// <summary>
-    /// Starts a node with optional package extension configuration.
+    /// Starts a node with optional per-node security settings.
     /// </summary>
     /// <param name="nodeId">The node identifier.</param>
     /// <param name="address">The HTTP listen address.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="dataDir">Persistence data directory.</param>
-    /// <param name="configureExtensions">Optional server extension configuration.</param>
+    /// <param name="security">Optional security override. When set, environment variables are not read for auth.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(
+        string nodeId,
+        string address,
+        (string NodeId, string Address)[] topology,
+        string dataDir,
+        TestNodeSecurityOptions? security,
+        CancellationToken cancellationToken = default) =>
+        StartNodeAsync(nodeId, address, topology, dataDir, security, null, cancellationToken);
+
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private static async ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
         string dataDir,
+        TestNodeSecurityOptions? security,
         Action<SquirixServerExtensionOptions>? configureExtensions,
         CancellationToken cancellationToken = default)
     {
@@ -76,6 +87,8 @@ public static class TestNodeHostFactory
             },
             persistenceOptionsOverride: persistence,
             httpHandlerOverride: httpHandler,
+            securityOptionsOverride: security?.ToServerOptions(),
+            transportExposureOverride: new TestNodeTransportExposureOptions().ToServerOptions(),
             configureExtensions: configureExtensions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 

@@ -172,6 +172,12 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="memoryPressureOptions">
     /// Optional memory pressure options; when <c>null</c>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
+    /// <param name="security">
+    /// Optional per-node security override. When set, environment variables are not read for auth on this startup.
+    /// </param>
+    /// <param name="transportExposure">
+    /// Optional per-node transport exposure override. When omitted, sidecar and external-exposure settings are disabled without reading environment variables.
+    /// </param>
     /// <param name="testName">
     /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
     /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
@@ -199,6 +205,8 @@ public abstract class IntegrationTestBase : IDisposable
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        TestNodeTransportExposureOptions? transportExposure = null,
         [CallerMemberName] string? testName = null)
     {
         var selfNodeId = peers.FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase))?.NodeId ??
@@ -236,6 +244,8 @@ public abstract class IntegrationTestBase : IDisposable
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
+            security?.ToServerOptions(),
+            (transportExposure ?? new TestNodeTransportExposureOptions()).ToServerOptions(),
             null,
             DefaultCancellationToken);
 
@@ -264,6 +274,12 @@ public abstract class IntegrationTestBase : IDisposable
     /// is a free port reserved from the shared pool.
     /// </returns>
     protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
+
+    /// <summary>
+    /// Allocates a dedicated port reserved for the lifetime of the test process.
+    /// </summary>
+    /// <returns>A port number reserved from the shared in-process pool.</returns>
+    protected static int AllocateDedicatedPort() => PortPool.Allocate();
 
     private static string BuildTestScope(string? testName, string? extra)
     {
