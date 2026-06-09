@@ -19,16 +19,22 @@ namespace Squirix.Server.Node.Cluster.Transport;
 /// </summary>
 internal sealed class ClientPool : IClientPool
 {
-    private const int ConnectTimeoutMs = 5_000;
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly BootstrapConnectOptions _connectOptions;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
     private int _disposed;
     private volatile bool _draining;
 
-    public ClientPool(IEnumerable<Peer> peers, Func<string, ICallPolicy> policyFactory, HttpMessageHandler? handler = null, Interceptor? interceptor = null)
+    public ClientPool(
+        IEnumerable<Peer> peers,
+        Func<string, ICallPolicy> policyFactory,
+        HttpMessageHandler? handler = null,
+        Interceptor? interceptor = null,
+        BootstrapConnectOptions? connectOptions = null)
     {
+        _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         var peerList = peers as Peer[] ?? [.. peers];
         var nodeIds = new string[peerList.Length];
 
@@ -74,18 +80,7 @@ internal sealed class ClientPool : IClientPool
         foreach (var entry in _channels)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(ConnectTimeoutMs);
-
-            try
-            {
-                await entry.Value.ConnectAsync(cts.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new InvalidOperationException($"Failed to connect to endpoint '{entry.Key}' within {ConnectTimeoutMs}ms.");
-            }
-
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(entry.Value, entry.Key, _connectOptions, cancellationToken).ConfigureAwait(false);
             ClientPoolMetrics.AddWarmup();
         }
     }

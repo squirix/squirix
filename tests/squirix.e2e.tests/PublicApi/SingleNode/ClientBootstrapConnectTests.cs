@@ -22,8 +22,8 @@ public sealed class ClientBootstrapConnectTests : E2ETestBase
         await using var client = await E2ETestConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add("https://127.0.0.1:1");
                 options.Endpoints.Add(liveUrl);
+                options.Endpoints.Add("https://127.0.0.1:1");
             },
             DefaultCancellationToken);
 
