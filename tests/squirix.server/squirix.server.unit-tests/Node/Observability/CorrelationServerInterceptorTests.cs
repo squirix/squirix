@@ -71,7 +71,7 @@ public sealed class CorrelationServerInterceptorTests
     public async Task ServerInterceptorPropagatesIncomingTraceParent()
     {
         using var listener = CreateSquirixActivityListener();
-        using var clientActivity = ActivitySourceHolder.Squirix.StartActivity(ActivityKind.Client);
+        using var clientActivity = ActivitySourceHolder.StartClient("/Test.Test/Unary");
         Assert.NotNull(clientActivity);
         clientActivity.TraceStateString = "vendor=value";
 
@@ -103,7 +103,7 @@ public sealed class CorrelationServerInterceptorTests
     public async Task ServerInterceptorRestoresPreviousActivityAfterCall()
     {
         using var listener = CreateSquirixActivityListener();
-        using var outer = ActivitySourceHolder.Squirix.StartActivity(ActivityKind.Internal);
+        using var outer = ActivitySourceHolder.StartInternal("outer");
         Assert.NotNull(outer);
         var interceptor = CreateInterceptor();
         Activity? inside = null;
@@ -139,7 +139,7 @@ public sealed class CorrelationServerInterceptorTests
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = static source => source.Name == "Squirix",
+            ShouldListenTo = static source => source.Name == ActivitySourceHolder.SourceName,
             Sample = static (ref _) => ActivitySamplingResult.AllData,
             SampleUsingParentId = static (ref _) => ActivitySamplingResult.AllData,
         };

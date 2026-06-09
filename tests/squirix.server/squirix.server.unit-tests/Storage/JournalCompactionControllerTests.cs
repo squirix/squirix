@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,6 +22,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
+    [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
     public async Task DisposeIsIdempotent()
     {
         var dir = DirectoryKit.CreateTempDirectory("squirix-journal-compact-ctrl-double");
@@ -29,8 +31,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
             var opt = new PersistenceOptions { DataDir = dir, StrictFsync = true, FlushIntervalMs = 1000 };
             var manifestStore = new ManifestStore(opt);
             await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
-            var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
-            controller.Dispose();
+            using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
             controller.Dispose();
         }
         finally
