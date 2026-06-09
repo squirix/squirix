@@ -45,7 +45,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         var cache = GetCache(node);
 
         // Cause some journal activity
-        await cache.InsertAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
         var resp = await HttpClient.GetAsync(node.Address + "/health/ready/details", DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();

@@ -7,7 +7,7 @@ internal static class MemoryPressureAdmissionOperations
 {
     public const string Add = "add";
 
-    public const string Insert = "insert";
+    public const string Set = "set";
 
     public const string TryAdd = "try_add";
 

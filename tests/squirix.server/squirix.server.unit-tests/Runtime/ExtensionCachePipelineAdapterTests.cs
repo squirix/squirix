@@ -24,7 +24,7 @@ public sealed class ExtensionCachePipelineAdapterTests
         var adapter = new ExtensionCachePipelineAdapter<object?>(core, decorated);
         var entry = new CacheEntry<object?> { Value = "value", Version = 7 };
 
-        await adapter.InsertAsync("cache", "key", entry, CancellationToken.None);
+        await adapter.SetAsync("cache", "key", entry, CancellationToken.None);
         var result = await adapter.GetEntryAsync("cache", "key", CancellationToken.None);
 
         Assert.Equal(1, decorated.InsertEntryCalls);
@@ -56,9 +56,9 @@ public sealed class ExtensionCachePipelineAdapterTests
 
         public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new((object?)null);
 
-        public ValueTask InsertAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
+        public ValueTask SetAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
 
-        public ValueTask InsertAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken)
+        public ValueTask SetAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken)
         {
             InsertEntryCalls++;
             return default;

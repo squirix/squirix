@@ -38,6 +38,33 @@ internal static class ProtoEx
         Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
 
+    internal static CacheEntry<T> CacheValueFromGrpcValue<T>(CacheValue value, Timestamp? expiresUtc, Duration? expiration)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var mapped = value.KindCase switch
+        {
+            CacheValue.KindOneofCase.StringValue when typeof(T) == typeof(string) => (T?)(object)value.StringValue,
+            CacheValue.KindOneofCase.BoolValue when typeof(T) == typeof(bool) => (T?)(object)value.BoolValue,
+            CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(long) => (T?)(object)value.Int64Value,
+            CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue => (T?)(object)(int)value.Int64Value,
+            CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double) => (T?)(object)value.DoubleValue,
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => default,
+            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<T>(structValue),
+            _ => FromStruct<T>(CacheValueToStruct(value)),
+        };
+
+        if (typeof(T) == typeof(object))
+            mapped = (T?)NormalizeUntypedScalarForUntypedCache(mapped);
+
+        return new CacheEntry<T>
+        {
+            Value = mapped,
+            ExpiresUtc = expiresUtc?.ToDateTime().ToUniversalTime(),
+            Expiration = expiration?.ToTimeSpan(),
+        };
+    }
+
     /// <summary>
     /// Maps a cache value to protobuf <c>Struct</c> wire form (single-field wrapper or JSON-derived struct).
     /// </summary>
@@ -66,32 +93,16 @@ internal static class ProtoEx
         };
     }
 
-    internal static CacheEntry<T> CacheValueFromGrpcValue<T>(CacheValue value, Timestamp? expiresUtc, Duration? expiration)
+    private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
     {
-        ArgumentNullException.ThrowIfNull(value);
-
-        var mapped = value.KindCase switch
-        {
-            CacheValue.KindOneofCase.StringValue when typeof(T) == typeof(string) => (T?)(object)value.StringValue,
-            CacheValue.KindOneofCase.BoolValue when typeof(T) == typeof(bool) => (T?)(object)value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(long) => (T?)(object)value.Int64Value,
-            CacheValue.KindOneofCase.Int64Value when typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue => (T?)(object)(int)value.Int64Value,
-            CacheValue.KindOneofCase.DoubleValue when typeof(T) == typeof(double) => (T?)(object)value.DoubleValue,
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => default,
-            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<T>(structValue),
-            _ => FromStruct<T>(CacheValueToStruct(value)),
-        };
-
-        if (typeof(T) == typeof(object))
-            mapped = (T?)NormalizeUntypedScalarForUntypedCache(mapped);
-
-        return new CacheEntry<T>
-        {
-            Value = mapped,
-            ExpiresUtc = expiresUtc?.ToDateTime().ToUniversalTime(),
-            Expiration = expiration?.ToTimeSpan(),
-        };
-    }
+        CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
+        CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
+        CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
+        CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
+        CacheValue.KindOneofCase.StructValue => value.StructValue,
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+    };
 
     private static T? DeserializeFromProtoValue<T>(Value value)
     {
@@ -120,7 +131,7 @@ internal static class ProtoEx
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
             WriteValue(writer, Value.ForStruct(s));
-        return (T?)(object)new StoredJsonPayload(buffer.WrittenSpan);
+        return ReinterpretReference<T, StoredJsonPayload>(new StoredJsonPayload(buffer.WrittenSpan));
     }
 
     private static ListValue ListFromJson(JsonElement el)
@@ -191,6 +202,13 @@ internal static class ProtoEx
         }
     }
 
+    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
+        where TValue : class?
+    {
+        var reference = value;
+        return Unsafe.As<TValue, TTarget>(ref reference);
+    }
+
     private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
         where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
 
@@ -201,17 +219,6 @@ internal static class ProtoEx
             s.Fields[p.Name] = ValueFromJson(p.Value);
         return s;
     }
-
-    private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
-    {
-        CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
-        CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
-        CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
-        CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
-        CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
-    };
 
     [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Style rule compatibility")]
     private static Struct ToStruct<T>(T? value)
@@ -259,7 +266,7 @@ internal static class ProtoEx
     {
         if (typeof(T) == typeof(string) && value.KindCase == Value.KindOneofCase.StringValue)
         {
-            result = (T)(object)value.StringValue;
+            result = ReinterpretReference<T, string>(value.StringValue);
             return true;
         }
 

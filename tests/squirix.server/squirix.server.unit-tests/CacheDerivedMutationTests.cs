@@ -106,7 +106,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         await using var physical = new PhysicalCache<string>(clock);
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = clock.UtcNow.AddMinutes(10);
-        await clientCache.InsertAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await clientCache.SetAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await clientCache.UpdateAsync("orders", "k", "new", DefaultCancellationToken);
 

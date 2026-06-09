@@ -50,16 +50,16 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
         return entry is null ? default : entry.Value;
     }
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        InsertAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
 
-    public async ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var owner = OwnerFor(cacheName, key);
         if (owner == _selfId)
-            await _local.InsertAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            await _local.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
         else
-            await _remote.InsertAsync(owner, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            await _remote.SetAsync(owner, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)

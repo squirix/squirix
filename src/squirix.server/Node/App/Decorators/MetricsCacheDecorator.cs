@@ -56,15 +56,15 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         static _ => CacheOperationResults.Ok);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, value, cancellationToken));
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, value, cancellationToken));
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, entry, cancellationToken));
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, entry, cancellationToken));
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,

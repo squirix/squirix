@@ -22,9 +22,9 @@ internal interface ILogicalNamespacedCache<T>
 
     ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
 
-    ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken);
+    ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken);
 
-    ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken);
 

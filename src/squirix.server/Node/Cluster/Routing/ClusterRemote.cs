@@ -61,7 +61,7 @@ internal sealed class ClusterRemote<T>
         return response.Found ? new CacheValueResult<T>(true, ProtoEx.CacheValueFromGrpcValue<T>(response.Value, null, null).Value) : new CacheValueResult<T>(false, default);
     }
 
-    public async ValueTask InsertAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var client = _clients.ForNode(owner);
         _ = await Policy(owner).ExecuteAsync<InsertResponse>(
