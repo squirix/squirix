@@ -3,9 +3,11 @@
 #:property TargetFramework=net10.0
 #:property PublishAot=false
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using Grpc.Core;
 using Squirix;
 using Squirix.Server;
 
@@ -118,7 +120,11 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
                 _ = await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch
+        catch (RpcException)
+        {
+            // Demo load ignores transient failures while the runtime is being exercised.
+        }
+        catch (IOException)
         {
             // Demo load ignores transient failures while the runtime is being exercised.
         }
@@ -134,7 +140,11 @@ static void TryDeleteDirectory(string path)
         if (Directory.Exists(path))
             Directory.Delete(path, true);
     }
-    catch
+    catch (IOException)
+    {
+        // Best-effort cleanup for a demo-only temp directory.
+    }
+    catch (UnauthorizedAccessException)
     {
         // Best-effort cleanup for a demo-only temp directory.
     }
