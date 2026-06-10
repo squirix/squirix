@@ -48,7 +48,6 @@ public abstract class IntegrationTestBase : IDisposable
 
     static IntegrationTestBase()
     {
-        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }

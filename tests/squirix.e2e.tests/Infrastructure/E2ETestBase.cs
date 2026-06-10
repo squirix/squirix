@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using Squirix.Server.TestKit.Http;
 using Xunit;
 
 namespace Squirix.E2ETests.Infrastructure;
@@ -12,7 +11,6 @@ public abstract class E2ETestBase
 {
     static E2ETestBase()
     {
-        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 

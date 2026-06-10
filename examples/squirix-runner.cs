@@ -2,7 +2,6 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
-using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -37,8 +36,6 @@ try
     var endpoint = $"https://127.0.0.1:{NextFreePort()}";
     WriteSettingsFile(demoRoot, endpoint);
     Directory.SetCurrentDirectory(demoRoot);
-
-    EnsureDevelopmentCertificateTrusted();
 
     await using var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
     await using var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
@@ -148,31 +145,6 @@ static void TryDeleteDirectory(string path)
     {
         // Best-effort cleanup for a demo-only temp directory.
     }
-}
-
-static void EnsureDevelopmentCertificateTrusted()
-{
-    if (RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0)
-        return;
-
-    if (RunDotnet(["dev-certs", "https", "--trust"]) != 0 || RunDotnet(["dev-certs", "https", "--check", "--trust"]) != 0)
-    {
-        throw new InvalidOperationException(
-            "The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
-    }
-}
-
-static int RunDotnet(string[] args)
-{
-    using var process = Process.Start(new ProcessStartInfo
-    {
-        FileName = "dotnet",
-        Arguments = string.Join(' ', args),
-        UseShellExecute = false,
-    });
-
-    process?.WaitForExit();
-    return process?.ExitCode ?? 1;
 }
 
 static int NextFreePort()
