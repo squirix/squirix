@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Endpoint.Rest;
 using Squirix.Server.Contracts;
 using Squirix.Server.Limits;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 
@@ -31,7 +32,7 @@ internal static class HttpEndpointEx
             var cache = api.MapGroup(routePrefix).WithTags($"Cache<{typeof(T).Name}>");
 
             if (requireAuth)
-                _ = cache.RequireAuthorization("ApiOrJwt");
+                _ = cache.RequireAuthorization(SquirixSecurityServiceRegistration.JwtBearerPolicy);
 
             IEndpointRouteBuilder.MapCacheKeyValueEndpoints<T>(cache);
         }

@@ -8,7 +8,9 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-a-release
     environment:
-      - SQUIRIX_API_KEYS=dev-docker-key
+      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
+      - SQUIRIX_JWT_AUDIENCE=squirix
     ports:
       - "5001:5000"
     volumes:
@@ -26,7 +28,9 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-b-release
     environment:
-      - SQUIRIX_API_KEYS=dev-docker-key
+      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
+      - SQUIRIX_JWT_AUDIENCE=squirix
     ports:
       - "5002:5000"
     volumes:

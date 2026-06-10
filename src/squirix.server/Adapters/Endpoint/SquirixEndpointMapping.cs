@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 
 namespace Squirix.Server.Adapters.Endpoint;
@@ -19,7 +20,7 @@ internal static class SquirixEndpointMapping
 
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
-            _ = cacheGrpc.RequireAuthorization("ApiOrJwt");
+            _ = cacheGrpc.RequireAuthorization(SquirixSecurityServiceRegistration.JwtBearerPolicy);
 
         app.MapCacheEndpoints<object?>("/cache", authEnabled);
         return app;

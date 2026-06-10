@@ -24,7 +24,7 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 `GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
 
-Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send `X-Api-Key` or a JWT
+Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send a JWT bearer token
 when server auth is enabled. Details: [diagnostics — Metrics route](diagnostics.md#metrics-route).
 
 Client-side bootstrap warm-up skips emit `squirix_client_pool_bootstrap_warmup_skipped_total`.

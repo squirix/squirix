@@ -93,8 +93,6 @@ M:Squirix.SquirixClient::DisposeAsync()
 M:Squirix.SquirixClient::GetCacheAsync(System.String,System.Threading.CancellationToken)
 T:Squirix.SquirixOptions
 M:Squirix.SquirixOptions::.ctor()
-P:Squirix.SquirixOptions::ApiKey.get
-P:Squirix.SquirixOptions::ApiKey.set
 P:Squirix.SquirixOptions::BearerTokenProvider.get
 P:Squirix.SquirixOptions::BearerTokenProvider.set
 P:Squirix.SquirixOptions::Endpoints.get

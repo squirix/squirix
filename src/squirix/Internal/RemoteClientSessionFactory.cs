@@ -59,9 +59,6 @@ internal static class RemoteClientSessionFactory
     {
         var interceptors = new List<Interceptor>();
 
-        if (!string.IsNullOrWhiteSpace(options.ApiKey))
-            interceptors.Add(new ApiKeyInterceptor(options.ApiKey));
-
         if (options.BearerTokenProvider is not null)
             interceptors.Add(new BearerTokenInterceptor(options.BearerTokenProvider));
 

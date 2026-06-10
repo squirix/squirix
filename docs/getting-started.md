@@ -33,13 +33,15 @@ curl -k https://localhost:5001/metrics
 docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
-  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
+  -e SQUIRIX_JWT_AUDIENCE=squirix `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
 Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`). Images ship a bundled development
-HTTPS certificate; use `curl -k` from the host. When `SQUIRIX_API_KEYS` is set, pass `X-Api-Key` for `/metrics` scrapes
-from outside the container.
+HTTPS certificate; use `curl -k` from the host. When JWT is configured, pass a bearer token for `/metrics` scrapes from
+outside the container.
 
 Release image (pinned NuGet tool version):
 
@@ -47,7 +49,9 @@ Release image (pinned NuGet tool version):
 docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
 docker run --rm `
   -p 5000:5000 `
-  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
+  -e SQUIRIX_JWT_AUDIENCE=squirix `
   squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
 ```
 
@@ -70,7 +74,7 @@ dotnet add package squirix --version 0.1.0-preview.4
 
 Use the HTTPS gRPC endpoint from the host output.
 
-**Local tool or `dotnet run`** (default `https://localhost:5001`, no API key unless you configure auth):
+**Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
 
 ```csharp
 using System.Threading;
@@ -87,16 +91,16 @@ var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
 
-**Docker** (`SQUIRIX_API_KEYS` in the examples): single-container `https://localhost:5000`; Compose node A
-`https://localhost:5001`. Use `options.ApiKey = "dev-docker-key"` and a development TLS validation override when
-connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
+**Docker** (JWT env vars in the examples): single-container `https://localhost:5000`; Compose node A
+`https://localhost:5001`. Use `options.BearerTokenProvider` with a JWT signed by the docker dev key and a development
+TLS validation override when connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
 
 ```csharp
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
         options.Endpoints.Add("https://localhost:5000"); // or :5001 for Compose node A
-        options.ApiKey = "dev-docker-key";
+        options.BearerTokenProvider = _ => new ValueTask<string>(yourJwtBearerToken);
     },
     cancellationToken);
 ```

@@ -53,7 +53,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
     {
         var http = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "scraper")], "ApiKey")),
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "scraper")], "Bearer")),
             Connection =
             {
                 RemoteIpAddress = IPAddress.Parse("203.0.113.10"),

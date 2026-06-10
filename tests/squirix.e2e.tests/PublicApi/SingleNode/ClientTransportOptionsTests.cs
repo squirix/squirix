@@ -11,12 +11,10 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// </summary>
 public sealed class ClientTransportOptionsTests : E2ETestBase
 {
-    private const string ApiKeyValue = "e2e-api-key";
-
     /// <summary>
     /// Verifies <see cref="SquirixOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task ClientAuthenticatesWithBearerTokenProvider()
     {
@@ -46,44 +44,26 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     }
 
     /// <summary>
-    /// Verifies <see cref="SquirixOptions.ApiKey" /> authenticates against a key-protected node.
+    /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixOptions.BearerTokenProvider" /> is unset.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
-    public async Task ClientAuthenticatesWithConfiguredApiKey()
+    public async Task ClientFailsWhenJwtRequiredButNotConfigured()
     {
-        var security = new TestNodeSecurityOptions { ApiKeys = [ApiKeyValue] };
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithConfiguredApiKey), security, cancellationToken: DefaultCancellationToken);
-        var url = cluster.GetAddress("nodeA");
-
-        await using var client = await E2ETestConnect.ConnectAsync(
-            options =>
-            {
-                options.Endpoints.Add(url);
-                options.ApiKey = ApiKeyValue;
-            },
-            DefaultCancellationToken);
-
-        var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
-        await cache.SetAsync("api-key-e2e", "ok", cancellationToken: DefaultCancellationToken);
-        Assert.Equal("ok", (await cache.GetValueAsync("api-key-e2e", DefaultCancellationToken)).Value);
-    }
-
-    /// <summary>
-    /// Verifies cache RPCs fail when the server requires an API key but <see cref="SquirixOptions.ApiKey" /> is unset.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
-    [Fact]
-    public async Task ClientFailsWhenApiKeyRequiredButNotConfigured()
-    {
-        var security = new TestNodeSecurityOptions { ApiKeys = [ApiKeyValue] };
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenApiKeyRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
+        var credentials = E2EJwtHelper.CreateSymmetricCredentials();
+        var security = new TestNodeSecurityOptions
+        {
+            JwtSigningKey = credentials.Base64SigningKey,
+            JwtIssuer = credentials.Issuer,
+            JwtAudience = credentials.Audience,
+        };
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenJwtRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await E2ETestConnect.ConnectAsync(url, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => await cache.SetAsync("api-key-missing", "v", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => await cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 }

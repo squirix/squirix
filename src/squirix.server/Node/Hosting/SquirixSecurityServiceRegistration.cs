@@ -1,45 +1,34 @@
 using System;
-using System.Collections.Generic;
 using System.Text;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Server.Node.Hosting.Security;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixSecurityServiceRegistration
 {
+    public const string JwtBearerPolicy = "JwtBearer";
+
     public static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
     {
-        var (apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled) = ResolveSecurityConfiguration(securityOptionsOverride);
+        var (jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled) = ResolveSecurityConfiguration(securityOptionsOverride);
 
         if (!string.IsNullOrWhiteSpace(jwtIssuer) && signingKeyBytes is null && string.IsNullOrWhiteSpace(jwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
 
-        var authEnabled = apiKeySet.Count > 0 || jwtEnabled;
-        if (!authEnabled)
+        if (!jwtEnabled)
             return false;
 
-        var authBuilder = services.AddAuthentication();
+        if (string.IsNullOrWhiteSpace(jwtAuthority) && signingKeyBytes is null)
+            throw new InvalidOperationException("JWT authentication requires SQUIRIX_JWT_AUTHORITY or SQUIRIX_JWT_SIGNING_KEY.");
 
-        if (apiKeySet.Count > 0)
-        {
-            _ = services.AddSingleton(new ApiKeyAuthSettings(apiKeySet));
-            _ = authBuilder.AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationDefaults.Scheme, static _ => { });
-        }
+        if (string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtIssuer))
+            throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
 
-        if (jwtEnabled)
-        {
-            if (string.IsNullOrWhiteSpace(jwtAuthority) && signingKeyBytes is null)
-                throw new InvalidOperationException("JWT authentication requires SQUIRIX_JWT_AUTHORITY or SQUIRIX_JWT_SIGNING_KEY.");
-
-            if (string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtIssuer))
-                throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
-
-            _ = authBuilder.AddJwtBearer(
+        _ = services.AddAuthentication()
+            .AddJwtBearer(
                 JwtBearerDefaults.AuthenticationScheme,
                 o =>
                 {
@@ -78,30 +67,13 @@ internal static class SquirixSecurityServiceRegistration
 
                     o.TokenValidationParameters = parameters;
                 });
-        }
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
-            "ApiOrJwt",
+            JwtBearerPolicy,
             p =>
             {
                 _ = p.RequireAuthenticatedUser();
-                switch (apiKeySet.Count)
-                {
-                    case > 0 when jwtEnabled:
-                        _ = p.AddAuthenticationSchemes(ApiKeyAuthenticationDefaults.Scheme, JwtBearerDefaults.AuthenticationScheme);
-                        break;
-
-                    case > 0:
-                        _ = p.AddAuthenticationSchemes(ApiKeyAuthenticationDefaults.Scheme);
-                        break;
-
-                    default:
-                    {
-                        if (jwtEnabled)
-                            _ = p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
-                        break;
-                    }
-                }
+                _ = p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
             });
 
         return true;
@@ -112,16 +84,6 @@ internal static class SquirixSecurityServiceRegistration
         if (securityOptionsOverride is null)
             return ResolveFromEnvironment();
 
-        var apiKeySet = new HashSet<string>(StringComparer.Ordinal);
-        if (securityOptionsOverride.ApiKeys is not null)
-        {
-            foreach (var key in securityOptionsOverride.ApiKeys)
-            {
-                if (!string.IsNullOrWhiteSpace(key))
-                    _ = apiKeySet.Add(key.Trim());
-            }
-        }
-
         var jwtAuthority = string.Empty;
         var jwtAudience = securityOptionsOverride.JwtAudience ?? string.Empty;
         var jwtIssuer = securityOptionsOverride.JwtIssuer ?? string.Empty;
@@ -129,14 +91,11 @@ internal static class SquirixSecurityServiceRegistration
         var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
         var jwtEnabled = signingKeyBytes is not null;
 
-        return new ResolvedSecurityConfiguration(apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, false, signingKeyBytes, jwtEnabled);
+        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, false, signingKeyBytes, jwtEnabled);
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()
     {
-        var apiKeysEnv = EnvVariables.ReadStringOrEmpty("SQUIRIX_API_KEYS");
-        var apiKeySet = new HashSet<string>(apiKeysEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.Ordinal);
-
         var jwtAuthority = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUTHORITY");
         var jwtAudience = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUDIENCE");
         var jwtIssuer = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_ISSUER");
@@ -145,7 +104,7 @@ internal static class SquirixSecurityServiceRegistration
         var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
         var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
 
-        return new ResolvedSecurityConfiguration(apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
+        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
     private static byte[]? TryDecodeSymmetricKey(string value)
@@ -164,7 +123,6 @@ internal static class SquirixSecurityServiceRegistration
     }
 
     private readonly record struct ResolvedSecurityConfiguration(
-        HashSet<string> ApiKeySet,
         string JwtAuthority,
         string JwtAudience,
         string JwtIssuer,

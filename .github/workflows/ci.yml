@@ -667,49 +667,6 @@ jobs:
                         ('- {0} - {1}' -f $item.Name, $item.DurationText) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     }
 
-    cleanup-intermediate-artifacts:
-        name: Cleanup intermediate artifacts
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [ coverage, test-duration-summary ]
-        if: always()
-        permissions:
-            actions: write
-            contents: read
-        steps:
-            -   name: Delete intermediate workflow artifacts
-                shell: bash
-                env:
-                    GH_TOKEN: ${{ github.token }}
-                run: |
-                    set -euo pipefail
-                    repo='${{ github.repository }}'
-                    run_id='${{ github.run_id }}'
-                    page=1
-                    while true; do
-                      json="$(gh api "repos/${repo}/actions/runs/${run_id}/artifacts?per_page=100&page=${page}")"
-                      n="$(jq '.artifacts | length' <<<"${json}")"
-                      if [[ "${n}" -eq 0 ]]; then
-                        break
-                      fi
-                      while IFS=$'\t' read -r id name; do
-                        [[ -z "${id}" ]] && continue
-                        case "${name}" in
-                          build-output-*|coverage-raw-*|test-results-*|package-artifacts-*)
-                            echo "Deleting artifact id=${id} name=${name}"
-                            gh api --method DELETE "repos/${repo}/actions/artifacts/${id}"
-                            ;;
-                          *)
-                            echo "Keeping artifact id=${id} name=${name}"
-                            ;;
-                        esac
-                      done < <(jq -r '.artifacts[] | "\(.id)\t\(.name)"' <<<"${json}")
-                      if [[ "${n}" -lt 100 ]]; then
-                        break
-                      fi
-                      page=$((page + 1))
-                    done
-
     ci-success:
         name: CI success
         runs-on: ubuntu-latest

@@ -135,11 +135,10 @@ The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disa
 Access control is enforced on every request:
 
 - **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials (typical same-host Prometheus).
-- **All other clients** must authenticate with `X-Api-Key` or a JWT bearer token. There is no settings flag to disable
-  this rule.
+- **All other clients** must authenticate with a JWT bearer token. There is no settings flag to disable this rule.
 
-Remote scrapers should use the same credentials as cache routes. Example `Authorization` header:
-`X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
+Remote scrapers should use the same JWT as cache routes. Example header: `Authorization: Bearer <token>`. See
+[configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
 for a `prometheus.yml` fragment.
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -159,7 +158,7 @@ other `MeterListener` exporters.
 ## Security
 
 - `/health` and `/metrics` are served on the primary HTTPS listener only.
-- Loopback `/metrics` scrapes stay anonymous; remote clients must present `X-Api-Key` or a JWT bearer token (see
+- Loopback `/metrics` scrapes stay anonymous; remote clients must present a JWT bearer token (see
   [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
