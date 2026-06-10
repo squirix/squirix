@@ -64,8 +64,8 @@ For options you control in code without a file, use `AddSquirixServer` on a `Web
 `SquirixServer.StartAsync`.
 
 Integration and smoke tests start nodes through `IntegrationTestBase.StartNodeAsync` or
-`SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to
-unauthenticated nodes via an empty override; pass explicit API keys or JWT settings for auth scenarios.
+`SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests
+default to unauthenticated nodes via an empty override; pass explicit API keys or JWT settings for auth scenarios.
 See [configuration.md](../../docs/configuration.md#in-process-test-hosts).
 
 Validate settings before deploy:

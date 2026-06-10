@@ -123,7 +123,7 @@ recovery/trusted replay, and internal data-structure correctness, but it is not 
 
 ## Metrics route
 
-When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint:
+When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
 
 - `GET /metrics` (default path; configurable)
 
@@ -170,10 +170,13 @@ Important:
 
 ## Security
 
+- `/admin` routes are exposed in Development automatically. Outside Development (including Docker `Production`
+  containers), set `SQUIRIX_ADMIN_ENABLED=true` or the routes are not mapped.
 - Admin routes use the same route-level authorization policy as the rest of `/admin`.
 - When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. Loopback scrapes stay anonymous; remote
-  clients must present `X-Api-Key` or a JWT bearer token (see [Metrics route](#metrics-route)).
+- `/health`, `/metrics`, and `/admin` are served on the primary HTTPS listener only.
+- Loopback `/metrics` scrapes stay anonymous; remote clients must present `X-Api-Key` or a JWT bearer token (see
+  [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 
