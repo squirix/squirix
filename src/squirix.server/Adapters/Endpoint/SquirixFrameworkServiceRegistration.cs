@@ -9,11 +9,11 @@ namespace Squirix.Server.Adapters.Endpoint;
 
 internal static class SquirixFrameworkServiceRegistration
 {
-    public static IServiceCollection AddSquirixFrameworkServices(this IServiceCollection services, Action<GrpcServiceOptions>? configureGrpc)
+    public static IServiceCollection AddSquirixFrameworkServices(this IServiceCollection services, bool enableDetailedGrpcErrors, Action<GrpcServiceOptions>? configureGrpc)
     {
         _ = services.AddGrpc(o =>
         {
-            o.EnableDetailedErrors = true;
+            o.EnableDetailedErrors = enableDetailedGrpcErrors;
             o.MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes;
             o.MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes;
             o.Interceptors.Add<ResourceExhaustedExceptionInterceptor>();
