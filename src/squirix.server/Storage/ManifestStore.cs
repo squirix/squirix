@@ -214,7 +214,11 @@ internal sealed class ManifestStore
         {
             name = File.ReadAllText(_currentPath).Trim();
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            throw new InvalidDataException($"Manifest current pointer is unreadable: {_currentPath}", ex);
+        }
+        catch (UnauthorizedAccessException ex)
         {
             throw new InvalidDataException($"Manifest current pointer is unreadable: {_currentPath}", ex);
         }
@@ -264,7 +268,11 @@ internal sealed class ManifestStore
                 TryDeleteRetentionArtifact(segment.Path, ManifestRetentionArtifactKind.JournalSegment);
             }
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
+        }
+        catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
         }
@@ -286,7 +294,11 @@ internal sealed class ManifestStore
             for (var i = _retention; i < ordered.Length; i++)
                 TryDeleteRetentionArtifact(ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
+        }
+        catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
         }
@@ -321,7 +333,11 @@ internal sealed class ManifestStore
                 TryDeleteRetentionArtifact(stale.Path, ManifestRetentionArtifactKind.Snapshot);
             }
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
+        }
+        catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
         }

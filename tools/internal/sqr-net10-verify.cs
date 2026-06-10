@@ -99,7 +99,22 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
     {
         document = XDocument.Load(path, LoadOptions.None);
     }
-    catch (Exception ex) when (ex is InvalidOperationException || ex is System.Xml.XmlException || ex is IOException || ex is UnauthorizedAccessException)
+    catch (InvalidOperationException ex)
+    {
+        outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
+        return;
+    }
+    catch (System.Xml.XmlException ex)
+    {
+        outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
+        return;
+    }
+    catch (IOException ex)
+    {
+        outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
+        return;
+    }
+    catch (UnauthorizedAccessException ex)
     {
         outFailures.Add($"{Path.GetRelativePath(repoRoot, path)}: invalid XML: {ex.Message}");
         return;

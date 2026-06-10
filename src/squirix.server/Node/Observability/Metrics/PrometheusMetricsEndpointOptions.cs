@@ -14,9 +14,4 @@ internal sealed class PrometheusMetricsEndpointOptions
     /// Gets or sets the request path for metrics scraping. Defaults to <c>/metrics</c>.
     /// </summary>
     public string Path { get; set; } = "/metrics";
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the metrics endpoint requires the same API/JWT authorization as protected REST routes.
-    /// </summary>
-    public bool RequireAuth { get; set; }
 }

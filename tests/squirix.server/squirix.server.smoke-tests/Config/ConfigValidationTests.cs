@@ -1,8 +1,8 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Xunit;
 

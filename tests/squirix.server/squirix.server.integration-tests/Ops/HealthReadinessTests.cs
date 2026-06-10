@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Cluster.Membership;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;
@@ -45,7 +45,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         var cache = GetCache(node);
 
         // Cause some journal activity
-        await cache.InsertAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
         var resp = await HttpClient.GetAsync(node.Address + "/health/ready/details", DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();

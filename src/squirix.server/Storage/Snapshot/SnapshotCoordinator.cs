@@ -5,9 +5,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
@@ -111,7 +111,7 @@ internal sealed class SnapshotCoordinator<T>
             {
                 SnapshotMetrics.DurationSeconds.WithLabels(_nodeId, result).Observe(sw.Elapsed.TotalSeconds);
             }
-            catch
+            catch (InvalidOperationException)
             {
                 // Metrics emission is best-effort and must not affect snapshot completion.
             }

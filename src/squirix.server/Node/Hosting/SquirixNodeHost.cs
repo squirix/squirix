@@ -6,10 +6,10 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
@@ -31,6 +31,7 @@ internal static class SquirixNodeHost
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        SecurityOptions? securityOptionsOverride = null,
         Action<SquirixServerExtensionOptions>? configureExtensions = null,
         CancellationToken cancellationToken = default)
     {
@@ -55,6 +56,7 @@ internal static class SquirixNodeHost
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
+            securityOptionsOverride,
             extensions);
 
         var app = builder.Build();

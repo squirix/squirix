@@ -74,7 +74,22 @@ internal static class StorageMaintenanceTool
         {
             manifest = manifestStore.ReadCurrentOrDefault();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        catch (IOException ex)
+        {
+            manifest = new Manifest();
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            manifest = new Manifest();
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (InvalidDataException ex)
+        {
+            manifest = new Manifest();
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (JsonException ex)
         {
             manifest = new Manifest();
             issues.Add($"Failed to read manifest: {ex.Message}");

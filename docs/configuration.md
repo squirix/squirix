@@ -97,11 +97,11 @@ Example fragment:
 | ---------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `NodeId`         | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
 | `ClusterId`      | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
-| `Url`            | URI    | loader fallback                        | Absolute `http` or `https` origin URI, maximum 2048 characters; no credentials, path, query, or fragment                             |
+| `Url`            | URI    | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                  |
 | `VirtualNodes`   | int    | `128`                                  | `> 0` and `<= 16384`                                                                                                                 |
 | `Peers`          | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URLs must be unique; local peer `Url` must match `Url`; maximum 1024 peers |
 | `Peers[].NodeId` | string | none                                   | Required, non-empty, maximum 128 characters                                                                                          |
-| `Peers[].Url`    | URI    | none                                   | Absolute `http` or `https` origin URI, maximum 2048 characters; no credentials, path, query, or fragment                             |
+| `Peers[].Url`    | URI    | none                                   | Same validation as `Url`                                                                                                             |
 
 CLI validation:
 
@@ -132,8 +132,8 @@ For local standalone hosts, `https://localhost:5001` is the default gRPC listen 
 networks, set `Url` and the local peer entry to the **service hostname** reachable by other nodes (for example
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 
-When exposing a container to host client apps: map gRPC port **5000** and set `SQUIRIX_HTTP1_PORT=5001` for health/admin
-over HTTP/1. See [containerization.md](containerization.md).
+When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
+so gRPC clients and operational routes (`/health`, `/metrics`, `/admin`) share one TLS port. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
@@ -241,11 +241,10 @@ cancellation). Memory pressure is a separate policy and is not configured by the
 The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
 `MapSquirixServer()`.
 
-| Field         | Type   | Default in node host | Validation                                                               |
-| ------------- | ------ | -------------------- | ------------------------------------------------------------------------ |
-| `Enabled`     | bool   | `true`               | Any boolean                                                              |
-| `Path`        | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true`                  |
-| `RequireAuth` | bool   | `false`              | Any boolean; when `true` and server auth is enabled, requires `ApiOrJwt` |
+| Field     | Type   | Default in node host | Validation                                              |
+| --------- | ------ | -------------------- | ------------------------------------------------------- |
+| `Enabled` | bool   | `true`               | Any boolean                                             |
+| `Path`    | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true` |
 
 Example fragment:
 
@@ -254,24 +253,71 @@ Example fragment:
     "Squirix": {
         "PrometheusMetrics": {
             "enabled": true,
-            "path": "/metrics",
-            "requireAuth": false
+            "path": "/metrics"
         }
     }
 }
 ```
 
+Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
+the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
+[diagnostics — Security](diagnostics.md#metrics-route)).
+
+Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
+labels are stripped before export). See [diagnostics — Scrape privacy model](diagnostics.md#scrape-privacy-model).
+
+Remote Prometheus example (`prometheus.yml`):
+
+```yaml
+scrape_configs:
+  - job_name: squirix
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true   # use proper CA trust in production
+    authorization:
+      type: ApiKey
+      credentials: your-api-key
+    static_configs:
+      - targets: ["node.example:5001"]
+    metrics_path: /metrics
+```
+
 See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and security notes.
 
+## In-process test hosts
+
+Production and standalone `squirix-server` processes configure API keys and JWT through environment variables (see below).
+In-process test hosts (`SquirixNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
+so parallel tests do not share process-wide environment state.
+
+Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit` when starting a node in tests. When provided, the override
+replaces environment-variable lookup for that startup only; omit it on `IntegrationTestBase.StartNodeAsync` to keep
+env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
+
+```csharp
+// E2E / integration auth
+await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["secret"] });
+
+// Smoke default: unauthenticated without touching process env
+await StartNodeAsync(url, peers);
+```
+
+JWT-protected nodes follow the same pattern (`JwtSigningKey`, `JwtIssuer`, `JwtAudience`). OIDC authority URLs
+(`SQUIRIX_JWT_AUTHORITY`) remain env-only until a test needs a programmatic override. E2E tests run with xUnit
+parallelization enabled; auth scenarios must use explicit `TestNodeSecurityOptions` overrides rather than
+process environment variables.
+
 ## Environment variables
+
+Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
+the same auth pipeline used by in-process overrides above. Docker images also set
+`ASPNETCORE_Kestrel__Certificates__Default__Path` and `ASPNETCORE_Kestrel__Certificates__Default__Password` for the
+bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SQUIRIX_API_KEYS`                                   | Comma-separated API keys. Enables the `ApiOrJwt` auth policy for REST cache routes, `/admin`, and gRPC cache endpoints.                                                                                            |
 | `SQUIRIX_ADMIN_ENABLED`                              | Exposes `/admin` outside development when `true` or `1`.                                                                                                                                                           |
-| `SQUIRIX_HTTP1_PORT`                                 | Adds a plaintext HTTP/1.1 sidecar listener for health/admin/browser-friendly access.                                                                                                                               |
-| `SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL`              | Allows `SQUIRIX_HTTP1_PORT` to bind on non-loopback interfaces. Must be explicitly set to `true`/`1` for insecure external exposure.                                                                               |
-| `SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL`             | Allows the primary listen URL on a non-loopback host without `SQUIRIX_API_KEYS` or JWT. Must be explicitly set to `true`/`1` for insecure external cache access. Loopback binds are always permitted without auth. |
 | `SQUIRIX_MTLS`                                       | Enables mutual TLS when `true` or `1`.                                                                                                                                                                             |
 | `SQUIRIX_MTLS_ALLOW_SELF_SIGNED`                     | Allows self-signed client certificates for mTLS validation. Dev/test only.                                                                                                                                         |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication.                                                                                                                                                                           |
@@ -288,12 +334,13 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 
 Security notes:
 
+- Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require**
+  `SQUIRIX_API_KEYS` and/or JWT settings at startup; the process refuses to start without them. Loopback binds
+  (`localhost`, `127.0.0.1`) allow unauthenticated cache access unless auth is explicitly configured.
 - `ApiOrJwt` is enforced server-side for REST cache routes, `/admin`, and gRPC cache endpoints when auth is enabled.
 - API key and JWT credentials are accepted consistently across REST and gRPC when configured; missing/invalid
   credentials are rejected.
-- The sidecar created by `SQUIRIX_HTTP1_PORT` is plaintext even when the main node endpoint is HTTPS.
-- By default, plaintext sidecar binding is loopback-only. Non-loopback plaintext exposure fails startup unless
-  `SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true`.
+- Operational routes (`/health`, `/metrics`, `/admin`) are served on the **primary HTTPS listener** only.
 - `SQUIRIX_ADMIN_ENABLED` is not a safe production toggle by itself. Pair it with network restriction and
   authentication.
 - The v0.1 `/admin` surface is limited to `whoami`, owner lookup, and ring inspection. See

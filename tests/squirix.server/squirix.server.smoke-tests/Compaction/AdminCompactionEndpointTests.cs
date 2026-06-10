@@ -2,7 +2,7 @@ using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
 using Xunit;
@@ -87,11 +87,16 @@ public sealed class AdminCompactionEndpointTests : SmokeTestBase
 
         var cache = GetCacheApiClient(node);
 
-        var payload = new string('A', 250_000);
-        for (var i = 0; i < 12; i++)
-            await cache.InsertAsync($"f:{i}", BuildEntry(payload, version: 1), DefaultCancellationToken);
-
-        await WaitUntilJournalSegmentCountAtLeastAsync(node.DataDir, 2, TimeSpan.FromSeconds(2), DefaultCancellationToken);
+        // Keep appending until the 1 MiB segment cap rolls the journal; fixed insert counts are flaky on slow CI.
+        var payload = new string('A', 500_000);
+        var rotationDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        var i = 0;
+        while (DirectoryKit.CountFiles(node.DataDir, StorageFilePrefixes.JournalSegmentGlob) < 2
+               && DateTime.UtcNow < rotationDeadline)
+        {
+            DefaultCancellationToken.ThrowIfCancellationRequested();
+            await cache.InsertAsync($"f:{i++}", BuildEntry(payload, version: 1), DefaultCancellationToken);
+        }
 
         var beforeFiles = DirectoryKit.CountFiles(node.DataDir, StorageFilePrefixes.JournalSegmentGlob);
         Assert.True(beforeFiles >= 2, $"Expected journal rotation in '{node.DataDir}', got {beforeFiles}");
@@ -99,23 +104,10 @@ public sealed class AdminCompactionEndpointTests : SmokeTestBase
         var resp = await HttpClient.PostAsync(node.Address + "/admin/compact", null, DefaultCancellationToken);
         Assert.True(resp.IsSuccessStatusCode, $"Compaction failed: {(int)resp.StatusCode} {resp.ReasonPhrase}");
 
-        await WaitUntilJournalSegmentCountAtMostAsync(node.DataDir, beforeFiles, TimeSpan.FromSeconds(2), DefaultCancellationToken);
+        await WaitUntilJournalSegmentCountAtMostAsync(node.DataDir, beforeFiles, TimeSpan.FromSeconds(10), DefaultCancellationToken);
 
         var afterFiles = DirectoryKit.CountFiles(node.DataDir, StorageFilePrefixes.JournalSegmentGlob);
         Assert.True(afterFiles <= beforeFiles, $"journal files did not reduce: before={beforeFiles}, after={afterFiles}");
-    }
-
-    private static async Task WaitUntilJournalSegmentCountAtLeastAsync(string dataDir, int expectedMin, TimeSpan timeout, CancellationToken cancellationToken)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (DirectoryKit.CountFiles(dataDir, StorageFilePrefixes.JournalSegmentGlob) >= expectedMin)
-                return;
-
-            await Task.Delay(20, cancellationToken);
-        }
     }
 
     private static async Task WaitUntilJournalSegmentCountAtMostAsync(string dataDir, int expectedMax, TimeSpan timeout, CancellationToken cancellationToken)

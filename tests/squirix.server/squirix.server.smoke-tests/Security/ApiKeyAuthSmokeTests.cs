@@ -3,8 +3,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.TestKit;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.TestKit.AspNetCore;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Security;
@@ -13,7 +13,6 @@ namespace Squirix.Server.SmokeTests.Security;
 /// Smoke tests verifying that API key authentication is enforced on cache endpoints
 /// when API key protection is enabled.
 /// </summary>
-[Collection(SmokeTestCollections.AuthSensitive)]
 public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
 {
     /// <summary>
@@ -24,11 +23,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task CacheEndpointsReturn401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var respNoKey = await HttpClient.PutAsJsonAsync($"{url}/api/v1/cache/smoke", new CacheEntry<string> { Value = "x", Version = 1L }, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);
@@ -49,11 +52,15 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task ClusterDiagnosticsReturn401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var ringWithoutKey = await HttpClient.GetAsync($"{url}/admin/ring", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, ringWithoutKey.StatusCode);
@@ -71,17 +78,67 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     }
 
     /// <summary>
+    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsAllowLoopbackWithoutKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
+
+        var loopback = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
+        Assert.True(loopback.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopback.StatusCode} {loopback.ReasonPhrase}");
+    }
+
+    /// <summary>
+    /// Verifies authenticated <c>/metrics</c> scrapes succeed when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsSucceedWithApiKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
+        req.Version = HttpVersion.Version20;
+        req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        req.Headers.Add("X-Api-Key", "smoke-key");
+        var authenticated = await HttpClient.SendAsync(req, DefaultCancellationToken);
+        Assert.True(authenticated.IsSuccessStatusCode, $"Expected success with API key, got {(int)authenticated.StatusCode} {authenticated.ReasonPhrase}");
+    }
+
+    /// <summary>
     /// Verifies that admin storage diagnostics are protected by the same API key policy.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task StorageDiagnosticsReturns401WithoutKeyWhenEnabled()
     {
-        using var env = new TempEnvironmentVariable("SQUIRIX_API_KEYS", "smoke-key");
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: false, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var respNoKey = await HttpClient.GetAsync($"{url}/admin/diagnostics/storage", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, respNoKey.StatusCode);

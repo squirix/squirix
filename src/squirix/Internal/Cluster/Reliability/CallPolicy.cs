@@ -132,20 +132,32 @@ internal sealed class CallPolicy : ICallPolicy
                         last = rx;
                         last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (IsTransient(ex) && attempt < _maxAttempts &&
-                                               OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+                    catch (RpcException rx) when (rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
+                                                  attempt < _maxAttempts &&
+                                                  OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
                     {
                         // Transient issue: retry with backoff
-                        if (ex is RpcException { StatusCode: StatusCode.DeadlineExceeded })
+                        if (rx.StatusCode == StatusCode.DeadlineExceeded)
                             RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "deadline_exceeded").Inc();
 
+                        CallPolicyMetrics.RetriesTotal.WithLabels(_peer, ClassifyRetryReason(rx)).Inc(1);
+                        last = rx;
+                        last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
+                    }
+                    catch (HttpRequestException ex) when (attempt < _maxAttempts &&
+                                                          OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+                    {
                         CallPolicyMetrics.RetriesTotal.WithLabels(_peer, ClassifyRetryReason(ex)).Inc(1);
                         last = ex;
                         last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
                     }
-                    catch (Exception ex)
+                    catch (RpcException rx)
                     {
-                        // Non-transient: stop retrying
+                        last = rx;
+                        break;
+                    }
+                    catch (HttpRequestException ex)
+                    {
                         last = ex;
                         break;
                     }
@@ -230,16 +242,6 @@ internal sealed class CallPolicy : ICallPolicy
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(remaining.Value);
         return cts;
-    }
-
-    private static bool IsTransient(Exception ex)
-    {
-        return ex switch
-        {
-            RpcException rx => rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted,
-            HttpRequestException or TaskCanceledException => true,
-            _ => ex is OperationCanceledException,
-        };
     }
 
     private async Task BackoffAsync(TimeSpan d, CancellationToken outerCt)

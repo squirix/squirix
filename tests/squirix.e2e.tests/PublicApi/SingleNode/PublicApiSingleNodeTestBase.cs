@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.E2ETests.Infrastructure;
 
 namespace Squirix.E2ETests.PublicApi.SingleNode;
@@ -16,14 +18,24 @@ public abstract class PublicApiSingleNodeTestBase : E2ETestBase
 
     internal static async ValueTask<ISquirixClient> ConnectClientAsync([CallerMemberName] string testName = "")
     {
-        var cluster = await E2ECluster.StartSingleNodeAsync(testName, DefaultCancellationToken);
+        var cluster = await E2ECluster.StartSingleNodeAsync(testName, cancellationToken: DefaultCancellationToken);
 
         try
         {
             var client = await cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
             return new NodeHostedClient(cluster, client);
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            await cluster.DisposeAsync();
+            throw;
+        }
+        catch (IOException)
+        {
+            await cluster.DisposeAsync();
+            throw;
+        }
+        catch (RpcException)
         {
             await cluster.DisposeAsync();
             throw;

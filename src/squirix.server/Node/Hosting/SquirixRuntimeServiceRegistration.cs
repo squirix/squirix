@@ -1,11 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Node.Context;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;

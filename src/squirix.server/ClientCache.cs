@@ -74,10 +74,10 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
             },
             cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        InsertAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
 
-    public async ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var cacheKey = Key(cacheName, key);
         if (entry.ExpiresUtc is null && entry.Expiration is null)

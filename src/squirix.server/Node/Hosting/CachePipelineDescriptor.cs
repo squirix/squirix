@@ -12,7 +12,7 @@ namespace Squirix.Server.Node.Hosting;
 ///     used by <see cref="SquirixCachePipelineRegistration.AddSquirixCachePipeline" />: inner layers are registered first.
 ///     The clustered layer invokes <c>AddClusteredCacheSingleton()</c> (extension on <see cref="Microsoft.Extensions.DependencyInjection.IServiceCollection" /> declared in
 ///     <c>ClusterRuntimeServiceRegistration</c>) from the hosting file;
-///     the <c>AddSingleton&lt;ClusteredCache&lt;object?&gt;&gt;</c> factory lives in <c>Node/Cluster/ClusterRuntimeServiceRegistration.cs</c>.
+///     the <c>AddSingleton&lt;ClusteredCache&lt;object?&gt;&gt;</c> factory lives in <c>Cluster/ClusterRuntimeServiceRegistration.cs</c>.
 ///     <see cref="CachePipelineLayer.MemoryAccounting" /> is omitted because it is not a separate DI singleton.
 ///     </para>
 /// </remarks>

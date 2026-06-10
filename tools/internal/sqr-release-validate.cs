@@ -168,7 +168,17 @@ try
     Console.WriteLine($"Release validation completed. Artifacts: {packageOutputPath}");
     return 0;
 }
-catch (Exception ex)
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
+catch (IOException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
+catch (UnauthorizedAccessException ex)
 {
     Console.Error.WriteLine(ex.Message);
     return 1;

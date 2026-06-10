@@ -4,8 +4,8 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Bootstrap;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.Serialization;
 using Squirix.Server.Utils;
 
@@ -115,7 +115,11 @@ public static class SquirixServerConfiguration
             {
                 listener.Stop();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+            }
+            catch (SocketException)
             {
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }
@@ -194,7 +198,12 @@ public static class SquirixServerConfiguration
             error = string.Join(Environment.NewLine, failures);
             return false;
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        catch (JsonException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+        catch (InvalidOperationException ex)
         {
             error = ex.Message;
             return false;
@@ -294,7 +303,11 @@ public static class SquirixServerConfiguration
             {
                 listener.Stop();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
+            }
+            catch (SocketException)
             {
                 // Best-effort release: Stop may race with listener teardown and is safe to suppress here.
             }

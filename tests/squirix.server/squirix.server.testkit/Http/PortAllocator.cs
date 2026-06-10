@@ -116,7 +116,7 @@ public sealed class PortAllocator
             listener.Stop();
             return true;
         }
-        catch
+        catch (SocketException)
         {
             return false;
         }

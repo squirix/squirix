@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -61,8 +62,11 @@ internal static class DiscriminatedEntryJsonReader
             version = v;
 
         TimeSpan? expiration = null;
-        if (root.TryGetProperty(FieldExpirationTicks, out var expirationTicksEl) && expirationTicksEl.ValueKind == JsonValueKind.Number && expirationTicksEl.TryGetInt64(out var expirationTicks))
+        if (root.TryGetProperty(FieldExpirationTicks, out var expirationTicksEl) && expirationTicksEl.ValueKind == JsonValueKind.Number &&
+            expirationTicksEl.TryGetInt64(out var expirationTicks))
+        {
             expiration = TimeSpan.FromTicks(expirationTicks);
+        }
 
         FrozenDictionary<string, string>? tags = null;
         if (root.TryGetProperty(FieldTags, out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Object)
@@ -90,6 +94,9 @@ internal static class DiscriminatedEntryJsonReader
         return TryElementToEntry(doc.RootElement, out entry);
     }
 
+    private static TTarget Reinterpret<TTarget, TValue>(TValue value)
+        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+
     private static bool TryCoerceTo<T>(object? value, out T? result)
     {
         switch (value)
@@ -105,12 +112,13 @@ internal static class DiscriminatedEntryJsonReader
             case StoredJsonPayload sjp when typeof(T) == typeof(JsonElement):
             {
                 using var doc = JsonDocument.Parse(sjp.Utf8Memory);
-                result = (T)(object)doc.RootElement.Clone();
+                var element = doc.RootElement.Clone();
+                result = Reinterpret<T, JsonElement>(element);
                 return true;
             }
 
             case JsonElement je when typeof(T) == typeof(JsonElement):
-                result = (T)(object)je;
+                result = Reinterpret<T, JsonElement>(je);
                 return true;
 
             default:
@@ -154,7 +162,11 @@ internal static class DiscriminatedEntryJsonReader
                     result = Convert.FromBase64String(inner.GetString() ?? string.Empty);
                     return true;
                 }
-                catch
+                catch (FormatException)
+                {
+                    return false;
+                }
+                catch (ArgumentException)
                 {
                     return false;
                 }

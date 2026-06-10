@@ -14,11 +14,11 @@ using Grpc.AspNetCore.Server;
 using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
@@ -48,10 +48,8 @@ public abstract class IntegrationTestBase : IDisposable
 
     static IntegrationTestBase()
     {
-        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
-        Environment.SetEnvironmentVariable("SQUIRIX_HTTP1_PORT", null);
     }
 
     /// <summary>
@@ -172,6 +170,9 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="memoryPressureOptions">
     /// Optional memory pressure options; when <c>null</c>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
+    /// <param name="security">
+    /// Optional per-node security override. When set, environment variables are not read for auth on this startup.
+    /// </param>
     /// <param name="testName">
     /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
     /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
@@ -199,6 +200,7 @@ public abstract class IntegrationTestBase : IDisposable
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
         [CallerMemberName] string? testName = null)
     {
         var selfNodeId = peers.FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase))?.NodeId ??
@@ -236,6 +238,7 @@ public abstract class IntegrationTestBase : IDisposable
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
+            security?.ToServerOptions(),
             null,
             DefaultCancellationToken);
 
@@ -264,6 +267,12 @@ public abstract class IntegrationTestBase : IDisposable
     /// is a free port reserved from the shared pool.
     /// </returns>
     protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
+
+    /// <summary>
+    /// Allocates a dedicated port reserved for the lifetime of the test process.
+    /// </summary>
+    /// <returns>A port number reserved from the shared in-process pool.</returns>
+    protected static int AllocateDedicatedPort() => PortPool.Allocate();
 
     private static string BuildTestScope(string? testName, string? extra)
     {

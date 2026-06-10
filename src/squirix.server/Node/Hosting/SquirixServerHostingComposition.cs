@@ -6,12 +6,12 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Cluster;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.Node.Cluster.Reliability;
 using Squirix.Server.Node.Endpoint;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
@@ -49,6 +49,7 @@ internal static class SquirixServerHostingComposition
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
+        SecurityOptions? securityOptionsOverride = null,
         SquirixServerExtensionOptions? extensions = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -66,8 +67,8 @@ internal static class SquirixServerHostingComposition
         _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
         _ = builder.Services.AddSquirixCachePipeline(extensions);
         _ = builder.Services.AddSquirixNodeEndpointServices();
-        var authEnabled = builder.Services.AddSquirixSecurityServices();
-        SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled, builder.Environment.EnvironmentName);
+        var authEnabled = builder.Services.AddSquirixSecurityServices(securityOptionsOverride);
+        SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = builder.Services.AddSquirixFrameworkServices(configureGrpc);
         _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         servicesConfigure?.Invoke(builder.Services);
@@ -107,7 +108,9 @@ internal static class SquirixServerHostingComposition
     }
 
     private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options) =>
-        string.IsNullOrWhiteSpace(options.DataDirectory) ? null : new PersistenceOptions { DataDir = options.DataDirectory };
+        string.IsNullOrWhiteSpace(options.DataDirectory)
+            ? null
+            : new PersistenceOptions { DataDir = options.DataDirectory, StrictFsync = true };
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {

@@ -29,7 +29,7 @@ public static class ArchitectureAllowlists
     public static readonly string[] ServiceTypeNamespaces =
     [
         $"{ServerArchitectureNamespaces.Node}.Services",
-        $"{ServerArchitectureNamespaces.Node}.Cluster",
+        ServerArchitectureNamespaces.Cluster,
         $"{ServerArchitectureNamespaces.Node}.Context",
         "Squirix.Transport.Grpc",
     ];

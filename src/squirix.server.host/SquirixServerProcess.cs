@@ -25,7 +25,22 @@ internal static class SquirixServerProcess
                 _ => throw new InvalidOperationException($"Unknown command '{command.Name}'. Run 'squirix-server help'."),
             };
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
+        {
+            await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}");
+            return 1;
+        }
+        catch (IOException ex)
+        {
+            await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}");
+            return 1;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}");
+            return 1;
+        }
+        catch (ArgumentException ex)
         {
             await Console.Error.WriteLineAsync($"[Squirix.Server] Error: {ex.Message}");
             return 1;
@@ -98,8 +113,8 @@ internal static class SquirixServerProcess
         await app.StartAsync().ConfigureAwait(false);
         Console.WriteLine("[Squirix.Server] Server is ready.");
         Console.WriteLine($"  gRPC endpoint: {options.Url}");
-        Console.WriteLine($"  HTTP/2 health endpoint: {options.Url}/health");
-        Console.WriteLine("  Browser health endpoint: set SQUIRIX_HTTP1_PORT to enable the HTTP/1 sidecar.");
+        Console.WriteLine($"  Health endpoint: {options.Url}/health");
+        Console.WriteLine($"  Metrics endpoint: {options.Url}/metrics");
         Console.WriteLine($"  Data directory: {options.DataDirectory ?? "<default>"}");
         Console.WriteLine($"  Node ID: {options.NodeId}");
         Console.WriteLine($"  Persistence: {(options.DataDirectory is null ? "default" : "configured")}");
@@ -153,7 +168,11 @@ internal static class SquirixServerProcess
             File.Delete(probe);
             Console.WriteLine("  Data directory access: writable");
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            Console.WriteLine($"  Data directory access: NOT writable ({ex.Message})");
+        }
+        catch (UnauthorizedAccessException ex)
         {
             Console.WriteLine($"  Data directory access: NOT writable ({ex.Message})");
         }

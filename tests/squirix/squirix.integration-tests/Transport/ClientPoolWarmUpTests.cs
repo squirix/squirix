@@ -1,7 +1,5 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Xunit;
@@ -11,9 +9,9 @@ namespace Squirix.IntegrationTests.Transport;
 /// <summary>
 /// Client-only transport integration coverage for cluster peer pool warm-up.
 /// </summary>
-public sealed class ClientPoolWarmUpTests
+public sealed class ClientPoolWarmUpTests : IntegrationTestBase
 {
-    private static readonly CancellationToken DefaultCancellationToken = TestContext.Current.CancellationToken;
+    private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
     /// <summary>
     /// Verifies warm-up fails when no bootstrap endpoint can be reached.
@@ -31,7 +29,7 @@ public sealed class ClientPoolWarmUpTests
             },
         };
 
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
         Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }

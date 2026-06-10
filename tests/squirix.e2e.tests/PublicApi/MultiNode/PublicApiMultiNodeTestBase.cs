@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Squirix.E2ETests.Infrastructure;
 
 namespace Squirix.E2ETests.PublicApi.MultiNode;
@@ -17,7 +19,19 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
             await cache.AddAsync(key, value, cancellationToken: DefaultCancellationToken);
             return null;
         }
-        catch (Exception ex)
+        catch (RpcException ex)
+        {
+            return ex;
+        }
+        catch (CacheConflictException ex)
+        {
+            return ex;
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex;
+        }
+        catch (IOException ex)
         {
             return ex;
         }
@@ -30,7 +44,7 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
 
     internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>([CallerMemberName] string testName = "")
     {
-        var cluster = await E2ECluster.StartTwoNodeAsync(testName, DefaultCancellationToken);
+        var cluster = await E2ECluster.StartTwoNodeAsync(testName, cancellationToken: DefaultCancellationToken);
         try
         {
             var clientA = await cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
@@ -41,7 +55,17 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
             var customerCacheB = await clientB.GetCacheAsync<T>("customers", DefaultCancellationToken);
             return new TwoNodeNamedCaches<T>(cluster, clientA, clientB, cacheA, cacheB, customerCacheA, customerCacheB);
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            await cluster.DisposeAsync();
+            throw;
+        }
+        catch (IOException)
+        {
+            await cluster.DisposeAsync();
+            throw;
+        }
+        catch (RpcException)
         {
             await cluster.DisposeAsync();
             throw;

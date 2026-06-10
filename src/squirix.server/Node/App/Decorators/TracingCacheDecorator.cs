@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
+using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
@@ -51,13 +53,13 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         static _ => CacheOperationResults.Ok);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, value, cancellationToken));
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, value, cancellationToken));
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Insert,
-        () => _inner.InsertAsync(cacheName, key, entry, cancellationToken));
+    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Set,
+        () => _inner.SetAsync(cacheName, key, entry, cancellationToken));
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.RemoveExpiration,
@@ -119,7 +121,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         {
             await action().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;
@@ -140,7 +162,27 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
             result = classifyResult(value);
             return value;
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (RpcException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (ArgumentException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;

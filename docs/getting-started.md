@@ -5,7 +5,7 @@ This guide walks through running a squirix server and connecting a .NET client.
 Prerequisites:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (version pinned in [`global.json`](../global.json))
-- For local HTTPS clients outside the test harness: `dotnet dev-certs https --trust`
+- For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
 
 ## 1. Run a development server
 
@@ -16,14 +16,16 @@ dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
 squirix-server run --data-dir ./data
 ```
 
-The host listens on `https://localhost:5001` by default and prints a ready-to-use client snippet.
+The host listens on `https://localhost:5001` by default and prints ready-to-use client and operational endpoint URLs.
 
-Optional HTTP/1 sidecar for `curl`, health, and admin probes:
+Health probes use the same HTTPS listener (local tool default port **5001**):
 
 ```powershell
-$env:SQUIRIX_HTTP1_PORT = "5002"
-squirix-server run --data-dir ./data
+curl -k https://localhost:5001/health
+curl -k https://localhost:5001/metrics
 ```
+
+`/metrics` is anonymous on loopback when auth is not configured.
 
 ### Docker (fastest if you have Docker Desktop)
 
@@ -31,14 +33,14 @@ squirix-server run --data-dir ./data
 docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
-  -p 5001:5001 `
-  -e SQUIRIX_HTTP1_PORT=5001 `
-  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
-  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-Port **5000** is gRPC/HTTP/2 (map it for client apps). Port **5001** is the HTTP/1 sidecar.
+Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`, `/admin`). Images ship a bundled development
+HTTPS certificate; use `curl -k` from the host. When `SQUIRIX_API_KEYS` is set, pass `X-Api-Key` for `/metrics` scrapes
+from outside the container.
 
 Release image (pinned NuGet tool version):
 
@@ -46,14 +48,13 @@ Release image (pinned NuGet tool version):
 docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
 docker run --rm `
   -p 5000:5000 `
-  -p 5001:5001 `
-  -e SQUIRIX_HTTP1_PORT=5001 `
-  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
-  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
 ```
 
-More layouts: [containerization.md](containerization.md).
+Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
+`https://localhost:5002` (host ports map to container **5000**). See [containerization.md](containerization.md).
 
 ### From this repository
 
@@ -69,8 +70,9 @@ dotnet add package squirix --version 0.1.0-preview.4
 
 ## 3. Connect and use a typed cache
 
-Use the HTTPS gRPC endpoint from the host output. Local tool and source runs default to `https://localhost:5001`.
-With the Docker example above, connect to `https://localhost:5000` (mapped gRPC port).
+Use the HTTPS gRPC endpoint from the host output.
+
+**Local tool or `dotnet run`** (default `https://localhost:5001`, no API key unless you configure auth):
 
 ```csharp
 using System.Threading;
@@ -78,15 +80,27 @@ using Squirix;
 
 var cancellationToken = CancellationToken.None;
 
-await using var client = await SquirixClient.ConnectAsync(
-    "https://localhost:5001", // or https://localhost:5000 when using the Docker gRPC mapping
-    cancellationToken);
+await using var client = await SquirixClient.ConnectAsync("https://localhost:5001", cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
 await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
 
 var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
+```
+
+**Docker** (`SQUIRIX_API_KEYS` in the examples): single-container `https://localhost:5000`; Compose node A
+`https://localhost:5001`. Use `options.ApiKey = "dev-docker-key"` and a development TLS validation override when
+connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
+
+```csharp
+await using var client = await SquirixClient.ConnectAsync(
+    options =>
+    {
+        options.Endpoints.Add("https://localhost:5000"); // or :5001 for Compose node A
+        options.ApiKey = "dev-docker-key";
+    },
+    cancellationToken);
 ```
 
 Multiple bootstrap endpoints (HA front door, not shards):

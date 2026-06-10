@@ -35,7 +35,15 @@ internal static class SnapshotVerifier
                 $"Snapshot is valid. Entries: {loaded.Entries.Count}; idempotency records: {loaded.IdempotencyRecords.Count}.",
                 null);
         }
-        catch (Exception ex) when (ex is InvalidDataException or JsonException or IOException)
+        catch (InvalidDataException ex)
+        {
+            return new StorageVerificationResult(false, "Snapshot is invalid.", ex.Message);
+        }
+        catch (JsonException ex)
+        {
+            return new StorageVerificationResult(false, "Snapshot is invalid.", ex.Message);
+        }
+        catch (IOException ex)
         {
             return new StorageVerificationResult(false, "Snapshot is invalid.", ex.Message);
         }

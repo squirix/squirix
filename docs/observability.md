@@ -22,6 +22,8 @@ Full field reference: [diagnostics.md](diagnostics.md).
 
 ## Admin routes
 
+Mapped in Development, or when `SQUIRIX_ADMIN_ENABLED=true` (required for Docker compose examples).
+
 | Route | Purpose |
 | --- | --- |
 | `GET /admin/whoami` | Local node identity |
@@ -31,6 +33,9 @@ Full field reference: [diagnostics.md](diagnostics.md).
 ## Metrics
 
 `GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
+
+Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send `X-Api-Key` or a JWT
+when server auth is enabled. Details: [diagnostics — Metrics route](diagnostics.md#metrics-route).
 
 Client-side bootstrap warm-up skips emit `squirix_client_pool_bootstrap_warmup_skipped_total`.
 

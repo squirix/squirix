@@ -7,8 +7,8 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Server.Node.Cluster.Membership;
-using Squirix.Server.TestKit;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.TestKit.AspNetCore;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Security;
@@ -16,7 +16,6 @@ namespace Squirix.Server.SmokeTests.Security;
 /// <summary>
 /// Smoke tests verifying that JWT bearer tokens protect cache endpoints when configured.
 /// </summary>
-[Collection(SmokeTestCollections.AuthSensitive)]
 public sealed class JwtAuthSmokeTests : SmokeTestBase
 {
     /// <summary>Ensures REST cache endpoints reject requests without a bearer token when JWT auth is configured.</summary>
@@ -29,14 +28,20 @@ public sealed class JwtAuthSmokeTests : SmokeTestBase
         const string issuer = "https://smoke.squirix.test";
         const string audience = "smoke-cache";
 
-        using var keyEnv = new TempEnvironmentVariable("SQUIRIX_JWT_SIGNING_KEY", base64Key);
-        using var issuerEnv = new TempEnvironmentVariable("SQUIRIX_JWT_ISSUER", issuer);
-        using var audienceEnv = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", audience);
-
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "node-jwt", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, extraScope: Guid.NewGuid().ToString("N"), disableSecurity: false, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions
+            {
+                JwtSigningKey = base64Key,
+                JwtIssuer = issuer,
+                JwtAudience = audience,
+            },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         var entry = new CacheEntry<string> { Value = "ok", Version = 1 };
 

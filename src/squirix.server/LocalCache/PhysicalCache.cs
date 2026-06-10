@@ -122,6 +122,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<bool> TryAddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (TryGetLive(key, out _))
+            return ValueTask.FromResult(false);
+
         var normalized = NormalizeEntry(entry);
         var added = _store.TryAdd(key, new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version));
         if (!added)

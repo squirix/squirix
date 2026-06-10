@@ -37,14 +37,21 @@ feature/my-fix → develop → main → tag vX.Y.Z
    git checkout -b my-fix
    ```
 
-2. Make your change and run tests:
+2. Make your change and run tests (trust the ASP.NET Core HTTPS development certificate once per machine):
 
    ```powershell
    dotnet build squirix.slnx --configuration Release
+   dotnet dev-certs https --trust
    dotnet test squirix.slnx --configuration Release
    ```
 
+   CI runs [`tools/ci/ensure-dev-https-cert.sh`](./tools/ci/ensure-dev-https-cert.sh) before tests.
+
 3. Open a pull request targeting `develop` with a short description.
+   Link related issues with closing keywords (`Fixes #123`, `Closes #123`, or `Resolves #123`) in the PR
+   title or body. GitHub only auto-closes issues on merge to the default branch (`main`); this repository
+   closes linked issues when the PR merges into `develop` via
+   [`.github/workflows/close-linked-issues-on-develop.yml`](./.github/workflows/close-linked-issues-on-develop.yml).
 
 ## Guidelines
 
@@ -60,4 +67,4 @@ other `*.md` paths matched by the workflow filter.
 
 ## License
 
-By contributing, you agree your code is under the [Apache 2.0 License](LICENSE).
+By contributing, you agree your code is under the [Apache 2.0 License](./LICENSE).

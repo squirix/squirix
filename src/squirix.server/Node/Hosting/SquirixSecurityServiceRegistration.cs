@@ -12,19 +12,9 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixSecurityServiceRegistration
 {
-    public static bool AddSquirixSecurityServices(this IServiceCollection services)
+    public static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
     {
-        var apiKeysEnv = EnvVariables.ReadStringOrEmpty("SQUIRIX_API_KEYS");
-        var apiKeySet = new HashSet<string>(apiKeysEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.Ordinal);
-
-        var jwtAuthority = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUTHORITY");
-        var jwtAudience = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUDIENCE");
-        var jwtIssuer = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_ISSUER");
-        var jwtSigningKey = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_SIGNING_KEY");
-        var jwtAllowHttpMetadata = EnvVariables.ReadBool("SQUIRIX_JWT_ALLOW_HTTP_METADATA");
-
-        var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
-        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
+        var (apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled) = ResolveSecurityConfiguration(securityOptionsOverride);
 
         if (!string.IsNullOrWhiteSpace(jwtIssuer) && signingKeyBytes is null && string.IsNullOrWhiteSpace(jwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
@@ -117,6 +107,47 @@ internal static class SquirixSecurityServiceRegistration
         return true;
     }
 
+    private static ResolvedSecurityConfiguration ResolveSecurityConfiguration(SecurityOptions? securityOptionsOverride)
+    {
+        if (securityOptionsOverride is null)
+            return ResolveFromEnvironment();
+
+        var apiKeySet = new HashSet<string>(StringComparer.Ordinal);
+        if (securityOptionsOverride.ApiKeys is not null)
+        {
+            foreach (var key in securityOptionsOverride.ApiKeys)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                    _ = apiKeySet.Add(key.Trim());
+            }
+        }
+
+        var jwtAuthority = string.Empty;
+        var jwtAudience = securityOptionsOverride.JwtAudience ?? string.Empty;
+        var jwtIssuer = securityOptionsOverride.JwtIssuer ?? string.Empty;
+        var jwtSigningKey = securityOptionsOverride.JwtSigningKey ?? string.Empty;
+        var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
+        var jwtEnabled = signingKeyBytes is not null;
+
+        return new ResolvedSecurityConfiguration(apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, false, signingKeyBytes, jwtEnabled);
+    }
+
+    private static ResolvedSecurityConfiguration ResolveFromEnvironment()
+    {
+        var apiKeysEnv = EnvVariables.ReadStringOrEmpty("SQUIRIX_API_KEYS");
+        var apiKeySet = new HashSet<string>(apiKeysEnv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.Ordinal);
+
+        var jwtAuthority = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUTHORITY");
+        var jwtAudience = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUDIENCE");
+        var jwtIssuer = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_ISSUER");
+        var jwtSigningKey = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_SIGNING_KEY");
+        var jwtAllowHttpMetadata = EnvVariables.ReadBool("SQUIRIX_JWT_ALLOW_HTTP_METADATA");
+        var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
+        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
+
+        return new ResolvedSecurityConfiguration(apiKeySet, jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
+    }
+
     private static byte[]? TryDecodeSymmetricKey(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -131,4 +162,13 @@ internal static class SquirixSecurityServiceRegistration
             return Encoding.UTF8.GetBytes(value);
         }
     }
+
+    private readonly record struct ResolvedSecurityConfiguration(
+        HashSet<string> ApiKeySet,
+        string JwtAuthority,
+        string JwtAudience,
+        string JwtIssuer,
+        bool JwtAllowHttpMetadata,
+        byte[]? SigningKeyBytes,
+        bool JwtEnabled);
 }

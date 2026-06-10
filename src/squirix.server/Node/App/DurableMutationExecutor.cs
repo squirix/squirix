@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling;
@@ -73,7 +74,43 @@ internal sealed class DurableMutationExecutor
                         await appendJournal(ct).ConfigureAwait(false);
                         return DurableMutationPlan<TResult>.Apply();
                     }
-                    catch
+                    catch (IOException)
+                    {
+                        if (pendingMemoryApply)
+                            _journal.CompletePendingMemoryApply();
+
+                        if (!admitted)
+                            throw;
+
+                        _ = _inFlight.TryRemove(conflictKey, out _);
+                        admitted = false;
+                        throw;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        if (pendingMemoryApply)
+                            _journal.CompletePendingMemoryApply();
+
+                        if (!admitted)
+                            throw;
+
+                        _ = _inFlight.TryRemove(conflictKey, out _);
+                        admitted = false;
+                        throw;
+                    }
+                    catch (InvalidDataException)
+                    {
+                        if (pendingMemoryApply)
+                            _journal.CompletePendingMemoryApply();
+
+                        if (!admitted)
+                            throw;
+
+                        _ = _inFlight.TryRemove(conflictKey, out _);
+                        admitted = false;
+                        throw;
+                    }
+                    catch (OperationCanceledException)
                     {
                         if (pendingMemoryApply)
                             _journal.CompletePendingMemoryApply();

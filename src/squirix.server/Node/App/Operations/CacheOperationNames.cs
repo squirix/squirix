@@ -10,7 +10,7 @@ internal static class CacheOperationNames
     internal const string Get = "get";
     internal const string GetEntry = "get_entry";
     internal const string GetExpiration = "get_expiration";
-    internal const string Insert = "insert";
+    internal const string Set = "set";
     internal const string RemoveExpiration = "remove_expiration";
     internal const string Remove = "remove";
     internal const string Touch = "touch";

@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Squirix.Internal.Cluster.Membership;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Limits;
@@ -19,15 +20,21 @@ namespace Squirix.Internal.Cluster.Transport;
 /// </summary>
 internal sealed class ClientPool : IClientPool
 {
-    private const int ConnectTimeoutMs = 5_000;
     private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
 
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly BootstrapConnectOptions _connectOptions;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
     private int _disposed;
 
-    public ClientPool(IEnumerable<Peer> peers, Func<string, ICallPolicy> policyFactory, HttpMessageHandler? handler = null, Interceptor? interceptor = null)
+    public ClientPool(
+        IEnumerable<Peer> peers,
+        Func<string, ICallPolicy> policyFactory,
+        HttpMessageHandler? handler = null,
+        Interceptor? interceptor = null,
+        BootstrapConnectOptions? connectOptions = null)
     {
+        _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         var peerList = peers as Peer[] ?? [.. peers];
         var nodeIds = new string[peerList.Length];
 
@@ -61,6 +68,7 @@ internal sealed class ClientPool : IClientPool
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
     /// Unreachable endpoints are skipped; startup fails only when no endpoint can be reached.
+    /// After a primary peer connects, remaining peers use a short fail-fast connect budget.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The first reachable bootstrap node id.</returns>
@@ -77,21 +85,32 @@ internal sealed class ClientPool : IClientPool
             if (!_channels.TryGetValue(nodeId, out var channel))
                 continue;
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(ConnectTimeoutMs);
+            var connectOptions = primaryNodeId is null
+                ? _connectOptions
+                : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
 
             try
             {
-                await channel.ConnectAsync(cts.Token).ConfigureAwait(false);
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken).ConfigureAwait(false);
                 ClientPoolMetrics.AddWarmup();
                 primaryNodeId ??= nodeId;
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (RpcException ex)
             {
-                lastFailure = new InvalidOperationException($"Failed to connect to endpoint '{nodeId}' within {ConnectTimeoutMs}ms.");
-                failuresByNode[nodeId] = lastFailure;
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
             }
-            catch (Exception ex)
+            catch (IOException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
+            catch (HttpRequestException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[nodeId] = ex;
+            }
+            catch (InvalidOperationException ex)
             {
                 lastFailure = ex;
                 failuresByNode[nodeId] = ex;
@@ -129,7 +148,11 @@ internal sealed class ClientPool : IClientPool
             {
                 await item.Value.DisposeAsync().ConfigureAwait(false);
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain: one failing policy dispose must not block disposal of other peers.
+            }
+            catch (IOException)
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
@@ -142,7 +165,11 @@ internal sealed class ClientPool : IClientPool
                 ch.Value.Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
-            catch
+            catch (ObjectDisposedException)
+            {
+                // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
+            }
+            catch (IOException)
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }

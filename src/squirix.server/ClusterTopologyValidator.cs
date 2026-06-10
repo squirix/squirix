@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server;
 

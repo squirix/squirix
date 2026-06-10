@@ -10,55 +10,55 @@ namespace Squirix.Server.Node.Observability.Metrics;
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
     public static readonly PrometheusMetricsScraper Instance = new();
-    private readonly Dictionary<string, Dictionary<string, double>> _last = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<TagSet, double>> _last = new(StringComparer.Ordinal);
     private readonly MeterListener _listener;
     private readonly Lock _lock = new();
-    private readonly Dictionary<string, Dictionary<string, double>> _sums = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<TagSet, double>> _sums = new(StringComparer.Ordinal);
+
+    internal PrometheusMetricsScraper(bool isolatedForTests)
+    {
+        if (!isolatedForTests)
+            throw new InvalidOperationException("Test-only constructor.");
+
+        _listener = CreateListener();
+    }
 
     private PrometheusMetricsScraper()
     {
-        _listener = new MeterListener
-        {
-            InstrumentPublished = static (instrument, listener) =>
-            {
-                if (instrument.Meter.Name == "Squirix")
-                    listener.EnableMeasurementEvents(instrument);
-            },
-        };
-
-        _listener.SetMeasurementEventCallback<long>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
-        _listener.SetMeasurementEventCallback<int>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
-        _listener.SetMeasurementEventCallback<double>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
-
+        _listener = CreateListener();
         _listener.Start();
     }
 
-    public string Scrape()
+    public string Scrape(PrometheusScrapeProfile profile = PrometheusScrapeProfile.Public) => profile switch
     {
-        var sb = new StringBuilder();
-        lock (_lock)
-        {
-            foreach (var (metric, byLabels) in _sums)
-            {
-                foreach (var (labels, value) in byLabels)
-                {
-                    AppendMetricLine(sb, metric, labels, value);
-                }
-            }
-
-            foreach (var (metric, byLabels) in _last)
-            {
-                foreach (var (labels, value) in byLabels)
-                {
-                    AppendMetricLine(sb, metric + "_last", labels, value);
-                }
-            }
-        }
-
-        return sb.ToString();
-    }
+        PrometheusScrapeProfile.Public => ScrapePublic(),
+        _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported scrape profile."),
+    };
 
     public void Dispose() => _listener.Dispose();
+
+    internal void RecordMeasurementForTests(string metric, KeyValuePair<string, object?>[] tags, double value) =>
+        RecordMeasurement(metric, tags, value);
+
+    private static void AggregateForExport(
+        Dictionary<string, Dictionary<TagSet, double>> source,
+        Dictionary<string, Dictionary<string, double>> destination,
+        bool sumValues)
+    {
+        foreach (var (metric, byTags) in source)
+        {
+            foreach (var (tags, value) in byTags)
+            {
+                var exportLabels = PrometheusScrapeLabelPolicy.BuildLabelKey(PrometheusScrapeLabelPolicy.FilterPublicTags(tags.Tags));
+                if (!destination.TryGetValue(metric, out var byLabels))
+                    destination[metric] = byLabels = new Dictionary<string, double>(StringComparer.Ordinal);
+
+                byLabels[exportLabels] = sumValues
+                    ? byLabels.GetValueOrDefault(exportLabels) + value
+                    : Math.Max(byLabels.GetValueOrDefault(exportLabels), value);
+            }
+        }
+    }
 
     private static void AppendMetricLine(StringBuilder sb, string metric, string labels, double value)
     {
@@ -75,41 +75,106 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         _ = sb.Append('\n');
     }
 
-    private static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    private static MeterListener CreateListener()
     {
-        if (tags.Length == 0)
-            return string.Empty;
-
-        var arr = tags.ToArray();
-        Array.Sort(arr, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-        var sb = new StringBuilder();
-        for (var i = 0; i < arr.Length; i++)
+        var listener = new MeterListener
         {
-            if (i > 0)
-                _ = sb.Append(',');
-            _ = sb.Append(arr[i].Key);
-            _ = sb.Append("=\"");
-            _ = sb.Append(Escape(arr[i].Value?.ToString() ?? string.Empty));
-            _ = sb.Append('"');
+            InstrumentPublished = static (instrument, listener) =>
+            {
+                if (instrument.Meter.Name == "Squirix")
+                    listener.EnableMeasurementEvents(instrument);
+            },
+        };
+
+        listener.SetMeasurementEventCallback<long>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
+        listener.SetMeasurementEventCallback<int>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
+        listener.SetMeasurementEventCallback<double>(static (inst, m, tags, _) => Instance.RecordMeasurement(inst.Name, tags, m));
+        return listener;
+    }
+
+    private string ScrapePublic()
+    {
+        var exportedSums = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
+        var exportedLast = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
+
+        lock (_lock)
+        {
+            AggregateForExport(_sums, exportedSums, sumValues: true);
+            AggregateForExport(_last, exportedLast, sumValues: false);
+        }
+
+        var sb = new StringBuilder();
+        foreach (var (metric, byLabels) in exportedSums)
+        {
+            foreach (var (labels, value) in byLabels)
+                AppendMetricLine(sb, metric, labels, value);
+        }
+
+        foreach (var (metric, byLabels) in exportedLast)
+        {
+            foreach (var (labels, value) in byLabels)
+                AppendMetricLine(sb, metric + "_last", labels, value);
         }
 
         return sb.ToString();
     }
 
-    private static string Escape(string s) => s.Replace("\\", @"\\").Replace("\n", "\\n").Replace("\"", "\\\"");
-
     private void RecordMeasurement(string metric, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
     {
-        var labelKey = BuildLabelKey(tags);
+        var tagSet = new TagSet(tags);
         lock (_lock)
         {
-            if (!_sums.TryGetValue(metric, out var byLabels))
-                _sums[metric] = byLabels = new Dictionary<string, double>(StringComparer.Ordinal);
-            byLabels[labelKey] = byLabels.GetValueOrDefault(labelKey) + value;
+            if (!_sums.TryGetValue(metric, out var byTags))
+                _sums[metric] = byTags = new Dictionary<TagSet, double>();
+            byTags[tagSet] = byTags.GetValueOrDefault(tagSet) + value;
 
-            if (!_last.TryGetValue(metric, out var lastByLabels))
-                _last[metric] = lastByLabels = new Dictionary<string, double>(StringComparer.Ordinal);
-            lastByLabels[labelKey] = value;
+            if (!_last.TryGetValue(metric, out var lastByTags))
+                _last[metric] = lastByTags = new Dictionary<TagSet, double>();
+            lastByTags[tagSet] = value;
+        }
+    }
+
+    private readonly struct TagSet : IEquatable<TagSet>
+    {
+        private readonly KeyValuePair<string, object?>[] _tags;
+
+        public TagSet(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        {
+            _tags = tags.ToArray();
+            Array.Sort(_tags, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+        }
+
+        public ReadOnlySpan<KeyValuePair<string, object?>> Tags => _tags;
+
+        public bool Equals(TagSet other)
+        {
+            if (_tags.Length != other._tags.Length)
+                return false;
+
+            for (var i = 0; i < _tags.Length; i++)
+            {
+                if (!string.Equals(_tags[i].Key, other._tags[i].Key, StringComparison.Ordinal))
+                    return false;
+
+                if (!Equals(_tags[i].Value, other._tags[i].Value))
+                    return false;
+            }
+
+            return true;
+        }
+
+        public override bool Equals(object? obj) => obj is TagSet other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            var hash = default(HashCode);
+            foreach (var tag in _tags)
+            {
+                hash.Add(tag.Key, StringComparer.Ordinal);
+                hash.Add(tag.Value);
+            }
+
+            return hash.ToHashCode();
         }
     }
 }

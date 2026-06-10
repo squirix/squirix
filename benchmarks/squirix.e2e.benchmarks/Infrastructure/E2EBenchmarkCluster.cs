@@ -72,7 +72,14 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
             return new E2EBenchmarkCluster(nodes, root);
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            foreach (var node in nodes.Values)
+                await node.DisposeAsync().ConfigureAwait(false);
+            DirectoryKit.TryDeleteDirectory(root);
+            throw;
+        }
+        catch (IOException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);

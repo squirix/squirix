@@ -64,7 +64,11 @@ internal sealed class AdminStorageDiagnosticsProvider : IAdminStorageDiagnostics
                 headerValid = JournalFraming.TryReadAndValidateHeader(fs);
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException ex)
+        {
+            error = ex.GetType().Name;
+        }
+        catch (UnauthorizedAccessException ex)
         {
             error = ex.GetType().Name;
         }

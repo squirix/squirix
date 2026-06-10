@@ -106,7 +106,15 @@ public static class PathKit
         {
             startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (NotSupportedException)
         {
             startTicks = DateTime.UtcNow.Ticks;
         }

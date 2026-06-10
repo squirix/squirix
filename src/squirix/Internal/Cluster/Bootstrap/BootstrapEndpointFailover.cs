@@ -1,6 +1,9 @@
 using System;
+using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.Core;
 
 namespace Squirix.Internal.Cluster.Bootstrap;
 
@@ -46,7 +49,16 @@ internal sealed class BootstrapEndpointFailover
 
                 return result;
             }
-            catch (Exception ex) when (BootstrapFailoverClassifier.IsFailoverEligible(ex) && attempt < _bootstrapNodeIds.Length - 1)
+            catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
+                                          attempt < _bootstrapNodeIds.Length - 1)
+            {
+                lastFailure = ex;
+            }
+            catch (HttpRequestException ex) when (attempt < _bootstrapNodeIds.Length - 1)
+            {
+                lastFailure = ex;
+            }
+            catch (IOException ex) when (attempt < _bootstrapNodeIds.Length - 1)
             {
                 lastFailure = ex;
             }

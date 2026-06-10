@@ -82,7 +82,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
 
             -   name: Cache NuGet packages
                 uses: actions/cache@v5
@@ -141,7 +141,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
 
             -   name: Cache NuGet packages
                 uses: actions/cache@v5
@@ -169,31 +169,8 @@ jobs:
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
             -   name: Pack and external package smoke
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
                 run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
-
-            -   name: Pack package artifacts
-                if: matrix.os == 'ubuntu-latest'
-                shell: bash
-                run: |
-                    set -euo pipefail
-                    rm -rf artifacts/packages
-                    mkdir -p artifacts/packages
-                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages
-                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.*.nupkg' ! -name 'squirix.server.*.nupkg' -print -quit)"
-                    test -n "$(find artifacts/packages -maxdepth 1 -name 'squirix.server.*.nupkg' -print -quit)"
-
-            -   name: Upload package artifacts
-                if: matrix.os == 'ubuntu-latest'
-                uses: actions/upload-artifact@v7
-                with:
-                    name: package-artifacts-${{ matrix.framework }}
-                    retention-days: 7
-                    path: |
-                        artifacts/packages/*.nupkg
-                        artifacts/packages/*.snupkg
-                    if-no-files-found: error
 
             -   name: Upload build outputs for tests
                 uses: actions/upload-artifact@v7
@@ -234,7 +211,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
 
             -   name: Cache NuGet packages
                 uses: actions/cache@v5
@@ -343,7 +320,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
 
             -   name: Cache NuGet packages
                 uses: actions/cache@v5
@@ -475,7 +452,7 @@ jobs:
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
 
             -   name: Cache NuGet packages
                 uses: actions/cache@v5
@@ -548,7 +525,7 @@ jobs:
              github.event_name == 'schedule' ||
              github.event_name == 'workflow_dispatch')
         env:
-            COVERAGE_MIN_LINE_RATE: "0.20"
+            COVERAGE_MIN_LINE_RATE: "0.70"
         steps:
             -   name: Download raw coverage files
                 uses: actions/download-artifact@v7
@@ -568,30 +545,34 @@ jobs:
                     fi
 
                     echo "found=true" >> "$GITHUB_OUTPUT"
+            -   name: Merge coverage reports
+                if: steps.covcheck.outputs.found == 'true'
+                uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
+                with:
+                    reports: coverage/**/coverage.cobertura.xml
+                    targetdir: coverage/merged
+                    reporttypes: Cobertura
+                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
+                    classfilters: '+*;-JetBrains.Annotations.*'
             -   name: Enforce coverage gate
                 if: steps.covcheck.outputs.found == 'true'
                 shell: pwsh
                 run: |
-                    $files = Get-ChildItem -Path coverage -Recurse -Filter coverage.cobertura.xml
-                    if ($files.Count -eq 0) {
-                        throw "No Cobertura coverage files found."
+                    $merged = Get-ChildItem -Path coverage/merged -Recurse -Filter Cobertura.xml -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if (-not $merged) {
+                        throw "Merged Cobertura report was not produced."
                     }
 
-                    [long]$covered = 0
-                    [long]$valid = 0
-                    foreach ($file in $files) {
-                        [xml]$coverage = Get-Content -LiteralPath $file.FullName
-                        $covered += [long]$coverage.coverage.'lines-covered'
-                        $valid += [long]$coverage.coverage.'lines-valid'
-                    }
-
+                    [xml]$coverage = Get-Content -LiteralPath $merged.FullName
+                    $rate = [double]$coverage.coverage.'line-rate'
+                    $covered = [long]$coverage.coverage.'lines-covered'
+                    $valid = [long]$coverage.coverage.'lines-valid'
                     if ($valid -le 0) {
-                        throw "Coverage report has no valid lines."
+                        throw "Merged coverage report has no valid lines."
                     }
 
-                    $rate = $covered / $valid
                     $threshold = [double]$env:COVERAGE_MIN_LINE_RATE
-                    "Line coverage: {0:P2}; threshold: {1:P2}" -f $rate, $threshold
+                    "Merged line coverage: {0:P2} ({1}/{2}); threshold: {3:P2}" -f $rate, $covered, $valid, $threshold
                     if ($rate -lt $threshold) {
                         throw "Line coverage is below the configured threshold."
                     }
@@ -714,7 +695,7 @@ jobs:
                       while IFS=$'\t' read -r id name; do
                         [[ -z "${id}" ]] && continue
                         case "${name}" in
-                          build-output-*|coverage-raw-*|test-results-*)
+                          build-output-*|coverage-raw-*|test-results-*|package-artifacts-*)
                             echo "Deleting artifact id=${id} name=${name}"
                             gh api --method DELETE "repos/${repo}/actions/artifacts/${id}"
                             ;;
@@ -813,7 +794,7 @@ jobs:
             -   uses: actions/checkout@v6
             -   uses: actions/setup-dotnet@v5
                 with:
-                    dotnet-version: 10.0.x
+                    global-json-file: global.json
             -   name: Restore
                 run: dotnet restore squirix.slnx
             -   name: Build

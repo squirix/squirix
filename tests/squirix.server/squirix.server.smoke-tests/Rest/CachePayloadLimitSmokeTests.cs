@@ -5,9 +5,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.Limits;
-using Squirix.Server.Node.Cluster.Membership;
 using Squirix.Server.TestKit.Limits;
 using Xunit;
 
@@ -30,7 +30,7 @@ public sealed class CachePayloadLimitSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
 
         var key = new string('k', CacheKeyValidator.MaxLength + 1);
         var entry = new CacheEntry<string> { Value = "small" };
@@ -54,7 +54,7 @@ public sealed class CachePayloadLimitSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
 
         var largeValue = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
         var response = await HttpClient.PutAsJsonAsync($"{url}{Route}/big", new CacheEntry<string> { Value = largeValue }, DefaultCancellationToken);

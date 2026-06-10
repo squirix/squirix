@@ -94,8 +94,9 @@ Generic logical cache operation metrics (`squirix_ops_total`, `squirix_op_latenc
 `CacheOperationResults`, `CacheOperationClassifier`). `MetricsCacheDecorator<T>` bridges `INamespacedCache<T>` to
 `CacheMetrics.RecordOperation` using those types.
 
-These instruments describe logical cache operations only and use bounded `operation` / `result` labels; they do not
-include raw keys, values, serialized payloads, or unbounded cache names.
+These instruments describe logical cache operations only and use bounded `operation` / `result` labels on the
+`Squirix` meter. They also record a `cache` tag internally for debugging through OpenTelemetry and other
+`MeterListener` exporters. The HTTP `/metrics` public scrape profile strips `cache` and `exception_type` before export.
 
 Missing reads are reported as `not_found` when the API shape can distinguish them (`GetValueAsync`, `GetEntryAsync`, and
 remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss classification.
@@ -123,13 +124,37 @@ recovery/trusted replay, and internal data-structure correctness, but it is not 
 
 ## Metrics route
 
-When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint:
+When enabled (default), the host exposes a Prometheus-compatible text scrape endpoint on the **primary HTTPS listener**:
 
 - `GET /metrics` (default path; configurable)
 
 The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disable it or change the path through
 `PrometheusMetrics` in `Squirix.settings.json`. See
 [configuration](configuration.md#prometheus-metrics-squirixsettingsjson).
+
+Access control is enforced on every request:
+
+- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials (typical same-host Prometheus).
+- **All other clients** must authenticate with `X-Api-Key` or a JWT bearer token. There is no settings flag to disable
+  this rule.
+
+Remote scrapers should use the same credentials as cache/admin routes. Example `Authorization` header:
+`X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
+for a `prometheus.yml` fragment.
+
+<!-- markdownlint-disable-next-line MD033 -->
+<a id="scrape-privacy-model"></a>
+
+### Scrape privacy model
+
+HTTP `/metrics` always exports the **public scrape profile**:
+
+- **Stripped labels:** `cache`, `exception_type` (aggregated away before export).
+- **Retained labels:** bounded operational dimensions such as `operation`, `result`, `node`, `state`, `op`, `impl`.
+- **Not configurable:** there is no settings flag to export identifying labels over HTTP.
+
+Full-fidelity series (including `cache` and `exception_type`) remain on the `Squirix` .NET meter for OpenTelemetry and
+other `MeterListener` exporters.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="admin-routes-v01"></a>
@@ -160,10 +185,13 @@ Important:
 
 ## Security
 
+- `/admin` routes are exposed in Development automatically. Outside Development (including Docker `Production`
+  containers), set `SQUIRIX_ADMIN_ENABLED=true` or the routes are not mapped.
 - Admin routes use the same route-level authorization policy as the rest of `/admin`.
 - When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. Set `PrometheusMetrics.RequireAuth` when
-  auth is enabled and the scrape endpoint must not be public.
+- `/health`, `/metrics`, and `/admin` are served on the primary HTTPS listener only.
+- Loopback `/metrics` scrapes stay anonymous; remote clients must present `X-Api-Key` or a JWT bearer token (see
+  [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 

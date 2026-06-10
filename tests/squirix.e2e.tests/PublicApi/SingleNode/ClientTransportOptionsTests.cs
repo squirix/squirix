@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Infrastructure;
+using Squirix.Server.TestKit.AspNetCore;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.SingleNode;
@@ -21,12 +22,14 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     {
         var credentials = E2EJwtHelper.CreateSymmetricCredentials();
         var bearerToken = E2EJwtHelper.CreateBearerToken(credentials);
-        using var apiKeys = new E2ETempEnvironment("SQUIRIX_API_KEYS", null);
-        using var signingKey = new E2ETempEnvironment("SQUIRIX_JWT_SIGNING_KEY", credentials.Base64SigningKey);
-        using var issuer = new E2ETempEnvironment("SQUIRIX_JWT_ISSUER", credentials.Issuer);
-        using var audience = new E2ETempEnvironment("SQUIRIX_JWT_AUDIENCE", credentials.Audience);
+        var security = new TestNodeSecurityOptions
+        {
+            JwtSigningKey = credentials.Base64SigningKey,
+            JwtIssuer = credentials.Issuer,
+            JwtAudience = credentials.Audience,
+        };
 
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), DefaultCancellationToken);
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await E2ETestConnect.ConnectAsync(
@@ -49,8 +52,8 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     [Fact]
     public async Task ClientAuthenticatesWithConfiguredApiKey()
     {
-        using var apiKeys = new E2ETempEnvironment("SQUIRIX_API_KEYS", ApiKeyValue);
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithConfiguredApiKey), DefaultCancellationToken);
+        var security = new TestNodeSecurityOptions { ApiKeys = [ApiKeyValue] };
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithConfiguredApiKey), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await E2ETestConnect.ConnectAsync(
@@ -73,8 +76,8 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     [Fact]
     public async Task ClientFailsWhenApiKeyRequiredButNotConfigured()
     {
-        using var apiKeys = new E2ETempEnvironment("SQUIRIX_API_KEYS", ApiKeyValue);
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenApiKeyRequiredButNotConfigured), DefaultCancellationToken);
+        var security = new TestNodeSecurityOptions { ApiKeys = [ApiKeyValue] };
+        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenApiKeyRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await E2ETestConnect.ConnectAsync(url, DefaultCancellationToken);

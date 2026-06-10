@@ -23,13 +23,11 @@ public sealed class PrometheusMetricsEndpointOptionsTests
         {
             o.Enabled = true;
             o.Path = "/original";
-            o.RequireAuth = false;
         });
 
         _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o =>
         {
             o.Path = "/overridden";
-            o.RequireAuth = true;
         });
 
         using var provider = services.BuildServiceProvider();
@@ -37,7 +35,6 @@ public sealed class PrometheusMetricsEndpointOptionsTests
 
         Assert.True(resolved.Enabled);
         Assert.Equal("/overridden", resolved.Path);
-        Assert.True(resolved.RequireAuth);
     }
 
     /// <summary>
@@ -59,28 +56,6 @@ public sealed class PrometheusMetricsEndpointOptionsTests
         var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
 
         Assert.False(resolved.Enabled);
-    }
-
-    /// <summary>
-    /// Verifies that <c>PostConfigure</c> can enable <see cref="PrometheusMetricsEndpointOptions.RequireAuth" />
-    /// after initial registration. This proves <c>RequireAuth</c> cannot be <c>init</c>-only.
-    /// </summary>
-    [Fact]
-    public void PostConfigureEnablesRequireAuth()
-    {
-        var services = new ServiceCollection();
-        _ = services.AddOptions<PrometheusMetricsEndpointOptions>().Configure(static o =>
-        {
-            o.Enabled = true;
-            o.Path = "/metrics";
-            o.RequireAuth = false;
-        });
-        _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o => { o.RequireAuth = true; });
-
-        using var provider = services.BuildServiceProvider();
-        var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;
-
-        Assert.True(resolved.RequireAuth);
     }
 
     /// <summary>

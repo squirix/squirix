@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -77,7 +78,25 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         {
             SnapshotTriggerLogs.LogCancelled(_log);
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            Volatile.Write(ref _fatalFailure, 1);
+            SnapshotTriggerLogs.LogCrashed(_log, ex);
+            throw;
+        }
+        catch (ObjectDisposedException ex)
+        {
+            Volatile.Write(ref _fatalFailure, 1);
+            SnapshotTriggerLogs.LogCrashed(_log, ex);
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Volatile.Write(ref _fatalFailure, 1);
+            SnapshotTriggerLogs.LogCrashed(_log, ex);
+            throw;
+        }
+        catch (UnauthorizedAccessException ex)
         {
             Volatile.Write(ref _fatalFailure, 1);
             SnapshotTriggerLogs.LogCrashed(_log, ex);

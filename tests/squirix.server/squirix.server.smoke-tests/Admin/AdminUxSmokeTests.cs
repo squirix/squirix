@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Admin;
@@ -24,7 +24,7 @@ public sealed class AdminUxSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
 
         var whoami = await HttpClient.GetAsync($"{url}/admin/whoami", DefaultCancellationToken);
         _ = whoami.EnsureSuccessStatusCode();
@@ -51,7 +51,7 @@ public sealed class AdminUxSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
 
         var joinResponse = await HttpClient.PostAsJsonAsync($"{url}/admin/join", new { nodeId = "nodeB" }, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Conflict, joinResponse.StatusCode);
@@ -79,7 +79,7 @@ public sealed class AdminUxSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
 
         var response = await HttpClient.GetAsync($"{url}/admin/ring", DefaultCancellationToken);
         _ = response.EnsureSuccessStatusCode();
@@ -109,7 +109,7 @@ public sealed class AdminUxSmokeTests : SmokeTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, disableSecurity: true, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
         var cache = GetCacheApiClient(node);
         await cache.InsertAsync("diag:key", BuildEntry("value", version: 1), DefaultCancellationToken);
 

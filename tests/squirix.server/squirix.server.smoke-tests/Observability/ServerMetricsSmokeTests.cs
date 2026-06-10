@@ -1,7 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Squirix.Server.Node.Cluster.Membership;
+using Squirix.Server.Cluster.Membership;
 using Xunit;
 using Xunit.Sdk;
 
@@ -32,6 +32,8 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
 
         var body = await GetWithRetryAsync(url + "/metrics", TimeSpan.FromMilliseconds(50), 30);
         Assert.False(string.IsNullOrWhiteSpace(body));
+        Assert.DoesNotContain("cache=\"", body);
+        Assert.DoesNotContain("exception_type=", body);
 
         var hasOps = OpsTotalRegex().IsMatch(body);
         var match = AppendsTotalRegex().IsMatch(body);
@@ -41,7 +43,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     [GeneratedRegex("""^squirix_journal_appends_total\{.*op="insert".*\} \d+""", RegexOptions.Multiline)]
     private static partial Regex AppendsTotalRegex();
 
-    [GeneratedRegex("""^squirix_ops_total\{.*operation="insert".*\} \d+""", RegexOptions.Multiline)]
+    [GeneratedRegex("""^squirix_ops_total\{.*operation="set".*\} \d+""", RegexOptions.Multiline)]
     private static partial Regex OpsTotalRegex();
 
     private async Task<string> GetWithRetryAsync(string metricsUrl, TimeSpan delay, int attempts)
