@@ -241,11 +241,10 @@ cancellation). Memory pressure is a separate policy and is not configured by the
 The optional `PrometheusMetrics` section configures the built-in Prometheus-compatible HTTP scrape endpoint mapped by
 `MapSquirixServer()`.
 
-| Field         | Type   | Default in node host | Validation                                                               |
-| ------------- | ------ | -------------------- | ------------------------------------------------------------------------ |
-| `Enabled`     | bool   | `true`               | Any boolean                                                              |
-| `Path`        | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true`                  |
-| `RequireAuth` | bool   | `false`              | Any boolean; when `true` and server auth is enabled, requires `ApiOrJwt` |
+| Field     | Type   | Default in node host | Validation                                              |
+| --------- | ------ | -------------------- | ------------------------------------------------------- |
+| `Enabled` | bool   | `true`               | Any boolean                                             |
+| `Path`    | string | `/metrics`           | Non-empty, must start with `/` when `Enabled` is `true` |
 
 Example fragment:
 
@@ -254,11 +253,30 @@ Example fragment:
     "Squirix": {
         "PrometheusMetrics": {
             "enabled": true,
-            "path": "/metrics",
-            "requireAuth": false
+            "path": "/metrics"
         }
     }
 }
+```
+
+Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
+the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
+[diagnostics — Security](diagnostics.md#metrics-route)).
+
+Remote Prometheus example (`prometheus.yml`):
+
+```yaml
+scrape_configs:
+  - job_name: squirix
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true   # use proper CA trust in production
+    authorization:
+      type: ApiKey
+      credentials: your-api-key
+    static_configs:
+      - targets: ["node.example:5001"]
+    metrics_path: /metrics
 ```
 
 See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and security notes.

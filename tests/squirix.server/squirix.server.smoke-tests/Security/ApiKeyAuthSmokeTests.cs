@@ -78,6 +78,52 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     }
 
     /// <summary>
+    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsAllowLoopbackWithoutKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
+
+        var loopback = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
+        Assert.True(loopback.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopback.StatusCode} {loopback.ReasonPhrase}");
+    }
+
+    /// <summary>
+    /// Verifies authenticated <c>/metrics</c> scrapes succeed when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsSucceedWithApiKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
+        req.Version = HttpVersion.Version20;
+        req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        req.Headers.Add("X-Api-Key", "smoke-key");
+        var authenticated = await HttpClient.SendAsync(req, DefaultCancellationToken);
+        Assert.True(authenticated.IsSuccessStatusCode, $"Expected success with API key, got {(int)authenticated.StatusCode} {authenticated.ReasonPhrase}");
+    }
+
+    /// <summary>
     /// Verifies that admin storage diagnostics are protected by the same API key policy.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
