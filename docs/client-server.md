@@ -61,7 +61,7 @@ contracts and shared proto source.
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
 - HTTPS gRPC transport (shared `SquirixCache.proto` contract)
-- HTTP/2 REST endpoints for cache operations, health, readiness, and admin routes
+- REST cache, health, readiness, admin, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
 - WAL-based durability with recovery on startup
 - Snapshots and journal compaction
 - Prometheus metrics and OpenTelemetry tracing

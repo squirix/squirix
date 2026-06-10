@@ -54,39 +54,59 @@ docker compose -f docker-compose.release.yml build
 
 ## Run
 
-Dev cluster:
+Dev cluster (sets `SQUIRIX_API_KEYS=dev-docker-key` and `SQUIRIX_ADMIN_ENABLED=true` for both nodes; containers run
+with `Production` hosting environment):
 
 ```powershell
 cd docker
 docker compose up -d
 ```
 
-For a single local development node (HTTP/1 sidecar on 5001 for browser/curl health checks):
+For a single local development node:
 
 ```powershell
 docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
-  -p 5001:5001 `
-  -e SQUIRIX_HTTP1_PORT=5001 `
-  -e SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true `
-  -e SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true `
+  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-The primary listener on port **5000** inside the container is HTTPS HTTP/2 (gRPC).
-Map `-p 5000:5000` when client apps on the host need gRPC access.
-Without `SQUIRIX_HTTP1_PORT`, plain HTTP/1 tools such as `curl` against the mapped port will fail.
+The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
+access to gRPC, health, metrics, and admin routes.
 
 Endpoints (two-node `docker compose` example):
 
-- Node A HTTP/1 sidecar (health/admin/metrics): `http://localhost:5001`
-- Node B HTTP/1 sidecar: `http://localhost:5002`
-- Inside each container, gRPC/HTTP/2 uses port **5000** from the mounted `Squirix.settings.json`; the sidecar is
-  `SQUIRIX_HTTP1_PORT=5001`.
+- Node A HTTPS (gRPC/health/admin/metrics): `https://localhost:5001` (host port maps to container **5000**)
+- Node B HTTPS: `https://localhost:5002`
+- Inside each container, the listen URL is port **5000** from the mounted `Squirix.settings.json`.
 
-For the single-container `docker run` example above, health and admin are on the HTTP/1 sidecar at port **5001**
-(`SQUIRIX_HTTP1_PORT=5001`; map host port 5001 to container 5001).
+Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
+`https://squirix-node-b:5000`). Host applications use the **published** ports (`5001`, `5002`) instead. Each node's
+`Cluster.Url` must match its local peer entry (see [configuration.md](configuration.md)).
+
+## HTTPS in containers
+
+Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (password `dev-docker-cert`) with SANs for
+`localhost`, `squirix-node-a`, `squirix-node-b`, and the release compose container names. Kestrel loads it via
+`ASPNETCORE_Kestrel__Certificates__Default__Path` and `ASPNETCORE_Kestrel__Certificates__Default__Password`.
+
+Use `curl -k` (or equivalent TLS skip/validation override) from the host. For .NET clients on the host, either trust the
+exported cert or use development-only certificate validation overrides.
+
+Example probes from the host:
+
+```powershell
+curl -k https://localhost:5001/health
+curl -k -H "X-Api-Key: dev-docker-key" https://localhost:5001/metrics
+```
+
+Remote scrapes (including host → published container port) require authentication when `SQUIRIX_API_KEYS` is set.
+
+gRPC and REST cache clients on the host must send the same API key (`options.ApiKey = "dev-docker-key"` or
+`X-Api-Key: dev-docker-key`). TLS validation against the bundled cert requires `curl -k` or a development-only
+certificate validation override in .NET.
 
 Health and metrics:
 
@@ -96,16 +116,26 @@ Health and metrics:
 - `GET /health/ready/details`
 - `GET /metrics` (Prometheus text scrape; enabled by default)
 
-Admin helpers:
+Admin helpers (`SQUIRIX_ADMIN_ENABLED=true` outside Development; compose sets it; require `X-Api-Key` when
+`SQUIRIX_API_KEYS` is set):
 
 - `GET /admin/whoami`
 - `GET /admin/owner/{key}`
 - `GET /admin/ring`
 
+Example:
+
+```powershell
+curl -k -H "X-Api-Key: dev-docker-key" https://localhost:5001/admin/whoami
+```
+
 ## Security
 
-- API keys can be enabled by setting `SQUIRIX_API_KEYS` on each service.
-- The HTTP/1.1 sidecar created by `SQUIRIX_HTTP1_PORT` is plaintext and intended for local/dev use.
+- Non-loopback listen URLs require `SQUIRIX_API_KEYS` and/or JWT settings at startup. The compose examples use
+  `dev-docker-key` for local testing only.
+- `/health` stays anonymous. `/metrics` and `/admin` follow the same auth rules as cache routes for remote clients;
+  host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
+  [diagnostics.md](diagnostics.md).
 
 ## Persistence
 

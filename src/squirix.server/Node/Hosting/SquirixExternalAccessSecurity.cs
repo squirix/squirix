@@ -1,6 +1,5 @@
 using System;
 using System.Net;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -9,45 +8,22 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal static class SquirixExternalAccessSecurity
 {
-    private const string AllowUnauthenticatedExternalVariable = "SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL";
-
     /// <summary>
-    /// Refuses startup when the primary listen URL is non-loopback and neither API/JWT auth nor an explicit insecure override is configured.
+    /// Refuses startup when the primary listen URL is non-loopback and API/JWT auth is not configured.
     /// </summary>
     /// <param name="listenUri">Primary node listen URI from cluster configuration.</param>
     /// <param name="authEnabled">Whether API key or JWT authentication was registered.</param>
-    /// <param name="environmentName">Host environment name (for warning text).</param>
-    /// <param name="transportExposureOverride">
-    /// Optional transport exposure override. When <c>null</c>, environment variables are read.
-    /// </param>
-    /// <exception cref="InvalidOperationException">Non-loopback listen without credentials or explicit override.</exception>
-    public static void EnsureDataPlaneAuthenticatedForListenUri(
-        Uri listenUri,
-        bool authEnabled,
-        string environmentName,
-        TransportExposureOptions? transportExposureOverride = null)
+    /// <exception cref="InvalidOperationException">Non-loopback listen without credentials.</exception>
+    public static void EnsureDataPlaneAuthenticatedForListenUri(Uri listenUri, bool authEnabled)
     {
         ArgumentNullException.ThrowIfNull(listenUri);
 
         if (authEnabled || IsLoopbackHost(listenUri.Host))
             return;
 
-        var allowUnauthenticatedExternal = transportExposureOverride?.AllowUnauthenticatedExternal ?? EnvVariables.ReadBool(AllowUnauthenticatedExternalVariable);
-        if (allowUnauthenticatedExternal)
-        {
-            if (!string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.Error.WriteLine(
-                    $"WARNING: cache REST and gRPC endpoints are exposed without authentication on non-loopback interface ({listenUri}). " +
-                    $"Set {AllowUnauthenticatedExternalVariable}=true only for explicitly insecure scenarios, or configure SQUIRIX_API_KEYS / JWT.");
-            }
-
-            return;
-        }
-
         throw new InvalidOperationException(
             $"Refusing to start with unauthenticated cache endpoints on non-loopback interface ({listenUri}). " +
-            $"Configure SQUIRIX_API_KEYS and/or JWT settings, or set {AllowUnauthenticatedExternalVariable}=true only for explicitly insecure scenarios.");
+            "Configure SQUIRIX_API_KEYS and/or JWT settings.");
     }
 
     internal static bool IsLoopbackHost(string host) =>

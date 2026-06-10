@@ -113,8 +113,8 @@ internal static class SquirixServerProcess
         await app.StartAsync().ConfigureAwait(false);
         Console.WriteLine("[Squirix.Server] Server is ready.");
         Console.WriteLine($"  gRPC endpoint: {options.Url}");
-        Console.WriteLine($"  HTTP/2 health endpoint: {options.Url}/health");
-        Console.WriteLine("  Browser health endpoint: set SQUIRIX_HTTP1_PORT to enable the HTTP/1 sidecar.");
+        Console.WriteLine($"  Health endpoint: {options.Url}/health");
+        Console.WriteLine($"  Metrics endpoint: {options.Url}/metrics");
         Console.WriteLine($"  Data directory: {options.DataDirectory ?? "<default>"}");
         Console.WriteLine($"  Node ID: {options.NodeId}");
         Console.WriteLine($"  Persistence: {(options.DataDirectory is null ? "default" : "configured")}");

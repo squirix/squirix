@@ -23,7 +23,7 @@ public static class LoopbackHttp
     };
 
     /// <summary>
-    /// Creates an <see cref="HttpClient" /> for loopback REST or sidecar probes.
+    /// Creates an <see cref="HttpClient" /> for loopback REST probes over HTTPS.
     /// </summary>
     /// <param name="timeout">Optional request timeout; defaults to 30 seconds.</param>
     /// <returns>An HTTP/1.1 client that does not use the system proxy.</returns>

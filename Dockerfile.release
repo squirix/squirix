@@ -17,14 +17,28 @@ RUN set -eux; \
       dotnet tool install ${install_args}; \
     fi
 
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS https-cert
+RUN mkdir -p /https \
+    && openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
+        -keyout /https/aspnetapp.key \
+        -out /https/aspnetapp.crt \
+        -subj "/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,DNS:squirix-node-a,DNS:squirix-node-b,DNS:squirix-node-a-release,DNS:squirix-node-b-release,IP:127.0.0.1" \
+    && openssl pkcs12 -export -out /https/aspnetapp.pfx \
+        -inkey /https/aspnetapp.key -in /https/aspnetapp.crt \
+        -passout pass:dev-docker-cert
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 VOLUME ["/data"]
-RUN mkdir -p /data && chown "$APP_UID:$APP_UID" /data
+RUN mkdir -p /data /https && chown "$APP_UID:$APP_UID" /data /https
 
 COPY --from=tool-install --chown=$APP_UID:$APP_UID /tools /tools
+COPY --from=https-cert --chown=$APP_UID:$APP_UID /https/aspnetapp.pfx /https/aspnetapp.pfx
 ENV PATH="/tools:${PATH}"
+ENV ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+ENV ASPNETCORE_Kestrel__Certificates__Default__Password=dev-docker-cert
 
 EXPOSE 5000
 

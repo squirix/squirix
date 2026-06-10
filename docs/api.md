@@ -46,7 +46,8 @@ Base path: `/api/v1/cache/{key}`
 | `DELETE` | Remove key |
 
 REST and gRPC share server-side mutation paths. Authentication uses API key or bearer token when enabled — same
-options as the gRPC client.
+options as the gRPC client. Docker compose examples set `SQUIRIX_API_KEYS=dev-docker-key`; pass the same value as
+`SquirixOptions.ApiKey` or `X-Api-Key` on REST calls.
 
 ## Wire contract
 
