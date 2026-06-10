@@ -1,0 +1,106 @@
+name: Close linked issues on develop merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [develop]
+
+jobs:
+  close-linked-issues:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close issues referenced by merged pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const repoKey = `${owner}/${repo}`.toLowerCase();
+
+            let text = `${pr.title}\n${pr.body ?? ''}`;
+
+            if (pr.merge_commit_sha) {
+              try {
+                const { data: commit } = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: pr.merge_commit_sha,
+                });
+                text += `\n${commit.commit.message}`;
+              } catch (error) {
+                core.warning(`Could not read merge commit ${pr.merge_commit_sha}: ${error.message}`);
+              }
+            }
+
+            const pattern = /\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+(?:(?<repo>[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#|#)(?<number>\d+)\b/gi;
+            const issueNumbers = new Set();
+
+            for (const match of text.matchAll(pattern)) {
+              const repoRef = match.groups?.repo?.toLowerCase();
+              if (repoRef && repoRef !== repoKey) {
+                core.info(`Skipping cross-repo reference ${match[0]}.`);
+                continue;
+              }
+
+              issueNumbers.add(Number.parseInt(match.groups.number, 10));
+            }
+
+            if (issueNumbers.size === 0) {
+              core.info('No linked issues found in merged pull request.');
+              return;
+            }
+
+            const prUrl = pr.html_url;
+            const prNumber = pr.number;
+
+            for (const issueNumber of issueNumbers) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                });
+
+                if (issue.pull_request) {
+                  core.info(`#${issueNumber} is a pull request; skipping.`);
+                  continue;
+                }
+
+                if (issue.state === 'closed') {
+                  core.info(`Issue #${issueNumber} is already closed; skipping.`);
+                  continue;
+                }
+
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  body: [
+                    `Closed automatically because PR #${prNumber} was merged into \`develop\`.`,
+                    '',
+                    prUrl,
+                  ].join('\n'),
+                });
+
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+
+                core.info(`Closed issue #${issueNumber}.`);
+              } catch (error) {
+                if (error.status === 404) {
+                  core.warning(`Issue #${issueNumber} was not found; skipping.`);
+                  continue;
+                }
+
+                core.warning(`Failed to close issue #${issueNumber}: ${error.message}`);
+              }
+            }
