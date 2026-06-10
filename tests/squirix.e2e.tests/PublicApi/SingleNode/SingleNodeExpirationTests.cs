@@ -411,12 +411,14 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
         await using var client = await ConnectClientAsync();
         var cache = await client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", DefaultCancellationToken);
 
+        // ExpiresAt is captured on the client before gRPC/journal work; keep margins wide for parallel CI.
+        var expiresAt = DateTimeOffset.UtcNow.AddSeconds(2);
         var added = await cache.TryAddAsync(
             "k",
             "v",
             new CacheEntryOptions
             {
-                ExpiresAt = DateTimeOffset.UtcNow.AddMilliseconds(500),
+                ExpiresAt = expiresAt,
             },
             DefaultCancellationToken);
 
@@ -426,8 +428,9 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
         Assert.True(expiration.Found);
         Assert.True(expiration.HasExpiration);
         Assert.True(expiration.Expiration > TimeSpan.Zero);
+        Assert.True(expiration.Expiration <= expiresAt - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(600), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(3), DefaultCancellationToken);
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }

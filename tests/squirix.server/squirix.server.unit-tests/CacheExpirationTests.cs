@@ -75,6 +75,29 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// Verifies TryAddAsync stores absolute expiration metadata that GetExpirationAsync can read back.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task TryAddAsyncPreservesAbsoluteExpiration()
+    {
+        var clock = new FakeClock(DateTime.UtcNow);
+        await using var cache = new PhysicalCache<string>(clock);
+
+        var expiresUtc = clock.UtcNow.AddSeconds(5);
+        var added = await cache.TryAddAsync(
+            "k",
+            new CacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc },
+            DefaultCancellationToken);
+
+        Assert.True(added);
+
+        var remaining = Assert.NotNull(await cache.GetExpirationAsync("k", DefaultCancellationToken));
+        Assert.True(remaining > TimeSpan.Zero);
+        Assert.True(remaining <= TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Verifies remove operations treat expired keys as missing.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
