@@ -131,6 +131,16 @@ The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disa
 `PrometheusMetrics` in `Squirix.settings.json`. See
 [configuration](configuration.md#prometheus-metrics-squirixsettingsjson).
 
+Access control is enforced on every request:
+
+- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials (typical same-host Prometheus).
+- **All other clients** must authenticate with `X-Api-Key` or a JWT bearer token. There is no settings flag to disable
+  this rule.
+
+Remote scrapers should use the same credentials as cache/admin routes. Example `Authorization` header:
+`X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
+for a `prometheus.yml` fragment.
+
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="admin-routes-v01"></a>
 
@@ -162,8 +172,8 @@ Important:
 
 - Admin routes use the same route-level authorization policy as the rest of `/admin`.
 - When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. Set `PrometheusMetrics.RequireAuth` when
-  auth is enabled and the scrape endpoint must not be public.
+- `/metrics` is enabled by default and is plaintext unless the host uses HTTPS. Loopback scrapes stay anonymous; remote
+  clients must present `X-Api-Key` or a JWT bearer token (see [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 
