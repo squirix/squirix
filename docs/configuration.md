@@ -97,11 +97,11 @@ Example fragment:
 | ---------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `NodeId`         | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
 | `ClusterId`      | string | loader fallback                        | Required, non-empty, maximum 128 characters                                                                                          |
-| `Url`            | URI    | loader fallback                        | Absolute `https` origin URI, maximum 2048 characters; no credentials, path, query, or fragment (plaintext `http://` is rejected at startup) |
+| `Url`            | URI    | loader fallback                        | Absolute `https` origin URI (max 2048); rejects `http://`; no credentials, path, query, or fragment                                  |
 | `VirtualNodes`   | int    | `128`                                  | `> 0` and `<= 16384`                                                                                                                 |
 | `Peers`          | array  | runtime local-peer fallback when empty | When non-empty: must include local `NodeId`; peer ids and URLs must be unique; local peer `Url` must match `Url`; maximum 1024 peers |
 | `Peers[].NodeId` | string | none                                   | Required, non-empty, maximum 128 characters                                                                                          |
-| `Peers[].Url`    | URI    | none                                   | Absolute `https` origin URI, maximum 2048 characters; no credentials, path, query, or fragment                                         |
+| `Peers[].Url`    | URI    | none                                   | Same validation as `Url`                                                                                                             |
 
 CLI validation:
 
