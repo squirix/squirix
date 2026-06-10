@@ -11,8 +11,5 @@ internal static class BenchmarkRuntime
     {
     }
 
-    internal static void ConfigureRemoteClient(SquirixOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-    }
+    internal static void ConfigureRemoteClient(SquirixOptions options) => ArgumentNullException.ThrowIfNull(options);
 }

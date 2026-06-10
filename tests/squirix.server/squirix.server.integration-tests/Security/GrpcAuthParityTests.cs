@@ -12,7 +12,7 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>
-/// Verifies gRPC authentication parity with REST/admin when ApiOrJwt is enabled.
+/// Verifies gRPC authentication parity with REST cache routes when ApiOrJwt is enabled.
 /// </summary>
 public sealed class GrpcAuthParityTests : IntegrationTestBase
 {

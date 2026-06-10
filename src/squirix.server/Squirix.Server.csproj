@@ -8,7 +8,7 @@
         <RootNamespace>Squirix.Server</RootNamespace>
         <PackageId>squirix.server</PackageId>
         <Authors>Squirix Team</Authors>
-        <Description>Server runtime for Squirix — consistent-hash routing, WAL journal, snapshots, compaction, recovery, REST/gRPC hosting, health/admin endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
+        <Description>Server runtime for Squirix — consistent-hash routing, WAL journal, snapshots, compaction, recovery, REST/gRPC hosting, health endpoints, Prometheus metrics, and OpenTelemetry journal tracing. Early preview.</Description>
         <RepositoryUrl>https://github.com/squirix/squirix</RepositoryUrl>
         <PackageProjectUrl>https://github.com/squirix/squirix</PackageProjectUrl>
         <PackageTags>dotnet;cache;distributed-cache;csharp;grpc;server;durability;journal;snapshot;opentelemetry</PackageTags>

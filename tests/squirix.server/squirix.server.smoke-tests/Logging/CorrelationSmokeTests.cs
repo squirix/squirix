@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.TestKit.Cluster;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Logging;
@@ -48,7 +49,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
             cancellationToken: DefaultCancellationToken);
 
         // Find a key owned by B to force a cross-node RPC from A -> B
-        var key = await FindKeyOwnedByAsync(nodeA.Address, "B");
+        var key = new TestKeyOwnerHelper(["A", "B"]).FindKeyOwnedBy("default", "B", "correlation");
 
         // Create an Activity so we can get a valid W3C traceparent string.
         using var activity = new Activity("test");
@@ -82,24 +83,5 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var expectedTraceId = traceparent!.Split('-')[1];
         var gotTraceId = gotTp.Split('-')[1];
         Assert.Equal(expectedTraceId, gotTraceId);
-    }
-
-    /// <summary>
-    /// Finds a key owned by the specified node by probing the /admin/owner endpoint.
-    /// </summary>
-    /// <param name="nodeAddress">Base address of the node to query.</param>
-    /// <param name="expectedOwner">The desired owner node id.</param>
-    /// <returns>A Task producing a key string owned by the expected node.</returns>
-    private async Task<string> FindKeyOwnedByAsync(string nodeAddress, string expectedOwner)
-    {
-        for (var i = 0; i < 2000; i++)
-        {
-            var k = $"k{i:0000}";
-            var who = await HttpClient.GetStringAsync(nodeAddress + "/admin/owner/" + Uri.EscapeDataString(k), DefaultCancellationToken);
-            if (who.Contains($"\"owner\":\"{expectedOwner}\"", StringComparison.Ordinal))
-                return k;
-        }
-
-        throw new InvalidOperationException($"Failed to find a key owned by {expectedOwner}");
     }
 }

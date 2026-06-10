@@ -18,6 +18,7 @@ using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
@@ -49,7 +50,6 @@ public abstract class IntegrationTestBase : IDisposable
     static IntegrationTestBase()
     {
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
-        Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 
     /// <summary>
@@ -184,7 +184,10 @@ public abstract class IntegrationTestBase : IDisposable
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="url" /> (the self node).
     /// </exception>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
@@ -246,6 +249,12 @@ public abstract class IntegrationTestBase : IDisposable
     }
 
     /// <summary>
+    /// Allocates a dedicated port reserved for the lifetime of the test process.
+    /// </summary>
+    /// <returns>A port number reserved from the shared in-process pool.</returns>
+    protected static int AllocateDedicatedPort() => PortPool.Allocate();
+
+    /// <summary>
     /// Creates a gRPC channel configured for HTTPS against a test node URL.
     /// </summary>
     /// <param name="url">The node listen URL.</param>
@@ -255,8 +264,8 @@ public abstract class IntegrationTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
-            MaxReceiveMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-            MaxSendMessageSize = Squirix.Server.Limits.SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+            MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
     /// <summary>
@@ -267,12 +276,6 @@ public abstract class IntegrationTestBase : IDisposable
     /// is a free port reserved from the shared pool.
     /// </returns>
     protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
-
-    /// <summary>
-    /// Allocates a dedicated port reserved for the lifetime of the test process.
-    /// </summary>
-    /// <returns>A port number reserved from the shared in-process pool.</returns>
-    protected static int AllocateDedicatedPort() => PortPool.Allocate();
 
     private static string BuildTestScope(string? testName, string? extra)
     {

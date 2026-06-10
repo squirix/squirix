@@ -6,9 +6,8 @@ services:
     container_name: squirix-node-a
     environment:
       - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
     ports:
-      - "5001:5000" # HTTPS gRPC + /health + /metrics + /admin
+      - "5001:5000" # HTTPS gRPC + /health + /metrics
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
@@ -22,7 +21,6 @@ services:
     container_name: squirix-node-b
     environment:
       - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
     ports:
       - "5002:5000"
     volumes:
