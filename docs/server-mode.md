@@ -43,7 +43,7 @@ await app.RunAsync();
 ```
 
 `AddSquirixServer(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
-HTTP/2 on one port). Non-loopback URLs require `SQUIRIX_API_KEYS` and/or JWT at startup.
+HTTP/2 on one port). Non-loopback URLs require JWT settings at startup.
 `MapSquirixServer()` maps gRPC, REST, health, admin, and metrics endpoints.
 
 Explicit settings path:

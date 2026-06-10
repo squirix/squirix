@@ -1,11 +1,12 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Runtime;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Security;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
@@ -27,7 +28,8 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
         var url = $"https://127.0.0.1:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        var credentials = TestJwtHelper.CreateRandomCredentials();
+        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
         await cache.SetAsync(secretCacheName, "k", new CacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
@@ -35,7 +37,7 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
-        req.Headers.Add("X-Api-Key", "metrics-secret");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
 
         var response = await HttpClient.SendAsync(req, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

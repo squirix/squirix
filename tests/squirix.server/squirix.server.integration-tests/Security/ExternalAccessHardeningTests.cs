@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Security;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -15,17 +16,17 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class ExternalAccessHardeningTests : IntegrationTestBase
 {
     /// <summary>
-    /// Verifies non-loopback primary listeners start when API key authentication is configured.
+    /// Verifies non-loopback primary listeners start when JWT authentication is configured.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
-    public async Task NonLoopbackListenWithApiKeysSucceeds()
+    public async Task NonLoopbackListenWithJwtSucceeds()
     {
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["external-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
 
         using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -67,6 +68,6 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()));
-        Assert.Contains("SQUIRIX_API_KEYS", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);
     }
 }

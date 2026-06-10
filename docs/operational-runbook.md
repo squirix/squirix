@@ -60,7 +60,7 @@ Trace ownership during triage:
 
 Security checks during triage:
 
-- Non-loopback listen URLs refuse startup without `SQUIRIX_API_KEYS` and/or JWT settings.
+- Non-loopback listen URLs refuse startup without JWT settings.
 - Confirm auth is enabled where required for exposed interfaces.
 - Verify that REST cache, gRPC cache, and remote `/metrics` scrapes are challenged consistently for missing/invalid
   credentials (`/health` remains anonymous).

@@ -12,11 +12,6 @@ namespace Squirix;
 public sealed class SquirixOptions
 {
     /// <summary>
-    /// Gets or sets a static API key sent as the <c>x-api-key</c> header on every gRPC call.
-    /// </summary>
-    public string? ApiKey { get; set; }
-
-    /// <summary>
     /// Gets or sets a delegate that provides a bearer token for each gRPC call.
     /// Called before every RPC; implementations should cache tokens when appropriate.
     /// </summary>
