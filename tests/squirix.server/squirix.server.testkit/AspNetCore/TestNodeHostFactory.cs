@@ -88,7 +88,6 @@ public static class TestNodeHostFactory
             persistenceOptionsOverride: persistence,
             httpHandlerOverride: httpHandler,
             securityOptionsOverride: security?.ToServerOptions(),
-            transportExposureOverride: new TestNodeTransportExposureOptions().ToServerOptions(),
             configureExtensions: configureExtensions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 

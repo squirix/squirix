@@ -26,7 +26,7 @@ We are looking for API, architecture, and operational feedback — not productio
 ## Key capabilities
 
 - Typed client/server packages with a narrow `ICache<T>` API
-- HTTPS gRPC transport and HTTP/2 REST cache endpoints
+- HTTPS gRPC transport; health, metrics, admin, and REST cache endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
 - Per-node journal durability with snapshots and compaction
 - Health, admin, Prometheus metrics, and OpenTelemetry tracing
 - Static consistent-hash routing with bootstrap client failover
@@ -56,7 +56,7 @@ var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
 await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
 ```
 
-Full setup options (Docker, ASP.NET Core embedding, TLS): [getting started](docs/getting-started.md).
+Full setup options (Docker with bundled dev TLS + API keys, ASP.NET Core embedding): [getting started](docs/getting-started.md).
 
 ## Documentation
 

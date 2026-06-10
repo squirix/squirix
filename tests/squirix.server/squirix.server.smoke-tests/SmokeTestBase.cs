@@ -191,7 +191,6 @@ public abstract class SmokeTestBase : IDisposable
             runtimeOptions,
             memoryPressureOptions,
             (security ?? UnauthenticatedSecurity).ToServerOptions(),
-            new TestNodeTransportExposureOptions().ToServerOptions(),
             null,
             cancellationToken);
 

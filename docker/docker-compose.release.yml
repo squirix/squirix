@@ -8,11 +8,10 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-a-release
     environment:
-      - SQUIRIX_HTTP1_PORT=5001
-      - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true
-      - SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true
+      - SQUIRIX_API_KEYS=dev-docker-key
+      - SQUIRIX_ADMIN_ENABLED=true
     ports:
-      - "5001:5001"
+      - "5001:5000"
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
@@ -28,11 +27,10 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-b-release
     environment:
-      - SQUIRIX_HTTP1_PORT=5001
-      - SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL=true
-      - SQUIRIX_ALLOW_UNAUTHENTICATED_EXTERNAL=true
+      - SQUIRIX_API_KEYS=dev-docker-key
+      - SQUIRIX_ADMIN_ENABLED=true
     ports:
-      - "5002:5001"
+      - "5002:5000"
     volumes:
       - ./node-b/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodeb-data:/data

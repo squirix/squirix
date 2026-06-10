@@ -63,12 +63,14 @@ Trace ownership during triage:
 
 Security checks during triage:
 
-- Confirm auth is enabled where required (`SQUIRIX_API_KEYS` and/or JWT settings).
-- Verify that both REST and gRPC requests are challenged consistently for missing/invalid credentials.
-- If `SQUIRIX_HTTP1_PORT` is configured, verify whether it is loopback-only or explicitly allowed externally via
-  `SQUIRIX_HTTP1_ALLOW_INSECURE_EXTERNAL`.
-- Treat any non-loopback plaintext listener as an explicit risk acceptance and document it in the incident/change
-  record.
+- Non-loopback listen URLs refuse startup without `SQUIRIX_API_KEYS` and/or JWT settings.
+- Outside Development, confirm `SQUIRIX_ADMIN_ENABLED=true` when `/admin` routes are expected (Docker compose examples
+  set it; otherwise routes are not mapped).
+- Confirm auth is enabled where required for exposed interfaces.
+- Verify that REST cache, gRPC cache, `/admin`, and remote `/metrics` scrapes are challenged consistently for
+  missing/invalid credentials (`/health` remains anonymous).
+- Operational routes (`/health`, `/metrics`, `/admin`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and
+  HTTP/2).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
 node's local ring view.
@@ -104,7 +106,7 @@ Alerting guidance:
 Kubernetes / containers:
 
 - The default **`/health/ready`** probe does **not** fail solely because memory pressure is high or critical
-  (compatibility with existing deployments). Use **`/health/ready/details`** in sidecars or operator checks when you
+  (compatibility with existing deployments). Use **`/health/ready/details`** or operator checks when you
   need memory pressure visibility, or scrape **`/metrics`** / OpenTelemetry / `MeterListener` exporters for gauges and
   counters.
 - Size pod memory limits and `MaxEstimatedCacheBytes` together; critical pressure is a **policy** signal, not a
@@ -197,7 +199,7 @@ Before upgrade:
 5. Validate security posture after startup:
     - REST, admin, and gRPC reject missing/invalid credentials.
     - gRPC accepts the same credential types (API key/JWT) as REST.
-    - Plaintext HTTP sidecar is not externally exposed unless explicitly overridden.
+    - Operational routes are HTTPS-only on the primary listener.
 
 Compatible rolling upgrade:
 
