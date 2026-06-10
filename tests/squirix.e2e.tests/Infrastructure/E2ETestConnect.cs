@@ -7,7 +7,7 @@ using Squirix.Server.TestKit.Http;
 namespace Squirix.E2ETests.Infrastructure;
 
 /// <summary>
-/// Connects E2E tests to loopback HTTPS nodes using the development-certificate trust policy from <see cref="LoopbackHttp" />.
+/// Connects E2E tests to loopback HTTPS nodes. Requires a trusted ASP.NET Core HTTPS development certificate on the host.
 /// </summary>
 internal static class E2ETestConnect
 {

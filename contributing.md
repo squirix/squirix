@@ -37,12 +37,15 @@ feature/my-fix → develop → main → tag vX.Y.Z
    git checkout -b my-fix
    ```
 
-2. Make your change and run tests:
+2. Make your change and run tests (trust the ASP.NET Core HTTPS development certificate once per machine):
 
    ```powershell
    dotnet build squirix.slnx --configuration Release
+   dotnet dev-certs https --trust
    dotnet test squirix.slnx --configuration Release
    ```
+
+   CI runs [`tools/ci/ensure-dev-https-cert.sh`](./tools/ci/ensure-dev-https-cert.sh) before tests.
 
 3. Open a pull request targeting `develop` with a short description.
    Link related issues with closing keywords (`Fixes #123`, `Closes #123`, or `Resolves #123`) in the PR

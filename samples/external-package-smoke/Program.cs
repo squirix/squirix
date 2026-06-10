@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -21,8 +20,6 @@ internal static class Program
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
 
-        EnsureDevelopmentCertificateTrusted();
-
         var endpoint = $"https://localhost:{NextFreePort()}";
         WriteSettings("external-smoke", endpoint);
         await using var host = await SquirixServer.StartAsync(CancellationToken.None);
@@ -34,36 +31,11 @@ internal static class Program
         return 0;
     }
 
-    private static void EnsureDevelopmentCertificateTrusted()
-    {
-        if (RunDotnet(["dev-certs", "https", "--check", "--trust"]) == 0)
-            return;
-
-        if (RunDotnet(["dev-certs", "https", "--trust"]) != 0 || RunDotnet(["dev-certs", "https", "--check", "--trust"]) != 0)
-        {
-            throw new InvalidOperationException("The ASP.NET Core HTTPS development certificate is not trusted. Run: dotnet dev-certs https --trust");
-        }
-    }
-
     private static int NextFreePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
-    private static int RunDotnet(string[] args)
-    {
-        var info = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            UseShellExecute = false,
-        };
-        foreach (var arg in args)
-            info.ArgumentList.Add(arg);
-        using var process = Process.Start(info);
-        process?.WaitForExit();
-        return process?.ExitCode ?? 1;
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
