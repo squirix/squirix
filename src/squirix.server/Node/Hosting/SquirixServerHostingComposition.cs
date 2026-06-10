@@ -4,6 +4,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
@@ -63,7 +64,7 @@ internal static class SquirixServerHostingComposition
         _ = builder.Services.AddSquirixNodeEndpointServices();
         var authEnabled = builder.Services.AddSquirixSecurityServices(securityOptionsOverride);
         SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
-        _ = builder.Services.AddSquirixFrameworkServices(configureGrpc);
+        _ = builder.Services.AddSquirixFrameworkServices(builder.Environment.IsDevelopment(), configureGrpc);
         _ = builder.Services.AddSquirixGrpcCorrelationInterceptor();
         servicesConfigure?.Invoke(builder.Services);
         extensions?.ConfigureServices?.Invoke(builder.Services);
