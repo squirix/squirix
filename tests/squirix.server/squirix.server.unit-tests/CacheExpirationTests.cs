@@ -14,6 +14,24 @@ namespace Squirix.Server.UnitTests;
 public sealed class CacheExpirationTests : ServerUnitTestBase
 {
     /// <summary>
+    /// Verifies AddAsync treats an expired existing entry as absent and inserts a new value.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task AddShouldSucceedWhenExistingEntryExpired()
+    {
+        var clock = new FakeClock(DateTime.UtcNow);
+        await using var cache = new PhysicalCache<string>(clock);
+
+        Assert.True(await cache.TryAddAsync("k", new CacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));
+
+        clock.Advance(TimeSpan.FromMilliseconds(25));
+
+        await cache.AddAsync("k", "new", DefaultCancellationToken);
+        Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken))?.Value);
+    }
+
+    /// <summary>
     /// Ensures entries expire correctly when inserted with either relative expiration or absolute expiration.
     /// </summary>
     /// <param name="expirationMs">expiration in milliseconds when using relative expiration.</param>
@@ -75,6 +93,24 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// Verifies remove operations treat expired keys as missing.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task RemoveOnExpiredKeyReturnsFalse()
+    {
+        var clock = new FakeClock(DateTime.UtcNow);
+        await using var cache = new PhysicalCache<string>(clock);
+
+        await cache.InsertAsync("k", new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken);
+
+        clock.Advance(TimeSpan.FromMilliseconds(25));
+
+        Assert.False(await cache.RemoveAsync("k", DefaultCancellationToken));
+        Assert.False((await cache.TryRemoveAsync("k", DefaultCancellationToken)).Removed);
+    }
+
+    /// <summary>
     /// Verifies TryAddAsync stores absolute expiration metadata that GetExpirationAsync can read back.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
@@ -85,10 +121,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         await using var cache = new PhysicalCache<string>(clock);
 
         var expiresUtc = clock.UtcNow.AddSeconds(5);
-        var added = await cache.TryAddAsync(
-            "k",
-            new CacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc },
-            DefaultCancellationToken);
+        var added = await cache.TryAddAsync("k", new CacheEntry<string> { Value = "v", ExpiresUtc = expiresUtc }, DefaultCancellationToken);
 
         Assert.True(added);
 
@@ -107,53 +140,11 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var clock = new FakeClock(DateTime.UtcNow);
         await using var cache = new PhysicalCache<string>(clock);
 
-        Assert.True(await cache.TryAddAsync(
-            "k",
-            new CacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) },
-            DefaultCancellationToken));
+        Assert.True(await cache.TryAddAsync("k", new CacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));
 
         clock.Advance(TimeSpan.FromMilliseconds(25));
 
         Assert.True(await cache.TryAddAsync("k", "new", DefaultCancellationToken));
         Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken))?.Value);
-    }
-
-    /// <summary>
-    /// Verifies AddAsync treats an expired existing entry as absent and inserts a new value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task AddShouldSucceedWhenExistingEntryExpired()
-    {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var cache = new PhysicalCache<string>(clock);
-
-        Assert.True(await cache.TryAddAsync(
-            "k",
-            new CacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) },
-            DefaultCancellationToken));
-
-        clock.Advance(TimeSpan.FromMilliseconds(25));
-
-        await cache.AddAsync("k", "new", DefaultCancellationToken);
-        Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken))?.Value);
-    }
-
-    /// <summary>
-    /// Verifies remove operations treat expired keys as missing.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task RemoveOnExpiredKeyReturnsFalse()
-    {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var cache = new PhysicalCache<string>(clock);
-
-        await cache.InsertAsync("k", new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken);
-
-        clock.Advance(TimeSpan.FromMilliseconds(25));
-
-        Assert.False(await cache.RemoveAsync("k", DefaultCancellationToken));
-        Assert.False((await cache.TryRemoveAsync("k", DefaultCancellationToken)).Removed);
     }
 }

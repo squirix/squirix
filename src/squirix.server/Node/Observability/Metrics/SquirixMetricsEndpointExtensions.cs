@@ -21,7 +21,7 @@ internal static class SquirixMetricsEndpointExtensions
 
         _ = endpoints.MapGet(
             path,
-            async ctx =>
+            static async ctx =>
             {
                 if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx))
                 {

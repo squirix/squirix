@@ -41,7 +41,7 @@ implementation details, and must not become exported product API.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
-health/admin/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
+health/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
 `Squirix` owns the exported v0.1 client surface (`SquirixClient`, `ISquirixClient`, `SquirixOptions`, `ICache<T>`,

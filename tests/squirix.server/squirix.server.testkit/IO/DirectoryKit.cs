@@ -14,20 +14,6 @@ namespace Squirix.Server.TestKit.IO;
 public static class DirectoryKit
 {
     /// <summary>
-    /// Counts files in the specified directory matching the provided search pattern.
-    /// </summary>
-    /// <param name="dir">Directory path to inspect.</param>
-    /// <param name="searchPattern">Search pattern passed to <see cref="Directory.GetFiles(string,string)" />.</param>
-    /// <returns>The number of matching files, or 0 if the directory does not exist.</returns>
-    public static int CountFiles(string dir, string searchPattern)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(dir);
-        ArgumentException.ThrowIfNullOrWhiteSpace(searchPattern);
-
-        return Directory.Exists(dir) ? Directory.GetFiles(dir, searchPattern).Length : 0;
-    }
-
-    /// <summary>
     /// Safely creates a directory with strict validation and guardrails.
     /// </summary>
     /// <param name="path">Target directory path (relative or absolute).</param>

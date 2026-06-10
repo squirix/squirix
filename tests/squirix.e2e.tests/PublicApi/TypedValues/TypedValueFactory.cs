@@ -12,7 +12,7 @@ internal static class TypedValueFactory
         $"Customer {id}",
         $"{id}@example.test",
         new TypedCustomerAddress(),
-        ["admin", "buyer"],
+        ["customer", "buyer"],
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["source"] = "e2e",

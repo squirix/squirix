@@ -2,7 +2,6 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
-using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,25 +17,8 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// </summary>
 public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Verifies loopback scrapes succeed without credentials when server auth is enabled.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task LoopbackMetricsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
-    {
-        var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
-
-        var response = await HttpClient.GetAsync($"https://127.0.0.1:{mainPort}/metrics", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
+    private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
     /// <summary>
     /// Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.
@@ -49,10 +31,7 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort}/metrics");
         req.Version = HttpVersion.Version20;
@@ -60,6 +39,23 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         req.Headers.Add("X-Api-Key", "metrics-secret");
 
         var response = await HttpClient.SendAsync(req, DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
+    /// Verifies loopback scrapes succeed without credentials when server auth is enabled.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task LoopbackMetricsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
+    {
+        var mainPort = AllocateDedicatedPort();
+        var url = $"https://0.0.0.0:{mainPort}";
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+
+        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+
+        var response = await HttpClient.GetAsync($"https://127.0.0.1:{mainPort}/metrics", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
@@ -77,28 +73,10 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
 
-        var response = await GetMetricsViaLocalIpAsync(localIp!, mainPort, DefaultCancellationToken);
+        var response = await GetMetricsViaLocalIpAsync(localIp, mainPort, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    private static async Task<HttpResponseMessage> GetMetricsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken)
-    {
-        using var handler = LoopbackHttp.CreateHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, errors) =>
-            errors is SslPolicyErrors.None or SslPolicyErrors.RemoteCertificateNameMismatch;
-
-        using var client = new HttpClient(handler, disposeHandler: true)
-        {
-            DefaultRequestVersion = HttpVersion.Version20,
-            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        };
-
-        return await client.GetAsync($"https://{localIp}:{port}/metrics", cancellationToken);
     }
 
     private static string? TryGetLocalNonLoopbackIpv4()
@@ -122,4 +100,7 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 
         return null;
     }
+
+    private static Task<HttpResponseMessage> GetMetricsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
+        NonLoopbackIpHttpClient.GetAsync($"https://{localIp}:{port}/metrics", cancellationToken);
 }

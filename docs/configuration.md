@@ -133,7 +133,7 @@ networks, set `Url` and the local peer entry to the **service hostname** reachab
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 
 When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
-so gRPC clients and operational routes (`/health`, `/metrics`, `/admin`) share one TLS port. See [containerization.md](containerization.md).
+so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
@@ -260,7 +260,7 @@ Example fragment:
 ```
 
 Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
-the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
+the same `X-Api-Key` header or JWT bearer token used for cache routes (see
 [diagnostics — Security](diagnostics.md#metrics-route)).
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
@@ -316,8 +316,7 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SQUIRIX_API_KEYS`                                   | Comma-separated API keys. Enables the `ApiOrJwt` auth policy for REST cache routes, `/admin`, and gRPC cache endpoints.                                                                                            |
-| `SQUIRIX_ADMIN_ENABLED`                              | Exposes `/admin` outside development when `true` or `1`.                                                                                                                                                           |
+| `SQUIRIX_API_KEYS`                                   | Comma-separated API keys. Enables the `ApiOrJwt` auth policy for REST cache routes and gRPC cache endpoints.                                                                                                       |
 | `SQUIRIX_MTLS`                                       | Enables mutual TLS when `true` or `1`.                                                                                                                                                                             |
 | `SQUIRIX_MTLS_ALLOW_SELF_SIGNED`                     | Allows self-signed client certificates for mTLS validation. Dev/test only.                                                                                                                                         |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication.                                                                                                                                                                           |
@@ -337,14 +336,10 @@ Security notes:
 - Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require**
   `SQUIRIX_API_KEYS` and/or JWT settings at startup; the process refuses to start without them. Loopback binds
   (`localhost`, `127.0.0.1`) allow unauthenticated cache access unless auth is explicitly configured.
-- `ApiOrJwt` is enforced server-side for REST cache routes, `/admin`, and gRPC cache endpoints when auth is enabled.
+- `ApiOrJwt` is enforced server-side for REST cache routes and gRPC cache endpoints when auth is enabled.
 - API key and JWT credentials are accepted consistently across REST and gRPC when configured; missing/invalid
   credentials are rejected.
-- Operational routes (`/health`, `/metrics`, `/admin`) are served on the **primary HTTPS listener** only.
-- `SQUIRIX_ADMIN_ENABLED` is not a safe production toggle by itself. Pair it with network restriction and
-  authentication.
-- The v0.1 `/admin` surface is limited to `whoami`, owner lookup, and ring inspection. See
-  [diagnostics](diagnostics.md#admin-routes-v01).
+- Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 
 ## Sample `appsettings.json`
 

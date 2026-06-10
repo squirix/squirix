@@ -28,12 +28,7 @@ internal static class SquirixServerHostingComposition
         ArgumentNullException.ThrowIfNull(options);
 
         var cluster = SquirixServerConfiguration.ToClusterConfig(options);
-        ConfigureBuilder(
-            builder,
-            cluster,
-            options.WaitForRecovery,
-            persistenceOptionsOverride: CreatePersistenceOptions(options),
-            extensions: extensions);
+        ConfigureBuilder(builder, cluster, options.WaitForRecovery, persistenceOptionsOverride: CreatePersistenceOptions(options), extensions: extensions);
     }
 
     public static void ConfigureBuilder(
@@ -63,7 +58,6 @@ internal static class SquirixServerHostingComposition
         _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, httpHandlerOverride);
-        _ = builder.Services.AddSquirixAdapterEndpointServices();
         _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
         _ = builder.Services.AddSquirixCachePipeline(extensions);
         _ = builder.Services.AddSquirixNodeEndpointServices();
@@ -107,10 +101,9 @@ internal static class SquirixServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options) =>
-        string.IsNullOrWhiteSpace(options.DataDirectory)
-            ? null
-            : new PersistenceOptions { DataDir = options.DataDirectory, StrictFsync = true };
+    private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options) => string.IsNullOrWhiteSpace(options.DataDirectory)
+        ? null
+        : new PersistenceOptions { DataDir = options.DataDirectory, StrictFsync = true };
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {

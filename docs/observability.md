@@ -1,6 +1,6 @@
 # Observability
 
-squirix nodes expose HTTP health, admin, and metrics endpoints plus server-side OpenTelemetry tracing.
+squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTelemetry tracing.
 
 ## Health routes
 
@@ -19,16 +19,6 @@ incidents.
 leases, and memory pressure aggregates (no raw keys or values).
 
 Full field reference: [diagnostics.md](diagnostics.md).
-
-## Admin routes
-
-Mapped in Development, or when `SQUIRIX_ADMIN_ENABLED=true` (required for Docker compose examples).
-
-| Route | Purpose |
-| --- | --- |
-| `GET /admin/whoami` | Local node identity |
-| `GET /admin/owner/{key}` | Owner node for a key |
-| `GET /admin/ring` | Consistent-hash ring |
 
 ## Metrics
 
@@ -52,7 +42,7 @@ failures.
 
 When a node behaves unexpectedly:
 
-1. Check `/health/ready/details` and `/admin/ring`
+1. Check `/health/ready/details` and metrics
 2. Capture logs and configuration before restart
 3. Back up the data directory before repair or upgrade
 

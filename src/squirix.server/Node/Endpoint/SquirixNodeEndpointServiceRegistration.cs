@@ -16,9 +16,7 @@ internal static class SquirixNodeEndpointServiceRegistration
         public IServiceCollection AddSquirixNodeEndpointServices()
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = services.AddSingleton<IAdminJournalCompactionTrigger, AdminJournalCompactionTrigger>();
             _ = services.AddSingleton<IHealthReadyDetailsProvider, HealthReadyDetailsProvider>();
-            _ = services.AddSingleton<IAdminStorageDiagnostics, AdminStorageDiagnosticsProvider>();
             return services;
         }
     }

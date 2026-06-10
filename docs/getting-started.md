@@ -34,11 +34,10 @@ docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_API_KEYS=dev-docker-key `
-  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`, `/admin`). Images ship a bundled development
+Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`). Images ship a bundled development
 HTTPS certificate; use `curl -k` from the host. When `SQUIRIX_API_KEYS` is set, pass `X-Api-Key` for `/metrics` scrapes
 from outside the container.
 
@@ -49,7 +48,6 @@ docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_API_KEYS=dev-docker-key `
-  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
 ```
 

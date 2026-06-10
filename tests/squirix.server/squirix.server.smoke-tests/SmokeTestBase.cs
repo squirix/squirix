@@ -48,11 +48,6 @@ public abstract class SmokeTestBase : IDisposable
 
     private HttpClient? _httpClient;
 
-    static SmokeTestBase()
-    {
-        Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
-    }
-
     /// <summary>
     /// Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.
     /// </summary>
@@ -85,27 +80,6 @@ public abstract class SmokeTestBase : IDisposable
     /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
     /// </exception>
     internal static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
-
-    /// <summary>
-    /// Creates persistence options for isolated smoke-test runs.
-    /// </summary>
-    /// <param name="journalMaxSegmentMb">Maximum journal segment size in megabytes.</param>
-    /// <param name="flushIntervalMs">Flush interval in milliseconds.</param>
-    /// <param name="snapshotIntervalSec">Snapshot interval in seconds.</param>
-    /// <param name="strictFsync">Whether to use strict fsync semantics.</param>
-    /// <returns>A new <see cref="PersistenceOptions" /> rooted in a unique test directory.</returns>
-    internal PersistenceOptions CreatePersistenceOptions(int journalMaxSegmentMb = 64, int flushIntervalMs = 10, int snapshotIntervalSec = 60, bool strictFsync = true)
-    {
-        var dataDir = ConstructDataDir(null, Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), true);
-        return new PersistenceOptions
-        {
-            DataDir = dataDir,
-            JournalMaxSegmentMb = journalMaxSegmentMb,
-            FlushIntervalMs = flushIntervalMs,
-            SnapshotIntervalSec = snapshotIntervalSec,
-            StrictFsync = strictFsync,
-        };
-    }
 
     /// <summary>
     /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,

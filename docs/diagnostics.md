@@ -138,7 +138,7 @@ Access control is enforced on every request:
 - **All other clients** must authenticate with `X-Api-Key` or a JWT bearer token. There is no settings flag to disable
   this rule.
 
-Remote scrapers should use the same credentials as cache/admin routes. Example `Authorization` header:
+Remote scrapers should use the same credentials as cache routes. Example `Authorization` header:
 `X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
 for a `prometheus.yml` fragment.
 
@@ -156,40 +156,9 @@ HTTP `/metrics` always exports the **public scrape profile**:
 Full-fidelity series (including `cache` and `exception_type`) remain on the `Squirix` .NET meter for OpenTelemetry and
 other `MeterListener` exporters.
 
-<!-- markdownlint-disable-next-line MD033 -->
-<a id="admin-routes-v01"></a>
-
-## Admin routes (v0.1)
-
-- `GET /admin/whoami`
-- `GET /admin/owner/{key}`
-- `GET /admin/ring`
-
-## Ring diagnostics
-
-`GET /admin/ring` returns:
-
-- `virtualNodes`
-- `members`
-- `sampleSize`
-- `vnodeDistribution`
-- `ownerLookupSamples`
-
-Use `ownerLookupSamples` for quick sanity checks and `/admin/owner/{key}` for a specific key lookup.
-
-Important:
-
-- This is the node's local ring view.
-- Dynamic topology changes, membership mutation, rebalance history, manual compaction triggers, and deep storage
-  diagnostics HTTP routes are not part of the v0.1 admin surface documented here.
-
 ## Security
 
-- `/admin` routes are exposed in Development automatically. Outside Development (including Docker `Production`
-  containers), set `SQUIRIX_ADMIN_ENABLED=true` or the routes are not mapped.
-- Admin routes use the same route-level authorization policy as the rest of `/admin`.
-- When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/health`, `/metrics`, and `/admin` are served on the primary HTTPS listener only.
+- `/health` and `/metrics` are served on the primary HTTPS listener only.
 - Loopback `/metrics` scrapes stay anonymous; remote clients must present `X-Api-Key` or a JWT bearer token (see
   [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
