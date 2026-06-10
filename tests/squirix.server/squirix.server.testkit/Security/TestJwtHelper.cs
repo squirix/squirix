@@ -11,9 +11,6 @@ namespace Squirix.Server.TestKit.Security;
 /// </summary>
 public static class TestJwtHelper
 {
-    /// <summary>Fixed docker-compose dev signing key (32 UTF-8 bytes).</summary>
-    public static readonly TestJwtCredentials DockerDevCredentials = new("dev-squirix-docker-jwt-key!!!!!!"u8.ToArray(), "https://squirix.docker.dev", "squirix");
-
     /// <summary>Creates random symmetric JWT credentials.</summary>
     /// <param name="issuer">JWT issuer claim value.</param>
     /// <param name="audience">JWT audience claim value.</param>

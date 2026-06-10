@@ -19,7 +19,7 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 {
     private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
-    private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, disposeHandler: false);
+    private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
     /// <summary>
     /// Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.
