@@ -99,7 +99,8 @@ Alerting guidance:
   overflow tier for RAM pressure.
 - **Cardinality:** do not add raw cache names, keys, value previews, serialized payloads, or exception messages as
   metric labels or trace tags. Generic logical cache operation metrics are owned by `MetricsCacheDecorator<T>` and use
-  bounded `operation` / `result` labels only. Logical operation spans are owned by `TracingCacheDecorator<T>` and use
+  bounded `operation` / `result` labels on the public HTTP `/metrics` export (`cache` is recorded on the meter but
+  stripped before HTTP scrape). Logical operation spans are owned by `TracingCacheDecorator<T>` and use
   bounded `cache.operation` / `cache.result` / `squirix.node_id` tags only. Memory-pressure metrics remain owned by the
   memory-pressure subsystem, and journal/snapshot/compaction metrics and spans remain storage-owned.
 

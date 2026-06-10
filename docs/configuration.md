@@ -263,6 +263,9 @@ Access control is not configurable: loopback clients may scrape anonymously; all
 the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
 [diagnostics — Security](diagnostics.md#metrics-route)).
 
+Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
+labels are stripped before export). See [diagnostics — Scrape privacy model](diagnostics.md#scrape-privacy-model).
+
 Remote Prometheus example (`prometheus.yml`):
 
 ```yaml
