@@ -78,11 +78,11 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
     }
 
     /// <summary>
-    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous while remote scrapes require API key auth.
+    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous when server auth is enabled.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
-    public async Task MetricsAllowLoopbackWithoutKeyButRequireKeyForRemoteWhenAuthEnabled()
+    public async Task MetricsAllowLoopbackWithoutKeyWhenAuthEnabled()
     {
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
@@ -96,6 +96,24 @@ public sealed class ApiKeyAuthSmokeTests : SmokeTestBase
 
         var loopback = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
         Assert.True(loopback.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopback.StatusCode} {loopback.ReasonPhrase}");
+    }
+
+    /// <summary>
+    /// Verifies authenticated <c>/metrics</c> scrapes succeed when server auth is enabled.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task MetricsSucceedWithApiKeyWhenAuthEnabled()
+    {
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+
+        await using var node = await StartNodeAsync(
+            url,
+            peers,
+            security: new TestNodeSecurityOptions { ApiKeys = ["smoke-key"] },
+            extraScope: Guid.NewGuid().ToString("N"),
+            cancellationToken: DefaultCancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
         req.Version = HttpVersion.Version20;

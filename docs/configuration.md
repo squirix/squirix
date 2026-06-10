@@ -259,6 +259,26 @@ Example fragment:
 }
 ```
 
+Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
+the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
+[diagnostics — Security](diagnostics.md#metrics-route)).
+
+Remote Prometheus example (`prometheus.yml`):
+
+```yaml
+scrape_configs:
+  - job_name: squirix
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true   # use proper CA trust in production
+    authorization:
+      type: ApiKey
+      credentials: your-api-key
+    static_configs:
+      - targets: ["node.example:5001"]
+    metrics_path: /metrics
+```
+
 See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and security notes.
 
 ## In-process test hosts
