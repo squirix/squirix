@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>
@@ -8,11 +6,6 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal sealed record SecurityOptions
 {
-    /// <summary>
-    /// Gets API keys accepted by the node. When <c>null</c> or empty, API key auth is disabled.
-    /// </summary>
-    public IReadOnlyCollection<string>? ApiKeys { get; init; }
-
     /// <summary>
     /// Gets the JWT audience validation value.
     /// </summary>

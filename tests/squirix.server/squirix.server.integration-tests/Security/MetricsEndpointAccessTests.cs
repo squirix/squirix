@@ -1,13 +1,14 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.AspNetCore;
 using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Security;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
@@ -27,16 +28,17 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
     [Fact]
     public async Task AuthenticatedMetricsScrapeSucceedsOnNonLoopbackListenerWhenAuthEnabled()
     {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort}/metrics");
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
-        req.Headers.Add("X-Api-Key", "metrics-secret");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
 
         var response = await HttpClient.SendAsync(req, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -49,11 +51,12 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
     [Fact]
     public async Task LoopbackMetricsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
     {
+        var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var response = await HttpClient.GetAsync($"https://127.0.0.1:{mainPort}/metrics", DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -69,11 +72,12 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var localIp = TryGetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
+        var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["metrics-secret"] });
+        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var response = await GetMetricsViaLocalIpAsync(localIp, mainPort, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);

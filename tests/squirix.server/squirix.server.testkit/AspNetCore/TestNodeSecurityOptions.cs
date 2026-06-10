@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Squirix.Server.Node.Hosting;
 
 namespace Squirix.Server.TestKit.AspNetCore;
@@ -9,11 +8,6 @@ namespace Squirix.Server.TestKit.AspNetCore;
 /// </summary>
 public sealed class TestNodeSecurityOptions
 {
-    /// <summary>
-    /// Gets API keys accepted by the node. When <c>null</c> or empty, API key auth is disabled.
-    /// </summary>
-    public IReadOnlyCollection<string>? ApiKeys { get; init; }
-
     /// <summary>
     /// Gets the JWT audience validation value.
     /// </summary>
@@ -31,7 +25,6 @@ public sealed class TestNodeSecurityOptions
 
     internal SecurityOptions ToServerOptions() => new()
     {
-        ApiKeys = ApiKeys,
         JwtAudience = JwtAudience,
         JwtIssuer = JwtIssuer,
         JwtSigningKey = JwtSigningKey,

@@ -30,8 +30,7 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | Member                | Purpose                                                                                                           |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `Endpoints`           | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md). |
-| `ApiKey`              | Static API key sent as `x-api-key` on gRPC calls.                                                                 |
-| `BearerTokenProvider` | Optional bearer token for each gRPC call.                                                                         |
+| `BearerTokenProvider` | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                           |
 | `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
 
 For local HTTPS development, trust the ASP.NET Core development certificate with
@@ -45,13 +44,12 @@ await using var client = await SquirixClient.ConnectAsync(
     {
         options.Endpoints.Add("https://cache-a.example.internal:5001");
         options.Endpoints.Add("https://cache-b.example.internal:5002");
-        options.ApiKey = Environment.GetEnvironmentVariable("SQUIRIX_API_KEY");
+        options.BearerTokenProvider = _ => new ValueTask<string>(Environment.GetEnvironmentVariable("SQUIRIX_JWT")!);
     },
     cancellationToken);
 ```
 
-Client authentication uses the same API key / bearer options as gRPC transport configuration on the server when auth is
-enabled.
+Client authentication uses `BearerTokenProvider` when the server requires JWT bearer authentication.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="memory-pressure-squirixsettingsjson"></a>
@@ -260,7 +258,7 @@ Example fragment:
 ```
 
 Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
-the same `X-Api-Key` header or JWT bearer token used for cache routes (see
+the same JWT bearer token used for cache routes (see
 [diagnostics — Security](diagnostics.md#metrics-route)).
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
@@ -275,8 +273,8 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true   # use proper CA trust in production
     authorization:
-      type: ApiKey
-      credentials: your-api-key
+      type: Bearer
+      credentials: your-jwt-bearer-token
     static_configs:
       - targets: ["node.example:5001"]
     metrics_path: /metrics
@@ -286,7 +284,7 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 
 ## In-process test hosts
 
-Production and standalone `squirix-server` processes configure API keys and JWT through environment variables (see below).
+Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
 In-process test hosts (`SquirixNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
 so parallel tests do not share process-wide environment state.
 
@@ -295,14 +293,15 @@ replaces environment-variable lookup for that startup only; omit it on `Integrat
 env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
 
 ```csharp
-// E2E / integration auth
-await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["secret"] });
+// E2E / integration auth (JWT)
+var credentials = TestJwtHelper.CreateRandomCredentials();
+await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
 // Smoke default: unauthenticated without touching process env
 await StartNodeAsync(url, peers);
 ```
 
-JWT-protected nodes follow the same pattern (`JwtSigningKey`, `JwtIssuer`, `JwtAudience`). OIDC authority URLs
+JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs
 (`SQUIRIX_JWT_AUTHORITY`) remain env-only until a test needs a programmatic override. E2E tests run with xUnit
 parallelization enabled; auth scenarios must use explicit `TestNodeSecurityOptions` overrides rather than
 process environment variables.
@@ -316,7 +315,6 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SQUIRIX_API_KEYS`                                   | Comma-separated API keys. Enables the `ApiOrJwt` auth policy for REST cache routes and gRPC cache endpoints.                                                                                                       |
 | `SQUIRIX_MTLS`                                       | Enables mutual TLS when `true` or `1`.                                                                                                                                                                             |
 | `SQUIRIX_MTLS_ALLOW_SELF_SIGNED`                     | Allows self-signed client certificates for mTLS validation. Dev/test only.                                                                                                                                         |
 | `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication.                                                                                                                                                                           |
@@ -333,12 +331,11 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 
 Security notes:
 
-- Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require**
-  `SQUIRIX_API_KEYS` and/or JWT settings at startup; the process refuses to start without them. Loopback binds
-  (`localhost`, `127.0.0.1`) allow unauthenticated cache access unless auth is explicitly configured.
-- `ApiOrJwt` is enforced server-side for REST cache routes and gRPC cache endpoints when auth is enabled.
-- API key and JWT credentials are accepted consistently across REST and gRPC when configured; missing/invalid
-  credentials are rejected.
+- Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require** JWT settings at
+  startup; the process refuses to start without them. Loopback binds (`localhost`, `127.0.0.1`) allow unauthenticated
+  cache access unless auth is explicitly configured.
+- JWT bearer authentication is enforced server-side for REST cache routes and gRPC cache endpoints when auth is
+  enabled. Missing or invalid credentials are rejected.
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 
 ## Sample `appsettings.json`

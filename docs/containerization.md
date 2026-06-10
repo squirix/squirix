@@ -54,8 +54,7 @@ docker compose -f docker-compose.release.yml build
 
 ## Run
 
-Dev cluster (sets `SQUIRIX_API_KEYS=dev-docker-key` for both nodes; containers run with `Production` hosting
-environment):
+Dev cluster (sets docker dev JWT env vars for both nodes; containers run with `Production` hosting environment):
 
 ```powershell
 cd docker
@@ -68,7 +67,9 @@ For a single local development node:
 docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
-  -e SQUIRIX_API_KEYS=dev-docker-key `
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
+  -e SQUIRIX_JWT_AUDIENCE=squirix `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
@@ -98,13 +99,13 @@ Example probes from the host:
 
 ```powershell
 curl -k https://localhost:5001/health
-curl -k -H "X-Api-Key: dev-docker-key" https://localhost:5001/metrics
+curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 ```
 
-Remote scrapes (including host → published container port) require authentication when `SQUIRIX_API_KEYS` is set.
+Remote scrapes (including host → published container port) require a JWT bearer token when server auth is enabled.
 
-gRPC and REST cache clients on the host must send the same API key (`options.ApiKey = "dev-docker-key"` or
-`X-Api-Key: dev-docker-key`). TLS validation against the bundled cert requires `curl -k` or a development-only
+gRPC and REST cache clients on the host must send the same JWT via `options.BearerTokenProvider` or an
+`Authorization: Bearer` header. TLS validation against the bundled cert requires `curl -k` or a development-only
 certificate validation override in .NET.
 
 Health and metrics:
@@ -117,8 +118,8 @@ Health and metrics:
 
 ## Security
 
-- Non-loopback listen URLs require `SQUIRIX_API_KEYS` and/or JWT settings at startup. The compose examples use
-  `dev-docker-key` for local testing only.
+- Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
+  testing only.
 - `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;
   host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
   [diagnostics.md](diagnostics.md).

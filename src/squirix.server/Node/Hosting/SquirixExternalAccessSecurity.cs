@@ -23,7 +23,7 @@ internal static class SquirixExternalAccessSecurity
 
         throw new InvalidOperationException(
             $"Refusing to start with unauthenticated cache endpoints on non-loopback interface ({listenUri}). " +
-            "Configure SQUIRIX_API_KEYS and/or JWT settings.");
+            "Configure JWT settings (SQUIRIX_JWT_SIGNING_KEY or SQUIRIX_JWT_AUTHORITY).");
     }
 
     internal static bool IsLoopbackHost(string host) =>
