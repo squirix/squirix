@@ -32,6 +32,8 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
 
         var body = await GetWithRetryAsync(url + "/metrics", TimeSpan.FromMilliseconds(50), 30);
         Assert.False(string.IsNullOrWhiteSpace(body));
+        Assert.DoesNotContain("cache=\"", body);
+        Assert.DoesNotContain("exception_type=", body);
 
         var hasOps = OpsTotalRegex().IsMatch(body);
         var match = AppendsTotalRegex().IsMatch(body);

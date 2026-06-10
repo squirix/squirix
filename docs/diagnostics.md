@@ -94,8 +94,9 @@ Generic logical cache operation metrics (`squirix_ops_total`, `squirix_op_latenc
 `CacheOperationResults`, `CacheOperationClassifier`). `MetricsCacheDecorator<T>` bridges `INamespacedCache<T>` to
 `CacheMetrics.RecordOperation` using those types.
 
-These instruments describe logical cache operations only and use bounded `operation` / `result` labels; they do not
-include raw keys, values, serialized payloads, or unbounded cache names.
+These instruments describe logical cache operations only and use bounded `operation` / `result` labels on the
+`Squirix` meter. They also record a `cache` tag internally for debugging through OpenTelemetry and other
+`MeterListener` exporters. The HTTP `/metrics` public scrape profile strips `cache` and `exception_type` before export.
 
 Missing reads are reported as `not_found` when the API shape can distinguish them (`GetValueAsync`, `GetEntryAsync`, and
 remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss classification.
@@ -140,6 +141,20 @@ Access control is enforced on every request:
 Remote scrapers should use the same credentials as cache/admin routes. Example `Authorization` header:
 `X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
 for a `prometheus.yml` fragment.
+
+<!-- markdownlint-disable-next-line MD033 -->
+<a id="scrape-privacy-model"></a>
+
+### Scrape privacy model
+
+HTTP `/metrics` always exports the **public scrape profile**:
+
+- **Stripped labels:** `cache`, `exception_type` (aggregated away before export).
+- **Retained labels:** bounded operational dimensions such as `operation`, `result`, `node`, `state`, `op`, `impl`.
+- **Not configurable:** there is no settings flag to export identifying labels over HTTP.
+
+Full-fidelity series (including `cache` and `exception_type`) remain on the `Squirix` .NET meter for OpenTelemetry and
+other `MeterListener` exporters.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="admin-routes-v01"></a>
