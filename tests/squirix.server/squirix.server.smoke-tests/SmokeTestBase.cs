@@ -50,7 +50,6 @@ public abstract class SmokeTestBase : IDisposable
 
     static SmokeTestBase()
     {
-        LoopbackHttp.EnsureDevelopmentCertificateTrusted();
         Environment.SetEnvironmentVariable("SQUIRIX_ADMIN_ENABLED", "true");
     }
 

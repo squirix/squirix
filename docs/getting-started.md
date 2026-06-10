@@ -5,7 +5,7 @@ This guide walks through running a squirix server and connecting a .NET client.
 Prerequisites:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (version pinned in [`global.json`](../global.json))
-- For local HTTPS clients outside the test harness (not Docker): `dotnet dev-certs https --trust`
+- For local HTTPS (tests, benchmarks, examples; not Docker): `dotnet dev-certs https --trust`
 
 ## 1. Run a development server
 
