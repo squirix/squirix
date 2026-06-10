@@ -516,7 +516,7 @@ internal sealed class JournalWriter : IJournalCoordinator
             ActiveSegmentWrittenBytes += frameLen;
             _dirty = true;
 
-            // Publish buffered bytes to the OS so other handles (admin diagnostics, tail tools) observe a non-empty journal
+            // Publish buffered bytes to the OS so other handles (tail tools) observe a non-empty journal
             // without waiting for the periodic flush timer. Does not replace StrictFsync disk flush in FlushCoreAsync.
             var stream = _stream;
             if (stream is not null)

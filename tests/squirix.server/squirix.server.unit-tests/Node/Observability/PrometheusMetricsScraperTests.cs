@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
 
@@ -14,15 +15,15 @@ public sealed class PrometheusMetricsScraperTests
     [Fact]
     public void ScrapePublicOmitsCacheLabelAndAggregatesAcrossNamespaces()
     {
-        using var scraper = new PrometheusMetricsScraper(isolatedForTests: true);
+        using var scraper = PrometheusMetricsScraper.CreateIsolatedForTests();
 
         scraper.RecordMeasurementForTests(
             "squirix_ops_total",
-            [new("cache", "cache-a"), new("operation", "get"), new("result", "ok")],
+            [new KeyValuePair<string, object?>("cache", "cache-a"), new KeyValuePair<string, object?>("operation", "get"), new KeyValuePair<string, object?>("result", "ok")],
             2);
         scraper.RecordMeasurementForTests(
             "squirix_ops_total",
-            [new("cache", "cache-b"), new("operation", "get"), new("result", "ok")],
+            [new KeyValuePair<string, object?>("cache", "cache-b"), new KeyValuePair<string, object?>("operation", "get"), new KeyValuePair<string, object?>("result", "ok")],
             3);
 
         var body = scraper.Scrape();
@@ -37,11 +38,14 @@ public sealed class PrometheusMetricsScraperTests
     [Fact]
     public void ScrapePublicOmitsExceptionTypeLabel()
     {
-        using var scraper = new PrometheusMetricsScraper(isolatedForTests: true);
+        using var scraper = PrometheusMetricsScraper.CreateIsolatedForTests();
 
         scraper.RecordMeasurementForTests(
             "squirix_serializer_failures_total",
-            [new("op", "serialize"), new("exception_type", "System.InvalidOperationException"), new("impl", "json")],
+            [
+                new KeyValuePair<string, object?>("op", "serialize"), new KeyValuePair<string, object?>("exception_type", "System.InvalidOperationException"),
+                new KeyValuePair<string, object?>("impl", "json"),
+            ],
             1);
 
         var body = scraper.Scrape();

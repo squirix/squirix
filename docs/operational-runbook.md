@@ -38,9 +38,6 @@ Use these surfaces first:
 - `/health/live`
 - `/health/ready`
 - `/health/ready/details`
-- `/admin/whoami`
-- `/admin/owner/{key}`
-- `/admin/ring`
 
 Collect:
 
@@ -64,13 +61,10 @@ Trace ownership during triage:
 Security checks during triage:
 
 - Non-loopback listen URLs refuse startup without `SQUIRIX_API_KEYS` and/or JWT settings.
-- Outside Development, confirm `SQUIRIX_ADMIN_ENABLED=true` when `/admin` routes are expected (Docker compose examples
-  set it; otherwise routes are not mapped).
 - Confirm auth is enabled where required for exposed interfaces.
-- Verify that REST cache, gRPC cache, `/admin`, and remote `/metrics` scrapes are challenged consistently for
-  missing/invalid credentials (`/health` remains anonymous).
-- Operational routes (`/health`, `/metrics`, `/admin`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and
-  HTTP/2).
+- Verify that REST cache, gRPC cache, and remote `/metrics` scrapes are challenged consistently for missing/invalid
+  credentials (`/health` remains anonymous).
+- Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
 node's local ring view.
@@ -227,7 +221,7 @@ Keep this information with any incident or bug report:
 - Node id, peer list, and data directory layout
 - Serializer configuration
 - Relevant config values from [configuration.md](configuration.md)
-- Health/readiness/admin payloads
+- Health/readiness payloads
 - journal/snapshot/manifest file list
 - Logs with correlation ids for failed operations
 - Steps already attempted

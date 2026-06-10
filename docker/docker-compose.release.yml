@@ -9,7 +9,6 @@ services:
     container_name: squirix-node-a-release
     environment:
       - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
     ports:
       - "5001:5000"
     volumes:
@@ -28,7 +27,6 @@ services:
     container_name: squirix-node-b-release
     environment:
       - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
     ports:
       - "5002:5000"
     volumes:

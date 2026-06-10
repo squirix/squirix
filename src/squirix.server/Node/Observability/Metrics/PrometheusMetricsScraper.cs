@@ -9,24 +9,17 @@ namespace Squirix.Server.Node.Observability.Metrics;
 
 internal sealed class PrometheusMetricsScraper : IDisposable
 {
-    public static readonly PrometheusMetricsScraper Instance = new();
+    public static readonly PrometheusMetricsScraper Instance = new(false);
     private readonly Dictionary<string, Dictionary<TagSet, double>> _last = new(StringComparer.Ordinal);
     private readonly MeterListener _listener;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, Dictionary<TagSet, double>> _sums = new(StringComparer.Ordinal);
 
-    internal PrometheusMetricsScraper(bool isolatedForTests)
-    {
-        if (!isolatedForTests)
-            throw new InvalidOperationException("Test-only constructor.");
-
-        _listener = CreateListener();
-    }
-
-    private PrometheusMetricsScraper()
+    private PrometheusMetricsScraper(bool isolated)
     {
         _listener = CreateListener();
-        _listener.Start();
+        if (!isolated)
+            _listener.Start();
     }
 
     public string Scrape(PrometheusScrapeProfile profile = PrometheusScrapeProfile.Public) => profile switch
@@ -37,13 +30,11 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
     public void Dispose() => _listener.Dispose();
 
-    internal void RecordMeasurementForTests(string metric, KeyValuePair<string, object?>[] tags, double value) =>
-        RecordMeasurement(metric, tags, value);
+    internal static PrometheusMetricsScraper CreateIsolatedForTests() => new(true);
 
-    private static void AggregateForExport(
-        Dictionary<string, Dictionary<TagSet, double>> source,
-        Dictionary<string, Dictionary<string, double>> destination,
-        bool sumValues)
+    internal void RecordMeasurementForTests(string metric, KeyValuePair<string, object?>[] tags, double value) => RecordMeasurement(metric, tags, value);
+
+    private static void AggregateForExport(Dictionary<string, Dictionary<TagSet, double>> source, Dictionary<string, Dictionary<string, double>> destination, bool sumValues)
     {
         foreach (var (metric, byTags) in source)
         {
@@ -53,9 +44,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 if (!destination.TryGetValue(metric, out var byLabels))
                     destination[metric] = byLabels = new Dictionary<string, double>(StringComparer.Ordinal);
 
-                byLabels[exportLabels] = sumValues
-                    ? byLabels.GetValueOrDefault(exportLabels) + value
-                    : Math.Max(byLabels.GetValueOrDefault(exportLabels), value);
+                byLabels[exportLabels] = sumValues ? byLabels.GetValueOrDefault(exportLabels) + value : Math.Max(byLabels.GetValueOrDefault(exportLabels), value);
             }
         }
     }
@@ -92,6 +81,21 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         return listener;
     }
 
+    private void RecordMeasurement(string metric, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
+    {
+        var tagSet = new TagSet(tags);
+        lock (_lock)
+        {
+            if (!_sums.TryGetValue(metric, out var byTags))
+                _sums[metric] = byTags = new Dictionary<TagSet, double>();
+            byTags[tagSet] = byTags.GetValueOrDefault(tagSet) + value;
+
+            if (!_last.TryGetValue(metric, out var lastByTags))
+                _last[metric] = lastByTags = new Dictionary<TagSet, double>();
+            lastByTags[tagSet] = value;
+        }
+    }
+
     private string ScrapePublic()
     {
         var exportedSums = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
@@ -99,8 +103,8 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
         lock (_lock)
         {
-            AggregateForExport(_sums, exportedSums, sumValues: true);
-            AggregateForExport(_last, exportedLast, sumValues: false);
+            AggregateForExport(_sums, exportedSums, true);
+            AggregateForExport(_last, exportedLast, false);
         }
 
         var sb = new StringBuilder();
@@ -119,21 +123,6 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         return sb.ToString();
     }
 
-    private void RecordMeasurement(string metric, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
-    {
-        var tagSet = new TagSet(tags);
-        lock (_lock)
-        {
-            if (!_sums.TryGetValue(metric, out var byTags))
-                _sums[metric] = byTags = new Dictionary<TagSet, double>();
-            byTags[tagSet] = byTags.GetValueOrDefault(tagSet) + value;
-
-            if (!_last.TryGetValue(metric, out var lastByTags))
-                _last[metric] = lastByTags = new Dictionary<TagSet, double>();
-            lastByTags[tagSet] = value;
-        }
-    }
-
     private readonly struct TagSet : IEquatable<TagSet>
     {
         private readonly KeyValuePair<string, object?>[] _tags;
@@ -145,6 +134,20 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         }
 
         public ReadOnlySpan<KeyValuePair<string, object?>> Tags => _tags;
+
+        public override bool Equals(object? obj) => obj is TagSet other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            var hash = default(HashCode);
+            foreach (var tag in _tags)
+            {
+                hash.Add(tag.Key, StringComparer.Ordinal);
+                hash.Add(tag.Value);
+            }
+
+            return hash.ToHashCode();
+        }
 
         public bool Equals(TagSet other)
         {
@@ -161,20 +164,6 @@ internal sealed class PrometheusMetricsScraper : IDisposable
             }
 
             return true;
-        }
-
-        public override bool Equals(object? obj) => obj is TagSet other && Equals(other);
-
-        public override int GetHashCode()
-        {
-            var hash = default(HashCode);
-            foreach (var tag in _tags)
-            {
-                hash.Add(tag.Key, StringComparer.Ordinal);
-                hash.Add(tag.Value);
-            }
-
-            return hash.ToHashCode();
         }
     }
 }

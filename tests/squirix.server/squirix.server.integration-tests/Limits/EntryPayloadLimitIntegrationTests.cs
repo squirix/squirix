@@ -8,6 +8,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Limits;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Limits;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -21,49 +22,34 @@ namespace Squirix.Server.IntegrationTests.Limits;
 public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 {
     private const string CacheRoute = "/api/v1/cache";
-    private const string StorageDiagnosticsRoute = "/admin/diagnostics/storage";
+    private const string HealthReadyDetailsRoute = "/health/ready/details";
 
     /// <summary>
-    /// Verifies REST insert succeeds when the serialized entry is at or below the fixed limit.
+    /// Verifies cluster forwarding preserves PayloadTooLarge when the remote owner rejects an oversized entry.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
-    public async Task RestInsertJustBelowLimitSucceeds()
+    public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwner()
     {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers);
+        var urlA = GetNextHttpUrl();
+        var urlB = GetNextHttpUrl();
+        var peers = new[]
+        {
+            new Peer { NodeId = "node-a", Url = urlA },
+            new Peer { NodeId = "node-b", Url = urlB },
+        };
 
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostRestEntryBytes(SquirixEntryLimits.MaxEntrySizeBytes);
-        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/within-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies REST insert above the limit returns 413, does not persist, and does not append to the journal.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task RestInsertAboveLimitReturns413AndDoesNotPersist()
-    {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers);
-
-        var opsBefore = await ReadJournalAppendedOpsAsync(url);
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit");
         var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
-        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/over-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
+        var response = await HttpClient.PutAsJsonAsync($"{urlA}{CacheRoute}/{key}", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
 
         Assert.Equal((HttpStatusCode)StatusCodes.Status413PayloadTooLarge, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
-        Assert.Equal("PayloadTooLarge", payload.GetProperty("error").GetString());
 
-        var getResponse = await HttpClient.GetAsync($"{url}{CacheRoute}/over-limit", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
-
-        var opsAfter = await ReadJournalAppendedOpsAsync(url);
-        Assert.Equal(opsBefore, opsAfter);
+        var getOnOwner = await HttpClient.GetAsync($"{urlB}{CacheRoute}/{key}", DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, getOnOwner.StatusCode);
     }
 
     /// <summary>
@@ -101,49 +87,51 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>
-    /// Verifies cluster forwarding preserves PayloadTooLarge when the remote owner rejects an oversized entry.
+    /// Verifies REST insert above the limit returns 413, does not persist, and does not append to the journal.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
-    public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwner()
+    public async Task RestInsertAboveLimitReturns413AndDoesNotPersist()
     {
-        var urlA = GetNextHttpUrl();
-        var urlB = GetNextHttpUrl();
-        var peers = new[]
-        {
-            new Peer { NodeId = "node-a", Url = urlA },
-            new Peer { NodeId = "node-b", Url = urlB },
-        };
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        await using var node = await StartNodeAsync(url, peers);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
-
-        var key = await FindKeyOwnedByAsync(urlA, "node-b");
+        var opsBefore = await ReadJournalBacklogOpsAsync(url);
         var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
-        var response = await HttpClient.PutAsJsonAsync($"{urlA}{CacheRoute}/{key}", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
+        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/over-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
 
         Assert.Equal((HttpStatusCode)StatusCodes.Status413PayloadTooLarge, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
+        Assert.Equal("PayloadTooLarge", payload.GetProperty("error").GetString());
 
-        var getOnOwner = await HttpClient.GetAsync($"{urlB}{CacheRoute}/{key}", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, getOnOwner.StatusCode);
+        var getResponse = await HttpClient.GetAsync($"{url}{CacheRoute}/over-limit", DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+
+        var opsAfter = await ReadJournalBacklogOpsAsync(url);
+        Assert.Equal(opsBefore, opsAfter);
     }
 
-    private async Task<string> FindKeyOwnedByAsync(string nodeAddress, string expectedOwner)
+    /// <summary>
+    /// Verifies REST insert succeeds when the serialized entry is at or below the fixed limit.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task RestInsertJustBelowLimitSucceeds()
     {
-        for (var i = 0; i < 2000; i++)
-        {
-            var key = $"k{i:0000}";
-            var who = await HttpClient.GetStringAsync($"{nodeAddress}/admin/owner/{Uri.EscapeDataString(key)}", DefaultCancellationToken);
-            if (who.Contains($"\"owner\":\"{expectedOwner}\"", StringComparison.Ordinal))
-                return key;
-        }
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        await using var node = await StartNodeAsync(url, peers);
 
-        throw new InvalidOperationException($"Failed to find a key owned by {expectedOwner}");
+        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostRestEntryBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/within-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
-    private async Task<long> ReadJournalAppendedOpsAsync(string url)
+    private async Task<long> ReadJournalBacklogOpsAsync(string url)
     {
-        var diagnostics = await HttpClient.GetFromJsonAsync<JsonElement>($"{url}{StorageDiagnosticsRoute}", DefaultCancellationToken);
-        return diagnostics.GetProperty("writer").GetProperty("appendedOps").GetInt64();
+        var diagnostics = await HttpClient.GetFromJsonAsync<JsonElement>($"{url}{HealthReadyDetailsRoute}", DefaultCancellationToken);
+        return diagnostics.GetProperty("journalBacklogOps").GetInt64();
     }
 }

@@ -50,7 +50,7 @@ During early preview evaluation you may reference `Squirix.Server.csproj` from a
 | Layer | Owns |
 | --- | --- |
 | **`Squirix` (client)** | `SquirixClient`, `ICache<T>`, serializers, bootstrap connectivity and transport failover |
-| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, REST/gRPC hosting, health/admin/metrics |
+| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, REST/gRPC hosting, health/metrics |
 | **`squirix-server` (host)** | Standalone process lifecycle and CLI |
 
 `Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC/REST

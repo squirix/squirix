@@ -17,8 +17,6 @@ internal static class SquirixEndpointMapping
         if (metricsOptions.Enabled)
             app.MapSquirixMetrics(metricsOptions.Path);
 
-        app.MapAdminEndpoints(app.Environment, authEnabled);
-
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
             _ = cacheGrpc.RequireAuthorization("ApiOrJwt");

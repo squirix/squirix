@@ -54,8 +54,8 @@ docker compose -f docker-compose.release.yml build
 
 ## Run
 
-Dev cluster (sets `SQUIRIX_API_KEYS=dev-docker-key` and `SQUIRIX_ADMIN_ENABLED=true` for both nodes; containers run
-with `Production` hosting environment):
+Dev cluster (sets `SQUIRIX_API_KEYS=dev-docker-key` for both nodes; containers run with `Production` hosting
+environment):
 
 ```powershell
 cd docker
@@ -69,16 +69,15 @@ docker build -f Dockerfile.dev -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_API_KEYS=dev-docker-key `
-  -e SQUIRIX_ADMIN_ENABLED=true `
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
 The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
-access to gRPC, health, metrics, and admin routes.
+access to gRPC, health, and metrics routes.
 
 Endpoints (two-node `docker compose` example):
 
-- Node A HTTPS (gRPC/health/admin/metrics): `https://localhost:5001` (host port maps to container **5000**)
+- Node A HTTPS (gRPC/health/metrics): `https://localhost:5001` (host port maps to container **5000**)
 - Node B HTTPS: `https://localhost:5002`
 - Inside each container, the listen URL is port **5000** from the mounted `Squirix.settings.json`.
 
@@ -116,24 +115,11 @@ Health and metrics:
 - `GET /health/ready/details`
 - `GET /metrics` (Prometheus text scrape; enabled by default)
 
-Admin helpers (`SQUIRIX_ADMIN_ENABLED=true` outside Development; compose sets it; require `X-Api-Key` when
-`SQUIRIX_API_KEYS` is set):
-
-- `GET /admin/whoami`
-- `GET /admin/owner/{key}`
-- `GET /admin/ring`
-
-Example:
-
-```powershell
-curl -k -H "X-Api-Key: dev-docker-key" https://localhost:5001/admin/whoami
-```
-
 ## Security
 
 - Non-loopback listen URLs require `SQUIRIX_API_KEYS` and/or JWT settings at startup. The compose examples use
   `dev-docker-key` for local testing only.
-- `/health` stays anonymous. `/metrics` and `/admin` follow the same auth rules as cache routes for remote clients;
+- `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;
   host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
   [diagnostics.md](diagnostics.md).
 

@@ -57,8 +57,6 @@ internal static class ClusterRuntimeServiceRegistration
             _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver, NodeOwnershipResolver>();
-            _ = services.AddSingleton<INodeEndpointIdentity, NodeEndpointIdentity>();
-            _ = services.AddSingleton<IAdminClusterDiagnostics, AdminClusterDiagnosticsService>();
             _ = services.AddSingleton<Correlation.ClientInterceptor>();
             _ = services.AddSingleton<Correlation.ServerInterceptor>();
             _ = services.AddSingleton<IdempotencyStore>();

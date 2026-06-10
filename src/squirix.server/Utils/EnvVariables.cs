@@ -13,18 +13,9 @@ internal static class EnvVariables
     /// </summary>
     /// <param name="variableName">The environment variable name.</param>
     /// <returns>Whether the variable is set to a truthy value.</returns>
-    internal static bool ReadBool(string variableName) => ReadBool(variableName, out _);
-
-    /// <summary>
-    /// Interprets common truthy environment values ( <c>true</c> or <c>1</c>, case-insensitive) as <see langword="true" />,
-    /// and returns the raw variable text for diagnostics.
-    /// </summary>
-    /// <param name="variableName">The environment variable name.</param>
-    /// <param name="rawValue">The raw value from the environment, if defined.</param>
-    /// <returns>Whether the variable is set to a truthy value.</returns>
-    internal static bool ReadBool(string variableName, out string? rawValue)
+    internal static bool ReadBool(string variableName)
     {
-        rawValue = ReadString(variableName);
+        var rawValue = ReadString(variableName);
         return rawValue is not null && (rawValue.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValue.Equals("1", StringComparison.OrdinalIgnoreCase));
     }
 

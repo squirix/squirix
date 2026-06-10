@@ -26,9 +26,9 @@ We are looking for API, architecture, and operational feedback — not productio
 ## Key capabilities
 
 - Typed client/server packages with a narrow `ICache<T>` API
-- HTTPS gRPC transport; health, metrics, admin, and REST cache endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
+- HTTPS gRPC transport; health, metrics, and REST cache endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
 - Per-node journal durability with snapshots and compaction
-- Health, admin, Prometheus metrics, and OpenTelemetry tracing
+- Health, Prometheus metrics, and OpenTelemetry tracing
 - Static consistent-hash routing with bootstrap client failover
 
 ## Install

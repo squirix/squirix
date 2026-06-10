@@ -10,12 +10,6 @@ or automatic rebalancing in v0.1.
 
 Example settings discovery and validation: [configuration.md](configuration.md).
 
-Admin endpoints help inspect placement (Development, or `SQUIRIX_ADMIN_ENABLED=true` in Production/Docker):
-
-- `GET /admin/whoami` — local node identity
-- `GET /admin/owner/{key}` — owner node for a key
-- `GET /admin/ring` — consistent-hash ring shape
-
 ## Client bootstrap endpoints
 
 Applications connect with one or more bootstrap URLs in `SquirixOptions.Endpoints`. These URLs are an **HA front door**
