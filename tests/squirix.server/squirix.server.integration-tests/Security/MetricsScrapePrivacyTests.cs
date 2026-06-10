@@ -47,5 +47,6 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
         var body = await response.Content.ReadAsStringAsync(DefaultCancellationToken);
         Assert.DoesNotContain($"cache=\"{secretCacheName}\"", body);
         Assert.DoesNotContain(secretCacheName, body);
+        Assert.DoesNotContain("exception_type=", body);
     }
 }

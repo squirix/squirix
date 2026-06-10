@@ -53,10 +53,9 @@ internal sealed class PrometheusMetricsScraper : IDisposable
                 if (!destination.TryGetValue(metric, out var byLabels))
                     destination[metric] = byLabels = new Dictionary<string, double>(StringComparer.Ordinal);
 
-                if (sumValues)
-                    byLabels[exportLabels] = byLabels.GetValueOrDefault(exportLabels) + value;
-                else
-                    byLabels[exportLabels] = Math.Max(byLabels.GetValueOrDefault(exportLabels), value);
+                byLabels[exportLabels] = sumValues
+                    ? byLabels.GetValueOrDefault(exportLabels) + value
+                    : Math.Max(byLabels.GetValueOrDefault(exportLabels), value);
             }
         }
     }
