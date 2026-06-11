@@ -23,10 +23,22 @@ public sealed class TestNodeSecurityOptions
     /// </summary>
     public string? JwtSigningKey { get; init; }
 
+    /// <summary>
+    /// Gets the OIDC authority URL used for metadata discovery and JWKS validation.
+    /// </summary>
+    public string? JwtAuthority { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).
+    /// </summary>
+    public bool JwtAllowHttpMetadata { get; init; }
+
     internal SecurityOptions ToServerOptions() => new()
     {
         JwtAudience = JwtAudience,
         JwtIssuer = JwtIssuer,
         JwtSigningKey = JwtSigningKey,
+        JwtAuthority = JwtAuthority,
+        JwtAllowHttpMetadata = JwtAllowHttpMetadata,
     };
 }

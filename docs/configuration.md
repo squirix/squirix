@@ -302,10 +302,20 @@ await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(crede
 await StartNodeAsync(url, peers);
 ```
 
-JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs
-(`SQUIRIX_JWT_AUTHORITY`) remain env-only until a test needs a programmatic override. E2E tests run with xUnit
-parallelization enabled; auth scenarios must use explicit `TestNodeSecurityOptions` overrides rather than
-process environment variables.
+Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
+`JwtAuthority`, `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://` mock
+authorities in tests).
+
+```csharp
+// OIDC authority JWT (integration / smoke)
+await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
+await StartNodeAsync(url, peers, security: authority.ToSecurityOptions("squirix-test"));
+var token = authority.CreateBearerToken("squirix-test");
+```
+
+`MockOidcAuthority` lives in `Squirix.Server.TestKit.Security` and serves discovery metadata plus JWKS on loopback
+without external network access. E2E tests run with xUnit parallelization enabled; auth scenarios must use explicit
+`TestNodeSecurityOptions` overrides rather than process environment variables.
 
 ## Environment variables
 
