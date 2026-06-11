@@ -68,9 +68,9 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
-        var response = await client.ContainsAsync(
-            new ContainsRequest { Key = "grpc-jwt-ok", CacheName = "default" },
+        var response = await client.GetValueAsync(
+            new GetValueRequest { Key = "grpc-jwt-ok", CacheName = "default" },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        Assert.False(response.Exists);
+        Assert.False(response.Found);
     }
 }

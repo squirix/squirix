@@ -24,13 +24,6 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         _invocationState = invocationState ?? throw new ArgumentNullException(nameof(invocationState));
     }
 
-    public override async Task<ContainsResponse> Contains(ContainsRequest request, ServerCallContext context)
-    {
-        RequireValidCacheKey(request.Key);
-        var exists = await ApiForRequest(request.CacheName).ContainsAsync(request.Key, context.CancellationToken);
-        return new ContainsResponse { Exists = exists };
-    }
-
     public override async Task<GetResponse> Get(GetRequest request, ServerCallContext context)
     {
         RequireValidCacheKey(request.Key);
@@ -49,16 +42,16 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         return response;
     }
 
-    public override async Task<InsertResponse> Insert(InsertRequest request, ServerCallContext context)
+    public override async Task<SetResponse> Set(SetRequest request, ServerCallContext context)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         await _cacheOperations.ForCache(cacheName).InsertAsync(request.Key, request.Entry.MapFromProto<T>(), context.CancellationToken).ConfigureAwait(false);
-        return new InsertResponse();
+        return new SetResponse();
     }
 
-    public override async Task<InsertResponse> InsertValue(InsertValueRequest request, ServerCallContext context)
+    public override async Task<SetResponse> SetValue(SetValueRequest request, ServerCallContext context)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
@@ -67,7 +60,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             request.Key,
             ProtoEx.CacheValueFromGrpcValue<T>(request.Value, request.ExpiresUtc, request.Expiration),
             context.CancellationToken).ConfigureAwait(false);
-        return new InsertResponse();
+        return new SetResponse();
     }
 
     public override async Task<RemoveExpirationResponse> RemoveExpiration(RemoveExpirationRequest request, ServerCallContext context)
@@ -88,6 +81,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var response = new RemoveResponse { Removed = result.Removed };
         if (result.Removed)
             response.PreviousValue = ProtoEx.CacheValueToGrpcStruct(result.Value);
+
         return response;
     }
 
@@ -100,25 +94,25 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         return new TouchResponse { Found = found };
     }
 
-    public override async Task<TryInsertResponse> TryInsert(TryInsertRequest request, ServerCallContext context)
+    public override async Task<TrySetResponse> TrySet(TrySetRequest request, ServerCallContext context)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var inserted = await _cacheOperations.ForCache(cacheName).TryInsertAsync(request.Key, request.Entry.MapFromProto<T>(), context.CancellationToken).ConfigureAwait(false);
-        return new TryInsertResponse { Inserted = inserted };
+        var added = await _cacheOperations.ForCache(cacheName).TryInsertAsync(request.Key, request.Entry.MapFromProto<T>(), context.CancellationToken).ConfigureAwait(false);
+        return new TrySetResponse { Added = added };
     }
 
-    public override async Task<TryInsertResponse> TryInsertValue(TryInsertValueRequest request, ServerCallContext context)
+    public override async Task<TrySetResponse> TrySetValue(TrySetValueRequest request, ServerCallContext context)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var inserted = await _cacheOperations.ForCache(cacheName).TryInsertAsync(
+        var added = await _cacheOperations.ForCache(cacheName).TryInsertAsync(
             request.Key,
             ProtoEx.CacheValueFromGrpcValue<T>(request.Value, request.ExpiresUtc, request.Expiration),
             context.CancellationToken).ConfigureAwait(false);
-        return new TryInsertResponse { Inserted = inserted };
+        return new TrySetResponse { Added = added };
     }
 
     private static string RequireCacheName(string cacheName) => string.IsNullOrWhiteSpace(cacheName)

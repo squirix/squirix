@@ -90,7 +90,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         OperationInputValidator<T>.ValidateEntry(entry);
 
         _ = await ExecuteAsync(
-            async (client, ct) => await client.InsertValueAsync(ToInsertValueRequest(key, entry), cancellationToken: ct),
+            async (client, ct) => await client.SetValueAsync(ToSetValueRequest(key, entry), cancellationToken: ct),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -118,7 +118,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         OperationInputValidator<T>.ValidateEntry(entry);
 
         return await ExecuteAsync(
-            async (client, ct) => (await client.TryInsertValueAsync(ToTryInsertValueRequest(key, entry), cancellationToken: ct)).Inserted,
+            async (client, ct) => (await client.TrySetValueAsync(ToTrySetValueRequest(key, entry), cancellationToken: ct)).Added,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -135,7 +135,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         };
     }
 
-    private InsertValueRequest ToInsertValueRequest(string key, CacheEntry<T> entry) => new()
+    private SetValueRequest ToSetValueRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,
@@ -144,7 +144,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
     };
 
-    private TryInsertValueRequest ToTryInsertValueRequest(string key, CacheEntry<T> entry) => new()
+    private TrySetValueRequest ToTrySetValueRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,

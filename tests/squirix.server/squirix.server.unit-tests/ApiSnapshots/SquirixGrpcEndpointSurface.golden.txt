@@ -1,0 +1,9 @@
+squirix.cache.SquirixCacheService/Get
+squirix.cache.SquirixCacheService/GetValue
+squirix.cache.SquirixCacheService/Remove
+squirix.cache.SquirixCacheService/RemoveExpiration
+squirix.cache.SquirixCacheService/Set
+squirix.cache.SquirixCacheService/SetValue
+squirix.cache.SquirixCacheService/Touch
+squirix.cache.SquirixCacheService/TrySet
+squirix.cache.SquirixCacheService/TrySetValue

@@ -80,8 +80,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.InsertAsync(
-                new InsertRequest
+            _ = await client.SetAsync(
+                new SetRequest
                 {
                     CacheName = "default",
                     Key = "grpc-over-limit",

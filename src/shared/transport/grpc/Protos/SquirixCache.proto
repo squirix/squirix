@@ -25,15 +25,15 @@ message CacheValue {
   }
 }
 
-message InsertRequest {
+message SetRequest {
   string cache_name = 1;
   string key = 2;
   Entry entry = 3;
 }
 
-message InsertResponse {}
+message SetResponse {}
 
-message InsertValueRequest {
+message SetValueRequest {
   string cache_name = 1;
   string key = 2;
   CacheValue value = 3;
@@ -70,26 +70,17 @@ message RemoveResponse {
   google.protobuf.Struct previous_value = 2;
 }
 
-message ContainsRequest {
-  string cache_name = 1;
-  string key = 2;
-}
-
-message ContainsResponse {
-  bool exists = 1;
-}
-
-message TryInsertRequest {
+message TrySetRequest {
   string cache_name = 1;
   string key = 2;
   Entry entry = 3;
 }
 
-message TryInsertResponse {
-  bool inserted = 1;
+message TrySetResponse {
+  bool added = 1;
 }
 
-message TryInsertValueRequest {
+message TrySetValueRequest {
   string cache_name = 1;
   string key = 2;
   CacheValue value = 3;
@@ -117,14 +108,13 @@ message RemoveExpirationResponse {
 }
 
 service SquirixCacheService {
-  rpc Insert(InsertRequest) returns (InsertResponse);
-  rpc InsertValue(InsertValueRequest) returns (InsertResponse);
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc SetValue(SetValueRequest) returns (SetResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc GetValue(GetValueRequest) returns (GetValueResponse);
   rpc Remove(RemoveRequest) returns (RemoveResponse);
-  rpc Contains(ContainsRequest) returns (ContainsResponse);
-  rpc TryInsert(TryInsertRequest) returns (TryInsertResponse);
-  rpc TryInsertValue(TryInsertValueRequest) returns (TryInsertResponse);
+  rpc TrySet(TrySetRequest) returns (TrySetResponse);
+  rpc TrySetValue(TrySetValueRequest) returns (TrySetResponse);
   rpc Touch(TouchRequest) returns (TouchResponse);
   rpc RemoveExpiration(RemoveExpirationRequest) returns (RemoveExpirationResponse);
 }
