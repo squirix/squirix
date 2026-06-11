@@ -125,5 +125,49 @@ internal sealed class ClusterRemote<T>
         return new CacheRemoveResult<T>(true, previous);
     }
 
+    public async ValueTask<TimeSpan?> GetExpirationAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var response = await Policy(owner).ExecuteAsync<GetExpirationResponse>(
+            async ct => await client.GetExpirationAsync(new GetExpirationRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.Found)
+            return null;
+
+        return response.HasExpiration ? response.Remaining.ToTimeSpan() : null;
+    }
+
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var response = await Policy(owner).ExecuteAsync<GetOrAddValueResponse>(
+            async ct => await client.GetOrAddValueAsync(
+                new GetOrAddValueRequest
+                {
+                    CacheName = cacheName,
+                    Key = key,
+                    Value = ProtoEx.CacheValueToGrpcValue(entry.Value),
+                    ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
+                    Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+                },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return new CacheValueResult<T>(true, ProtoEx.CacheValueFromGrpcValue<T>(response.Value, null, null).Value);
+    }
+
+    public async ValueTask<bool> UpdateAsync(string owner, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var response = await Policy(owner).ExecuteAsync<UpdateValueResponse>(
+            async ct => await client.UpdateValueAsync(
+                new UpdateValueRequest { CacheName = cacheName, Key = key, Value = ProtoEx.CacheValueToGrpcValue(value) },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Updated;
+    }
+
     private ICallPolicy Policy(string owner) => _clients.PolicyFor(owner);
 }

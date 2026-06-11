@@ -130,6 +130,49 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         return true;
     }
 
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        if (!IsLocal(cacheName, key))
+            return await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+
+        var keyValue = new CacheKey(cacheName, key);
+        var existing = await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing.Found)
+            return existing;
+
+        AdmitReplaceOrInsert(keyValue, null, entry, MemoryPressureAdmissionOperations.TryAdd);
+        var result = await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        if (result.Found)
+            AccountInsert(keyValue, entry);
+
+        return result;
+    }
+
+    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        if (!IsLocal(cacheName, key))
+            return await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+
+        var keyValue = new CacheKey(cacheName, key);
+        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
+            return false;
+
+        var replacement = new CacheEntry<T>
+        {
+            Value = value,
+            ExpiresUtc = existing.ExpiresUtc,
+            Expiration = existing.Expiration,
+            Version = existing.Version,
+        };
+        AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
+        var updated = await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+        if (updated)
+            AccountReplaceOrInsert(keyValue, existing, replacement);
+
+        return updated;
+    }
+
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.TryGetValueAsync(cacheName, key, cancellationToken);
 

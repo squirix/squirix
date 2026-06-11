@@ -43,14 +43,22 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
     {
-        var entry = await GetEntryOrDefaultAsync(key, cancellationToken).ConfigureAwait(false);
-        if (entry is null)
+        var response = await ExecuteAsync(
+            static (client, state, ct) =>
+            {
+                var responseAsync = client.GetExpirationAsync(new GetExpirationRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
+                return new ValueTask<GetExpirationResponse>(responseAsync);
+            },
+            (CacheName: _cacheName, Key: key),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.Found)
             return new CacheExpirationResult(false, false, null);
 
-        if (entry.ExpiresUtc is null)
+        if (!response.HasExpiration)
             return new CacheExpirationResult(true, false, null);
 
-        var remaining = entry.ExpiresUtc.Value - DateTime.UtcNow;
+        var remaining = response.Remaining.ToTimeSpan();
         return new CacheExpirationResult(true, true, remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
     }
 
@@ -72,8 +80,36 @@ internal sealed class RemoteCache<T> : ICache<T>
         string key,
         Func<string, CancellationToken, Task<T?>> valueFactory,
         CacheEntryOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        CacheFacadeOps.GetOrAddAsync(this, _getOrAddFlights, key, valueFactory, options, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(valueFactory);
+
+        return _getOrAddFlights.RunAsync(
+            key,
+            async ct =>
+            {
+                var existing = await GetValueAsync(key, ct).ConfigureAwait(false);
+                if (existing.Found)
+                    return existing;
+
+                var created = await valueFactory(key, ct).ConfigureAwait(false);
+                var entry = ToEntry(created, options);
+                OperationInputValidator<T>.ValidateEntry(entry);
+
+                var request = ToGetOrAddValueRequest(key, entry);
+                var response = await ExecuteAsync(
+                    static (client, state, token) =>
+                    {
+                        var responseAsync = client.GetOrAddValueAsync(state, cancellationToken: token).ResponseAsync;
+                        return new ValueTask<GetOrAddValueResponse>(responseAsync);
+                    },
+                    request,
+                    ct).ConfigureAwait(false);
+
+                return new CacheValueResult<T>(true, ProtoEx.FromCacheValue<T>(response.Value, _serializer));
+            },
+            cancellationToken);
+    }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default) => await ExecuteAsync(
         async (client, ct) => (await client.RemoveAsync(new RemoveRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct)).Removed,
@@ -109,8 +145,11 @@ internal sealed class RemoteCache<T> : ICache<T>
         return TouchAsync(key, expiration, cancellationToken);
     }
 
-    public Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default) =>
-        CacheFacadeOps.UpdateAsync(this, key, value, cancellationToken);
+    public async Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default) => await ExecuteAsync(
+        async (client, ct) => (await client.UpdateValueAsync(
+            new UpdateValueRequest { CacheName = _cacheName, Key = key, Value = ProtoEx.ToCacheValue(value, _serializer) },
+            cancellationToken: ct)).Updated,
+        cancellationToken).ConfigureAwait(false);
 
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -145,6 +184,15 @@ internal sealed class RemoteCache<T> : ICache<T>
     };
 
     private TrySetValueRequest ToTrySetValueRequest(string key, CacheEntry<T> entry) => new()
+    {
+        CacheName = _cacheName,
+        Key = key,
+        Value = ProtoEx.ToCacheValue(entry.Value, _serializer),
+        ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
+        Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+    };
+
+    private GetOrAddValueRequest ToGetOrAddValueRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,

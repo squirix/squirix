@@ -42,8 +42,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await clientA.InsertAsync(
-                new InsertRequest
+            _ = await clientA.TrySetAsync(
+                new TrySetRequest
                 {
                     CacheName = "default",
                     Key = key,

@@ -21,8 +21,6 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
         _cacheName = cacheName ?? throw new ArgumentNullException(nameof(cacheName));
     }
 
-    public ValueTask<bool> ContainsAsync(string key, CancellationToken cancellationToken) => _namespaced.ContainsAsync(_cacheName, key, cancellationToken);
-
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);
 
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string key, CancellationToken cancellationToken) =>
@@ -38,4 +36,6 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
         _namespaced.TryAddAsync(_cacheName, key, entry, cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string key, CancellationToken cancellationToken) => _namespaced.TryRemoveAsync(_cacheName, key, cancellationToken);
+
+    public ValueTask<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken) => _namespaced.UpdateAsync(_cacheName, key, value, cancellationToken);
 }

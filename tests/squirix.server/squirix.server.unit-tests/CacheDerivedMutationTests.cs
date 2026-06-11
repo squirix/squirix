@@ -57,7 +57,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         var factoryCalls = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = clientCache.GetOrAddAsync(
+        var first = clientCache.GetOrAddWithFactoryAsync(
             "orders",
             "k",
             async (key, cancellationToken) =>
@@ -70,7 +70,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
             },
             null,
             DefaultCancellationToken);
-        var second = clientCache.GetOrAddAsync(
+        var second = clientCache.GetOrAddWithFactoryAsync(
             "orders",
             "k",
             async (key, cancellationToken) =>

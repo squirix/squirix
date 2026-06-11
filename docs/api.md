@@ -13,24 +13,21 @@ var cache = await client.GetCacheAsync<T>("cache-name", cancellationToken);
 
 `ICache<T>` methods (v0.1 exported surface):
 
-| Method | Purpose |
-| --- | --- |
-| `AddAsync` / `TryAddAsync` | Insert if absent |
-| `SetAsync` | Upsert with optional expiration |
-| `UpdateAsync` | Update existing entry |
-| `GetValueAsync` / `GetEntryAsync` | Read with explicit presence |
-| `GetExpirationAsync` | Read expiration metadata |
-| `GetOrAddAsync` | Read or insert factory value |
-| `RemoveAsync` | Delete key |
-| `TouchAsync` / `RemoveExpirationAsync` | Expiration management |
+| Method                                 | Purpose                         |
+|----------------------------------------|---------------------------------|
+| `AddAsync` / `TryAddAsync`             | Insert if absent                |
+| `SetAsync`                             | Upsert with optional expiration |
+| `UpdateAsync`                          | Update existing entry           |
+| `GetValueAsync` / `GetEntryAsync`      | Read with explicit presence     |
+| `GetExpirationAsync`                   | Read expiration metadata        |
+| `GetOrAddAsync`                        | Read or insert factory value    |
+| `RemoveAsync`                          | Delete key                      |
+| `TouchAsync` / `RemoveExpirationAsync` | Expiration management           |
 
 Prefer `GetValueAsync` for reads with explicit presence.
 
 Writes accept `(key, value, options?, cancellationToken)`. Expiration uses `CacheEntryOptions`, not `CacheEntry<T>`
 write overloads.
-
-`UpdateAsync`, `GetOrAddAsync`, and `GetExpirationAsync` are implemented on the client by composing the RPCs below (no
-dedicated gRPC methods).
 
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
@@ -41,20 +38,22 @@ See [configuration.md](configuration.md) and [serialization.md](serialization.md
 
 gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
 
-`SquirixCacheService` exposes nine unary RPCs on the v0.1 server surface (cluster/control-plane services are not mapped
-here):
+`SquirixCacheService` exposes the next unary RPCs on the v0.1 server surface:
 
-| gRPC RPC | `ICache<T>` mapping | Notes |
-| --- | --- | --- |
-| `TrySetValue` | `TryAddAsync` | Typed `CacheValue` payload |
-| `SetValue` | `SetAsync` | Typed `CacheValue` payload |
-| `GetValue` | `GetValueAsync` | Returns `found` + value |
-| `Get` | `GetEntryAsync` | Returns full `Entry`; missing key → gRPC `NotFound` |
-| `Remove` | `RemoveAsync` | |
-| `Touch` | `TouchAsync` | Relative expiration (`Duration`) |
-| `RemoveExpiration` | `RemoveExpirationAsync` | |
-| `TrySet` | — | `Entry` / `Struct` payload; cluster and legacy struct paths |
-| `Set` | — | `Entry` / `Struct` payload; cluster and legacy struct paths |
+| gRPC RPC           | `ICache<T>` mapping     | Notes                                                       |
+|--------------------|-------------------------|-------------------------------------------------------------|
+| `TrySetValue`      | `TryAddAsync`           | Typed `CacheValue` payload                                  |
+| `SetValue`         | `SetAsync`              | Typed `CacheValue` payload                                  |
+| `GetValue`         | `GetValueAsync`         | Returns `found` + value                                     |
+| `Get`              | `GetEntryAsync`         | Returns full `Entry`; missing key → gRPC `NotFound`         |
+| `GetExpiration`    | `GetExpirationAsync`    | Returns `found`, `has_expiration`, `remaining`              |
+| `GetOrAddValue`    | `GetOrAddAsync`         | Client runs factory; server atomically get-or-insert        |
+| `UpdateValue`      | `UpdateAsync`           | Update value if key exists                                  |
+| `Remove`           | `RemoveAsync`           |                                                             |
+| `Touch`            | `TouchAsync`            | Relative expiration (`Duration`)                            |
+| `RemoveExpiration` | `RemoveExpirationAsync` |                                                             |
+| `TrySet`           | —                       | `Entry` / `Struct` payload; cluster and legacy struct paths |
+| `Set`              | —                       | `Entry` / `Struct` payload; cluster and legacy struct paths |
 
 There is no `Contains` RPC. Prefer `GetValue` or REST `HEAD` for presence checks.
 

@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
@@ -113,6 +114,69 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             ProtoEx.CacheValueFromGrpcValue<T>(request.Value, request.ExpiresUtc, request.Expiration),
             context.CancellationToken).ConfigureAwait(false);
         return new TrySetResponse { Added = added };
+    }
+
+    public override async Task<UpdateValueResponse> UpdateValue(UpdateValueRequest request, ServerCallContext context)
+    {
+        var cacheName = RequireCacheName(request.CacheName);
+        RequireValidCacheKey(request.Key);
+        EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
+        var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
+            request.Key,
+            ProtoEx.CacheValueFromGrpcValue<T>(request.Value, null, null).Value,
+            context.CancellationToken).ConfigureAwait(false);
+        return new UpdateValueResponse { Updated = updated };
+    }
+
+    public override async Task<GetExpirationResponse> GetExpiration(GetExpirationRequest request, ServerCallContext context)
+    {
+        RequireValidCacheKey(request.Key);
+        var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken);
+        if (entry is null)
+            return new GetExpirationResponse { Found = false };
+
+        var response = new GetExpirationResponse { Found = true };
+        if (entry.ExpiresUtc is not { } expiresUtc)
+            return response;
+
+        response.HasExpiration = true;
+        var remaining = expiresUtc - DateTime.UtcNow;
+        response.Remaining = Duration.FromTimeSpan(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        return response;
+    }
+
+    public override async Task<GetOrAddValueResponse> GetOrAddValue(GetOrAddValueRequest request, ServerCallContext context)
+    {
+        var cacheName = RequireCacheName(request.CacheName);
+        RequireValidCacheKey(request.Key);
+        EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
+        var api = _cacheOperations.ForCache(cacheName);
+        var existing = await api.TryGetValueAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
+        if (existing.Found)
+        {
+            return new GetOrAddValueResponse
+            {
+                Added = false,
+                Value = ProtoEx.CacheValueToGrpcValue(existing.Value),
+            };
+        }
+
+        var entry = ProtoEx.CacheValueFromGrpcValue<T>(request.Value, request.ExpiresUtc, request.Expiration);
+        if (await api.TryInsertAsync(request.Key, entry, context.CancellationToken).ConfigureAwait(false))
+        {
+            return new GetOrAddValueResponse
+            {
+                Added = true,
+                Value = ProtoEx.CacheValueToGrpcValue(entry.Value),
+            };
+        }
+
+        var afterRace = await api.TryGetValueAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
+        return new GetOrAddValueResponse
+        {
+            Added = false,
+            Value = ProtoEx.CacheValueToGrpcValue(afterRace.Value),
+        };
     }
 
     private static string RequireCacheName(string cacheName) => string.IsNullOrWhiteSpace(cacheName)

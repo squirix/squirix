@@ -9,112 +9,149 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 message Entry {
-  google.protobuf.Struct value = 1;
-  google.protobuf.Timestamp expires_utc = 2;
-  google.protobuf.Duration expiration = 3;
+    google.protobuf.Struct value = 1;
+    google.protobuf.Timestamp expires_utc = 2;
+    google.protobuf.Duration expiration = 3;
 }
 
 message CacheValue {
-  oneof kind {
-    google.protobuf.NullValue null_value = 1;
-    string string_value = 2;
-    int64 int64_value = 3;
-    double double_value = 4;
-    bool bool_value = 5;
-    google.protobuf.Struct struct_value = 6;
-  }
+    oneof kind {
+        google.protobuf.NullValue null_value = 1;
+        string string_value = 2;
+        int64 int64_value = 3;
+        double double_value = 4;
+        bool bool_value = 5;
+        google.protobuf.Struct struct_value = 6;
+    }
 }
 
 message SetRequest {
-  string cache_name = 1;
-  string key = 2;
-  Entry entry = 3;
+    string cache_name = 1;
+    string key = 2;
+    Entry entry = 3;
 }
 
 message SetResponse {}
 
 message SetValueRequest {
-  string cache_name = 1;
-  string key = 2;
-  CacheValue value = 3;
-  google.protobuf.Timestamp expires_utc = 4;
-  google.protobuf.Duration expiration = 5;
+    string cache_name = 1;
+    string key = 2;
+    CacheValue value = 3;
+    google.protobuf.Timestamp expires_utc = 4;
+    google.protobuf.Duration expiration = 5;
 }
 
 message GetRequest {
-  string cache_name = 1;
-  string key = 2;
+    string cache_name = 1;
+    string key = 2;
 }
 
 message GetResponse {
-  Entry entry = 1;
+    Entry entry = 1;
 }
 
 message GetValueRequest {
-  string cache_name = 1;
-  string key = 2;
+    string cache_name = 1;
+    string key = 2;
 }
 
 message GetValueResponse {
-  bool found = 1;
-  CacheValue value = 2;
+    bool found = 1;
+    CacheValue value = 2;
 }
 
 message RemoveRequest {
-  string cache_name = 1;
-  string key = 2;
+    string cache_name = 1;
+    string key = 2;
 }
 
 message RemoveResponse {
-  bool removed = 1;
-  google.protobuf.Struct previous_value = 2;
+    bool removed = 1;
+    google.protobuf.Struct previous_value = 2;
 }
 
 message TrySetRequest {
-  string cache_name = 1;
-  string key = 2;
-  Entry entry = 3;
+    string cache_name = 1;
+    string key = 2;
+    Entry entry = 3;
 }
 
 message TrySetResponse {
-  bool added = 1;
+    bool added = 1;
 }
 
 message TrySetValueRequest {
-  string cache_name = 1;
-  string key = 2;
-  CacheValue value = 3;
-  google.protobuf.Timestamp expires_utc = 4;
-  google.protobuf.Duration expiration = 5;
+    string cache_name = 1;
+    string key = 2;
+    CacheValue value = 3;
+    google.protobuf.Timestamp expires_utc = 4;
+    google.protobuf.Duration expiration = 5;
 }
 
 message TouchRequest {
-  string cache_name = 1;
-  string key = 2;
-  google.protobuf.Duration expiration = 3;
+    string cache_name = 1;
+    string key = 2;
+    google.protobuf.Duration expiration = 3;
 }
 
 message TouchResponse {
-  bool found = 1;
+    bool found = 1;
 }
 
 message RemoveExpirationRequest {
-  string cache_name = 1;
-  string key = 2;
+    string cache_name = 1;
+    string key = 2;
 }
 
 message RemoveExpirationResponse {
-  bool found = 1;
+    bool found = 1;
+}
+
+message UpdateValueRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheValue value = 3;
+}
+
+message UpdateValueResponse {
+    bool updated = 1;
+}
+
+message GetExpirationRequest {
+    string cache_name = 1;
+    string key = 2;
+}
+
+message GetExpirationResponse {
+    bool found = 1;
+    bool has_expiration = 2;
+    google.protobuf.Duration remaining = 3;
+}
+
+message GetOrAddValueRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheValue value = 3;
+    google.protobuf.Timestamp expires_utc = 4;
+    google.protobuf.Duration expiration = 5;
+}
+
+message GetOrAddValueResponse {
+    bool added = 1;
+    CacheValue value = 2;
 }
 
 service SquirixCacheService {
-  rpc Set(SetRequest) returns (SetResponse);
-  rpc SetValue(SetValueRequest) returns (SetResponse);
-  rpc Get(GetRequest) returns (GetResponse);
-  rpc GetValue(GetValueRequest) returns (GetValueResponse);
-  rpc Remove(RemoveRequest) returns (RemoveResponse);
-  rpc TrySet(TrySetRequest) returns (TrySetResponse);
-  rpc TrySetValue(TrySetValueRequest) returns (TrySetResponse);
-  rpc Touch(TouchRequest) returns (TouchResponse);
-  rpc RemoveExpiration(RemoveExpirationRequest) returns (RemoveExpirationResponse);
+    rpc Set(SetRequest) returns (SetResponse);
+    rpc SetValue(SetValueRequest) returns (SetResponse);
+    rpc Get(GetRequest) returns (GetResponse);
+    rpc GetValue(GetValueRequest) returns (GetValueResponse);
+    rpc Remove(RemoveRequest) returns (RemoveResponse);
+    rpc TrySet(TrySetRequest) returns (TrySetResponse);
+    rpc TrySetValue(TrySetValueRequest) returns (TrySetResponse);
+    rpc Touch(TouchRequest) returns (TouchResponse);
+    rpc RemoveExpiration(RemoveExpirationRequest) returns (RemoveExpirationResponse);
+    rpc UpdateValue(UpdateValueRequest) returns (UpdateValueResponse);
+    rpc GetExpiration(GetExpirationRequest) returns (GetExpirationResponse);
+    rpc GetOrAddValue(GetOrAddValueRequest) returns (GetOrAddValueResponse);
 }
