@@ -24,15 +24,17 @@ internal static class SquirixNodeOptionsRegistration
         PersistenceOptions? persistenceOptionsOverride,
         MemoryPressureOptions? memoryPressureOptionsOverride,
         bool persistenceEnabled,
-        ClusterMtlsOptions? clusterMtlsOptionsOverride = null)
+        ClusterMtlsOptions? clusterMtlsOptionsOverride = null,
+        ClusterMtlsCertificateMaterial? clusterMtlsMaterialOverride = null)
     {
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
         var clusterMtlsOptions = clusterMtlsOptionsOverride ?? ClusterMtlsOptionsResolver.ResolveFromEnvironment();
         AddValidatedInstance<ClusterMtlsOptions, SquirixOptionsValidators.ClusterMtlsOptionsValidator>(services, clusterMtlsOptions);
-        _ = services.AddSingleton(static provider => ClusterMtlsCertificateMaterial.Load(provider.GetRequiredService<ClusterMtlsOptions>()));
+        _ = clusterMtlsMaterialOverride is not null
+            ? services.AddSingleton(clusterMtlsMaterialOverride)
+            : services.AddSingleton(static provider => ClusterMtlsCertificateMaterial.Load(provider.GetRequiredService<ClusterMtlsOptions>()));
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
-        var memoryPressure = memoryPressureOptionsOverride
-                             ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
+        var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
 
         if (persistenceEnabled)
