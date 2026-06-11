@@ -57,18 +57,19 @@ Client authentication uses `BearerTokenProvider` when the server requires JWT be
 ## Memory pressure (`Squirix.settings.json`)
 
 The optional `Squirix:MemoryPressure` section is merged when present (same file discovery as `Squirix:Cluster`).
-Environment variables listed below override merged file values. When enabled, the node may reject **growing** writes
-under critical estimated memory usage. Those rejections occur before durable journal append. REST returns HTTP **429**
-with code **`MEMORY_PRESSURE`**; gRPC returns **`ResourceExhausted`** (bounded payloads; field semantics are in the
-table below).
+Environment variables listed below override merged file values. Memory pressure is **always active** at runtime.
+The node may reject **growing** writes under critical estimated memory usage. Those rejections occur before durable
+journal append. REST returns HTTP **429** with code **`MEMORY_PRESSURE`**; gRPC returns **`ResourceExhausted`** (bounded
+payloads; field semantics are in the table below).
 
-| Field                              | Type  | Default           | Validation                                                                      |
-| ---------------------------------- | ----- | ----------------- | ------------------------------------------------------------------------------- |
-| `Enabled`                          | bool  | `false`           | Any boolean                                                                     |
-| `MaxEstimatedCacheBytes`           | long? | `null` (no limit) | unset or `>= 0`; non-positive values are treated as no limit for classification |
-| `HighPressureThresholdPercent`     | int   | `80`              | `(0, 100]`                                                                      |
-| `CriticalPressureThresholdPercent` | int   | `95`              | `(0, 100]`, must be `>` `HighPressureThresholdPercent`                          |
-| `RejectWritesOnCriticalPressure`   | bool  | `true`            | Any boolean (admission gate; REST/gRPC mapping when rejection occurs)           |
+| Field                              | Type  | Default                        | Validation                                                                                          |
+| ---------------------------------- | ----- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `MaxEstimatedCacheBytes`           | long? | `80%` of available process RAM | unset uses the RAM default; when set must be `> 0` and `<= 80%` of available process RAM at startup |
+| `HighPressureThresholdPercent`     | int   | `80`                           | `(0, 100]`                                                                                          |
+| `CriticalPressureThresholdPercent` | int   | `95`                           | `(0, 100]`, must be `>` `HighPressureThresholdPercent`                                              |
+
+Available process RAM is read from `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` at startup (in containers this is
+usually the pod memory limit). Legacy JSON fields such as `enabled` and `rejectWritesOnCriticalPressure` are ignored.
 
 Example fragment:
 
@@ -76,11 +77,9 @@ Example fragment:
 {
     "Squirix": {
         "MemoryPressure": {
-            "enabled": true,
             "maxEstimatedCacheBytes": 1073741824,
             "highPressureThresholdPercent": 80,
-            "criticalPressureThresholdPercent": 95,
-            "rejectWritesOnCriticalPressure": true
+            "criticalPressureThresholdPercent": 95
         }
     }
 }
@@ -105,7 +104,9 @@ CLI validation:
 
 - `squirix-server validate-config --settings PATH` validates `Squirix:Cluster` only.
 - `squirix-server validate-config --settings PATH --strict` also validates optional `MemoryPressure` and
-  `PrometheusMetrics` sections when they are present.
+  `PrometheusMetrics` sections when they are present. Host startup always resolves memory pressure (80% RAM default when
+  `MaxEstimatedCacheBytes` is unset) even when the JSON section is absent; `--strict` only checks the section if it
+  exists in the file.
 
 Example:
 
@@ -322,11 +323,9 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_MEMORY_PRESSURE_ENABLED`                    | When set to `true`/`1` or `false`/`0`, overrides `MemoryPressure.Enabled` after JSON merge.                                                                                                                        |
-| `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (non-positive clears the limit).                                                                                                                                 |
+| `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
-| `SQUIRIX_MEMORY_PRESSURE_REJECT_WRITES_ON_CRITICAL`  | When set to `true`/`1` or `false`/`0`, overrides `MemoryPressure.RejectWritesOnCriticalPressure` (admission behavior when enabled).                                                                                |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
 
 Security notes:
@@ -368,4 +367,6 @@ Typical examples:
 - `Persistence DataDir is required.`
 - `Persistence JournalMaxSegmentMb must be greater than zero.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
-- `MemoryPressure MaxEstimatedCacheBytes cannot be negative.`
+- `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`
+- `MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the 80% RAM cap ({cap}).`
+- `MemoryPressure cannot resolve RAM budget: available process memory is zero.`

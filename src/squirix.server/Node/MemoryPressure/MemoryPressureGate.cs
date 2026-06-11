@@ -1,31 +1,26 @@
 using System;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>
-/// Default <see cref="IMemoryPressureGate" /> using validated <see cref="MemoryPressureOptions" />, pressure state, and approximate accounting.
+/// Default <see cref="IMemoryPressureGate" /> using pressure state evaluation and approximate accounting.
 /// </summary>
 internal sealed class MemoryPressureGate : IMemoryPressureGate
 {
     private readonly IMemoryUsageAccounting _accounting;
     private readonly IMemoryPressureStateEvaluator _evaluator;
     private readonly string _nodeId;
-    private readonly MemoryPressureOptions _options;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MemoryPressureGate" /> class.
     /// </summary>
-    /// <param name="options">Validated memory pressure options.</param>
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
-    public MemoryPressureGate(IOptions<MemoryPressureOptions> options, IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
+    public MemoryPressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        _options = options.Value;
         _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
         _nodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
@@ -34,15 +29,6 @@ internal sealed class MemoryPressureGate : IMemoryPressureGate
     /// <inheritdoc />
     public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
     {
-        if (!_options.Enabled)
-            return;
-
-        if (_options.MaxEstimatedCacheBytes is null or <= 0)
-            return;
-
-        if (!_options.RejectWritesOnCriticalPressure)
-            return;
-
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
         var currentBytes = _accounting.EstimatedBytes;
         if (_evaluator.Evaluate(currentBytes) != MemoryPressureState.Critical && (magnitudeUnknown || boundedGrowth <= 0 ||

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
@@ -36,7 +35,6 @@ internal sealed class SnapshotCoordinator<T>
     private readonly IJournalMetrics _journal;
     private readonly ManifestStore _manifestStore;
     private readonly IMemoryPressureStateEvaluator _memoryPressureEvaluator;
-    private readonly MemoryPressureOptions _memoryPressureOptions;
     private readonly IMemoryUsageAccounting _memoryUsageAccounting;
     private readonly string _nodeId;
     private readonly SnapshotTriggerOptions _opt;
@@ -55,7 +53,6 @@ internal sealed class SnapshotCoordinator<T>
         ManifestStore manifestStore,
         IdempotencyStore idempotency,
         ClusterConfig cluster,
-        IOptions<MemoryPressureOptions> memoryPressureOptions,
         IMemoryPressureStateEvaluator memoryPressureEvaluator,
         IMemoryUsageAccounting memoryUsageAccounting)
     {
@@ -66,8 +63,6 @@ internal sealed class SnapshotCoordinator<T>
         _manifestStore = manifestStore;
         _idempotency = idempotency;
         _nodeId = cluster.NodeId;
-        ArgumentNullException.ThrowIfNull(memoryPressureOptions);
-        _memoryPressureOptions = memoryPressureOptions.Value;
         _memoryPressureEvaluator = memoryPressureEvaluator ?? throw new ArgumentNullException(nameof(memoryPressureEvaluator));
         _memoryUsageAccounting = memoryUsageAccounting ?? throw new ArgumentNullException(nameof(memoryUsageAccounting));
     }
@@ -175,9 +170,8 @@ internal sealed class SnapshotCoordinator<T>
         return updated.LastSnapshot;
     }
 
-    private bool ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure() => _memoryPressureOptions is { Enabled: true, MaxEstimatedCacheBytes: not (null or <= 0) } &&
-                                                                                  _memoryPressureEvaluator.Evaluate(_memoryUsageAccounting.EstimatedBytes) ==
-                                                                                  MemoryPressureState.Critical;
+    private bool ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure() =>
+        _memoryPressureEvaluator.Evaluate(_memoryUsageAccounting.EstimatedBytes) == MemoryPressureState.Critical;
 
     private bool ShouldTrigger(DateTime utcNow)
     {

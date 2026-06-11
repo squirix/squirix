@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Contracts;
@@ -23,16 +22,12 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<RemoteInvocationContextService>();
         _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextService>());
         _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextService>());
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<ClusterConfig>>().Value);
         _ = services.AddSingleton<ISquirixSerializer>(static _ => SerializationProvider.Instance);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<BackpressureOptions>>().Value);
         _ = services.AddSingleton<IBackpressureGate, BackpressureGate>();
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<MemoryPressureOptions>>().Value);
         _ = services.AddSingleton<IMemoryPressureStateEvaluator, MemoryPressureStateEvaluator>();
         _ = services.AddSingleton<MemoryUsageAccounting>();
         _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
         _ = services.AddSingleton<IMemoryPressureGate>(static sp => new MemoryPressureGate(
-            sp.GetRequiredService<IOptions<MemoryPressureOptions>>(),
             sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<ClusterConfig>().NodeId));

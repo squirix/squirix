@@ -70,7 +70,7 @@ internal static class RestDtos
     {
         public HealthMemoryPressureDetails(
             string state,
-            long? maxEstimatedCacheBytes,
+            long maxEstimatedCacheBytes,
             long estimatedCacheBytes,
             long entryCount,
             long rejectedWriteCount,
@@ -88,7 +88,7 @@ internal static class RestDtos
 
         public long EstimatedCacheBytes { get; }
 
-        public long? MaxEstimatedCacheBytes { get; }
+        public long MaxEstimatedCacheBytes { get; }
 
         public long RejectedWriteCount { get; }
 

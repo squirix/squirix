@@ -36,7 +36,8 @@ internal static class SquirixNodeOptionsRegistration
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
         AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
-        var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureBootstrap.Load();
+        var memoryPressure = memoryPressureOptionsOverride
+                             ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
         var snapshot = snapshotOptions ?? new SnapshotTriggerOptions
         {

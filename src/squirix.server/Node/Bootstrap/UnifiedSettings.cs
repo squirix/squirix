@@ -23,7 +23,7 @@ internal static class UnifiedSettings
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="merged">The merged result; equal to <paramref name="baseline" /> when the section is absent.</param>
     /// <returns><see langword="true" /> when the settings file exists and defines a <c>MemoryPressure</c> object.</returns>
-    public static bool TryMergeMemoryPressureFromFile(MemoryPressureOptions baseline, out MemoryPressureOptions merged)
+    public static bool TryMergeMemoryPressureFromFile(UnresolvedMemoryPressureOptions baseline, out UnresolvedMemoryPressureOptions merged)
     {
         merged = baseline;
         var path = ResolveSettingsPath();
@@ -68,7 +68,7 @@ internal static class UnifiedSettings
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="merged">The merged result.</param>
     /// <returns><see langword="true" /> when the file exists and defines a <c>MemoryPressure</c> object.</returns>
-    internal static bool TryMergeMemoryPressureFromSettingsFilePath(string settingsFilePath, MemoryPressureOptions baseline, out MemoryPressureOptions merged)
+    internal static bool TryMergeMemoryPressureFromSettingsFilePath(string settingsFilePath, UnresolvedMemoryPressureOptions baseline, out UnresolvedMemoryPressureOptions merged)
     {
         merged = baseline;
         if (!File.Exists(settingsFilePath))
@@ -96,11 +96,11 @@ internal static class UnifiedSettings
     /// <param name="failures">Collected validation failures.</param>
     internal static void ValidateOptionalSections(string settingsFilePath, List<string> failures)
     {
-        if (TryMergeMemoryPressureFromSettingsFilePath(settingsFilePath, new MemoryPressureOptions(), out var memoryPressure))
+        if (TryMergeMemoryPressureFromSettingsFilePath(settingsFilePath, new UnresolvedMemoryPressureOptions(), out var memoryPressure))
         {
             try
             {
-                memoryPressure.Validate();
+                _ = MemoryPressureOptionsResolver.Resolve(memoryPressure, GcMemoryBudgetProvider.Instance);
             }
             catch (InvalidOperationException ex)
             {

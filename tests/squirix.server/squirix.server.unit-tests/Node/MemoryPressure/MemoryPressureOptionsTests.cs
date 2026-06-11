@@ -17,17 +17,15 @@ public sealed class MemoryPressureOptionsTests
     };
 
     /// <summary>
-    /// Verifies default option values match the v0.7.1 contract.
+    /// Verifies default threshold values match the contract.
     /// </summary>
     [Fact]
     public void DefaultsMatchContract()
     {
-        var o = new MemoryPressureOptions();
-        Assert.False(o.Enabled);
-        Assert.Null(o.MaxEstimatedCacheBytes);
-        Assert.Equal(80, o.HighPressureThresholdPercent);
-        Assert.Equal(95, o.CriticalPressureThresholdPercent);
-        Assert.True(o.RejectWritesOnCriticalPressure);
+        var resolved = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(10_000));
+        Assert.Equal(8_000L, resolved.MaxEstimatedCacheBytes);
+        Assert.Equal(80, resolved.HighPressureThresholdPercent);
+        Assert.Equal(95, resolved.CriticalPressureThresholdPercent);
     }
 
     /// <summary>
@@ -38,13 +36,13 @@ public sealed class MemoryPressureOptionsTests
     {
         var options = new MemoryPressureOptions
         {
-            MaxEstimatedCacheBytes = 0,
+            MaxEstimatedCacheBytes = 1,
             HighPressureThresholdPercent = 1,
             CriticalPressureThresholdPercent = 100,
         };
 
         options.Validate();
-        Assert.Equal(0, options.MaxEstimatedCacheBytes);
+        Assert.Equal(1, options.MaxEstimatedCacheBytes);
         Assert.Equal(1, options.HighPressureThresholdPercent);
         Assert.Equal(100, options.CriticalPressureThresholdPercent);
     }
@@ -76,13 +74,14 @@ public sealed class MemoryPressureOptionsTests
     }
 
     /// <summary>
-    /// Verifies negative byte limits are rejected.
+    /// Verifies non-positive byte limits are rejected.
     /// </summary>
     /// <param name="maxBytes">Invalid limit value.</param>
     [Theory]
+    [InlineData(0)]
     [InlineData(-1)]
     [InlineData(-1000)]
-    public void FieldBackedValidationRejectsNegativeMaxBytes(long maxBytes)
+    public void FieldBackedValidationRejectsNonPositiveMaxBytes(long maxBytes)
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new MemoryPressureOptions { MaxEstimatedCacheBytes = maxBytes });
 
@@ -99,11 +98,9 @@ public sealed class MemoryPressureOptionsTests
     {
         const string json = """
                             {
-                              "enabled": true,
                               "maxEstimatedCacheBytes": 4096,
                               "highPressureThresholdPercent": 60,
-                              "criticalPressureThresholdPercent": 90,
-                              "rejectWritesOnCriticalPressure": false
+                              "criticalPressureThresholdPercent": 90
                             }
                             """;
 
@@ -111,11 +108,9 @@ public sealed class MemoryPressureOptionsTests
 
         Assert.NotNull(options);
         options.Validate();
-        Assert.True(options.Enabled);
         Assert.Equal(4096, options.MaxEstimatedCacheBytes);
         Assert.Equal(60, options.HighPressureThresholdPercent);
         Assert.Equal(90, options.CriticalPressureThresholdPercent);
-        Assert.False(options.RejectWritesOnCriticalPressure);
     }
 
     /// <summary>
@@ -126,7 +121,6 @@ public sealed class MemoryPressureOptionsTests
     {
         var o = new MemoryPressureOptions
         {
-            Enabled = true,
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 50,
             CriticalPressureThresholdPercent = 90,
@@ -143,10 +137,16 @@ public sealed class MemoryPressureOptionsTests
     {
         var o = new MemoryPressureOptions
         {
+            MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 90,
         };
         var ex = Assert.Throws<InvalidOperationException>(o.Validate);
         Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class FixedMemoryBudgetProvider(long availableBytes) : IMemoryBudgetProvider
+    {
+        public long GetTotalAvailableBytes() => availableBytes;
     }
 }

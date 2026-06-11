@@ -1,5 +1,4 @@
 using System;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
@@ -21,7 +20,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     private readonly ManifestStore _manifestStore;
     private readonly IMemoryUsageAccounting _memoryAccounting;
     private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
-    private readonly IOptions<MemoryPressureOptions> _memoryPressureOptions;
+    private readonly MemoryPressureOptions _memoryPressureOptions;
     private readonly SnapshotCoordinator<object?> _snapshot;
 
     public HealthReadyDetailsProvider(
@@ -32,7 +31,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
         ClusterConfig cluster,
         IMemoryUsageAccounting memoryAccounting,
         IMemoryPressureStateEvaluator memoryEvaluator,
-        IOptions<MemoryPressureOptions> memoryPressureOptions)
+        MemoryPressureOptions memoryPressureOptions)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
@@ -74,7 +73,6 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
         var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
         var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-        var memOpts = _memoryPressureOptions.Value;
         var estimatedBytes = _memoryAccounting.EstimatedBytes;
         var state = _memoryEvaluator.Evaluate(estimatedBytes);
         var pressureStateName = state switch
@@ -85,14 +83,13 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported memory pressure state."),
         };
 
-        var writeRejectionActive = memOpts is { Enabled: true, MaxEstimatedCacheBytes: > 0, RejectWritesOnCriticalPressure: true };
         var memoryPressure = new HealthMemoryPressureSnapshot(
             pressureStateName,
-            memOpts.MaxEstimatedCacheBytes,
+            _memoryPressureOptions.MaxEstimatedCacheBytes,
             estimatedBytes,
             _memoryAccounting.EntryCount,
             _memoryAccounting.RejectedWriteCount,
-            writeRejectionActive);
+            true);
 
         return new HealthReadyDetailsSnapshot
         {
