@@ -18,6 +18,9 @@ internal static class SquirixSecurityServiceRegistration
         if (!string.IsNullOrWhiteSpace(jwtIssuer) && signingKeyBytes is null && string.IsNullOrWhiteSpace(jwtAuthority))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
 
+        if (!string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtAudience))
+            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
+
         if (!jwtEnabled)
             return false;
 

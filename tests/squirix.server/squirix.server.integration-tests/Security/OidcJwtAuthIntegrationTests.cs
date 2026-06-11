@@ -15,6 +15,19 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
 {
     private const string Audience = "squirix-oidc-integration";
 
+    /// <summary>Verifies startup fails when an OIDC authority is configured without an audience.</summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task AuthorityWithoutAudienceFailsStartupOnLoopback()
+    {
+        await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
+        var url = GetNextHttpUrl();
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await StartNodeAsync(url, peers, security: authority.ToSecurityOptionsWithoutAudience()));
+        Assert.Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies gRPC accepts a bearer token signed by the mock authority's JWKS.</summary>
     /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
