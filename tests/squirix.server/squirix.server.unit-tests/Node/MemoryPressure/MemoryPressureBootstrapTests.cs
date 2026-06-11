@@ -15,18 +15,14 @@ public sealed class MemoryPressureBootstrapTests
     [Fact]
     public void EnvironmentOverridesApplyInOrder()
     {
-        using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_ENABLED", "true"))
         using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES", "12345"))
+        using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT", "70"))
+        using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT", "90"))
         {
             var loaded = MemoryPressureBootstrap.Load();
-            Assert.True(loaded.Enabled);
             Assert.Equal(12345L, loaded.MaxEstimatedCacheBytes);
-        }
-
-        using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_ENABLED", "false"))
-        {
-            var disabled = MemoryPressureBootstrap.Load();
-            Assert.False(disabled.Enabled);
+            Assert.Equal(70, loaded.HighPressureThresholdPercent);
+            Assert.Equal(90, loaded.CriticalPressureThresholdPercent);
         }
     }
 }

@@ -49,9 +49,7 @@ feature/my-fix → develop → main → tag vX.Y.Z
 
 3. Open a pull request targeting `develop` with a short description.
    Link related issues with closing keywords (`Fixes #123`, `Closes #123`, or `Resolves #123`) in the PR
-   title or body. GitHub only auto-closes issues on merge to the default branch (`main`); this repository
-   closes linked issues when the PR merges into `develop` via
-   [`.github/workflows/close-linked-issues-on-develop.yml`](./.github/workflows/close-linked-issues-on-develop.yml).
+   title or body. GitHub auto-closes linked issues when the PR merges into the default branch (`develop`).
 
 ## Guidelines
 

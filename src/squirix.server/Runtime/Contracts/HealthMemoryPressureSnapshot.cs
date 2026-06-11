@@ -5,7 +5,7 @@ namespace Squirix.Server.Runtime.Contracts;
 /// </summary>
 internal readonly record struct HealthMemoryPressureSnapshot(
     string State,
-    long? MaxEstimatedCacheBytes,
+    long MaxEstimatedCacheBytes,
     long EstimatedBytes,
     long EntryCount,
     long RejectedWriteCount,
