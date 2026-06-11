@@ -19,8 +19,7 @@ internal sealed class MemoryPressureStateEvaluator : IMemoryPressureStateEvaluat
     /// <inheritdoc />
     public MemoryPressureState Evaluate(long estimatedCacheBytes)
     {
-        if (estimatedCacheBytes < 0)
-            throw new ArgumentOutOfRangeException(nameof(estimatedCacheBytes), estimatedCacheBytes, "Estimated cache bytes cannot be negative.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(estimatedCacheBytes, 0);
 
         if (estimatedCacheBytes == 0)
             return MemoryPressureState.Normal;

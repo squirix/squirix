@@ -27,7 +27,7 @@ We are looking for API, architecture, and operational feedback — not productio
 
 - Typed client/server packages with a narrow `ICache<T>` API
 - HTTPS gRPC transport; health and metrics endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
-- Per-node journal durability with snapshots and compaction
+- In-memory cache by default; optional per-node WAL durability with snapshots and compaction
 - Health, Prometheus metrics, and OpenTelemetry tracing
 - Static consistent-hash routing with bootstrap client failover
 
@@ -43,7 +43,13 @@ dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
 Start a local server (default gRPC endpoint `https://localhost:5001`):
 
 ```powershell
-squirix-server run --data-dir ./data
+squirix-server run
+```
+
+Durable mode (WAL + snapshots):
+
+```powershell
+squirix-server run --persist --data-dir ./data
 ```
 
 Connect from your app:

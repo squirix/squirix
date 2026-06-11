@@ -160,7 +160,6 @@ internal static class StorageMaintenanceTool
         var persistence = new PersistenceOptions
         {
             DataDir = dataDir,
-            StrictFsync = strictFsync,
         };
 
         var manifestStore = new ManifestStore(persistence);
@@ -188,7 +187,6 @@ internal static class StorageMaintenanceTool
         var persistence = new PersistenceOptions
         {
             DataDir = dataDir,
-            StrictFsync = strictFsync,
         };
         var manifestStore = new ManifestStore(persistence);
         var existing = Inspect(dataDir);

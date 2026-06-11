@@ -31,7 +31,6 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 600_000,
                 ManifestRetentionCount = 1,
-                StrictFsync = true,
             };
             var manifestStore = new ManifestStore(options);
             await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
@@ -74,7 +73,6 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 5,
                 ManifestRetentionCount = 1,
-                StrictFsync = false,
             };
 
             var manifestStore = new ManifestStore(options);

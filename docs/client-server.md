@@ -62,7 +62,7 @@ contracts and shared proto source.
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
 - HTTPS gRPC transport (shared `SquirixCache.proto` contract)
 - Health, readiness, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
-- WAL-based durability with recovery on startup
+- Opt-in WAL-based durability with recovery on startup (`UsePersistence()` / `--persist`)
 - Snapshots and journal compaction
 - Prometheus metrics and OpenTelemetry tracing
 - Static consistent-hash single-owner routing with bootstrap client failover

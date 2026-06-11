@@ -20,7 +20,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     private const string InvalidBearerToken = "invalid.jwt.token";
 
     private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
-    private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, disposeHandler: false);
+    private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
     /// <summary>
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.

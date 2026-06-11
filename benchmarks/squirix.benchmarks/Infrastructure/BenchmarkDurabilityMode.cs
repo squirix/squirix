@@ -1,9 +1,9 @@
-namespace Squirix.E2EBenchmarks.Scenarios;
+namespace Squirix.Benchmarks.Infrastructure;
 
 /// <summary>
-/// Durability mode exposed by the E2E benchmark harness.
+/// Durability mode for client SDK benchmarks.
 /// </summary>
-public enum E2EBenchmarkDurabilityMode
+public enum BenchmarkDurabilityMode
 {
     /// <summary>
     /// In-memory cache without WAL/snapshot persistence.

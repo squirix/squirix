@@ -99,7 +99,6 @@ public sealed class JournalWriterFailedAppendTailTests : ServerUnitTestBase
         JournalMaxSegmentMb = 16,
         FlushIntervalMs = 600_000,
         ManifestRetentionCount = 3,
-        StrictFsync = true,
     };
 
     private static List<JournalEnvelope> ReadSegment(string segmentPath)

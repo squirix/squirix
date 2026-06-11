@@ -1,12 +1,35 @@
 # Persistence
 
-Each squirix server node persists cache mutations locally. Durability is **per node** — there is no replication or
-automatic failover in v0.1.
+By default, squirix server nodes run as an in-memory cache without writing WAL, manifest, or snapshot files. Enable
+persistence explicitly when a node should survive restarts with local durability.
+
+Durability is **per node** — there is no replication or automatic failover in v0.1.
+
+## Enable persistence
+
+ASP.NET Core hosting:
+
+```csharp
+builder.AddSquirixServer(options =>
+{
+    options.NodeId = "node-a";
+    options.Url = new Uri("https://localhost:5001");
+    options.UsePersistence("./data");
+});
+```
+
+Standalone CLI:
+
+```powershell
+squirix-server run --persist --data-dir ./data
+```
+
+`DataDirectory` / `--data-dir` only applies when persistence is enabled (`UsePersistence()` or `--persist`).
 
 ## Write-ahead journal
 
-Mutations append to a per-node write-ahead log (WAL) before they are considered durable. On startup, the node replays
-the journal (and latest snapshot watermark) to rebuild in-memory state.
+When persistence is enabled, mutations append to a per-node write-ahead log (WAL) before they are considered durable. On
+startup, the node replays the journal (and latest snapshot watermark) to rebuild in-memory state.
 
 Readiness stays unhealthy until journal recovery completes (`journal_recovery` gate). Fatal maintenance failures also
 affect readiness — see [observability](observability.md).
@@ -27,7 +50,7 @@ Compaction state is visible on `/health/ready/details` (`compaction.*`).
 
 ## On-disk layout
 
-A node data directory typically contains:
+When persistence is enabled, a node data directory typically contains:
 
 - journal segment files
 - snapshot files
@@ -38,17 +61,5 @@ journal/manifest metadata can break recovery.
 
 ## Operator workflows
 
-- Online maintenance: compaction runs automatically; monitor readiness and logs.
-- Offline maintenance: stop the node, copy the data directory, then inspect/compact/repair on a copy.
-
-Detailed procedures: [storage-maintenance.md](storage-maintenance.md), [operational-runbook.md](operational-runbook.md).
-
-## Group commit
-
-Journal append batching semantics for throughput tuning: [journal-group-commit.md](journal-group-commit.md).
-
-## Limitations (v0.1)
-
-- No cross-node replication or automatic data failover
-- On-disk layouts may change during 0.x preview releases
-- Offline compact/repair tooling is outside the exported product surface
+See [operational runbook](operational-runbook.md) and [storage maintenance](storage-maintenance.md) for backup, restore,
+and offline repair procedures.

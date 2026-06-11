@@ -31,7 +31,7 @@ public abstract class CacheBenchmarkBase
     /// <summary>
     /// Gets the scenario matrix used by BenchmarkDotNet.
     /// </summary>
-    public static IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDefaultMatrix();
+    public virtual IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDefaultMatrix();
 
     /// <summary>
     /// Gets or sets the scenario measured by the current BenchmarkDotNet case.
@@ -79,7 +79,7 @@ public abstract class CacheBenchmarkBase
         BenchmarkRuntime.EnsureInitialized();
         var cacheName = GetType().Name + "-" + Scenario;
         Keyspace = E2EBenchmarkKeyspace.Create(cacheName, Scenario.Topology);
-        Cluster = await E2EBenchmarkCluster.StartAsync(Scenario.Topology, CancellationToken.None).ConfigureAwait(false);
+        Cluster = await E2EBenchmarkCluster.StartAsync(Scenario.Topology, Scenario.DurabilityMode, CancellationToken.None).ConfigureAwait(false);
         Adapter = await E2EBenchmarkValueAdapter.CreateAsync(Cluster, Scenario.ValueShape, cacheName, CancellationToken.None).ConfigureAwait(false);
         await Adapter.SeedAsync(Keyspace.HitKeys, CancellationToken.None).ConfigureAwait(false);
         await SeedAdditionalStateAsync(CancellationToken.None).ConfigureAwait(false);

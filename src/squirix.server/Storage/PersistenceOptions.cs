@@ -103,7 +103,7 @@ internal sealed record PersistenceOptions
         }
     }
 
-    public bool StrictFsync { get; init; }
+    public static bool StrictFsync => true;
 
     [JsonPropertyName("journalMaxSegmentMb")]
     public int JournalMaxSegmentMb

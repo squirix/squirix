@@ -30,7 +30,6 @@ public sealed class JournalWriterSnapshotCutReleaseTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 5,
                 ManifestRetentionCount = 1,
-                StrictFsync = false,
             };
 
             var manifestStore = new ManifestStore(persistence);
@@ -71,7 +70,6 @@ public sealed class JournalWriterSnapshotCutReleaseTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 600_000,
                 ManifestRetentionCount = 1,
-                StrictFsync = false,
             };
 
             var manifestStore = new ManifestStore(persistence);

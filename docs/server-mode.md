@@ -13,7 +13,13 @@ The `squirix-server` global tool wraps the same runtime as the library host. Def
 
 ```powershell
 dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
-squirix-server run --data-dir ./data
+squirix-server run
+```
+
+Durable mode:
+
+```powershell
+squirix-server run --persist --data-dir ./data
 ```
 
 CLI reference and Docker examples: [getting-started.md](getting-started.md), [containerization.md](containerization.md).
@@ -34,7 +40,7 @@ builder.AddSquirixServer(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");
-    options.DataDirectory = "./data";
+    options.UsePersistence("./data");
 });
 
 var app = builder.Build();

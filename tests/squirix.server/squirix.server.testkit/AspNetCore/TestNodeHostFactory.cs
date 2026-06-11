@@ -16,6 +16,36 @@ namespace Squirix.Server.TestKit.AspNetCore;
 public static class TestNodeHostFactory
 {
     /// <summary>
+    /// Starts an ephemeral in-memory node with the provided cluster topology.
+    /// </summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="address">The HTTP listen address.</param>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(
+        string nodeId,
+        string address,
+        (string NodeId, string Address)[] topology,
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, null, false, null, null, cancellationToken);
+
+    /// <summary>
+    /// Starts an ephemeral in-memory node with optional per-node security settings.
+    /// </summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="address">The HTTP listen address.</param>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="security">Optional security override. When set, environment variables are not read for auth.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(
+        string nodeId,
+        string address,
+        (string NodeId, string Address)[] topology,
+        TestNodeSecurityOptions? security,
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, null, false, security, null, cancellationToken);
+
+    /// <summary>
     /// Starts a node with the provided cluster topology and persistence directory.
     /// </summary>
     /// <param name="nodeId">The node identifier.</param>
@@ -29,8 +59,7 @@ public static class TestNodeHostFactory
         string address,
         (string NodeId, string Address)[] topology,
         string dataDir,
-        CancellationToken cancellationToken = default) =>
-        StartNodeAsync(nodeId, address, topology, dataDir, null, null, cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, dataDir, true, null, null, cancellationToken);
 
     /// <summary>
     /// Starts a node with optional per-node security settings.
@@ -48,19 +77,25 @@ public static class TestNodeHostFactory
         (string NodeId, string Address)[] topology,
         string dataDir,
         TestNodeSecurityOptions? security,
-        CancellationToken cancellationToken = default) =>
-        StartNodeAsync(nodeId, address, topology, dataDir, security, null, cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, dataDir, true, security, null, cancellationToken);
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private static async ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
-        string dataDir,
+        string? dataDir,
+        bool persistence,
         TestNodeSecurityOptions? security,
         Action<SquirixServerExtensionOptions>? configureExtensions,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
+        if (persistence)
+            ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
+        var persistenceOptions = persistence ? new PersistenceOptions { DataDir = dataDir ?? string.Empty } : null;
         var peers = new Peer[topology.Length];
         for (var i = 0; i < topology.Length; i++)
             peers[i] = new Peer { NodeId = topology[i].NodeId, Url = topology[i].Address };
@@ -73,8 +108,6 @@ public static class TestNodeHostFactory
             Peers = peers,
         };
 
-        var persistence = new PersistenceOptions { DataDir = dataDir, StrictFsync = true };
-        var httpHandler = LoopbackHttp.CreateHandler();
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             static b =>
@@ -85,12 +118,12 @@ public static class TestNodeHostFactory
                 _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Warning);
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
-            persistenceOptionsOverride: persistence,
-            httpHandlerOverride: httpHandler,
+            persistenceOptionsOverride: persistenceOptions,
+            httpHandlerOverride: LoopbackHttp.CreateHandler(),
             securityOptionsOverride: security?.ToServerOptions(),
             configureExtensions: configureExtensions,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return new TestNodeHost(app, address, dataDir);
+        return new TestNodeHost(app, address, persistenceOptions?.DataDir ?? string.Empty, persistence);
     }
 }

@@ -22,12 +22,15 @@ public static class SquirixServerConfiguration
     /// <param name="options">Server options to update.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory)
+    /// <param name="persist">When <see langword="true" />, enables WAL/snapshot persistence.</param>
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (url is not null)
             options.Url = new Uri(url, UriKind.Absolute);
+        if (persist)
+            options.UsePersistence();
         if (dataDirectory is not null)
             options.DataDirectory = dataDirectory;
 
@@ -57,6 +60,7 @@ public static class SquirixServerConfiguration
         target.Url = source.Url;
         target.VirtualNodes = source.VirtualNodes;
         target.WaitForRecovery = source.WaitForRecovery;
+        target.PersistenceEnabled = source.PersistenceEnabled;
         target.DataDirectory = source.DataDirectory;
         target.Peers.Clear();
         foreach (var peer in source.Peers)
