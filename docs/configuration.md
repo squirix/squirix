@@ -21,7 +21,7 @@ The standalone `squirix-server` host, `builder.AddSquirixServer(...)`, and `Squi
 then hosts the node through the same `AddSquirixServer` / `MapSquirixServer` pipeline as the standalone executable.
 Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged from the same settings file at runtime
 when present. Custom ASP.NET Core hosts configure cluster topology and persistence directory through
-`SquirixServerOptions`; `app.MapSquirixServer()` maps gRPC, REST, health, admin, and metrics endpoints.
+`SquirixServerOptions`; `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
 ## Remote client (`SquirixOptions`)
 
@@ -333,7 +333,7 @@ Security notes:
 - Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require** JWT settings at
   startup; the process refuses to start without them. Loopback binds (`localhost`, `127.0.0.1`) allow unauthenticated
   cache access unless auth is explicitly configured.
-- JWT bearer authentication is enforced server-side for REST cache routes and gRPC cache endpoints when auth is
+- JWT bearer authentication is enforced server-side for gRPC cache endpoints when auth is
   enabled. Missing or invalid credentials are rejected.
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 

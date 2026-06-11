@@ -1,11 +1,7 @@
 using System;
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Microsoft.AspNetCore.Http;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Cluster;
@@ -21,11 +17,8 @@ namespace Squirix.Server.IntegrationTests.Limits;
 /// </summary>
 public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 {
-    private const string CacheRoute = "/api/v1/cache";
-    private const string HealthReadyDetailsRoute = "/health/ready/details";
-
     /// <summary>
-    /// Verifies cluster forwarding preserves PayloadTooLarge when the remote owner rejects an oversized entry.
+    /// Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
@@ -44,12 +37,30 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit");
         var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
-        var response = await HttpClient.PutAsJsonAsync($"{urlA}{CacheRoute}/{key}", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
 
-        Assert.Equal((HttpStatusCode)StatusCodes.Status413PayloadTooLarge, response.StatusCode);
+        using var channelA = CreateGrpcChannel(urlA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await clientA.InsertAsync(
+                new InsertRequest
+                {
+                    CacheName = "default",
+                    Key = key,
+                    Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                },
+                cancellationToken: DefaultCancellationToken);
+        });
 
-        var getOnOwner = await HttpClient.GetAsync($"{urlB}{CacheRoute}/{key}", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, getOnOwner.StatusCode);
+        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
+
+        using var channelB = CreateGrpcChannel(urlB);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await clientB.GetAsync(new GetRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+        });
+        Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
     }
 
     /// <summary>
@@ -82,56 +93,10 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
         Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
 
-        var getResponse = await HttpClient.GetAsync($"{url}{CacheRoute}/grpc-over-limit", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies REST insert above the limit returns 413, does not persist, and does not append to the journal.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task RestInsertAboveLimitReturns413AndDoesNotPersist()
-    {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers);
-
-        var opsBefore = await ReadJournalBacklogOpsAsync(url);
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
-        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/over-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
-
-        Assert.Equal((HttpStatusCode)StatusCodes.Status413PayloadTooLarge, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
-        Assert.Equal("PayloadTooLarge", payload.GetProperty("error").GetString());
-
-        var getResponse = await HttpClient.GetAsync($"{url}{CacheRoute}/over-limit", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
-
-        var opsAfter = await ReadJournalBacklogOpsAsync(url);
-        Assert.Equal(opsBefore, opsAfter);
-    }
-
-    /// <summary>
-    /// Verifies REST insert succeeds when the serialized entry is at or below the fixed limit.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task RestInsertJustBelowLimitSucceeds()
-    {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-        await using var node = await StartNodeAsync(url, peers);
-
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostRestEntryBytes(SquirixEntryLimits.MaxEntrySizeBytes);
-        var response = await HttpClient.PutAsJsonAsync($"{url}{CacheRoute}/within-limit", new CacheEntry<string> { Value = value }, DefaultCancellationToken);
-
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-    }
-
-    private async Task<long> ReadJournalBacklogOpsAsync(string url)
-    {
-        var diagnostics = await HttpClient.GetFromJsonAsync<JsonElement>($"{url}{HealthReadyDetailsRoute}", DefaultCancellationToken);
-        return diagnostics.GetProperty("journalBacklogOps").GetInt64();
+        var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
+        });
+        Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
     }
 }

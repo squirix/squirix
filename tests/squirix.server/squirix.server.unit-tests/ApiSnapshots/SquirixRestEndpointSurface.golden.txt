@@ -1,9 +1,5 @@
-DELETE /api/v1/cache/{key}
-GET /api/v1/cache/{key}
 GET /health
 GET /health/live
 GET /health/ready
 GET /health/ready/details
 GET /metrics
-HEAD /api/v1/cache/{key}
-PUT /api/v1/cache/{key}

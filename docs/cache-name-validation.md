@@ -48,12 +48,11 @@ In-process APIs throw `ArgumentException` with one of these canonical messages:
 
 Transport mapping:
 
-- REST: `400 Bad Request` with stable code `INVALID_CACHE_NAME`
 - gRPC: `InvalidArgument`
 
 Current transport note:
 
-- REST and gRPC cache routes operate on the validated default cache namespace.
+- gRPC cache routes operate on the validated default cache namespace.
 - Named caches are accessed through `SquirixClient.GetCacheAsync` against a remote `Squirix.Server` endpoint (see
   [server-mode.md](server-mode.md)).
 
