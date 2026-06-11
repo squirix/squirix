@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -32,7 +33,6 @@ internal static class SquirixKestrelConfiguration
             kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http1AndHttp2);
 
             var mtlsEnabled = EnvVariables.ReadBool("SQUIRIX_MTLS");
-            var allowSelfSigned = EnvVariables.ReadBool("SQUIRIX_MTLS_ALLOW_SELF_SIGNED");
 
             var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
             if (isLoopbackHost)
@@ -52,31 +52,15 @@ internal static class SquirixKestrelConfiguration
                     return;
                 }
 
-                _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, allowSelfSigned));
+                _ = listenOptions.UseHttps(ConfigureMutualTls);
             }
         });
         return;
 
-        static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, bool allowSelfSigned)
+        static void ConfigureMutualTls(HttpsConnectionAdapterOptions https)
         {
             https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-            https.ClientCertificateValidation = (cert, chain, _) =>
-            {
-                try
-                {
-                    if (chain is null)
-                        return allowSelfSigned;
-
-                    chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-
-                    var ok = chain.Build(cert);
-                    return ok || allowSelfSigned;
-                }
-                catch (System.Security.Cryptography.CryptographicException)
-                {
-                    return false;
-                }
-            };
+            https.ClientCertificateValidation = static (cert, chain, _) => ValidateMutualTlsClientCertificate(cert, chain);
         }
     }
 
@@ -95,6 +79,30 @@ internal static class SquirixKestrelConfiguration
         {
             throw new InvalidOperationException(
                 $"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
+        }
+    }
+
+    /// <summary>
+    /// Validates an inbound mTLS client certificate against the platform trust store.
+    /// </summary>
+    /// <param name="cert">The presented client certificate.</param>
+    /// <param name="chain">The certificate chain built by the TLS stack.</param>
+    /// <returns><see langword="true" /> when the certificate chains to a trusted root; otherwise <see langword="false" />.</returns>
+    internal static bool ValidateMutualTlsClientCertificate(X509Certificate2 cert, X509Chain? chain)
+    {
+        ArgumentNullException.ThrowIfNull(cert);
+
+        try
+        {
+            if (chain is null)
+                return false;
+
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            return chain.Build(cert);
+        }
+        catch (CryptographicException)
+        {
+            return false;
         }
     }
 }
