@@ -50,6 +50,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
         var invalid = new MemoryPressureOptions
         {
+            MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 50,
         };

@@ -60,18 +60,16 @@ public sealed class UnifiedSettingsTests : ServerUnitTestBase
                             {
                               "Squirix": {
                                 "MemoryPressure": {
-                                  "Enabled": true,
                                   "MaxEstimatedCacheBytes": 7777
                                 }
                               }
                             }
                             """;
         File.WriteAllText(path, json);
-        var baseline = new MemoryPressureOptions { Enabled = false, MaxEstimatedCacheBytes = null };
+        var baseline = new UnresolvedMemoryPressureOptions();
         try
         {
             Assert.True(UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, baseline, out var merged));
-            Assert.True(merged.Enabled);
             Assert.Equal(7777, merged.MaxEstimatedCacheBytes);
         }
         finally

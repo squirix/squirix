@@ -94,7 +94,8 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         Assert.True(memoryPressure.TryGetProperty("state", out var memState));
         Assert.Equal(JsonValueKind.String, memState.ValueKind);
         Assert.True(memoryPressure.TryGetProperty("maxEstimatedCacheBytes", out var memMax));
-        Assert.True(memMax.ValueKind is JsonValueKind.Null or JsonValueKind.Number);
+        Assert.Equal(JsonValueKind.Number, memMax.ValueKind);
+        Assert.True(memMax.GetInt64() > 0);
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out var memEst));
         Assert.Equal(JsonValueKind.Number, memEst.ValueKind);
         Assert.True(memoryPressure.TryGetProperty("entryCount", out var memEntries));
@@ -102,6 +103,6 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         Assert.True(memoryPressure.TryGetProperty("rejectedWriteCount", out var memRej));
         Assert.Equal(JsonValueKind.Number, memRej.ValueKind);
         Assert.True(memoryPressure.TryGetProperty("writeRejectionActive", out var memWra));
-        Assert.True(memWra.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(memWra.GetBoolean());
     }
 }

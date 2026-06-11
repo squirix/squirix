@@ -3,7 +3,7 @@ using System;
 namespace Squirix.Server.Node.MemoryPressure;
 
 /// <summary>
-/// Configures memory pressure observation and admission protection.
+/// Resolved runtime memory pressure configuration.
 /// </summary>
 internal sealed record MemoryPressureOptions
 {
@@ -29,12 +29,6 @@ internal sealed record MemoryPressureOptions
     }
 
     /// <summary>
-    /// Gets a value indicating whether memory pressure evaluation is active.
-    /// When <see langword="false" />, state remains <see cref="MemoryPressureState.Normal" /> regardless of usage.
-    /// </summary>
-    public bool Enabled { get; init; }
-
-    /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="MemoryPressureState.High" />.
     /// </summary>
     public int HighPressureThresholdPercent
@@ -50,33 +44,27 @@ internal sealed record MemoryPressureOptions
     }
 
     /// <summary>
-    /// Gets the optional maximum estimated cache size in bytes used for pressure thresholds.
-    /// <see langword="null" /> or non-positive values mean no limit is configured (no pressure classification).
+    /// Gets the maximum estimated cache size in bytes used for pressure thresholds.
     /// </summary>
-    public long? MaxEstimatedCacheBytes
+    public long MaxEstimatedCacheBytes
     {
         get;
         init
         {
-            if (value is < 0)
-                throw new ArgumentOutOfRangeException(nameof(MaxEstimatedCacheBytes), value, "MaxEstimatedCacheBytes cannot be negative.");
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(MaxEstimatedCacheBytes), value, "MaxEstimatedCacheBytes must be positive.");
 
             field = value;
         }
     }
 
     /// <summary>
-    /// Gets a value indicating whether writes should be rejected under critical pressure when admission control is implemented.
-    /// </summary>
-    public bool RejectWritesOnCriticalPressure { get; init; } = true;
-
-    /// <summary>
     /// Validates configuration; throws <see cref="InvalidOperationException" /> when invalid.
     /// </summary>
     public void Validate()
     {
-        if (MaxEstimatedCacheBytes is < 0)
-            throw new InvalidOperationException("MemoryPressure MaxEstimatedCacheBytes cannot be negative.");
+        if (MaxEstimatedCacheBytes <= 0)
+            throw new InvalidOperationException("MemoryPressure MaxEstimatedCacheBytes must be positive.");
 
         ValidatePercent(nameof(HighPressureThresholdPercent), HighPressureThresholdPercent);
         ValidatePercent(nameof(CriticalPressureThresholdPercent), CriticalPressureThresholdPercent);

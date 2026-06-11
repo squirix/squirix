@@ -206,6 +206,7 @@ public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
         var v = new SquirixOptionsValidators.MemoryPressureOptionsValidator();
         var bad = new MemoryPressureOptions
         {
+            MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 90,
         };

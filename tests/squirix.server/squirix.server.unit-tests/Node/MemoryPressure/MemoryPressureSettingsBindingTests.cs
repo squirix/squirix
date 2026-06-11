@@ -32,18 +32,16 @@ public sealed class MemoryPressureSettingsBindingTests
         const string json = """
                             {
                               "highPressureThresholdPercent": 72,
-                              "criticalPressureThresholdPercent": 91,
-                              "rejectWritesOnCriticalPressure": false
+                              "criticalPressureThresholdPercent": 91
                             }
                             """;
 
         var section = JsonSerializer.Deserialize<MemoryPressureSettings>(json, CaseInsensitiveReadOptions);
         Assert.NotNull(section);
-        var merged = section.MergeInto(new MemoryPressureOptions());
-        merged.Validate();
-        Assert.Equal(72, merged.HighPressureThresholdPercent);
-        Assert.Equal(91, merged.CriticalPressureThresholdPercent);
-        Assert.False(merged.RejectWritesOnCriticalPressure);
+        var merged = section.MergeInto(new UnresolvedMemoryPressureOptions());
+        var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
+        Assert.Equal(72, resolved.HighPressureThresholdPercent);
+        Assert.Equal(91, resolved.CriticalPressureThresholdPercent);
     }
 
     /// <summary>
@@ -54,11 +52,9 @@ public sealed class MemoryPressureSettingsBindingTests
     {
         var original = new MemoryPressureOptions
         {
-            Enabled = true,
             MaxEstimatedCacheBytes = 4096,
             HighPressureThresholdPercent = 70,
             CriticalPressureThresholdPercent = 90,
-            RejectWritesOnCriticalPressure = false,
         };
 
         var json = JsonSerializer.Serialize(original, CamelWriteOptions);
@@ -69,34 +65,29 @@ public sealed class MemoryPressureSettingsBindingTests
     }
 
     /// <summary>
-    /// Verifies <see cref="MemoryPressureSettings.MergeInto" /> applies optional threshold and rejection fields from the partial settings shape.
+    /// Verifies <see cref="MemoryPressureSettings.MergeInto" /> applies optional threshold fields from the partial settings shape.
     /// </summary>
     [Fact]
-    public void SettingsMergeAppliesThresholdAndWriteRejectionOverrides()
+    public void SettingsMergeAppliesThresholdOverrides()
     {
-        var baseline = new MemoryPressureOptions
+        var baseline = new UnresolvedMemoryPressureOptions
         {
-            Enabled = true,
             MaxEstimatedCacheBytes = 8192,
             HighPressureThresholdPercent = 80,
             CriticalPressureThresholdPercent = 95,
-            RejectWritesOnCriticalPressure = true,
         };
 
         var section = new MemoryPressureSettings
         {
             HighPressureThresholdPercent = 65,
             CriticalPressureThresholdPercent = 90,
-            RejectWritesOnCriticalPressure = false,
         };
 
         var merged = section.MergeInto(baseline);
-        merged.Validate();
-        Assert.True(merged.Enabled);
-        Assert.Equal(8192L, merged.MaxEstimatedCacheBytes);
-        Assert.Equal(65, merged.HighPressureThresholdPercent);
-        Assert.Equal(90, merged.CriticalPressureThresholdPercent);
-        Assert.False(merged.RejectWritesOnCriticalPressure);
+        var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(20_000));
+        Assert.Equal(8192L, resolved.MaxEstimatedCacheBytes);
+        Assert.Equal(65, resolved.HighPressureThresholdPercent);
+        Assert.Equal(90, resolved.CriticalPressureThresholdPercent);
     }
 
     /// <summary>
@@ -105,11 +96,11 @@ public sealed class MemoryPressureSettingsBindingTests
     [Fact]
     public void SettingsMergesPartialJsonOntoDefaults()
     {
-        var section = new MemoryPressureSettings { Enabled = true, MaxEstimatedCacheBytes = 2048L };
-        var merged = section.MergeInto(new MemoryPressureOptions());
-        Assert.True(merged.Enabled);
-        Assert.Equal(2048L, merged.MaxEstimatedCacheBytes);
-        Assert.Equal(80, merged.HighPressureThresholdPercent);
+        var section = new MemoryPressureSettings { MaxEstimatedCacheBytes = 2048L };
+        var merged = section.MergeInto(new UnresolvedMemoryPressureOptions());
+        var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
+        Assert.Equal(2048L, resolved.MaxEstimatedCacheBytes);
+        Assert.Equal(80, resolved.HighPressureThresholdPercent);
     }
 
     /// <summary>
@@ -125,7 +116,6 @@ public sealed class MemoryPressureSettingsBindingTests
                                 {
                                   "Squirix": {
                                     "MemoryPressure": {
-                                      "enabled": true,
                                       "maxEstimatedCacheBytes": 1000
                                     }
                                   }
@@ -133,10 +123,10 @@ public sealed class MemoryPressureSettingsBindingTests
                                 """;
             var path = PathKit.Combine(dir, "Squirix.settings.json");
             File.WriteAllText(path, json);
-            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new MemoryPressureOptions(), out var merged);
+            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
             Assert.True(ok);
-            Assert.True(merged.Enabled);
-            Assert.Equal(1000L, merged.MaxEstimatedCacheBytes);
+            var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
+            Assert.Equal(1000L, resolved.MaxEstimatedCacheBytes);
         }
         finally
         {
@@ -145,10 +135,10 @@ public sealed class MemoryPressureSettingsBindingTests
     }
 
     /// <summary>
-    /// Verifies unified settings merge includes optional threshold and rejection properties under <c>MemoryPressure</c>.
+    /// Verifies unified settings merge includes optional threshold properties under <c>MemoryPressure</c>.
     /// </summary>
     [Fact]
-    public void UnifiedSettingsMergesThresholdAndRejectionFromFile()
+    public void UnifiedSettingsMergesThresholdsFromFile()
     {
         var dir = DirectoryKit.CreateTempDirectory("squirix-mp-settings-thresholds");
         try
@@ -157,29 +147,30 @@ public sealed class MemoryPressureSettingsBindingTests
                                 {
                                   "Squirix": {
                                     "MemoryPressure": {
-                                      "enabled": true,
                                       "maxEstimatedCacheBytes": 5000,
                                       "highPressureThresholdPercent": 70,
-                                      "criticalPressureThresholdPercent": 88,
-                                      "rejectWritesOnCriticalPressure": false
+                                      "criticalPressureThresholdPercent": 88
                                     }
                                   }
                                 }
                                 """;
             var path = PathKit.Combine(dir, "Squirix.settings.json");
             File.WriteAllText(path, json);
-            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new MemoryPressureOptions(), out var merged);
+            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
             Assert.True(ok);
-            merged.Validate();
-            Assert.True(merged.Enabled);
-            Assert.Equal(5000L, merged.MaxEstimatedCacheBytes);
-            Assert.Equal(70, merged.HighPressureThresholdPercent);
-            Assert.Equal(88, merged.CriticalPressureThresholdPercent);
-            Assert.False(merged.RejectWritesOnCriticalPressure);
+            var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(20_000));
+            Assert.Equal(5000L, resolved.MaxEstimatedCacheBytes);
+            Assert.Equal(70, resolved.HighPressureThresholdPercent);
+            Assert.Equal(88, resolved.CriticalPressureThresholdPercent);
         }
         finally
         {
             DirectoryKit.TryDeleteDirectory(dir);
         }
+    }
+
+    private sealed class FixedMemoryBudgetProvider(long availableBytes) : IMemoryBudgetProvider
+    {
+        public long GetTotalAvailableBytes() => availableBytes;
     }
 }

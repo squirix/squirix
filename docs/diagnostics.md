@@ -27,13 +27,12 @@ diagnostics surfaces currently exposed by the node host.
 - `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
   accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
   `LocalCache<T>` does not own this policy.
-- `memoryPressure.maxEstimatedCacheBytes`: configured estimated byte limit, or `null` when no limit is configured
+- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default)
 - `memoryPressure.estimatedCacheBytes`: current global approximate accounted bytes for the node
 - `memoryPressure.entryCount`: current global approximate accounted live entry count
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
-- `memoryPressure.writeRejectionActive`: whether the policy **would** reject memory-growing writes at critical pressure
-  (`Enabled`, positive `MaxEstimatedCacheBytes`, and `RejectWritesOnCriticalPressure`)
+- `memoryPressure.writeRejectionActive`: always `true`; growing writes are rejected at critical pressure
 
 Readiness behavior (`GET /health/ready`):
 

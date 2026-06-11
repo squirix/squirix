@@ -47,8 +47,8 @@ Collect:
 - Backpressure pressure and request failures from logs
 - Serializer and journal JSON codec failures
 - Correlation or trace ids for failing requests
-- `memoryPressure` on `/health/ready/details` (state, limits, estimated usage, entry count, rejections, whether write
-  rejection is active)
+- `memoryPressure` on `/health/ready/details` (state, resolved byte limit, estimated usage, entry count, rejections;
+  `writeRejectionActive` is always `true`)
 
 Trace ownership during triage:
 
@@ -87,8 +87,8 @@ Alerting guidance:
 
 - **High** (`memoryPressure.state == "high"` or metric `squirix_memory_pressure_state` with `state="high"`): plan
   capacity — trending estimated bytes toward the configured limit. No automatic host readiness failure.
-- **Critical** (`state == "critical"`): treat as imminent admission pressure. When `writeRejectionActive` is true,
-  expect growing writes to fail with documented `MEMORY_PRESSURE` / `ResourceExhausted` signals; monitor
+- **Critical** (`state == "critical"`): treat as imminent admission pressure. Expect growing writes to fail with
+  documented `MEMORY_PRESSURE` / `ResourceExhausted` signals; monitor
   `rejectedWriteCount` and `squirix_memory_rejections_total`. journal and snapshots remain **durability** tools — not an
   overflow tier for RAM pressure.
 - **Cardinality:** do not add raw cache names, keys, value previews, serialized payloads, or exception messages as
@@ -143,8 +143,8 @@ Do not copy only snapshots without the corresponding journal.
 
 ## Snapshot artifacts and memory pressure
 
-- **Background snapshots** are skipped while memory pressure is **critical** (when a positive `MaxEstimatedCacheBytes`
-  is configured and pressure evaluation is enabled). Operational snapshot requests are not gated the same way.
+- **Background snapshots** are skipped while memory pressure is **critical**. Operational snapshot requests are not
+  gated the same way.
 - **Partial writes:** snapshot creation uses a `.tmp` file that is deleted if the write or rename fails. Orphan `.tmp`
   files are not referenced by the manifest and are safe to delete during maintenance if a process crashed mid-write.
 - **Manifests** are updated only after a snapshot file is successfully written and moved into place.

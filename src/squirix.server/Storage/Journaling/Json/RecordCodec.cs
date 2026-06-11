@@ -24,28 +24,9 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
             return env;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
         {
-            JournalJsonCodecMetrics.AddOp("decode", "error");
-            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
-        catch (NotSupportedException)
-        {
-            JournalJsonCodecMetrics.AddOp("decode", "error");
-            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
-        catch (InvalidOperationException)
-        {
-            JournalJsonCodecMetrics.AddOp("decode", "error");
-            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
-        catch (NullReferenceException)
-        {
-            JournalJsonCodecMetrics.AddOp("decode", "error");
-            JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
+            RecordErrorMetrics("decode", sw);
             throw;
         }
     }
@@ -61,30 +42,17 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
             return bytes;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
         {
-            JournalJsonCodecMetrics.AddOp("encode", "error");
-            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
+            RecordErrorMetrics("encode", sw);
             throw;
         }
-        catch (NotSupportedException)
-        {
-            JournalJsonCodecMetrics.AddOp("encode", "error");
-            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
-        catch (InvalidOperationException)
-        {
-            JournalJsonCodecMetrics.AddOp("encode", "error");
-            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
-        catch (NullReferenceException)
-        {
-            JournalJsonCodecMetrics.AddOp("encode", "error");
-            JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
-            throw;
-        }
+    }
+
+    private static void RecordErrorMetrics(string operation, Stopwatch sw)
+    {
+        JournalJsonCodecMetrics.AddOp(operation, "error");
+        JournalJsonCodecMetrics.RecordDuration(operation, sw.Elapsed.TotalSeconds);
     }
 
     private static JournalEnvelope FromDto(RecordEnvelope dto)
