@@ -1,9 +1,12 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -14,33 +17,42 @@ namespace Squirix.Server.Node.Hosting;
 internal static class SquirixKestrelConfiguration
 {
     /// <summary>
-    /// Configures Kestrel listeners: primary HTTPS (HTTP/1.1 and HTTP/2).
+    /// Configures Kestrel listeners: primary HTTPS for external clients and optional cluster/internal mTLS.
     /// </summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="uri">The primary HTTPS listen URI.</param>
-    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri)
+    /// <param name="clusterMtlsOptions">Cluster mTLS options.</param>
+    /// <param name="clusterMtlsMaterial">Loaded cluster mTLS certificate material.</param>
+    public static void ConfigureKestrel(
+        WebApplicationBuilder builder,
+        Uri uri,
+        ClusterMtlsOptions clusterMtlsOptions,
+        ClusterMtlsCertificateMaterial clusterMtlsMaterial)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(uri);
+        ArgumentNullException.ThrowIfNull(clusterMtlsOptions);
+        ArgumentNullException.ThrowIfNull(clusterMtlsMaterial);
+
+        var clusterMtlsEnabled = clusterMtlsOptions.Enabled && clusterMtlsMaterial.Enabled;
+        var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
         _ = builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
             kestrel.ConfigureEndpointDefaults(static options => options.Protocols = HttpProtocols.Http1AndHttp2);
 
-            var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
             if (isLoopbackHost)
                 kestrel.ListenLocalhost(uri.Port, ConfigurePrimaryEndpoint);
             else
                 kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
 
-            return;
-
-            static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
-            {
-                listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-                _ = listenOptions.UseHttps();
-            }
+            if (!clusterMtlsEnabled)
+                return;
+            if (isLoopbackHost)
+                kestrel.ListenLocalhost(clusterMtlsOptions.InternalListenPort, listenOptions => ConfigureClusterMtlsEndpoint(listenOptions, clusterMtlsMaterial));
+            else
+                kestrel.ListenAnyIP(clusterMtlsOptions.InternalListenPort, listenOptions => ConfigureClusterMtlsEndpoint(listenOptions, clusterMtlsMaterial));
         });
     }
 
@@ -60,5 +72,38 @@ internal static class SquirixKestrelConfiguration
             throw new InvalidOperationException(
                 $"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
         }
+    }
+
+    /// <summary>
+    /// Validates an inbound cluster mTLS client certificate against the configured cluster trust root.
+    /// </summary>
+    /// <param name="clientCertificate">The presented client certificate.</param>
+    /// <param name="chain">Optional chain supplied by the TLS stack.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
+    internal static bool ValidateClusterClientCertificate(
+        X509Certificate2? clientCertificate,
+        X509Chain? chain,
+        X509Certificate2 trustAnchor) =>
+        ClusterMtlsClientCertificateValidator.Validate(clientCertificate, chain, trustAnchor);
+
+    private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
+    {
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+        _ = listenOptions.UseHttps();
+    }
+
+    private static void ConfigureClusterMtlsEndpoint(ListenOptions listenOptions, ClusterMtlsCertificateMaterial material)
+    {
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+        _ = listenOptions.UseHttps(https => ConfigureClusterMutualTls(https, material));
+    }
+
+    private static void ConfigureClusterMutualTls(HttpsConnectionAdapterOptions https, ClusterMtlsCertificateMaterial material)
+    {
+        https.ServerCertificate = material.NodeCertificate;
+        https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+        https.ClientCertificateValidation = (certificate, chain, _) =>
+            ValidateClusterClientCertificate(certificate, chain, material.TrustAnchor!);
     }
 }

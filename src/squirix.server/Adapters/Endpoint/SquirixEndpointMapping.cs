@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Adapters.Rest;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability.Metrics;
 
@@ -18,10 +19,14 @@ internal static class SquirixEndpointMapping
         if (metricsOptions.Enabled)
             app.MapSquirixMetrics(metricsOptions.Path);
 
+        var clusterMtlsOptions = app.Services.GetRequiredService<ClusterMtlsOptions>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
             _ = cacheGrpc.RequireAuthorization(SquirixSecurityServiceRegistration.JwtBearerPolicy);
 
+        if (clusterMtlsOptions is not { Enabled: true, InternalListenPort: > 0 })
+            return app;
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{clusterMtlsOptions.InternalListenPort}");
         return app;
     }
 }
