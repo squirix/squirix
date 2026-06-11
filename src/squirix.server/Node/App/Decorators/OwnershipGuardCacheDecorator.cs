@@ -85,6 +85,18 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         return _inner.TryAddAsync(cacheName, key, entry, cancellationToken);
     }
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken);
+    }
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.UpdateAsync(cacheName, key, value, cancellationToken);
+    }
+
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.TryGetValueAsync(cacheName, key, cancellationToken);
 

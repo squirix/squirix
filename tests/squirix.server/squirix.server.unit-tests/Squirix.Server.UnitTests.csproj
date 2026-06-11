@@ -25,6 +25,7 @@
     <ItemGroup>
         <Content Include="ApiSnapshots\SquirixRestEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
         <Content Include="ApiSnapshots\SquirixServerPublicTypes.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Include="ApiSnapshots\SquirixGrpcEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>

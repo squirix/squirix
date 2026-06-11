@@ -38,5 +38,9 @@ internal interface ILogicalNamespacedCache<T>
 
     ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
 
+    ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+
     ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken);
+
+    ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken);
 }

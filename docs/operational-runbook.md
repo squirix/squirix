@@ -193,7 +193,7 @@ Before upgrade:
 4. Run `tools/internal/sqr-release-validate.cs` locally for the target commit before tagging.
 5. Validate security posture after startup:
     - REST, admin, and gRPC reject missing/invalid credentials.
-    - gRPC accepts the same credential types (API key/JWT) as REST.
+    - gRPC accepts the same JWT bearer credentials as REST.
     - Operational routes are HTTPS-only on the primary listener.
 
 Compatible rolling upgrade:

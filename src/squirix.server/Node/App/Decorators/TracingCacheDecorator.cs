@@ -86,6 +86,16 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryAddAsync(cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.GetOrAdd,
+        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
+        CacheOperationClassifier.ClassifyCacheValueResult);
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Update,
+        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
+
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.TryGet,
         () => _inner.TryGetValueAsync(cacheName, key, cancellationToken),

@@ -74,6 +74,11 @@ public sealed class ExtensionCachePipelineAdapterTests
 
         public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
 
+        public ValueTask<CacheValueResult<object?>> GetOrAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            new(new CacheValueResult<object?>(false, null));
+
+        public ValueTask<bool> UpdateAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
+
         public ValueTask<CacheValueResult<object?>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new(new CacheValueResult<object?>(false, null));
 
         public ValueTask<CacheRemoveResult<object?>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => new(new CacheRemoveResult<object?>(false, null));

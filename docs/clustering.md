@@ -44,7 +44,7 @@ Full semantics: [consistency.md](consistency.md).
 Docker Compose examples with two nodes: [containerization.md](containerization.md).
 
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
-`https://localhost:5002`) with the compose API key. Inside the Docker network, nodes use service DNS names and container
+`https://localhost:5002`) with the compose JWT settings. Inside the Docker network, nodes use service DNS names and container
 port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
 Before changing topology in containers, validate settings:
