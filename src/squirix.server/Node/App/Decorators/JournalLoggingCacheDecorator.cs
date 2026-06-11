@@ -121,6 +121,40 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         TryAddCore(cacheName, key, entry, cancellationToken);
 
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        if (!IsLocalOwner(cacheName, key))
+            return await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+
+        var existing = await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing.Found)
+            return existing;
+
+        if (await TryAddCore(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+            return new CacheValueResult<T>(true, entry.Value);
+
+        return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        if (!IsLocalOwner(cacheName, key))
+            return await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+
+        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
+            return false;
+
+        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(value, existing.ExpiresUtc, existing.Expiration, existing.Version, null);
+        var cacheKey = new CacheKey(cacheName, key);
+        return await _durableMutations.ExecuteAsync(
+            cacheKey.ToString(),
+            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
+            ct => _inner.UpdateAsync(cacheName, key, value, ct),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.TryGetValueAsync(cacheName, key, cancellationToken);
 

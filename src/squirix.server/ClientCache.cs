@@ -42,7 +42,19 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         return entry is null ? default : entry.Value;
     }
 
-    public ValueTask<CacheValueResult<T>> GetOrAddAsync(
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var existing = await TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing.Found)
+            return existing;
+
+        if (await TryAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+            return new CacheValueResult<T>(true, entry.Value);
+
+        return await TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+    }
+
+    public ValueTask<CacheValueResult<T>> GetOrAddWithFactoryAsync(
         string cacheName,
         string key,
         Func<string, CancellationToken, ValueTask<T?>> valueFactory,

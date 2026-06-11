@@ -60,8 +60,8 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         if (!string.IsNullOrEmpty(tracestate))
             headers.Add(TraceStateHeader, tracestate);
 
-        _ = await client.InsertAsync(
-            new InsertRequest
+        _ = await client.TrySetAsync(
+            new TrySetRequest
             {
                 CacheName = "default",
                 Key = key,

@@ -51,4 +51,10 @@ internal sealed class NamespacedCacheAdapter<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.TryRemoveAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken);
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        _inner.UpdateAsync(cacheName, key, value, cancellationToken);
 }

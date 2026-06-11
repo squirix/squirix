@@ -17,4 +17,6 @@ internal static class CacheOperationNames
     internal const string TryAdd = "try_add";
     internal const string TryGet = "try_get";
     internal const string TryRemove = "try_remove";
+    internal const string Update = "update";
+    internal const string GetOrAdd = "get_or_add";
 }

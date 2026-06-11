@@ -98,6 +98,18 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryAddAsync(cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
+        cacheName,
+        CacheOperationNames.GetOrAdd,
+        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
+        CacheOperationClassifier.ClassifyCacheValueResult);
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
+        cacheName,
+        CacheOperationNames.Update,
+        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
+
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.TryGet,
