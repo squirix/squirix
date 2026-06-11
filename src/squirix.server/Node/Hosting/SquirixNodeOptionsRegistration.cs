@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -22,9 +23,13 @@ internal static class SquirixNodeOptionsRegistration
         BackpressureOptions? backpressureOptions,
         PersistenceOptions? persistenceOptionsOverride,
         MemoryPressureOptions? memoryPressureOptionsOverride,
-        bool persistenceEnabled)
+        bool persistenceEnabled,
+        ClusterMtlsOptions? clusterMtlsOptionsOverride = null)
     {
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
+        var clusterMtlsOptions = clusterMtlsOptionsOverride ?? ClusterMtlsOptionsResolver.ResolveFromEnvironment();
+        AddValidatedInstance<ClusterMtlsOptions, SquirixOptionsValidators.ClusterMtlsOptionsValidator>(services, clusterMtlsOptions);
+        _ = services.AddSingleton(static provider => ClusterMtlsCertificateMaterial.Load(provider.GetRequiredService<ClusterMtlsOptions>()));
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride
                              ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -24,6 +25,23 @@ internal static class SquirixOptionsValidators
     internal sealed class BackpressureOptionsValidator : IValidateOptions<BackpressureOptions>
     {
         public ValidateOptionsResult Validate(string? name, BackpressureOptions options)
+        {
+            try
+            {
+                options.Validate();
+                return ValidateOptionsResult.Success;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ValidateOptionsResult.Fail(ex.Message);
+            }
+        }
+    }
+
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
+    internal sealed class ClusterMtlsOptionsValidator : IValidateOptions<ClusterMtlsOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, ClusterMtlsOptions options)
         {
             try
             {
