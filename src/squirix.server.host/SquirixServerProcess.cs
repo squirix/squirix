@@ -58,7 +58,7 @@ internal static class SquirixServerProcess
         Console.WriteLine($"  URL: {options.Url}");
         Console.WriteLine($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count)} configured");
         Console.WriteLine(SquirixServerConfiguration.IsListenPortAvailable(options.Url) ? "  Listen port: available" : "  Listen port: NOT available (already in use)");
-        WriteDataDirectoryStatus(options.DataDirectory);
+        WritePersistenceStatus(options);
         Console.WriteLine("  Configuration: valid");
         return 0;
     }
@@ -70,10 +70,10 @@ internal static class SquirixServerProcess
             Squirix.Server.Host
 
             Commands:
-              run [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              run [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]
               init [--settings PATH]
               validate-config --settings PATH [--strict]
-              doctor [--strict] [--urls URL] [--data-dir PATH] [--settings PATH]
+              doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]
               version
               help
             """);
@@ -96,7 +96,7 @@ internal static class SquirixServerProcess
     {
         var settingsPath = ResolveSettingsPath(command);
         var options = settingsPath is null ? new SquirixServerOptions() : SquirixServerSettings.Load(settingsPath);
-        SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.Url, command.DataDirectory);
+        SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.Url, command.DataDirectory, command.Persist);
         return options;
     }
 
@@ -115,9 +115,8 @@ internal static class SquirixServerProcess
         Console.WriteLine($"  gRPC endpoint: {options.Url}");
         Console.WriteLine($"  Health endpoint: {options.Url}/health");
         Console.WriteLine($"  Metrics endpoint: {options.Url}/metrics");
-        Console.WriteLine($"  Data directory: {options.DataDirectory ?? "<default>"}");
         Console.WriteLine($"  Node ID: {options.NodeId}");
-        Console.WriteLine($"  Persistence: {(options.DataDirectory is null ? "default" : "configured")}");
+        WritePersistenceStatus(options);
         Console.WriteLine($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}");
         Console.WriteLine();
         Console.WriteLine("Client:");
@@ -151,19 +150,24 @@ internal static class SquirixServerProcess
         return 0;
     }
 
-    private static void WriteDataDirectoryStatus(string? dataDirectory)
+    private static void WritePersistenceStatus(SquirixServerOptions options)
     {
-        if (string.IsNullOrWhiteSpace(dataDirectory))
+        if (!options.PersistenceEnabled)
         {
-            Console.WriteLine("  Data directory: <default>");
+            Console.WriteLine("  Persistence: disabled");
             return;
         }
 
-        Console.WriteLine($"  Data directory: {dataDirectory}");
+        var dataDirectory = options.DataDirectory ?? "<default>";
+        Console.WriteLine($"  Persistence: enabled (data dir: {dataDirectory})");
+        if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            return;
+
+        var dataDirectoryPath = options.DataDirectory;
         try
         {
-            _ = Directory.CreateDirectory(dataDirectory);
-            var probe = Path.Join(dataDirectory, ".squirix-doctor-probe");
+            _ = Directory.CreateDirectory(dataDirectoryPath);
+            var probe = Path.Join(dataDirectoryPath, ".squirix-doctor-probe");
             File.WriteAllText(probe, string.Empty);
             File.Delete(probe);
             Console.WriteLine("  Data directory access: writable");

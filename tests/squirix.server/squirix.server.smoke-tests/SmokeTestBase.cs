@@ -94,6 +94,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="servicesConfigure">Optional action to configure DI services.</param>
     /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
     /// <param name="persistenceOptions">Optional persistence options.</param>
+    /// <param name="usePersistence">When <c>true</c>, starts the node with WAL/snapshot persistence enabled.</param>
     /// <param name="output">Optional xUnit output helper for log capture.</param>
     /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
     /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
@@ -120,6 +121,7 @@ public abstract class SmokeTestBase : IDisposable
         Action<IServiceCollection>? servicesConfigure = null,
         SnapshotTriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
@@ -142,7 +144,13 @@ public abstract class SmokeTestBase : IDisposable
         };
 
         var scope = BuildTestScope(TestPersistenceScope.ResolvePersistenceScopeSegment(testName), extraScope);
-        var persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, scope, cleanTestDir);
+        PersistenceOptions? persistenceOptionsOverride = null;
+        var dataDir = string.Empty;
+        if (usePersistence || persistenceOptions is not null)
+        {
+            persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, scope, cleanTestDir);
+            dataDir = persistenceOptionsOverride.DataDir;
+        }
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -169,7 +177,7 @@ public abstract class SmokeTestBase : IDisposable
             null,
             cancellationToken);
 
-        return new TestNodeHost(app, url, persistenceOptionsOverride.DataDir);
+        return new TestNodeHost(app, url, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>
@@ -307,7 +315,6 @@ public abstract class SmokeTestBase : IDisposable
             JournalMaxSegmentMb = 64,
             FlushIntervalMs = 10,
             SnapshotIntervalSec = 60,
-            StrictFsync = true,
         };
     }
 }

@@ -128,7 +128,6 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 600_000,
                 ManifestRetentionCount = 1,
-                StrictFsync = true,
                 JournalGroupCommitMaxWaitMs = 2,
                 JournalGroupCommitMaxBatch = 8,
             };
@@ -173,7 +172,6 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 600_000,
                 ManifestRetentionCount = 1,
-                StrictFsync = true,
                 JournalGroupCommitMaxWaitMs = 50,
                 JournalGroupCommitMaxBatch = 8,
             };

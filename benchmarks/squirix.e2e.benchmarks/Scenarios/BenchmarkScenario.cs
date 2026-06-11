@@ -15,13 +15,27 @@ public sealed record BenchmarkScenario(
     E2EBenchmarkDurabilityMode DurabilityMode)
 {
     /// <summary>
+    /// Creates the focused single-node durability comparison matrix.
+    /// </summary>
+    /// <returns>The durability comparison scenario matrix.</returns>
+    public static IReadOnlyList<BenchmarkScenario> CreateDurabilityComparisonMatrix() =>
+    [
+        new(BenchmarkTopology.SingleNode, BenchmarkValueShape.SmallString, E2EBenchmarkDurabilityMode.Ephemeral),
+        new(BenchmarkTopology.SingleNode, BenchmarkValueShape.SmallString, E2EBenchmarkDurabilityMode.Persistence),
+    ];
+
+    /// <summary>
     /// Creates the default diagnostic scenario matrix.
     /// </summary>
     /// <returns>The default scenario matrix.</returns>
     public static IReadOnlyList<BenchmarkScenario> CreateDefaultMatrix()
     {
         if (string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_SMOKE"), "1", StringComparison.Ordinal))
-            return [new BenchmarkScenario(BenchmarkTopology.SingleNode, BenchmarkValueShape.SmallString, E2EBenchmarkDurabilityMode.Default)];
+            return CreateDurabilityComparisonMatrix();
+
+        var durabilityModes = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_DURABILITY"), "1", StringComparison.Ordinal)
+            ? new[] { E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence }
+            : new[] { E2EBenchmarkDurabilityMode.Ephemeral };
 
         var topologies = new[]
         {
@@ -40,11 +54,14 @@ public sealed record BenchmarkScenario(
             BenchmarkValueShape.NestedCustomClass,
         };
 
-        var scenarios = new List<BenchmarkScenario>(topologies.Length * shapes.Length);
+        var scenarios = new List<BenchmarkScenario>(topologies.Length * shapes.Length * durabilityModes.Length);
         foreach (var topology in topologies)
         {
             foreach (var shape in shapes)
-                scenarios.Add(new BenchmarkScenario(topology, shape, E2EBenchmarkDurabilityMode.Default));
+            {
+                foreach (var durabilityMode in durabilityModes)
+                    scenarios.Add(new BenchmarkScenario(topology, shape, durabilityMode));
+            }
         }
 
         return scenarios;

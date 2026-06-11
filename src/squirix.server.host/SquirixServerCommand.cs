@@ -2,13 +2,14 @@ using System;
 
 namespace Squirix.Server.Host;
 
-internal sealed record SquirixServerCommand(string Name, bool Strict, string? Url, string? DataDirectory, string? SettingsPath)
+internal sealed record SquirixServerCommand(string Name, bool Strict, string? Url, string? DataDirectory, bool Persist, string? SettingsPath)
 {
     internal static SquirixServerCommand Parse(string[] args)
     {
         var name = args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
         var start = name == "run" && (args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal)) ? 0 : 1;
         var strict = false;
+        var persist = false;
         string? url = null;
         string? dataDir = null;
         string? settings = null;
@@ -19,6 +20,9 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
             {
                 case "--strict":
                     strict = true;
+                    break;
+                case "--persist":
+                    persist = true;
                     break;
                 case "--urls":
                     url = ReadValue(args, ref i);
@@ -31,13 +35,13 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
                     break;
                 case "--help":
                 case "-h":
-                    return new SquirixServerCommand("help", false, null, null, null);
+                    return new SquirixServerCommand("help", false, null, null, false, null);
                 default:
                     throw new InvalidOperationException($"Unknown argument '{args[i]}'.");
             }
         }
 
-        return new SquirixServerCommand(name, strict, url, dataDir, settings);
+        return new SquirixServerCommand(name, strict, url, dataDir, persist, settings);
     }
 
     private static string ReadValue(string[] args, ref int index)

@@ -23,6 +23,7 @@ internal static class ClusterTopologyValidator
             options.NodeId,
             options.Url,
             options.VirtualNodes,
+            options.PersistenceEnabled,
             options.DataDirectory,
             static peer => (peer.NodeId, peer.Url),
             options.Peers);
@@ -50,6 +51,7 @@ internal static class ClusterTopologyValidator
             options.NodeId,
             nodeUri,
             options.VirtualNodes,
+            true,
             null,
             static peer =>
             {
@@ -88,6 +90,7 @@ internal static class ClusterTopologyValidator
         string? nodeId,
         Uri? nodeUrl,
         int virtualNodes,
+        bool persistenceEnabled,
         string? dataDirectory,
         Func<TPeer, (string? NodeId, Uri? Url)> readPeer,
         IReadOnlyList<TPeer> peers)
@@ -106,10 +109,15 @@ internal static class ClusterTopologyValidator
                 break;
         }
 
-        if (dataDirectory is { Length: > MaxDataDirectoryLength })
-            failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
-        if (dataDirectory is not null && string.IsNullOrWhiteSpace(dataDirectory))
-            failures.Add("DataDirectory cannot be empty or whitespace.");
+        if (!persistenceEnabled && dataDirectory is not null)
+            failures.Add("DataDirectory requires persistence. Call UsePersistence() or pass --persist.");
+        if (persistenceEnabled)
+        {
+            if (dataDirectory is { Length: > MaxDataDirectoryLength })
+                failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
+            if (dataDirectory is not null && string.IsNullOrWhiteSpace(dataDirectory))
+                failures.Add("DataDirectory cannot be empty or whitespace.");
+        }
 
         if (peers.Count > MaxPeers)
             failures.Add($"Peers cannot contain more than {MaxPeers} entries.");

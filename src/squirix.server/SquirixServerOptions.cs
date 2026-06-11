@@ -14,6 +14,11 @@ public sealed class SquirixServerOptions
     public string ClusterId { get; set; } = "cluster";
 
     /// <summary>
+    /// Gets or sets a value indicating whether WAL/snapshot persistence is enabled.
+    /// </summary>
+    public bool PersistenceEnabled { get; set; }
+
+    /// <summary>
     /// Gets or sets an optional persistence data directory override.
     /// </summary>
     public string? DataDirectory { get; set; }
@@ -42,6 +47,17 @@ public sealed class SquirixServerOptions
     /// Gets or sets a value indicating whether startup waits for journal recovery before serving traffic.
     /// </summary>
     public bool WaitForRecovery { get; set; } = true;
+
+    /// <summary>
+    /// Enables WAL/snapshot persistence for this node.
+    /// </summary>
+    /// <param name="dataDirectory">Optional data directory override.</param>
+    public void UsePersistence(string? dataDirectory = null)
+    {
+        PersistenceEnabled = true;
+        if (!string.IsNullOrWhiteSpace(dataDirectory))
+            DataDirectory = dataDirectory;
+    }
 
     /// <summary>
     /// Validates the current configuration without throwing.

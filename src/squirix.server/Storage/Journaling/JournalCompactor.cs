@@ -92,7 +92,7 @@ internal static class JournalCompactor
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
-            if (options.StrictFsync)
+            if (PersistenceOptions.StrictFsync)
                 fs.Flush(true);
         }
 

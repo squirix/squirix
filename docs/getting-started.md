@@ -13,10 +13,15 @@ Prerequisites:
 
 ```powershell
 dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
-squirix-server run --data-dir ./data
+squirix-server run
 ```
 
-The host listens on `https://localhost:5001` by default and prints ready-to-use client and operational endpoint URLs.
+The host listens on `https://localhost:5001` by default, runs as an in-memory cache, and prints ready-to-use client and
+operational endpoint URLs. For WAL/snapshot durability:
+
+```powershell
+squirix-server run --persist --data-dir ./data
+```
 
 Health probes use the same HTTPS listener (local tool default port **5001**):
 
@@ -28,6 +33,9 @@ curl -k https://localhost:5001/metrics
 `/metrics` is anonymous on loopback when auth is not configured.
 
 ### Docker (fastest if you have Docker Desktop)
+
+Single-container examples start in the default **ephemeral** mode (in-memory cache). The two-node `docker compose`
+example enables persistence with `--persist --data-dir /data` and named volumes.
 
 ```powershell
 docker build -f Dockerfile.dev -t squirix-server .
@@ -61,7 +69,7 @@ Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://local
 ### From this repository
 
 ```powershell
-dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run --data-dir ./data
+dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ```
 
 ## 2. Add the client SDK
@@ -128,8 +136,9 @@ squirix-server doctor [--settings ./Squirix.settings.json] [--strict]
 squirix-server version
 ```
 
-`run` accepts `--urls`, `--data-dir`, `--settings`, and `--strict`. Without `--settings`, the host discovers
-`Squirix.settings.json` or `squirix.settings.json` in the working directory and application directory.
+`run` accepts `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, and `--strict`. Without
+`--settings`, the host discovers `Squirix.settings.json` or `squirix.settings.json` in the working directory and
+application directory.
 
 ## Next steps
 

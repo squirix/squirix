@@ -21,7 +21,7 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URL on the handle) |
 | `SquirixServerAspNetCoreExtensions`                 | `AddSquirixServer`, `MapSquirixServer` for custom ASP.NET Core hosts                                              |
 | `SquirixServerConfiguration`                        | Load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                               |
-| `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology and persistence directory                                                                        |
+| `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables WAL/snapshot durability                                              |
 
 Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only; see
 [docs/configuration.md](../../docs/configuration.md).
@@ -34,7 +34,7 @@ builder.AddSquirixServer(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");
-    options.DataDirectory = "./data";
+    options.UsePersistence("./data");
 });
 
 app.MapSquirixServer();
@@ -81,8 +81,9 @@ listen on port **5001**:
 
 ```powershell
 squirix-server init
-squirix-server run --data-dir ./data
-squirix-server doctor --data-dir ./data
+squirix-server run
+squirix-server run --persist --data-dir ./data
+squirix-server doctor
 ```
 
 Cache consumers use the `Squirix` client SDK over gRPC, not types from this package.

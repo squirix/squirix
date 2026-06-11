@@ -41,11 +41,12 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         }
         finally
         {
-            DirectoryKit.TryDeleteDirectory(_rootDataDir);
+            if (!string.IsNullOrWhiteSpace(_rootDataDir))
+                DirectoryKit.TryDeleteDirectory(_rootDataDir);
         }
     }
 
-    internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, CancellationToken cancellationToken)
+    internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         BenchmarkRuntime.EnsureInitialized();
         var nodeIds = topology == BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
@@ -57,17 +58,22 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         for (var i = 0; i < nodeIds.Length; i++)
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
-        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(root);
+        var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
+        var root = usePersistence
+            ? PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N"))
+            : string.Empty;
+        if (usePersistence)
+            _ = Directory.CreateDirectory(root);
+
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
 
         try
         {
             foreach (var nodeId in nodeIds)
             {
-                var dataDir = PathKit.Combine(root, nodeId);
-                _ = Directory.CreateDirectory(dataDir);
-                nodes[nodeId] = await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, dataDir, cancellationToken).ConfigureAwait(false);
+                nodes[nodeId] = usePersistence
+                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, PathKit.Combine(root, nodeId), cancellationToken).ConfigureAwait(false)
+                    : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
             return new E2EBenchmarkCluster(nodes, root);

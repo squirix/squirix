@@ -326,7 +326,6 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     private static PersistenceOptions NewPersistence(string dataDir) => new()
     {
         DataDir = dataDir,
-        StrictFsync = false,
         JournalMaxSegmentMb = 16,
         FlushIntervalMs = 5,
         ManifestRetentionCount = 1,

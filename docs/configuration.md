@@ -20,8 +20,8 @@ The standalone `squirix-server` host, `builder.AddSquirixServer(...)`, and `Squi
 `Squirix:Cluster` through `SquirixServerConfiguration` when a settings file is discovered or supplied. `StartAsync()`
 then hosts the node through the same `AddSquirixServer` / `MapSquirixServer` pipeline as the standalone executable.
 Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged from the same settings file at runtime
-when present. Custom ASP.NET Core hosts configure cluster topology and persistence directory through
-`SquirixServerOptions`; `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
+`SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
 ## Remote client (`SquirixOptions`)
 
@@ -139,14 +139,30 @@ so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS por
 Configure these through `builder.AddSquirixServer(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
-| Field                       | Type   | Default                        | Validation                                                                 |
-| --------------------------- | ------ | ------------------------------ | -------------------------------------------------------------------------- |
-| `WaitForRecovery`           | bool   | `true`                         | Any boolean                                                                |
-| `DataDirectory`             | string | `null` (platform default path) | Optional; non-empty when set                                               |
+| Field                       | Type   | Default | Validation                                                                 |
+| --------------------------- | ------ | ------- | -------------------------------------------------------------------------- |
+| `PersistenceEnabled`        | bool   | `false` | Any boolean                                                                |
+| `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
+| `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
+
+Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable WAL/snapshot persistence. The standalone
+host accepts `--persist`; `--data-dir` requires `--persist`.
+
+Example:
+
+```csharp
+builder.AddSquirixServer(options =>
+{
+    options.NodeId = "node-a";
+    options.Url = new Uri("https://localhost:5001");
+    options.UsePersistence("./data");
+});
+```
 
 ### Recovery startup (`WaitForRecovery`)
 
-When `WaitForRecovery` is `true` (default), the node blocks serving until hosted journal replay completes.
+When persistence is enabled and `WaitForRecovery` is `true` (default), the node blocks serving until hosted journal
+replay completes.
 
 When `WaitForRecovery` is `false`, replay runs in the background:
 

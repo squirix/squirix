@@ -28,7 +28,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         var dir = DirectoryKit.CreateTempDirectory("squirix-journal-compact-ctrl-double");
         try
         {
-            var opt = new PersistenceOptions { DataDir = dir, StrictFsync = true, FlushIntervalMs = 1000 };
+            var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
             var manifestStore = new ManifestStore(opt);
             await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
             using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
@@ -53,7 +53,6 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
             var opt = new PersistenceOptions
             {
                 DataDir = dir,
-                StrictFsync = true,
                 JournalMaxSegmentMb = 16,
                 FlushIntervalMs = 1000,
             };
@@ -95,7 +94,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         var dir = DirectoryKit.CreateTempDirectory("squirix-journal-compact-ctrl-dispose");
         try
         {
-            var opt = new PersistenceOptions { DataDir = dir, StrictFsync = true, FlushIntervalMs = 1000 };
+            var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
             var manifestStore = new ManifestStore(opt);
             await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
             var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);

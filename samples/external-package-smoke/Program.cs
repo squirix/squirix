@@ -15,7 +15,7 @@ internal static class Program
 
     public static async Task<int> Main()
     {
-        // Isolated store so a third-party run does not pick up a developer's LocalApplicationData journal/snapshots.
+        // Isolated temp root for testkit-scoped paths when persistence is enabled in samples or tests.
         var testRoot = Path.Join(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);

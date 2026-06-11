@@ -24,7 +24,6 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : ServerUnitT
             var persistence = new PersistenceOptions
             {
                 DataDir = dir,
-                StrictFsync = false,
                 JournalMaxSegmentMb = 1,
                 FlushIntervalMs = 100,
             };

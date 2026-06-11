@@ -11,12 +11,13 @@ squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTele
 | `GET /health/ready` | Readiness probe |
 | `GET /health/ready/details` | JSON diagnostics payload |
 
-Readiness stays unhealthy until journal recovery completes. Fatal journal maintenance failures also affect readiness.
+When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
+failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
 Critical memory pressure does **not** flip readiness by itself — use `/health/ready/details` and metrics for capacity
 incidents.
 
-`/health/ready/details` includes journal backlog, snapshot age, compaction state, client pool peers, coordination
-leases, and memory pressure aggregates (no raw keys or values).
+When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age, and compaction state.
+All nodes report client pool peers, coordination leases, and memory pressure aggregates (no raw keys or values).
 
 Full field reference: [diagnostics.md](diagnostics.md).
 

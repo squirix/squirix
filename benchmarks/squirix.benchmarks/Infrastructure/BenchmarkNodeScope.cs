@@ -39,15 +39,16 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         }
         finally
         {
-            DirectoryKit.TryDeleteDirectory(_dataDir);
+            if (!string.IsNullOrWhiteSpace(_dataDir))
+                DirectoryKit.TryDeleteDirectory(_dataDir);
         }
     }
 
-    internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken)
+    internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral)
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
         var address = $"https://127.0.0.1:{AllocatePort()}";
-        return StartAsync(nodeId, address, [(nodeId, address)], cancellationToken, true);
+        return StartAsync(nodeId, address, [(nodeId, address)], durabilityMode, cancellationToken, true);
     }
 
     internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Endpoint, cancellationToken);
@@ -65,15 +66,20 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
+        BenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
     {
         BenchmarkRuntime.EnsureInitialized();
 
-        var dataDir = PathKit.Combine(Path.GetTempPath(), $"squirix-bench-{Guid.NewGuid():N}");
-        _ = Directory.CreateDirectory(dataDir);
+        var usePersistence = durabilityMode == BenchmarkDurabilityMode.Persistence;
+        var dataDir = usePersistence ? PathKit.Combine(Path.GetTempPath(), $"squirix-bench-{Guid.NewGuid():N}") : string.Empty;
+        if (usePersistence)
+            _ = Directory.CreateDirectory(dataDir);
 
-        var host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
+        var host = usePersistence
+            ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)
+            : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -87,13 +93,15 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         catch (InvalidOperationException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            if (!string.IsNullOrWhiteSpace(dataDir))
+                DirectoryKit.TryDeleteDirectory(dataDir);
             throw;
         }
         catch (IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            if (!string.IsNullOrWhiteSpace(dataDir))
+                DirectoryKit.TryDeleteDirectory(dataDir);
             throw;
         }
     }

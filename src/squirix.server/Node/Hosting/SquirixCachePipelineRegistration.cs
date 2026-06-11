@@ -17,23 +17,35 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixCachePipelineRegistration
 {
-    public static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, SquirixServerExtensionOptions? extensions = null)
+    public static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, SquirixServerExtensionOptions? extensions = null, bool persistenceEnabled = false)
     {
         _ = services.AddOptions<CachePipelineDeadlineOptions>();
         _ = services.AddSingleton<ClientCache<object?>>(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
             sp.GetRequiredService<ILocalCacheMutationOperations<object?>>()));
-        _ = services.AddSingleton<DurableMutationExecutor>();
-        _ = services.AddSingleton<JournalLoggingCacheDecorator<object?>>(static sp => new JournalLoggingCacheDecorator<object?>(
-            sp.GetRequiredService<ClusterConfig>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<ClientCache<object?>>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
-            sp.GetRequiredService<DurableMutationExecutor>()));
-        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<ClusterConfig>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
+
+        if (persistenceEnabled)
+        {
+            _ = services.AddSingleton<DurableMutationExecutor>();
+            _ = services.AddSingleton<JournalLoggingCacheDecorator<object?>>(static sp => new JournalLoggingCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<ClientCache<object?>>(),
+                sp.GetRequiredService<IJournalCoordinator>(),
+                sp.GetRequiredService<DurableMutationExecutor>()));
+            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
+        }
+        else
+        {
+            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<ClientCache<object?>>()));
+        }
+
         _ = services.AddClusteredCacheSingleton();
         _ = services.AddSingleton<MemoryAdmissionCacheDecorator<object?>>(static sp => new MemoryAdmissionCacheDecorator<object?>(
             sp.GetRequiredService<ClusteredCache<object?>>(),

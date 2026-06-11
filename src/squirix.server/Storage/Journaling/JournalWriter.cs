@@ -59,7 +59,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     public event Action? OnAppended;
 
-    public bool StrictFsync => _opt.StrictFsync;
+    public static bool StrictFsync => PersistenceOptions.StrictFsync;
 
     public long AppendedBytes => Interlocked.Read(ref _bytes);
 
@@ -646,7 +646,7 @@ internal sealed class JournalWriter : IJournalCoordinator
             return;
 
         stream.Flush();
-        if (_opt.StrictFsync)
+        if (PersistenceOptions.StrictFsync)
             stream.Flush(true);
         _dirty = false;
     }
@@ -655,7 +655,7 @@ internal sealed class JournalWriter : IJournalCoordinator
     {
         var stream = GetOrCreateStream();
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        if (_opt.StrictFsync)
+        if (PersistenceOptions.StrictFsync)
             stream.Flush(true);
         _dirty = false;
     }
@@ -724,7 +724,7 @@ internal sealed class JournalWriter : IJournalCoordinator
     {
         var path = PathEx.Combine(_opt.DataDir, $"{StorageFilePrefixes.Journal}{idx:000000}{StorageFileExtensions.Journal}");
         var modes = append ? FileMode.OpenOrCreate : FileMode.Create;
-        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions(_opt.StrictFsync));
+        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions(PersistenceOptions.StrictFsync));
         if (fs.Length == 0)
         {
             JournalFraming.WriteFileHeader(fs);

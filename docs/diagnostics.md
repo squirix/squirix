@@ -14,10 +14,10 @@ diagnostics surfaces currently exposed by the node host.
 
 `GET /health/ready/details` returns a JSON payload with:
 
-- `journalBacklogOps`: journal operations not covered by the latest snapshot watermark
-- `snapshotAgeSeconds`: age of the latest snapshot, or `null` if no snapshot exists
-- `snapshotInFlight`: whether a snapshot is currently running
-- `compaction.state`: current journal compaction service state
+- `journalBacklogOps` (persistence enabled): journal operations not covered by the latest snapshot watermark
+- `snapshotAgeSeconds` (persistence enabled): age of the latest snapshot, or `null` if no snapshot exists
+- `snapshotInFlight` (persistence enabled): whether a snapshot is currently running
+- `compaction.state` (persistence enabled): current journal compaction service state
 - `compaction.lastRunUtc`
 - `compaction.inFlight`
 - `clientPool.configured`
@@ -37,7 +37,8 @@ diagnostics surfaces currently exposed by the node host.
 Readiness behavior (`GET /health/ready`):
 
 - The route is the machine readiness probe for schedulers and load balancers.
-- `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
+- When persistence is enabled, `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
+  Ephemeral nodes omit journal recovery checks.
 - `journal_maintenance` is **Unhealthy** after a fatal journal periodic flush-loop failure, a failed journal compaction
   state, or a fatal snapshot trigger failure.
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail

@@ -21,43 +21,48 @@ internal static class SquirixNodeOptionsRegistration
         SnapshotTriggerOptions? snapshotOptions,
         BackpressureOptions? backpressureOptions,
         PersistenceOptions? persistenceOptionsOverride,
-        MemoryPressureOptions? memoryPressureOptionsOverride)
+        MemoryPressureOptions? memoryPressureOptionsOverride,
+        bool persistenceEnabled)
     {
-        var dataDir = persistenceOptionsOverride?.DataDir ?? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId);
-        var persistence = persistenceOptionsOverride ?? new PersistenceOptions
-        {
-            DataDir = dataDir,
-            JournalMaxSegmentMb = 64,
-            FlushIntervalMs = 10,
-            SnapshotIntervalSec = 60,
-            StrictFsync = true,
-        };
-
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
-        AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride
                              ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
-        var snapshot = snapshotOptions ?? new SnapshotTriggerOptions
+
+        if (persistenceEnabled)
         {
-            Enabled = true,
-            SnapshotInterval = TimeSpan.FromMinutes(5),
-            SnapshotEveryNOps = 250_000,
-            SnapshotEveryNBytes = 128 * 1024 * 1024,
-            MinGapBetweenSnapshots = TimeSpan.FromMinutes(1),
-        };
-        AddValidatedInstance<SnapshotTriggerOptions, SquirixOptionsValidators.SnapshotTriggerOptionsValidator>(services, snapshot);
-        var compactionOptions = new JournalCompactionOptions
-        {
-            Enabled = true,
-            MinTailSegments = 2,
-            MinTailBytes = 64 * 1024 * 1024,
-            MinGap = TimeSpan.FromMinutes(2),
-        };
-        AddValidatedInstance<JournalCompactionOptions, SquirixOptionsValidators.JournalCompactionOptionsValidator>(services, compactionOptions);
-        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
-        AddValidatedInstance<JournalMetricsExporterOptions, SquirixOptionsValidators.JournalMetricsExporterOptionsValidator>(services, options);
+            var dataDir = persistenceOptionsOverride?.DataDir ?? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId);
+            var persistence = persistenceOptionsOverride ?? new PersistenceOptions
+            {
+                DataDir = dataDir,
+                JournalMaxSegmentMb = 64,
+                FlushIntervalMs = 10,
+                SnapshotIntervalSec = 60,
+            };
+
+            AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
+            var snapshot = snapshotOptions ?? new SnapshotTriggerOptions
+            {
+                Enabled = true,
+                SnapshotInterval = TimeSpan.FromMinutes(5),
+                SnapshotEveryNOps = 250_000,
+                SnapshotEveryNBytes = 128 * 1024 * 1024,
+                MinGapBetweenSnapshots = TimeSpan.FromMinutes(1),
+            };
+            AddValidatedInstance<SnapshotTriggerOptions, SquirixOptionsValidators.SnapshotTriggerOptionsValidator>(services, snapshot);
+            var compactionOptions = new JournalCompactionOptions
+            {
+                Enabled = true,
+                MinTailSegments = 2,
+                MinTailBytes = 64 * 1024 * 1024,
+                MinGap = TimeSpan.FromMinutes(2),
+            };
+            AddValidatedInstance<JournalCompactionOptions, SquirixOptionsValidators.JournalCompactionOptionsValidator>(services, compactionOptions);
+            var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
+            AddValidatedInstance<JournalMetricsExporterOptions, SquirixOptionsValidators.JournalMetricsExporterOptionsValidator>(services, options);
+        }
+
         AddValidatedInstance<PrometheusMetricsEndpointOptions, SquirixOptionsValidators.PrometheusMetricsEndpointOptionsValidator>(services, PrometheusMetricsBootstrap.Load());
         return services;
     }

@@ -61,7 +61,7 @@ cd docker
 docker compose up -d
 ```
 
-For a single local development node:
+For a single local development node (ephemeral, in-memory):
 
 ```powershell
 docker build -f Dockerfile.dev -t squirix-server .
@@ -71,6 +71,18 @@ docker run --rm `
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
   -e SQUIRIX_JWT_AUDIENCE=squirix `
   squirix-server run --urls https://0.0.0.0:5000
+```
+
+Durable single node with a host-mounted data directory:
+
+```powershell
+docker run --rm `
+  -p 5000:5000 `
+  -v squirix-data:/data `
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
+  -e SQUIRIX_JWT_AUDIENCE=squirix `
+  squirix-server run --urls https://0.0.0.0:5000 --persist --data-dir /data
 ```
 
 The primary listener on port **5000** inside the container is HTTPS (HTTP/1.1 and HTTP/2). Map `-p 5000:5000` for host
@@ -126,8 +138,11 @@ Health and metrics:
 
 ## Persistence
 
-Each node mounts a named Docker volume for persisted data. The current example is for local testing, not a production
-deployment template.
+The `docker compose` examples mount a named Docker volume at `/data` and start each node with
+`run --persist --data-dir /data`. Single-container snippets in [getting-started.md](getting-started.md) default to
+ephemeral mode unless you add `--persist` and a data volume as shown above.
+
+The compose layout is for local testing, not a production deployment template.
 
 Before adapting it for a real environment, read:
 

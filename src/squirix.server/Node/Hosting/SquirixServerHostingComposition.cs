@@ -29,7 +29,13 @@ internal static class SquirixServerHostingComposition
         ArgumentNullException.ThrowIfNull(options);
 
         var cluster = SquirixServerConfiguration.ToClusterConfig(options);
-        ConfigureBuilder(builder, cluster, options.WaitForRecovery, persistenceOptionsOverride: CreatePersistenceOptions(options), extensions: extensions);
+        ConfigureBuilder(
+            builder,
+            cluster,
+            options.WaitForRecovery,
+            persistenceEnabled: options.PersistenceEnabled,
+            persistenceOptionsOverride: CreatePersistenceOptions(options),
+            extensions: extensions);
     }
 
     public static void ConfigureBuilder(
@@ -46,22 +52,28 @@ internal static class SquirixServerHostingComposition
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         SecurityOptions? securityOptionsOverride = null,
-        SquirixServerExtensionOptions? extensions = null)
+        SquirixServerExtensionOptions? extensions = null,
+        bool persistenceEnabled = false)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
+
+        if (persistenceOptionsOverride is not null)
+            persistenceEnabled = true;
 
         var uri = new Uri(cluster.Url);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
         SquirixKestrelConfiguration.ConfigureKestrel(builder, uri);
 
-        _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions);
+        _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions, persistenceEnabled);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, httpHandlerOverride);
-        _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
-        _ = builder.Services.AddSquirixCachePipeline(extensions);
-        _ = builder.Services.AddSquirixNodeEndpointServices();
+        if (persistenceEnabled)
+            _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
+
+        _ = builder.Services.AddSquirixCachePipeline(extensions, persistenceEnabled);
+        _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
         var authEnabled = builder.Services.AddSquirixSecurityServices(securityOptionsOverride);
         SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri(uri, authEnabled);
         _ = builder.Services.AddSquirixFrameworkServices(builder.Environment.IsDevelopment(), configureGrpc);
@@ -102,9 +114,15 @@ internal static class SquirixServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options) => string.IsNullOrWhiteSpace(options.DataDirectory)
-        ? null
-        : new PersistenceOptions { DataDir = options.DataDirectory, StrictFsync = true };
+    private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options)
+    {
+        if (!options.PersistenceEnabled)
+            return null;
+
+        return string.IsNullOrWhiteSpace(options.DataDirectory)
+            ? null
+            : new PersistenceOptions { DataDir = options.DataDirectory };
+    }
 
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
