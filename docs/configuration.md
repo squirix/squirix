@@ -319,8 +319,9 @@ await StartNodeAsync(url, peers);
 ```
 
 Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
-`JwtAuthority`, `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://` mock
-authorities in tests).
+`JwtAuthority` with a required `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://`
+mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` is set without `SQUIRIX_JWT_AUDIENCE`, including
+on loopback listeners.
 
 ```csharp
 // OIDC authority JWT (integration / smoke)
@@ -344,8 +345,8 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `SQUIRIX_MTLS`                                       | Enables mutual TLS when `true` or `1`.                                                                                                                                                                             |
 | `SQUIRIX_MTLS_ALLOW_SELF_SIGNED`                     | Allows self-signed client certificates for mTLS validation. Dev/test only.                                                                                                                                         |
-| `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication.                                                                                                                                                                           |
-| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value.                                                                                                                                                                                     |
+| `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
+| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required when `SQUIRIX_JWT_AUTHORITY` is set.                                                                                                                                       |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
