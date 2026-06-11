@@ -47,11 +47,12 @@ internal sealed class ClusterMtlsCertificateMaterial : IDisposable
     /// Loads node and trust-anchor certificates from validated options.
     /// </summary>
     /// <param name="options">Validated cluster mTLS options.</param>
+    /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
     /// <returns>Loaded certificate material.</returns>
-    public static ClusterMtlsCertificateMaterial Load(ClusterMtlsOptions options)
+    public static ClusterMtlsCertificateMaterial Load(ClusterMtlsOptions options, int? primaryListenPort = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        options.Validate();
+        options.Validate(primaryListenPort);
 
         if (!options.Enabled)
             return Disabled;

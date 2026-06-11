@@ -18,7 +18,7 @@ public sealed class ClusterMtlsOptionsTests
     {
         var options = new ClusterMtlsOptions { Enabled = false };
 
-        var ex = Record.Exception(options.Validate);
+        var ex = Record.Exception(() => options.Validate());
         Assert.Null(ex);
     }
 
@@ -30,9 +30,29 @@ public sealed class ClusterMtlsOptionsTests
     {
         var options = new ClusterMtlsOptions { Enabled = true };
 
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures enabled cluster mTLS rejects an internal port that matches the primary listener.
+    /// </summary>
+    [Fact]
+    public void EnabledOptionsRejectInternalPortMatchingPrimaryListener()
+    {
+        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        var options = new ClusterMtlsOptions
+        {
+            Enabled = true,
+            CaPath = bundle.CaPath,
+            CertPfxPath = bundle.PfxPath,
+            InternalListenPort = 6001,
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001));
+        Assert.Contains("must differ", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -52,7 +72,7 @@ public sealed class ClusterMtlsOptionsTests
 
         try
         {
-            var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+            var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
             Assert.Contains("CA file was not found", ex.Message, StringComparison.Ordinal);
             Assert.Contains("certificate file was not found", ex.Message, StringComparison.Ordinal);
             Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
@@ -79,7 +99,7 @@ public sealed class ClusterMtlsOptionsTests
             KeyPath = bundle.KeyPath,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("not both", ex.Message, StringComparison.Ordinal);
     }
 }
