@@ -25,10 +25,10 @@ public class DurabilityComparisonBenchmarks
     /// Gets or sets the durability mode measured by the current BenchmarkDotNet case.
     /// </summary>
     [Params(BenchmarkDurabilityMode.Ephemeral, BenchmarkDurabilityMode.Persistence)]
+    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public BenchmarkDurabilityMode DurabilityMode { get; set; }
 
-    private ICache<object?> SharedCache =>
-        (_cacheSession ?? throw new System.InvalidOperationException("Shared cache session was not opened.")).Cache;
+    private ICache<object?> SharedCache => (_cacheSession ?? throw new System.InvalidOperationException("Shared cache session was not opened.")).Cache;
 
     /// <summary>
     /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
