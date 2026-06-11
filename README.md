@@ -26,7 +26,7 @@ We are looking for API, architecture, and operational feedback — not productio
 ## Key capabilities
 
 - Typed client/server packages with a narrow `ICache<T>` API
-- HTTPS gRPC transport; health, metrics, and REST cache endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
+- HTTPS gRPC transport; health and metrics endpoints on one primary TLS listener (HTTP/1.1 and HTTP/2)
 - Per-node journal durability with snapshots and compaction
 - Health, Prometheus metrics, and OpenTelemetry tracing
 - Static consistent-hash routing with bootstrap client failover
@@ -68,7 +68,7 @@ Full setup options (Docker with bundled dev TLS + API keys, ASP.NET Core embeddi
 | Persistence and recovery | [persistence.md](docs/persistence.md) |
 | Cluster routing | [clustering.md](docs/clustering.md) |
 | Health, metrics, tracing | [observability.md](docs/observability.md) |
-| Client and REST API | [api.md](docs/api.md) |
+| Client API | [api.md](docs/api.md) |
 | Build, limits, roadmap | [operations.md](docs/operations.md) |
 
 Additional references: [architecture](docs/architecture.md), [operational runbook](docs/operational-runbook.md),

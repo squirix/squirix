@@ -20,8 +20,6 @@ internal interface ICacheApi<T>
 
     ValueTask<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken);
 
-    ValueTask<bool> RemoveAsync(string key, CancellationToken cancellationToken);
-
     ValueTask<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken);
 
     ValueTask<bool> TryInsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken);

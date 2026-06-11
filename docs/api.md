@@ -1,6 +1,6 @@
 # API reference (v0.1 preview)
 
-squirix exposes a typed gRPC client SDK and a subset of cache operations over HTTP/2 REST.
+squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP endpoints are limited to health and metrics.
 
 ## Client SDK
 
@@ -31,29 +31,16 @@ write overloads.
 
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
-Configuration (`SquirixOptions`): endpoints, API key, bearer token provider, custom serializer.
+Configuration (`SquirixOptions`): endpoints, bearer token provider, custom serializer.
 See [configuration.md](configuration.md) and [serialization.md](serialization.md).
-
-## REST cache API
-
-Base path: `/api/v1/cache/{key}`
-
-| Method | Purpose |
-| --- | --- |
-| `PUT` | Set value |
-| `GET` | Get value |
-| `HEAD` | Existence / metadata probe |
-| `DELETE` | Remove key |
-
-REST and gRPC share server-side mutation paths. Authentication uses JWT bearer tokens when enabled — same
-`SquirixOptions.BearerTokenProvider` as the gRPC client. Docker compose examples configure `SQUIRIX_JWT_*` env vars;
-pass a matching bearer token on REST calls.
 
 ## Wire contract
 
 gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
 
 Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
+
+Authentication uses JWT bearer tokens when enabled via `SquirixOptions.BearerTokenProvider`.
 
 ## Cache names
 

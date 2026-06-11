@@ -11,7 +11,7 @@ internal static class CacheKeyValidator
     /// <summary>
     /// Maximum allowed length for a cache key (Unicode scalar values; .NET string length).
     /// </summary>
-    public const int MaxLength = 1024;
+    private const int MaxLength = 1024;
 
     /// <summary>
     /// Maps a failed validation to a <see cref="SquirixException" /> for REST/gRPC contracts.

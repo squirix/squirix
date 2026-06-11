@@ -32,8 +32,6 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 
     public ValueTask<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken) => _namespaced.RemoveExpirationAsync(_cacheName, key, cancellationToken);
 
-    public ValueTask<bool> RemoveAsync(string key, CancellationToken cancellationToken) => _namespaced.RemoveAsync(_cacheName, key, cancellationToken);
-
     public ValueTask<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken) => _namespaced.TouchAsync(_cacheName, key, expiration, cancellationToken);
 
     public ValueTask<bool> TryInsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>

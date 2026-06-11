@@ -32,7 +32,7 @@ NuGet ids use lowercase **`squirix.*`**. C# namespaces and exported types remain
 | NuGet package | Role | nuget.org |
 | --- | --- | --- |
 | [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.4` |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, REST/gRPC host (library) | `0.1.0-preview.4` |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.4` |
 | [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.4` |
 
 Install:
@@ -50,10 +50,10 @@ During early preview evaluation you may reference `Squirix.Server.csproj` from a
 | Layer | Owns |
 | --- | --- |
 | **`Squirix` (client)** | `SquirixClient`, `ICache<T>`, serializers, bootstrap connectivity and transport failover |
-| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, REST/gRPC hosting, health/metrics |
+| **`Squirix.Server` (runtime)** | Key placement, journal/snapshot/recovery, gRPC hosting, health/metrics |
 | **`squirix-server` (host)** | Standalone process lifecycle and CLI |
 
-`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC/REST
+`Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC
 contracts and shared proto source.
 
 ## Features in 0.1.0
@@ -61,7 +61,7 @@ contracts and shared proto source.
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes
 - HTTPS gRPC transport (shared `SquirixCache.proto` contract)
-- REST cache, health, readiness, admin, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
+- Health, readiness, and metrics routes on the same primary TLS listener (HTTP/1.1 and HTTP/2)
 - WAL-based durability with recovery on startup
 - Snapshots and journal compaction
 - Prometheus metrics and OpenTelemetry tracing
