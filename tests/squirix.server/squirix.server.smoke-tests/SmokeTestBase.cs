@@ -186,6 +186,16 @@ public abstract class SmokeTestBase : IDisposable
     protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
 
     /// <summary>
+    /// Gets listen URLs for a node bound on all interfaces (<c>0.0.0.0</c>) and scraped via loopback.
+    /// </summary>
+    /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
+    protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
+    {
+        var port = PortPool.Allocate();
+        return ($"https://0.0.0.0:{port}", $"https://127.0.0.1:{port}");
+    }
+
+    /// <summary>
     /// Creates a gRPC channel configured for HTTPS against a test node URL.
     /// </summary>
     /// <param name="url">The node listen URL.</param>
