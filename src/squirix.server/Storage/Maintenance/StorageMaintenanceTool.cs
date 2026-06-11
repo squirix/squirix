@@ -176,10 +176,9 @@ internal static class StorageMaintenanceTool
     /// Repairs manifest/CURRENT metadata conservatively so the node can recover offline state safely.
     /// </summary>
     /// <param name="dataDir">Storage data directory to repair.</param>
-    /// <param name="strictFsync">Whether strict fsync semantics should be used while persisting the repaired manifest.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="ValueTask{TResult}" /> that completes with a result describing the repaired storage state.</returns>
-    public static ValueTask<StorageMaintenanceResult> RepairAsync(string dataDir, bool strictFsync = true, CancellationToken cancellationToken = default)
+    public static ValueTask<StorageMaintenanceResult> RepairAsync(string dataDir, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
         cancellationToken.ThrowIfCancellationRequested();
