@@ -36,6 +36,7 @@ public sealed class ClusterMtlsCertificateLoaderTests
             Enabled = true,
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
+            InternalListenPort = 6101,
         };
 
         using var material = ClusterMtlsCertificateMaterial.Load(options);
@@ -59,6 +60,7 @@ public sealed class ClusterMtlsCertificateLoaderTests
             CaPath = bundle.CaPath,
             CertPath = bundle.CertPath,
             KeyPath = bundle.KeyPath,
+            InternalListenPort = 6102,
         };
 
         using var material = ClusterMtlsCertificateMaterial.Load(options);
@@ -103,6 +105,7 @@ public sealed class ClusterMtlsCertificateLoaderTests
             CaPath = bundle.CaPath,
             CertPath = untrustedCertPath,
             KeyPath = untrustedKeyPath,
+            InternalListenPort = 6103,
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() => ClusterMtlsCertificateMaterial.Load(options));

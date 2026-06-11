@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
@@ -10,6 +11,7 @@ using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
@@ -38,6 +40,7 @@ internal static class SquirixServerHostingComposition
             extensions: extensions);
     }
 
+    [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
     public static void ConfigureBuilder(
         WebApplicationBuilder builder,
         ClusterConfig cluster,
@@ -64,9 +67,19 @@ internal static class SquirixServerHostingComposition
         var uri = new Uri(cluster.Url);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri);
+        var clusterMtlsOptions = ClusterMtlsOptionsResolver.ResolveFromEnvironment();
+        var clusterMtlsMaterial = ClusterMtlsCertificateMaterial.Load(clusterMtlsOptions, uri.Port);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, clusterMtlsOptions, clusterMtlsMaterial);
 
-        _ = builder.Services.AddSquirixValidatedOptions(cluster, snapshotOptions, backpressureOptions, persistenceOptionsOverride, memoryPressureOptions, persistenceEnabled);
+        _ = builder.Services.AddSquirixValidatedOptions(
+            cluster,
+            snapshotOptions,
+            backpressureOptions,
+            persistenceOptionsOverride,
+            memoryPressureOptions,
+            persistenceEnabled,
+            clusterMtlsOptionsOverride: clusterMtlsOptions,
+            clusterMtlsMaterialOverride: clusterMtlsMaterial);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, httpHandlerOverride);
         if (persistenceEnabled)

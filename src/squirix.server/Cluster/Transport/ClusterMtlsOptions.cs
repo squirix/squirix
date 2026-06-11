@@ -40,10 +40,16 @@ internal sealed record ClusterMtlsOptions
     public string? CaPath { get; init; }
 
     /// <summary>
+    /// Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.
+    /// </summary>
+    public int InternalListenPort { get; init; }
+
+    /// <summary>
     /// Validates configuration shape and file presence without loading certificates.
     /// </summary>
+    /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
     /// <exception cref="InvalidOperationException">Thrown when configuration is incomplete or inconsistent.</exception>
-    public void Validate()
+    public void Validate(int? primaryListenPort = null)
     {
         if (!Enabled)
             return;
@@ -81,6 +87,12 @@ internal sealed record ClusterMtlsOptions
             else if (!File.Exists(KeyPath!))
                 failures.Add($"Cluster mTLS private key file was not found: '{KeyPath}'.");
         }
+
+        if (InternalListenPort <= 0)
+            failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT when enabled.");
+
+        if (primaryListenPort is > 0 && InternalListenPort == primaryListenPort)
+            failures.Add("Cluster mTLS internal listen port must differ from the primary HTTPS listener port.");
 
         if (failures.Count > 0)
             throw new InvalidOperationException(string.Join(' ', failures));

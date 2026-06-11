@@ -27,4 +27,22 @@ internal static class ClusterMtlsTestCertificateFactory
 
         return new ClusterMtlsTestCertificateBundle(directory, ca, nodeCertificate);
     }
+
+    public static X509Certificate2 CreatePeerCertificate(
+        X509Certificate2 ca,
+        string commonName,
+        DateTimeOffset? notBefore = null,
+        DateTimeOffset? notAfter = null)
+    {
+        ArgumentNullException.ThrowIfNull(ca);
+        ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
+
+        var effectiveNotBefore = notBefore ?? ca.NotBefore;
+        var effectiveNotAfter = notAfter ?? ca.NotAfter;
+
+        using var peerKey = RSA.Create(2048);
+        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var peerPublic = peerRequest.Create(ca, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
+        return peerPublic.CopyWithPrivateKey(peerKey);
+    }
 }
