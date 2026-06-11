@@ -21,8 +21,8 @@ namespace Squirix.Server.TestKit;
 /// </remarks>
 /// <example>
 ///     <code>
-/// using var _ = new TempEnvironmentVariable("SQUIRIX_MTLS", "1");
-/// // Run code that relies on SQUIRIX_MTLS=1
+/// using var _ = new TempEnvironmentVariable("SQUIRIX_JWT_AUDIENCE", "squirix-test");
+/// // Run code that relies on SQUIRIX_JWT_AUDIENCE=squirix-test
 /// </code>
 /// </example>
 public sealed class TempEnvironmentVariable : IDisposable
