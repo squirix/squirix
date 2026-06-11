@@ -84,14 +84,20 @@ internal static class SquirixSecurityServiceRegistration
         if (securityOptionsOverride is null)
             return ResolveFromEnvironment();
 
-        var jwtAuthority = string.Empty;
+        var jwtAuthority = securityOptionsOverride.JwtAuthority ?? string.Empty;
         var jwtAudience = securityOptionsOverride.JwtAudience ?? string.Empty;
         var jwtIssuer = securityOptionsOverride.JwtIssuer ?? string.Empty;
         var jwtSigningKey = securityOptionsOverride.JwtSigningKey ?? string.Empty;
         var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
-        var jwtEnabled = signingKeyBytes is not null;
+        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
 
-        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, false, signingKeyBytes, jwtEnabled);
+        return new ResolvedSecurityConfiguration(
+            jwtAuthority,
+            jwtAudience,
+            jwtIssuer,
+            securityOptionsOverride.JwtAllowHttpMetadata,
+            signingKeyBytes,
+            jwtEnabled);
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()
