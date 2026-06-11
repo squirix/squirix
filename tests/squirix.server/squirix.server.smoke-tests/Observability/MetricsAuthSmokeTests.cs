@@ -2,8 +2,11 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.Security;
 using Xunit;
 
@@ -13,56 +16,85 @@ namespace Squirix.Server.SmokeTests.Observability;
 /// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c>/metrics</c> endpoint.
 /// </summary>
 /// <remarks>
-/// Non-loopback scrape rejection is covered in integration <c>MetricsEndpointAccessTests</c>.
+/// See <see cref="AuthProtectedSurfaceInventory" /> for the full protected-surface map.
 /// </remarks>
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
+    private const string InvalidBearerToken = "invalid.jwt.token";
+
+    private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
+    private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, disposeHandler: false);
+
     /// <summary>
-    /// Verifies loopback <c>/metrics</c> scrapes stay anonymous when JWT auth is enabled.
+    /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     /// <returns>A task representing the asynchronous smoke test.</returns>
     [Fact]
-    public async Task LoopbackMetricsScrapeSucceedsWithoutJwtWhenAuthEnabled()
+    public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
     {
+        var localIp = TryGetLocalNonLoopbackIpv4();
+        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
+
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = "node-metrics-auth", Url = url } };
+        var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
+        var peers = new[] { new Peer { NodeId = "node-metrics-auth", Url = bindUrl } };
 
         await using var node = await StartNodeAsync(
-            url,
+            bindUrl,
             peers,
             security: TestJwtHelper.ToSecurityOptions(credentials),
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        var loopback = await HttpClient.GetAsync($"{url}/metrics", DefaultCancellationToken);
-        Assert.True(loopback.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopback.StatusCode} {loopback.ReasonPhrase}");
+        var loopbackAnonymous = await HttpClient.GetAsync($"{loopbackUrl}/metrics", DefaultCancellationToken);
+        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopbackAnonymous.StatusCode} {loopbackAnonymous.ReasonPhrase}");
+
+        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/metrics"))
+        {
+            loopbackAuthorized.Version = HttpVersion.Version20;
+            loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
+            var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, DefaultCancellationToken);
+            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {(int)loopbackWithJwt.StatusCode} {loopbackWithJwt.ReasonPhrase}");
+        }
+
+        var remoteAnonymous = await RemoteMetricsClient.GetAsync($"https://{localIp}:{new Uri(bindUrl).Port}/metrics", DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
+
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/metrics"))
+        {
+            remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
+            var remoteInvalidJwt = await RemoteMetricsClient.SendAsync(remoteInvalid, DefaultCancellationToken);
+            Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
+        }
+
+        using (var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/metrics"))
+        {
+            remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
+            var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
+            Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
+        }
     }
 
-    /// <summary>
-    /// Verifies authenticated <c>/metrics</c> scrapes succeed with a bearer token.
-    /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
-    [Fact]
-    public async Task MetricsScrapeSucceedsWithJwtWhenAuthEnabled()
+    private static string? TryGetLocalNonLoopbackIpv4()
     {
-        var credentials = TestJwtHelper.CreateRandomCredentials();
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = "node-metrics-auth", Url = url } };
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up)
+                continue;
 
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: TestJwtHelper.ToSecurityOptions(credentials),
-            extraScope: Guid.NewGuid().ToString("N"),
-            cancellationToken: DefaultCancellationToken);
+            foreach (var address in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (address.Address.AddressFamily != AddressFamily.InterNetwork)
+                    continue;
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
-        request.Version = HttpVersion.Version20;
-        request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
+                if (IPAddress.IsLoopback(address.Address))
+                    continue;
 
-        var authenticated = await HttpClient.SendAsync(request, DefaultCancellationToken);
-        Assert.True(authenticated.IsSuccessStatusCode, $"Expected success with JWT, got {(int)authenticated.StatusCode} {authenticated.ReasonPhrase}");
+                return address.Address.ToString();
+            }
+        }
+
+        return null;
     }
 }

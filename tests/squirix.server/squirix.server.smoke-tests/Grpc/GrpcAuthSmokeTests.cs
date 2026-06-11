@@ -12,13 +12,7 @@ namespace Squirix.Server.SmokeTests.Grpc;
 /// Smoke tests verifying JWT auth on gRPC cache RPCs when credentials are configured.
 /// </summary>
 /// <remarks>
-/// <para>Protected surfaces in core <c>Squirix.Server</c> when JWT is configured:</para>
-/// <list type="bullet">
-/// <item><description>gRPC <c>SquirixCacheService</c> — this class</description></item>
-/// <item><description><c>/metrics</c> loopback anonymous, remote JWT — <see cref="Observability.MetricsAuthSmokeTests" /></description></item>
-/// <item><description><c>/health/*</c> public — <see cref="Health.HealthProbeSmokeTests" /></description></item>
-/// </list>
-/// <para>Remote <c>/metrics</c> rejection without credentials is covered in integration <c>MetricsEndpointAccessTests</c>.</para>
+/// See <see cref="AuthProtectedSurfaceInventory" /> for the full protected-surface map.
 /// </remarks>
 public sealed class GrpcAuthSmokeTests : SmokeTestBase
 {
