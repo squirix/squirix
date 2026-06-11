@@ -11,9 +11,6 @@ namespace Squirix.Server.SmokeTests.Grpc;
 /// <summary>
 /// Smoke tests verifying JWT auth on gRPC cache RPCs when credentials are configured.
 /// </summary>
-/// <remarks>
-/// See <see cref="AuthProtectedSurfaceInventory" /> for the full protected-surface map.
-/// </remarks>
 public sealed class GrpcAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";

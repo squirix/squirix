@@ -9,9 +9,6 @@ namespace Squirix.Server.SmokeTests.Health;
 /// <summary>
 /// Smoke tests for health probe endpoints that remain public when JWT auth is enabled.
 /// </summary>
-/// <remarks>
-/// See <see cref="AuthProtectedSurfaceInventory" /> for the full protected-surface map.
-/// </remarks>
 public sealed class HealthProbeSmokeTests : SmokeTestBase
 {
     /// <summary>

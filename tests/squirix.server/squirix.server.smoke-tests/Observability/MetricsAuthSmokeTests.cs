@@ -15,9 +15,6 @@ namespace Squirix.Server.SmokeTests.Observability;
 /// <summary>
 /// Smoke tests verifying JWT auth rules on the Prometheus-compatible <c>/metrics</c> endpoint.
 /// </summary>
-/// <remarks>
-/// See <see cref="AuthProtectedSurfaceInventory" /> for the full protected-surface map.
-/// </remarks>
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
