@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.IO;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
@@ -40,7 +41,7 @@ public sealed class PersistenceHostingTests
     [Fact]
     public void UsePersistenceRegistersPersistenceOptions()
     {
-        var dataDir = Path.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
+        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(31000, 31999).Allocate();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
