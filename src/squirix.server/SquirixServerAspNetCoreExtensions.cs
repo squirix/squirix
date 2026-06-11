@@ -35,7 +35,7 @@ public static class SquirixServerAspNetCoreExtensions
     }
 
     /// <summary>
-    /// Maps Squirix gRPC, REST, health, and metrics endpoints.
+    /// Maps Squirix gRPC, health, and metrics endpoints.
     /// </summary>
     /// <param name="app">The ASP.NET Core application.</param>
     /// <returns>The supplied application.</returns>

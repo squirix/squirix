@@ -22,7 +22,6 @@ internal static class SquirixEndpointMapping
         if (authEnabled)
             _ = cacheGrpc.RequireAuthorization(SquirixSecurityServiceRegistration.JwtBearerPolicy);
 
-        app.MapCacheEndpoints<object?>("/cache", authEnabled);
         return app;
     }
 }

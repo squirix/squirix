@@ -11,12 +11,14 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
+using Grpc.Net.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
@@ -182,6 +184,20 @@ public abstract class SmokeTestBase : IDisposable
     /// Callers should bind immediately to minimize races with other processes.
     /// </remarks>
     protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
+
+    /// <summary>
+    /// Creates a gRPC channel configured for HTTPS against a test node URL.
+    /// </summary>
+    /// <param name="url">The node listen URL.</param>
+    /// <returns>A disposable gRPC channel.</returns>
+    protected static GrpcChannel CreateGrpcChannel(string url) => GrpcChannel.ForAddress(
+        url,
+        new GrpcChannelOptions
+        {
+            HttpHandler = LoopbackHttp.CreateHandler(),
+            MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+            MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+        });
 
     /// <summary>
     /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.

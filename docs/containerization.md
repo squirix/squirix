@@ -104,7 +104,7 @@ curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 
 Remote scrapes (including host → published container port) require a JWT bearer token when server auth is enabled.
 
-gRPC and REST cache clients on the host must send the same JWT via `options.BearerTokenProvider` or an
+gRPC clients on the host must send JWT via `options.BearerTokenProvider` or an
 `Authorization: Bearer` header. TLS validation against the bundled cert requires `curl -k` or a development-only
 certificate validation override in .NET.
 
