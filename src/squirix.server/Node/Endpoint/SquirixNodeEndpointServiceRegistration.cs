@@ -13,10 +13,13 @@ internal static class SquirixNodeEndpointServiceRegistration
         /// <summary>
         /// Registers inbound endpoint cache routing used by REST and gRPC adapters.
         /// </summary>
-        public IServiceCollection AddSquirixNodeEndpointServices()
+        public IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = services.AddSingleton<IHealthReadyDetailsProvider, HealthReadyDetailsProvider>();
+            _ = persistenceEnabled
+                ? services.AddSingleton<IHealthReadyDetailsProvider, HealthReadyDetailsProvider>()
+                : services.AddSingleton<IHealthReadyDetailsProvider, EphemeralHealthReadyDetailsProvider>();
+
             return services;
         }
     }

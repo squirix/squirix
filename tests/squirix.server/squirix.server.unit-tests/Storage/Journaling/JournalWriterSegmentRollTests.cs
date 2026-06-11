@@ -119,7 +119,6 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
         JournalMaxSegmentMb = 1,
         FlushIntervalMs = 600_000,
         ManifestRetentionCount = 3,
-        StrictFsync = true,
     };
 
     private static async Task FillSegmentOneForOverflowAsync(JournalWriter journal, int overflowFrameLen, CancellationToken cancellationToken)

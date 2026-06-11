@@ -1,0 +1,86 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
+using BenchmarkDotNet.Attributes;
+using Squirix.Benchmarks.Infrastructure;
+
+namespace Squirix.Benchmarks;
+
+/// <summary>
+/// Compares client SDK throughput with ephemeral and persistent server modes.
+/// </summary>
+[MemoryDiagnoser]
+[MinIterationTime(150)]
+[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
+public class DurabilityComparisonBenchmarks
+{
+    private const int Batch = 1_024;
+    private const string CacheName = "durability-comparison";
+    private const string ExistingKey = "bench_existing";
+
+    private BenchmarkCacheSession? _cacheSession;
+    private BenchmarkNodeScope? _node;
+
+    /// <summary>
+    /// Gets or sets the durability mode measured by the current BenchmarkDotNet case.
+    /// </summary>
+    [Params(BenchmarkDurabilityMode.Ephemeral, BenchmarkDurabilityMode.Persistence)]
+    public BenchmarkDurabilityMode DurabilityMode { get; set; }
+
+    private ICache<object?> SharedCache =>
+        (_cacheSession ?? throw new System.InvalidOperationException("Shared cache session was not opened.")).Cache;
+
+    /// <summary>
+    /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the add finishes.</returns>
+    [Benchmark]
+    public Task AddNewKey() => SharedCache.AddAsync(System.Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
+
+    /// <summary>
+    /// Measures batched inserts of new keys.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task InsertNewKeyBatched()
+    {
+        for (var i = 0; i < Batch; i++)
+            await SharedCache.AddAsync(System.Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Measures batched reads of an existing key.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task GetExistingBatched()
+    {
+        for (var i = 0; i < Batch; i++)
+            _ = await SharedCache.GetValueAsync(ExistingKey, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stops the benchmark node and shared cache session.
+    /// </summary>
+    [GlobalCleanup]
+    public void GlobalCleanup()
+    {
+        _cacheSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _cacheSession = null;
+        _node?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _node = null;
+    }
+
+    /// <summary>
+    /// Starts the benchmark node and opens a shared cache session.
+    /// </summary>
+    [GlobalSetup]
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to fields disposed in GlobalCleanup.")]
+    public void GlobalSetup()
+    {
+        BenchmarkRuntime.EnsureInitialized();
+        _node = BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).GetAwaiter().GetResult();
+        _cacheSession = BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).GetAwaiter().GetResult();
+        SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).GetAwaiter().GetResult();
+    }
+}

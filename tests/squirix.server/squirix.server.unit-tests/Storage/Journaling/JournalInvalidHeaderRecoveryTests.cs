@@ -44,7 +44,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
 
         var gate = new JournalStartupGate(false);
         var recovery = new RecoveryService<object?>(
-            new PersistenceOptions { DataDir = scenario.DataDir, StrictFsync = true, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 },
+            new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 },
             scenario.ManifestStore,
             scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
@@ -69,7 +69,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var dir = DirectoryKit.CreateTempDirectory("squirix-journal-invalid-header-repair");
         try
         {
-            var persistence = new PersistenceOptions { DataDir = dir, StrictFsync = true, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+            var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
             var manifestStore = new ManifestStore(persistence);
             var journalSegmentPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
             await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);

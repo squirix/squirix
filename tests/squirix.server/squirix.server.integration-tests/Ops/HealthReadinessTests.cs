@@ -41,7 +41,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         var url = GetNextHttpUrl();
         var peers = new[] { new Peer { NodeId = "node_health_A", Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(url, peers, usePersistence: true);
         var cache = GetCache(node);
 
         // Cause some journal activity

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -35,10 +36,10 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     }
 
     /// <summary>Gets the authority base URL (also used as the token issuer).</summary>
-    public string AuthorityUrl { get; }
+    private string AuthorityUrl { get; }
 
     /// <summary>Gets the issuer claim value published in discovery metadata.</summary>
-    public string Issuer { get; }
+    private string Issuer { get; }
 
     /// <summary>Starts a loopback mock authority on an ephemeral HTTP port.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -47,7 +48,6 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     {
         var port = PortPool.Allocate();
         var authorityUrl = $"http://127.0.0.1:{port}";
-        var issuer = authorityUrl;
         var signingKey = RSA.Create(2048);
         const string keyId = "mock-oidc-key";
 
@@ -57,8 +57,8 @@ public sealed class MockOidcAuthority : IAsyncDisposable
 
         var discovery = new OidcDiscoveryDocument
         {
-            Issuer = issuer,
-            JwksUri = $"{issuer}/.well-known/jwks",
+            Issuer = authorityUrl,
+            JwksUri = $"{authorityUrl}/.well-known/jwks",
         };
 
         var builder = WebApplication.CreateBuilder(
@@ -75,7 +75,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         _ = app.MapGet("/.well-known/jwks", () => Results.Json(jwks));
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
-        return new MockOidcAuthority(app, authorityUrl, issuer, signingKey, keyId);
+        return new MockOidcAuthority(app, authorityUrl, authorityUrl, signingKey, keyId);
     }
 
     /// <summary>Issues a bearer token signed with the authority's RSA key.</summary>
@@ -117,9 +117,19 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     private sealed class OidcDiscoveryDocument
     {
         [JsonPropertyName("issuer")]
-        public required string Issuer { get; init; }
+        public required string Issuer
+        {
+            [UsedImplicitly]
+            get;
+            init;
+        }
 
         [JsonPropertyName("jwks_uri")]
-        public required string JwksUri { get; init; }
+        public required string JwksUri
+        {
+            [UsedImplicitly]
+            get;
+            init;
+        }
     }
 }

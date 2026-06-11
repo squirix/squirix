@@ -149,6 +149,9 @@ public abstract class IntegrationTestBase : IDisposable
     /// Optional base persistence options. The data directory is overridden per test (node id + scope);
     /// other fields are honored as provided.
     /// </param>
+    /// <param name="usePersistence">
+    /// When <c>true</c>, starts the node with WAL/snapshot persistence enabled using a test-scoped data directory.
+    /// </param>
     /// <param name="output">
     /// Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.
     /// </param>
@@ -196,6 +199,7 @@ public abstract class IntegrationTestBase : IDisposable
         Action<IServiceCollection>? servicesConfigure = null,
         SnapshotTriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
@@ -218,7 +222,13 @@ public abstract class IntegrationTestBase : IDisposable
         };
 
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
-        var persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, BuildTestScope(scopeName, extraScope), cleanTestDir);
+        PersistenceOptions? persistenceOptionsOverride = null;
+        var dataDir = string.Empty;
+        if (usePersistence || persistenceOptions is not null)
+        {
+            persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, BuildTestScope(scopeName, extraScope), cleanTestDir);
+            dataDir = persistenceOptionsOverride.DataDir;
+        }
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -245,7 +255,7 @@ public abstract class IntegrationTestBase : IDisposable
             null,
             DefaultCancellationToken);
 
-        return new TestNodeHost(application, url, persistenceOptionsOverride.DataDir);
+        return new TestNodeHost(application, url, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>
@@ -317,7 +327,6 @@ public abstract class IntegrationTestBase : IDisposable
         {
             DataDir = effectiveDataDir,
             JournalMaxSegmentMb = 64,
-            StrictFsync = true,
         };
     }
 }

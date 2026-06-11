@@ -92,7 +92,7 @@ public sealed class AspNetCoreHostingExtensionsTests
             options =>
             {
                 options.Url = new Uri($"https://localhost:{port}");
-                options.DataDirectory = dataDir;
+                options.UsePersistence(dataDir);
             },
             loadDiscoveredSettings: false);
 
@@ -100,7 +100,7 @@ public sealed class AspNetCoreHostingExtensionsTests
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
         Assert.Equal(dataDir, persistence.DataDir);
-        Assert.True(persistence.StrictFsync);
+        Assert.True(PersistenceOptions.StrictFsync);
 
         if (Directory.Exists(dataDir))
             Directory.Delete(dataDir, true);
@@ -118,15 +118,10 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var callbackCount = 0;
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(28000, 28999).Allocate();
 
         _ = builder.AddSquirixServer(
-            options =>
-            {
-                options.Url = new Uri($"https://localhost:{port}");
-                options.DataDirectory = dataDir;
-            },
+            options => options.Url = new Uri($"https://localhost:{port}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
@@ -141,8 +136,6 @@ public sealed class AspNetCoreHostingExtensionsTests
             _ = app.Services.GetRequiredService<ICacheRuntime>();
 
         Assert.Equal(1, callbackCount);
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
     }
 
     /// <summary>
@@ -152,7 +145,6 @@ public sealed class AspNetCoreHostingExtensionsTests
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = new PortAllocator(26000, 26999).Allocate();
         var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(
@@ -166,7 +158,6 @@ public sealed class AspNetCoreHostingExtensionsTests
             {
                 options.NodeId = "aspnet-test";
                 options.Url = new Uri(url);
-                options.DataDirectory = dataDir;
             },
             loadDiscoveredSettings: false);
 
@@ -179,9 +170,6 @@ public sealed class AspNetCoreHostingExtensionsTests
 
         await app.StartAsync(TestContext.Current.CancellationToken);
         await app.StopAsync(TestContext.Current.CancellationToken);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
     }
 
     private sealed class ExtensionMarker;

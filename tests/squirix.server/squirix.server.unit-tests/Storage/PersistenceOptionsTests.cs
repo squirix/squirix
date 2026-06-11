@@ -30,7 +30,7 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(10, o.FlushIntervalMs);
         Assert.Equal(60, o.SnapshotIntervalSec);
         Assert.Equal(3, o.ManifestRetentionCount);
-        Assert.False(o.StrictFsync);
+        Assert.True(PersistenceOptions.StrictFsync);
     }
 
     /// <summary>
@@ -115,7 +115,7 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(30, options.SnapshotIntervalSec);
         Assert.Equal(2, options.ManifestRetentionCount);
         Assert.Equal(4, options.SnapshotRetentionCount);
-        Assert.True(options.StrictFsync);
+        Assert.True(PersistenceOptions.StrictFsync);
     }
 
     /// <summary>
@@ -130,14 +130,13 @@ public sealed class PersistenceOptionsTests
         var overridden = defaults with
         {
             DataDir = "/var/lib/squirix",
-            StrictFsync = true,
             ManifestRetentionCount = 100,
         };
 
         // Overridden values
         Assert.Equal("/var/lib/squirix", overridden.DataDir);
         Assert.Equal(100, overridden.ManifestRetentionCount);
-        Assert.True(overridden.StrictFsync);
+        Assert.True(PersistenceOptions.StrictFsync);
 
         // Unchanged defaults
         Assert.Equal(defaults.JournalMaxSegmentMb, overridden.JournalMaxSegmentMb);

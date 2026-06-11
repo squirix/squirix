@@ -41,7 +41,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
     [Fact]
     public async Task InspectReportsMissingCurrentPointer()
     {
-        var options = new PersistenceOptions { DataDir = _dir, StrictFsync = true };
+        var options = new PersistenceOptions { DataDir = _dir };
         var manifestStore = new ManifestStore(options);
 
         await using (var journal = new JournalWriter(options, new Manifest(), manifestStore, new JournalStartupGate()))
@@ -83,7 +83,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
     [Fact]
     public void InspectReportsMissingSnapshotPath()
     {
-        var options = new PersistenceOptions { DataDir = _dir, StrictFsync = true };
+        var options = new PersistenceOptions { DataDir = _dir };
         var manifestStore = new ManifestStore(options);
         var snapshotPath = PathKit.Combine(false, _dir, "snp-000001.ssqx");
         manifestStore.Write(
@@ -132,7 +132,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
     [Fact]
     public async Task RepairPreservesReadableSnapshotWatermark()
     {
-        var options = new PersistenceOptions { DataDir = _dir, StrictFsync = true };
+        var options = new PersistenceOptions { DataDir = _dir };
         var manifestStore = new ManifestStore(options);
         var snapshotWriter = new SnapshotWriter(_dir);
         var snapshotPath = await snapshotWriter.WriteAsync(2, [("k1", BuildEntryJsonElement("v1"))], DefaultCancellationToken);
@@ -168,7 +168,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
     [Fact]
     public async Task RepairRebuildsManifestFromJournalOnlyState()
     {
-        var options = new PersistenceOptions { DataDir = _dir, StrictFsync = true };
+        var options = new PersistenceOptions { DataDir = _dir };
         var manifestStore = new ManifestStore(options);
 
         await using (var journal = new JournalWriter(options, new Manifest(), manifestStore, new JournalStartupGate()))

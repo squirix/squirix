@@ -47,7 +47,6 @@ internal static class SquirixPersistenceServiceRegistration
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddSingleton<JournalCompactionController>();
         _ = services.AddHostedService<JournalMetricsExporterService>();
-        _ = services.AddHostedService<MemoryPressureMetricsService>();
 
         return services;
     }

@@ -22,7 +22,7 @@ invocation uses **`ToolCommandName`**:
 
 ```powershell
 dotnet tool install -g squirix.server.tool
-squirix-server run --data-dir ./data
+squirix-server run
 ```
 
 ## PascalCase `Squirix`

@@ -8,6 +8,7 @@ services:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
+    command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5001:5000" # HTTPS gRPC + /health + /metrics
     volumes:
@@ -25,6 +26,7 @@ services:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
+    command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5002:5000"
     volumes:

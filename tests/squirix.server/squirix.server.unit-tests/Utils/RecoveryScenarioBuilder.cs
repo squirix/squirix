@@ -16,7 +16,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
     private RecoveryScenarioBuilder(string dataDir)
     {
         DataDir = dataDir;
-        Persistence = new PersistenceOptions { DataDir = dataDir, StrictFsync = true, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        Persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         ManifestStore = new ManifestStore(Persistence);
         Cache = new PhysicalCache<object?>();
     }
