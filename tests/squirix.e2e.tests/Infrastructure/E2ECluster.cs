@@ -31,13 +31,19 @@ internal sealed class E2ECluster : IAsyncDisposable
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], testName, security, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new E2ETwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
     public static ValueTask<E2ECluster> StartTwoNodeAsync(
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], testName, security, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new E2ETwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+
+    public static ValueTask<E2ECluster> StartTwoNodeAsync(
+        E2ETwoNodeStartOptions? options,
+        string? testName = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], options, testName, usePersistence, cancellationToken);
 
     public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
@@ -97,11 +103,12 @@ internal sealed class E2ECluster : IAsyncDisposable
 
     private static async ValueTask<E2ECluster> StartAsync(
         string[] nodeIds,
+        E2ETwoNodeStartOptions? startOptions,
         string? testName,
-        TestNodeSecurityOptions? security,
         bool usePersistence,
         CancellationToken cancellationToken = default)
     {
+        startOptions ??= new E2ETwoNodeStartOptions();
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
             urls[nodeIds[i]] = GetNextHttpUrl();
@@ -117,13 +124,14 @@ internal sealed class E2ECluster : IAsyncDisposable
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
-                var options = new TestNodeHostStartOptions
+                var hostOptions = new TestNodeHostStartOptions
                 {
                     DataDir = usePersistence ? BuildDataDir(nodeId, testName) : null,
-                    Security = security,
+                    Security = startOptions.Security,
                     Mtls = mtls,
+                    MtlsProfile = startOptions.GetProfile(nodeId),
                 };
-                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, options, cancellationToken).ConfigureAwait(false));
+                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken).ConfigureAwait(false));
             }
 
             return new E2ECluster(nodes, mtls);

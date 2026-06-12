@@ -129,7 +129,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
         public TagSet(ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
-            _tags = tags.ToArray();
+            _tags = [.. tags];
             Array.Sort(_tags, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
         }
 
