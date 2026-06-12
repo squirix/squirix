@@ -1,9 +1,11 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Cluster;
@@ -90,9 +92,9 @@ public static class TestNodeHostFactory
         if (persistence)
             ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
         var persistenceOptions = persistence ? new PersistenceOptions { DataDir = dataDir ?? string.Empty } : null;
-        var peers = new Peer[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            peers[i] = new Peer { NodeId = topology[i].NodeId, Url = topology[i].Address };
+        var peerTopology = topology.Select(static member => (member.NodeId, member.Address)).ToArray();
+        var sharedMtls = mtls;
+        var peers = MtlsTestContext.CreatePeers(ref sharedMtls, peerTopology);
 
         var clusterConfig = new ClusterConfig
         {
@@ -103,6 +105,9 @@ public static class TestNodeHostFactory
         };
 
         var (mtlsOptions, mtlsMaterial) = mtls?.Resolve(clusterConfig, address) ?? (null, null);
+        var clusterHttpHandler = mtlsMaterial is { Enabled: true }
+            ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial)
+            : LoopbackHttp.CreateHandler();
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -115,7 +120,7 @@ public static class TestNodeHostFactory
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
             persistenceOptionsOverride: persistenceOptions,
-            httpHandlerOverride: LoopbackHttp.CreateHandler(),
+            httpHandlerOverride: clusterHttpHandler,
             securityOptionsOverride: security?.ToServerOptions(),
             mtlsOptionsOverride: mtlsOptions,
             mtlsMaterialOverride: mtlsMaterial,

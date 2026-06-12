@@ -27,7 +27,7 @@ internal static class MtlsCertificateLoader
 
         if (!string.IsNullOrWhiteSpace(options.CertPfxPath))
         {
-            return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.EphemeralKeySet);
+            return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.Exportable);
         }
 
         var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath!);

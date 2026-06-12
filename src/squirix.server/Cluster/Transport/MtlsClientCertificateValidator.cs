@@ -13,10 +13,9 @@ internal static class MtlsClientCertificateValidator
     /// Validates a peer client certificate against the configured cluster CA.
     /// </summary>
     /// <param name="clientCertificate">The presented client certificate.</param>
-    /// <param name="chain">Optional chain supplied by the TLS stack.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns><see langword="true" /> when the certificate chains to the cluster trust root and is time-valid.</returns>
-    public static bool Validate(X509Certificate2? clientCertificate, X509Chain? chain, X509Certificate2 trustAnchor)
+    public static bool Validate(X509Certificate2? clientCertificate, X509Certificate2 trustAnchor)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
 
@@ -25,7 +24,7 @@ internal static class MtlsClientCertificateValidator
 
         try
         {
-            using var validationChain = chain ?? new X509Chain();
+            using var validationChain = new X509Chain();
             validationChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
             validationChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             validationChain.ChainPolicy.CustomTrustStore.Clear();

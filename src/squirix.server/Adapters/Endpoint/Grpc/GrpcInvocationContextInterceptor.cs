@@ -2,17 +2,26 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Endpoint.Grpc;
 
 internal sealed class GrpcInvocationContextInterceptor : Interceptor
 {
+    private readonly MtlsCertificateMaterial _mtlsMaterial;
+    private readonly MtlsOptions _mtlsOptions;
     private readonly IRemoteInvocationScopeFactory _scopeFactory;
 
-    public GrpcInvocationContextInterceptor(IRemoteInvocationScopeFactory scopeFactory)
+    public GrpcInvocationContextInterceptor(
+        IRemoteInvocationScopeFactory scopeFactory,
+        MtlsOptions mtlsOptions,
+        MtlsCertificateMaterial mtlsMaterial)
     {
         _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
+        _mtlsOptions = mtlsOptions ?? throw new ArgumentNullException(nameof(mtlsOptions));
+        _mtlsMaterial = mtlsMaterial ?? throw new ArgumentNullException(nameof(mtlsMaterial));
     }
 
     public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
@@ -21,29 +30,19 @@ internal sealed class GrpcInvocationContextInterceptor : Interceptor
         ServerCallContext context,
         ServerStreamingServerMethod<TRequest, TResponse> continuation)
     {
-        using var scope = _scopeFactory.EnterRemoteInvocation(IsInternalOwnerRpc(context));
+        using var scope = _scopeFactory.EnterRemoteInvocation(ResolveInternalOwnerInvocation(context));
         await continuation(request, responseStream, context).ConfigureAwait(false);
     }
 
     public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
     {
-        using var scope = _scopeFactory.EnterRemoteInvocation(IsInternalOwnerRpc(context));
+        using var scope = _scopeFactory.EnterRemoteInvocation(ResolveInternalOwnerInvocation(context));
         return await continuation(request, context).ConfigureAwait(false);
     }
 
-    private static bool IsInternalOwnerRpc(ServerCallContext context)
+    private bool ResolveInternalOwnerInvocation(ServerCallContext context)
     {
-        foreach (var header in context.RequestHeaders)
-        {
-            if (string.Equals(header.Key, RemoteInvocationContract.InternalOwnerRpcHeaderName, StringComparison.OrdinalIgnoreCase) && string.Equals(
-                    header.Value,
-                    RemoteInvocationContract.InternalOwnerRpcHeaderValue,
-                    StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        SquirixClusterConnectionSecurity.RejectSpoofedInternalOwnerHeader(context, _mtlsOptions, _mtlsMaterial);
+        return SquirixClusterConnectionSecurity.IsTrustedInternalOwnerCall(context, _mtlsOptions, _mtlsMaterial);
     }
 }

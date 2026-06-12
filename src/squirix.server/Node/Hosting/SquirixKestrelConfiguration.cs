@@ -78,14 +78,12 @@ internal static class SquirixKestrelConfiguration
     /// Validates an inbound cluster mTLS client certificate against the configured cluster trust root.
     /// </summary>
     /// <param name="clientCertificate">The presented client certificate.</param>
-    /// <param name="chain">Optional chain supplied by the TLS stack.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
     internal static bool ValidateClientCertificate(
         X509Certificate2? clientCertificate,
-        X509Chain? chain,
         X509Certificate2 trustAnchor) =>
-        MtlsClientCertificateValidator.Validate(clientCertificate, chain, trustAnchor);
+        MtlsClientCertificateValidator.Validate(clientCertificate, trustAnchor);
 
     private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
     {
@@ -103,7 +101,7 @@ internal static class SquirixKestrelConfiguration
     {
         https.ServerCertificate = material.NodeCertificate;
         https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-        https.ClientCertificateValidation = (certificate, chain, _) =>
-            ValidateClientCertificate(certificate, chain, material.TrustAnchor!);
+        https.ClientCertificateValidation = (certificate, _, _) =>
+            ValidateClientCertificate(certificate, material.TrustAnchor!);
     }
 }

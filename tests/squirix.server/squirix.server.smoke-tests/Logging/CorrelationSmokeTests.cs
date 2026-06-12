@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -30,11 +29,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var urlA = GetNextHttpUrl();
         var urlB = GetNextHttpUrl();
 
-        var peers = new[]
-        {
-            new Peer { NodeId = "A", Url = urlA },
-            new Peer { NodeId = "B", Url = urlB },
-        };
+        var peers = BuildClusterPeers(("A", urlA), ("B", urlB));
 
         var capture = new CapturingHeadersInterceptor();
 

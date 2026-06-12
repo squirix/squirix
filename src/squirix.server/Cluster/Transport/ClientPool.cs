@@ -33,23 +33,30 @@ internal sealed class ClientPool : IClientPool
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
-        BootstrapConnectOptions? connectOptions = null)
+        BootstrapConnectOptions? connectOptions = null,
+        MtlsOptions? mtlsOptions = null,
+        bool interNodeMtlsEnabled = false,
+        Interceptor? internalOwnerInterceptor = null)
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         var peerList = peers as Peer[] ?? [.. peers];
         var nodeIds = new string[peerList.Length];
+        var resolvedMtlsOptions = mtlsOptions ?? new MtlsOptions();
 
         for (var i = 0; i < peerList.Length; i++)
         {
             var p = peerList[i];
+            var address = ClusterPeerChannelAddress.Resolve(p, resolvedMtlsOptions, interNodeMtlsEnabled);
             var opts = new GrpcChannelOptions
             {
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             };
-            var channel = GrpcChannel.ForAddress(p.Url, opts);
+            var channel = GrpcChannel.ForAddress(address, opts);
             var invoker = channel.CreateCallInvoker();
+            if (internalOwnerInterceptor is not null)
+                invoker = invoker.Intercept(internalOwnerInterceptor);
             if (interceptor is not null)
                 invoker = invoker.Intercept(interceptor);
             _channels[p.NodeId] = channel;

@@ -19,7 +19,7 @@ public sealed class MtlsClientCertificateValidatorTests
     {
         using var bundle = MtlsTestCertificateFactory.Create();
 
-        Assert.False(MtlsClientCertificateValidator.Validate(null, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(null, bundle.Ca));
     }
 
     /// <summary>
@@ -31,7 +31,7 @@ public sealed class MtlsClientCertificateValidatorTests
         using var bundle = MtlsTestCertificateFactory.Create();
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
 
-        Assert.True(MtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
+        Assert.True(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public sealed class MtlsClientCertificateValidatorTests
         using var otherCa = CreateStandaloneCa("CN=Other CA");
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "peer-node-b");
 
-        Assert.False(MtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -58,7 +58,7 @@ public sealed class MtlsClientCertificateValidatorTests
         var notAfter = notBefore.AddHours(1);
         using var expiredCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
 
-        Assert.False(MtlsClientCertificateValidator.Validate(expiredCertificate, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(expiredCertificate, bundle.Ca));
     }
 
     private static X509Certificate2 CreateStandaloneCa(string distinguishedName)

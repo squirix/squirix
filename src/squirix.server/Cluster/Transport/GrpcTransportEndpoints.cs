@@ -36,10 +36,13 @@ internal static class GrpcTransportEndpoints
 
         return new SocketsHttpHandler
         {
+            UseProxy = false,
+            EnableMultipleHttp2Connections = true,
             SslOptions = new SslClientAuthenticationOptions
             {
                 ClientCertificates = [nodeCertificate],
-                RemoteCertificateValidationCallback = (_, certificate, chain, _) => ValidatePeerServerCertificate(certificate, chain, trustAnchor),
+                ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
+                RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor),
             },
         };
     }
@@ -48,15 +51,14 @@ internal static class GrpcTransportEndpoints
     /// Validates a peer server certificate against the configured cluster trust root.
     /// </summary>
     /// <param name="serverCertificate">The presented peer server certificate.</param>
-    /// <param name="chain">Optional chain supplied by the TLS stack.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    internal static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Chain? chain, X509Certificate2 trustAnchor)
+    internal static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor)
     {
         if (serverCertificate is null)
             return false;
 
         using var certificate = new X509Certificate2(serverCertificate);
-        return MtlsClientCertificateValidator.Validate(certificate, chain, trustAnchor);
+        return MtlsClientCertificateValidator.Validate(certificate, trustAnchor);
     }
 }
