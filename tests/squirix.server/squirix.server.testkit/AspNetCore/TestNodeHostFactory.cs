@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Http;
 
 namespace Squirix.Server.TestKit.AspNetCore;
@@ -15,6 +16,31 @@ namespace Squirix.Server.TestKit.AspNetCore;
 /// </summary>
 public static class TestNodeHostFactory
 {
+    /// <summary>
+    /// Starts a test node with the provided cluster topology and optional settings.
+    /// </summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="address">The HTTP listen address.</param>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="options">Optional startup settings.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(
+        string nodeId,
+        string address,
+        (string NodeId, string Address)[] topology,
+        TestNodeHostStartOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        StartNodeAsync(
+            nodeId,
+            address,
+            topology,
+            options?.DataDir,
+            options?.DataDir is not null,
+            options?.Security,
+            options?.Mtls,
+            cancellationToken);
+
     /// <summary>
     /// Starts an ephemeral in-memory node with the provided cluster topology.
     /// </summary>
@@ -27,23 +53,8 @@ public static class TestNodeHostFactory
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, null, false, null, null, cancellationToken);
-
-    /// <summary>
-    /// Starts an ephemeral in-memory node with optional per-node security settings.
-    /// </summary>
-    /// <param name="nodeId">The node identifier.</param>
-    /// <param name="address">The HTTP listen address.</param>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <param name="security">Optional security override. When set, environment variables are not read for auth.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A started test node host.</returns>
-    public static ValueTask<TestNodeHost> StartNodeAsync(
-        string nodeId,
-        string address,
-        (string NodeId, string Address)[] topology,
-        TestNodeSecurityOptions? security,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, null, false, security, null, cancellationToken);
+        CancellationToken cancellationToken = default) =>
+        StartNodeAsync(nodeId, address, topology, options: null, cancellationToken);
 
     /// <summary>
     /// Starts a node with the provided cluster topology and persistence directory.
@@ -59,25 +70,8 @@ public static class TestNodeHostFactory
         string address,
         (string NodeId, string Address)[] topology,
         string dataDir,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, dataDir, true, null, null, cancellationToken);
-
-    /// <summary>
-    /// Starts a node with optional per-node security settings.
-    /// </summary>
-    /// <param name="nodeId">The node identifier.</param>
-    /// <param name="address">The HTTP listen address.</param>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <param name="dataDir">Persistence data directory.</param>
-    /// <param name="security">Optional security override. When set, environment variables are not read for auth.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A started test node host.</returns>
-    public static ValueTask<TestNodeHost> StartNodeAsync(
-        string nodeId,
-        string address,
-        (string NodeId, string Address)[] topology,
-        string dataDir,
-        TestNodeSecurityOptions? security,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, dataDir, true, security, null, cancellationToken);
+        CancellationToken cancellationToken = default) =>
+        StartNodeAsync(nodeId, address, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
@@ -90,7 +84,7 @@ public static class TestNodeHostFactory
         string? dataDir,
         bool persistence,
         TestNodeSecurityOptions? security,
-        Action<SquirixServerExtensionOptions>? configureExtensions,
+        MtlsTestContext? mtls,
         CancellationToken cancellationToken)
     {
         if (persistence)
@@ -108,6 +102,8 @@ public static class TestNodeHostFactory
             Peers = peers,
         };
 
+        var (mtlsOptions, mtlsMaterial) = mtls?.Resolve(clusterConfig, address) ?? (null, null);
+
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             static b =>
@@ -121,7 +117,8 @@ public static class TestNodeHostFactory
             persistenceOptionsOverride: persistenceOptions,
             httpHandlerOverride: LoopbackHttp.CreateHandler(),
             securityOptionsOverride: security?.ToServerOptions(),
-            configureExtensions: configureExtensions,
+            mtlsOptionsOverride: mtlsOptions,
+            mtlsMaterialOverride: mtlsMaterial,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new TestNodeHost(app, address, persistenceOptions?.DataDir ?? string.Empty, persistence);

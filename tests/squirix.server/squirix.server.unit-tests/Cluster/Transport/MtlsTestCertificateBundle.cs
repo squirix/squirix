@@ -5,11 +5,11 @@ using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-internal sealed class ClusterMtlsTestCertificateBundle : IDisposable
+internal sealed class MtlsTestCertificateBundle : IDisposable
 {
     private readonly X509Certificate2 _nodeCertificate;
 
-    internal ClusterMtlsTestCertificateBundle(string rootDirectory, X509Certificate2 ca, X509Certificate2 nodeCertificate)
+    internal MtlsTestCertificateBundle(string rootDirectory, X509Certificate2 ca, X509Certificate2 nodeCertificate)
     {
         RootDirectory = rootDirectory;
         Ca = ca;

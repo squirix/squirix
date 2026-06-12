@@ -348,13 +348,12 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_CLUSTER_MTLS_ENABLED`                       | Enables inter-node cluster mTLS when `true` or `1`. Adds a dedicated internal HTTPS listener that requires peer client certificates validated against `SQUIRIX_CLUSTER_MTLS_CA_PATH`.                              |
-| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for inter-node gRPC mTLS. Required when cluster mTLS is enabled and must differ from the primary `Cluster.Url` port.                                                |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for inter-node gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Url` port.                                    |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Mutually exclusive with PEM cert/key paths.                                                                                                                       |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                                                                       |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH`                      | PEM-encoded node private key path.                                                                                                                                                                                 |
-| `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when cluster mTLS is enabled.                                                                                                                                        |
+| `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when remote cluster peers are configured.                                                                                                                            |
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
@@ -368,9 +367,11 @@ Security notes:
 - JWT bearer authentication is enforced server-side for gRPC cache endpoints when auth is
   enabled. Missing or invalid credentials are rejected.
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
-- When cluster mTLS is enabled, inter-node gRPC is served on the dedicated internal HTTPS listener
-  (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. The primary listener keeps
-  external client behavior unchanged.
+- When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
+  inter-node mTLS is required at startup. Inter-node gRPC is served on the dedicated internal HTTPS listener
+  (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Outbound `ClientPool` calls attach
+  the local node certificate and validate peer server certificates against the cluster trust root. Standalone nodes
+  without remote peers do not require cluster mTLS material. The primary listener keeps external client behavior unchanged.
 
 ## Sample `appsettings.json`
 

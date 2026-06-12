@@ -27,6 +27,7 @@ using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.XUnit;
@@ -45,6 +46,7 @@ public abstract class IntegrationTestBase : IDisposable
     private static readonly PortAllocator PortPool = CreatePortAllocator();
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
+    private MtlsTestContext? _mtls;
     private HttpClient? _httpClient;
 
     static IntegrationTestBase()
@@ -68,6 +70,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// </summary>
     public virtual void Dispose()
     {
+        _mtls?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
         GC.SuppressFinalize(this);
@@ -230,6 +233,8 @@ public abstract class IntegrationTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
+        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
+
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -253,6 +258,8 @@ public abstract class IntegrationTestBase : IDisposable
             memoryPressureOptions,
             security?.ToServerOptions(),
             null,
+            mtlsOptions,
+            mtlsMaterial,
             DefaultCancellationToken);
 
         return new TestNodeHost(application, url, dataDir, persistenceOptionsOverride is not null);

@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;
@@ -16,19 +17,27 @@ namespace Squirix.E2ETests.Infrastructure;
 internal sealed class E2ECluster : IAsyncDisposable
 {
     private readonly List<E2EClientHandle> _clients = [];
+    private readonly MtlsTestContext? _mtls;
     private readonly Dictionary<string, E2ENode> _nodes;
     private int _disposed;
 
-    private E2ECluster(Dictionary<string, E2ENode> nodes)
+    private E2ECluster(Dictionary<string, E2ENode> nodes, MtlsTestContext? mtls)
     {
         _nodes = nodes;
+        _mtls = mtls;
     }
 
-    public static ValueTask<E2ECluster> StartSingleNodeAsync(string? testName = null, TestNodeSecurityOptions? security = null, bool usePersistence = false, CancellationToken cancellationToken = default) =>
-        StartAsync(["nodeA"], testName, security, usePersistence, cancellationToken);
+    public static ValueTask<E2ECluster> StartSingleNodeAsync(
+        string? testName = null,
+        TestNodeSecurityOptions? security = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], testName, security, usePersistence, cancellationToken);
 
-    public static ValueTask<E2ECluster> StartTwoNodeAsync(string? testName = null, TestNodeSecurityOptions? security = null, bool usePersistence = false, CancellationToken cancellationToken = default) =>
-        StartAsync(["nodeA", "nodeB"], testName, security, usePersistence, cancellationToken);
+    public static ValueTask<E2ECluster> StartTwoNodeAsync(
+        string? testName = null,
+        TestNodeSecurityOptions? security = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], testName, security, usePersistence, cancellationToken);
 
     public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
@@ -64,6 +73,8 @@ internal sealed class E2ECluster : IAsyncDisposable
 
         foreach (var node in _nodes.Values)
             await node.DisposeAsync().ConfigureAwait(false);
+
+        _mtls?.Dispose();
     }
 
     private static int AllocatePort()
@@ -84,7 +95,12 @@ internal sealed class E2ECluster : IAsyncDisposable
 
     private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
-    private static async ValueTask<E2ECluster> StartAsync(string[] nodeIds, string? testName, TestNodeSecurityOptions? security, bool usePersistence, CancellationToken cancellationToken = default)
+    private static async ValueTask<E2ECluster> StartAsync(
+        string[] nodeIds,
+        string? testName,
+        TestNodeSecurityOptions? security,
+        bool usePersistence,
+        CancellationToken cancellationToken = default)
     {
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
@@ -95,24 +111,29 @@ internal sealed class E2ECluster : IAsyncDisposable
             topology[i] = (nodeIds[i], urls[nodeIds[i]]);
 
         var nodes = new Dictionary<string, E2ENode>(StringComparer.Ordinal);
+        var mtls = nodeIds.Length > 1 ? new MtlsTestContext() : null;
         try
         {
             for (var i = 0; i < nodeIds.Length; i++)
             {
                 var nodeId = nodeIds[i];
-                var host = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, BuildDataDir(nodeId, testName), security, cancellationToken).ConfigureAwait(false)
-                    : await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, security, cancellationToken).ConfigureAwait(false);
-                nodes[nodeId] = new E2ENode(host);
+                var options = new TestNodeHostStartOptions
+                {
+                    DataDir = usePersistence ? BuildDataDir(nodeId, testName) : null,
+                    Security = security,
+                    Mtls = mtls,
+                };
+                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, options, cancellationToken).ConfigureAwait(false));
             }
 
-            return new E2ECluster(nodes);
+            return new E2ECluster(nodes, mtls);
         }
         catch (InvalidOperationException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
 
+            mtls?.Dispose();
             throw;
         }
         catch (IOException)
@@ -120,6 +141,7 @@ internal sealed class E2ECluster : IAsyncDisposable
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
 
+            mtls?.Dispose();
             throw;
         }
     }
