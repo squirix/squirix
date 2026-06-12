@@ -16,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.Limits;
@@ -48,9 +49,9 @@ public abstract class SmokeTestBase : IDisposable
     private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
 
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
+    private HttpClient? _httpClient;
 
     private MtlsTestContext? _mtls;
-    private HttpClient? _httpClient;
 
     /// <summary>
     /// Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.
@@ -85,6 +86,24 @@ public abstract class SmokeTestBase : IDisposable
     /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
     /// </exception>
     internal static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
+
+    /// <summary>
+    /// Gets the next available HTTP URL bound to 127.0.0.1 with a dynamically allocated port.
+    /// </summary>
+    /// <returns>
+    /// A loopback URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
+    /// is reserved from the shared port pool at the time of the call.
+    /// </returns>
+    /// <remarks>
+    /// The port is allocated by the test process and is intended for ephemeral use during integration tests.
+    /// Callers should bind immediately to minimize races with other processes.
+    /// </remarks>
+    /// <summary>
+    /// Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.
+    /// </summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <returns>Peer entries for host startup.</returns>
+    internal Peer[] BuildClusterPeers(params (string NodeId, string Url)[] topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
 
     /// <summary>
     /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
@@ -156,6 +175,7 @@ public abstract class SmokeTestBase : IDisposable
         }
 
         var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
+        var clusterHttpHandler = mtlsMaterial is { Enabled: true } ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial) : LoopbackHttp.CreateHandler();
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -174,7 +194,7 @@ public abstract class SmokeTestBase : IDisposable
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            LoopbackHttp.CreateHandler(),
+            clusterHttpHandler,
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
@@ -185,29 +205,6 @@ public abstract class SmokeTestBase : IDisposable
             cancellationToken);
 
         return new TestNodeHost(app, url, dataDir, persistenceOptionsOverride is not null);
-    }
-
-    /// <summary>
-    /// Gets the next available HTTP URL bound to 127.0.0.1 with a dynamically allocated port.
-    /// </summary>
-    /// <returns>
-    /// A loopback URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
-    /// is reserved from the shared port pool at the time of the call.
-    /// </returns>
-    /// <remarks>
-    /// The port is allocated by the test process and is intended for ephemeral use during integration tests.
-    /// Callers should bind immediately to minimize races with other processes.
-    /// </remarks>
-    protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
-
-    /// <summary>
-    /// Gets listen URLs for a node bound on all interfaces (<c>0.0.0.0</c>) and scraped via loopback.
-    /// </summary>
-    /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
-    protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
-    {
-        var port = PortPool.Allocate();
-        return ($"https://0.0.0.0:{port}", $"https://127.0.0.1:{port}");
     }
 
     /// <summary>
@@ -223,6 +220,25 @@ public abstract class SmokeTestBase : IDisposable
             MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
             MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
         });
+
+    /// <summary>
+    /// Gets listen URLs for a node bound on all interfaces (<c>0.0.0.0</c>) and scraped via loopback.
+    /// </summary>
+    /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
+    protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
+    {
+        var port = PortPool.Allocate();
+        return ($"https://0.0.0.0:{port}", $"https://127.0.0.1:{port}");
+    }
+
+    /// <summary>
+    /// Allocates a unique HTTP URL for the next node using the shared port pool.
+    /// </summary>
+    /// <returns>
+    /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
+    /// is a free port reserved from the shared pool.
+    /// </returns>
+    protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
 
     /// <summary>
     /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.

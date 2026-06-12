@@ -26,11 +26,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
     {
         var urlA = GetNextHttpUrl();
         var urlB = GetNextHttpUrl();
-        var peers = new[]
-        {
-            new Peer { NodeId = "node-a", Url = urlA },
-            new Peer { NodeId = "node-b", Url = urlB },
-        };
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
