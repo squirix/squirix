@@ -52,20 +52,22 @@ public static class ExportedTypeReflection
         if (indexParameters.Length > 0)
         {
             var indexSignature = string.Join(",", indexParameters.Select(static parameter => FormatTypeName(parameter.ParameterType)));
+            var propertyType = FormatTypeName(property.PropertyType);
             if (property.GetMethod?.IsPublic == true)
-                yield return "P:" + declaring + "::this[" + indexSignature + "].get";
+                yield return "P:" + declaring + "::this[" + indexSignature + "]:" + propertyType + ".get";
 
             if (property.SetMethod?.IsPublic == true)
-                yield return "P:" + declaring + "::this[" + indexSignature + "].set";
+                yield return "P:" + declaring + "::this[" + indexSignature + "]:" + propertyType + ".set";
 
             yield break;
         }
 
+        var typeName = FormatTypeName(property.PropertyType);
         if (property.GetMethod?.IsPublic == true)
-            yield return "P:" + declaring + "::" + property.Name + ".get";
+            yield return "P:" + declaring + "::" + property.Name + ":" + typeName + ".get";
 
         if (property.SetMethod?.IsPublic == true)
-            yield return "P:" + declaring + "::" + property.Name + ".set";
+            yield return "P:" + declaring + "::" + property.Name + ":" + typeName + ".set";
     }
 
     private static string FormatTypeIdentity(Type type)
