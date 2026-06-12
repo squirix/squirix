@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
 using Squirix.Server.TestKit.Cluster;
+using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;
@@ -16,6 +15,8 @@ namespace Squirix.E2ETests.Infrastructure;
 /// </summary>
 internal sealed class E2ECluster : IAsyncDisposable
 {
+    private static readonly PortAllocator PrimaryPortPool = CreatePrimaryPortAllocator();
+
     private readonly List<E2EClientHandle> _clients = [];
     private readonly MtlsTestContext? _mtls;
     private readonly Dictionary<string, E2ENode> _nodes;
@@ -83,11 +84,10 @@ internal sealed class E2ECluster : IAsyncDisposable
         _mtls?.Dispose();
     }
 
-    private static int AllocatePort()
+    private static PortAllocator CreatePrimaryPortAllocator()
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        var start = 40000 + ((Environment.ProcessId % 200) * 20);
+        return new PortAllocator(start, start + 199);
     }
 
     private static string BuildDataDir(string nodeId, string? testName)
@@ -99,7 +99,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         return target;
     }
 
-    private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
+    private static string GetNextHttpUrl() => $"https://127.0.0.1:{PrimaryPortPool.Allocate()}";
 
     private static async ValueTask<E2ECluster> StartAsync(
         string[] nodeIds,
