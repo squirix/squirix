@@ -13,12 +13,17 @@ public sealed class TestNodeHostStartOptions
     public string? DataDir { get; init; }
 
     /// <summary>
-    /// Gets optional per-node security settings.
-    /// </summary>
-    public TestNodeSecurityOptions? Security { get; init; }
-
-    /// <summary>
     /// Gets shared cluster mTLS context for multi-node topologies in the same test case.
     /// </summary>
     public MtlsTestContext? Mtls { get; init; }
+
+    /// <summary>
+    /// Gets the inter-node mTLS profile for this node in negative-path cluster tests.
+    /// </summary>
+    public MtlsTestNodeProfile MtlsProfile { get; init; } = MtlsTestNodeProfile.Normal;
+
+    /// <summary>
+    /// Gets optional per-node security settings.
+    /// </summary>
+    public TestNodeSecurityOptions? Security { get; init; }
 }
