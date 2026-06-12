@@ -4,15 +4,15 @@ This repository includes two Dockerfiles and sample `docker-compose` files for r
 
 Contents:
 
-- `Dockerfile.dev`: multi-stage build from repository sources (matches the current checkout)
-- `Dockerfile.release`: installs `squirix-server` from the `squirix.server.tool` NuGet package
+- `docker/Dockerfile`: multi-stage build from repository sources (matches the current checkout)
+- `docker/Dockerfile.release`: installs `squirix-server` from the `squirix.server.tool` NuGet package
 - `Squirix.Server.Host`: standalone server executable that starts a node and waits
-- `docker/docker-compose.yml`: two-node example (dev image)
+- `docker/docker-compose.yml`: two-node example (sources image)
 - `docker/docker-compose.release.yml`: two-node example (release image, local package drop)
 - `docker/node-a/Squirix.settings.json`
 - `docker/node-b/Squirix.settings.json`
 
-## Build (dev — from sources)
+## Build (from sources)
 
 ```powershell
 cd docker
@@ -22,7 +22,7 @@ docker compose build
 Or from the repository root:
 
 ```powershell
-docker build -f Dockerfile.dev -t squirix-server:dev .
+docker build -f docker/Dockerfile -t squirix-server .
 ```
 
 ## Build (release — from NuGet tool)
@@ -30,7 +30,7 @@ docker build -f Dockerfile.dev -t squirix-server:dev .
 Published releases (nuget.org):
 
 ```powershell
-docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.4 .
 ```
 
 Verify a not-yet-published tool package locally:
@@ -38,7 +38,7 @@ Verify a not-yet-published tool package locally:
 ```powershell
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
-docker build -f Dockerfile.release -t squirix-server:local `
+docker build -f docker/Dockerfile.release -t squirix-server:local `
   --build-arg LOCAL_PACKAGES=true `
   --build-arg SQUIRIX_VERSION=0.1.0-preview.4 .
 ```
@@ -54,7 +54,7 @@ docker compose -f docker-compose.release.yml build
 
 ## Run
 
-Dev cluster (sets docker dev JWT env vars for both nodes; containers run with `Production` hosting environment):
+Two-node cluster (sets sample JWT env vars for both nodes; containers run with `Production` hosting environment):
 
 ```powershell
 cd docker
@@ -64,7 +64,7 @@ docker compose up -d
 For a single local development node (ephemeral, in-memory):
 
 ```powershell
-docker build -f Dockerfile.dev -t squirix-server .
+docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
@@ -100,9 +100,9 @@ Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squi
 
 ## HTTPS in containers
 
-Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (password `dev-docker-cert`) with SANs for
-`localhost`, `squirix-node-a`, `squirix-node-b`, and the release compose container names. Kestrel loads it via
-`ASPNETCORE_Kestrel__Certificates__Default__Path` and `ASPNETCORE_Kestrel__Certificates__Default__Password`.
+Images bundle a self-signed development PFX at `/https/aspnetapp.pfx` (no export password) with SANs for `localhost`,
+`squirix-node-a`, `squirix-node-b`, and the release compose container names. Kestrel loads it via
+`ASPNETCORE_Kestrel__Certificates__Default__Path`.
 
 Use `curl -k` (or equivalent TLS skip/validation override) from the host. For .NET clients on the host, either trust the
 exported cert or use development-only certificate validation overrides.
@@ -131,8 +131,9 @@ Health and metrics:
 ## Multi-node inter-node mTLS
 
 The two-node compose layouts configure **external** JWT auth and a **primary** HTTPS listener (container port **5000**).
-When `Peers[]` lists remote nodes, Squirix also requires **cluster mTLS** environment variables and mounted certificate
-files. Squirix does not generate production certificates; mount test or PKI-issued material read-only.
+When `Peers[]` lists remote nodes, Squirix also requires **cluster mTLS** environment variables. The sample compose files
+set `SQUIRIX_CLUSTER_MTLS_*` to **development-only** certificates baked into the image at `/mtls/` (`CN` matches each
+node's `Cluster.NodeId`: `A` and `B` in the mounted settings). Squirix does not generate production certificates.
 
 Example additions per service (adjust paths to match your image layout):
 
@@ -150,7 +151,8 @@ Use the **same internal port number on every node** (here `5100`). It must diffe
 (`5000` in the sample settings). Peers connect to `https://<service-host>:5100` on the Docker network. Generate dev
 certificates with OpenSSL as described in [security/inter-node-mtls.md](security/inter-node-mtls.md#local-and-development-clusters).
 
-Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH`; do not add ad hoc certificate validation overrides.
+Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and ensure each mounted node certificate
+`CN` matches that container's `Cluster.NodeId`; do not add ad hoc certificate validation overrides.
 
 ## Security
 

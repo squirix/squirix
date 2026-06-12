@@ -20,7 +20,7 @@ Environment variable reference: [configuration.md](../configuration.md#environme
 | Surface | Listener | Client identity | Typical caller |
 | --- | --- | --- | --- |
 | External cache API | Primary `Cluster.Url` port | JWT bearer (when auth is enabled) | Application SDK, operators |
-| Inter-node forwarding | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | mTLS client certificate chained to cluster CA | Other Squirix nodes |
+| Inter-node forwarding | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | mTLS client certificate (`CN` = peer `NodeId`, cluster CA) | Other Squirix nodes |
 
 Reasons for the split:
 
@@ -45,21 +45,34 @@ Multi-node settings must use **HTTPS** `Cluster.Url` values. Plaintext `http://`
 
 1. Operate a **cluster CA** (or subordinate CA) through your PKI — for example an internal CA, cert-manager, or cloud
    private CA. Squirix only needs the PEM trust anchor at `SQUIRIX_CLUSTER_MTLS_CA_PATH`.
-2. Issue a **unique node certificate** per Squirix node, signed by that CA. Store the private key in a secret manager
-   or mounted volume.
+2. Issue a **unique node certificate** per Squirix node, signed by that CA. The certificate **common name (CN)** must
+   equal that node's `Cluster.NodeId` (the same string as in `Peers[].NodeId`). Store the private key in a secret
+   manager or mounted volume.
 3. Configure **the same internal port number on every node** (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`). It must differ from
    the primary listener port on each node. Outbound peer connections target `https://<peer-host>:<internal-port>`.
 4. Configure **JWT/OIDC** for external clients on the primary listener using the existing `SQUIRIX_JWT_*` variables.
 5. Rotate node certificates before expiry using your PKI workflow (see [Certificate rotation](#certificate-rotation-high-level)).
 
-Squirix validates peer certificates by building a chain to the configured cluster CA (`CustomRootTrust`). It does
-**not** consult the machine trust store for inter-node validation.
+Squirix validates inter-node certificates in two steps:
+
+1. **Trust** — build a chain to the configured cluster CA (`CustomRootTrust`), independent of the machine trust store.
+2. **Identity** — require the certificate **CN** to match the expected cluster `NodeId` (ordinal string comparison).
+
+At **startup**, loading fails when the local node certificate CN does not match `Cluster.NodeId`. On the **internal
+listener**, inbound client certificates must chain to the cluster CA and present a CN equal to one of the configured
+remote peer `NodeId` values. On **outbound** `ClientPool` calls, the peer server certificate must chain to the cluster
+CA and its CN must equal the target peer's `NodeId`. A valid cluster CA signature alone is not sufficient when the CN
+does not match the expected node identity.
+
+Squirix reads certificate identity from the **subject CN** (`X509NameType.SimpleName`). SANs and other name forms are
+not used for inter-node peer binding in v0.1.
 
 ### What Squirix does not support
 
 - Trusting arbitrary self-signed certificates without an explicit cluster CA file at `SQUIRIX_CLUSTER_MTLS_CA_PATH`.
 - Global `ServerCertificateCustomValidationCallback` overrides in product configuration.
 - Using Squirix as the production certificate authority.
+- Accepting a peer certificate that chains to the cluster CA but presents a different node's `NodeId` in the CN.
 
 ## Configuration
 
@@ -74,8 +87,8 @@ Cluster mTLS is configured only through environment variables (also used by cont
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH` | PEM node private key |
 | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | Dedicated internal HTTPS listener for inter-node gRPC mTLS |
 
-Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing or when
-the internal port equals the primary port.
+Provide **either** a PFX **or** PEM cert + key, not both. Startup validation fails fast when files are missing, when
+the internal port equals the primary port, or when the loaded node certificate CN does not match `Cluster.NodeId`.
 
 The primary Kestrel certificate (ASP.NET Core development certificate, `ASPNETCORE_Kestrel__Certificates__Default__*`
 in containers, or your ingress TLS termination) is **independent** from cluster mTLS material.
@@ -83,10 +96,10 @@ in containers, or your ingress TLS termination) is **independent** from cluster 
 Optional `Peer.InterNodeUrl` in settings overrides the computed internal URL for advanced topologies; when omitted,
 peers are reached at the same host as `Peer.Url` with the configured internal port.
 
-## Relationship to inter-node JWT ([#102](https://github.com/squirix/squirix/issues/102))
+## Inter-node JWT (not used)
 
-[Issue #102](https://github.com/squirix/squirix/issues/102) tracks optional inter-node JWT propagation for clustered
-forwarding. The implemented v0.1 model uses **mTLS on the internal listener** instead:
+Inter-node JWT propagation is **not** part of the product model. Cluster forwarding uses **mTLS on the internal
+listener** instead:
 
 - Forwarding nodes present a **trusted client certificate** on the internal transport.
 - The internal gRPC surface allows anonymous authorization policy because **TLS client authentication** is the gate.
@@ -94,12 +107,10 @@ forwarding. The implemented v0.1 model uses **mTLS on the internal listener** in
 - External callers still need JWT (when auth is enabled) on the **primary** listener; they cannot satisfy internal
   forwarding checks with JWT alone.
 
-If inter-node JWT is added in the future, it would complement — not replace — explicit cluster trust roots for
-machine identity.
-
 ## Certificate rotation (high level)
 
-1. Issue replacement node certificates from the same cluster CA (or migrate to a new CA deliberately).
+1. Issue replacement node certificates from the same cluster CA (or migrate to a new CA deliberately). Each
+   replacement certificate must keep `CN` equal to the node's `Cluster.NodeId`.
 2. Distribute new PFX/PEM files to each node (rolling update).
 3. Restart nodes one at a time. Peers must trust the same CA during the rollout.
 4. Revoke or retire old certificates in your PKI when no node presents them.
@@ -113,8 +124,8 @@ Use **test-only** certificates that are never copied into production examples.
 
 ### Generate a local test CA and node certificates (OpenSSL)
 
-The commands below create a dev CA and two node certificates. Adjust paths, passwords, and distinguished names for your
-environment.
+The commands below create a dev CA and two node certificates with `CN=node-a` and `CN=node-b`. Those CNs must match
+`Cluster.NodeId` / `Peers[].NodeId` in settings. Adjust paths, passwords, and distinguished names for your environment.
 
 ```powershell
 # Dev-only — do not use in production

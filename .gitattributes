@@ -29,8 +29,8 @@
 *.mdc text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
-Dockerfile text eol=lf
-Dockerfile.* text eol=lf
+docker/Dockerfile text eol=lf
+docker/Dockerfile.release text eol=lf
 LICENSE text eol=lf
 
 *.png binary

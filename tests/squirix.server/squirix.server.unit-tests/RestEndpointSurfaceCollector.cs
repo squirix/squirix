@@ -26,7 +26,8 @@ internal static class RestEndpointSurfaceCollector
 
     private static WebApplication BuildProductionHost()
     {
-        var port = new PortAllocator(31000, 31999).Allocate();
+        using var allocator = new PortAllocator(31000, 31999);
+        var port = allocator.Allocate();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {

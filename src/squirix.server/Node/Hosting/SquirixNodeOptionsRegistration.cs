@@ -36,10 +36,7 @@ internal static class SquirixNodeOptionsRegistration
                 var registeredCluster = provider.GetRequiredService<ClusterConfig>();
                 var options = provider.GetRequiredService<MtlsOptions>();
                 var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : (int?)null;
-                return MtlsCertificateMaterial.Load(
-                    options,
-                    primaryListenPort,
-                    MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+                return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster), registeredCluster.NodeId);
             });
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
@@ -47,9 +44,7 @@ internal static class SquirixNodeOptionsRegistration
 
         if (persistenceOptionsOverride is not null)
         {
-            var dataDir = string.IsNullOrWhiteSpace(persistenceOptionsOverride.DataDir)
-                ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId)
-                : persistenceOptionsOverride.DataDir;
+            var dataDir = string.IsNullOrWhiteSpace(persistenceOptionsOverride.DataDir) ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId) : persistenceOptionsOverride.DataDir;
             var persistence = persistenceOptionsOverride with { DataDir = dataDir };
 
             AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
@@ -113,7 +108,10 @@ internal static class SquirixNodeOptionsRegistration
     private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
         where TOptions : class
     {
-        public StaticOptionsMonitor(TOptions value) => CurrentValue = value;
+        public StaticOptionsMonitor(TOptions value)
+        {
+            CurrentValue = value;
+        }
 
         public TOptions CurrentValue { get; }
 

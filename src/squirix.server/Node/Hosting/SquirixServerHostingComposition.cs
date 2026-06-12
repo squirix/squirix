@@ -31,15 +31,13 @@ internal static class SquirixServerHostingComposition
         ArgumentNullException.ThrowIfNull(options);
 
         var cluster = SquirixServerConfiguration.ToClusterConfig(options);
-        ConfigureBuilder(
-            builder,
-            cluster,
-            options.WaitForRecovery,
-            persistenceOptionsOverride: ResolvePersistenceOptions(options),
-            extensions: extensions);
+        ConfigureBuilder(builder, cluster, options.WaitForRecovery, persistenceOptionsOverride: ResolvePersistenceOptions(options), extensions: extensions);
     }
 
-    [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
+    [SuppressMessage(
+        "Microsoft.Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
     public static void ConfigureBuilder(
         WebApplicationBuilder builder,
         ClusterConfig cluster,
@@ -49,7 +47,7 @@ internal static class SquirixServerHostingComposition
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
         PersistenceOptions? persistenceOptionsOverride = null,
-        HttpMessageHandler? httpHandlerOverride = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
@@ -67,9 +65,8 @@ internal static class SquirixServerHostingComposition
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
         var mtlsOptions = mtlsOptionsOverride ?? MtlsOptionsResolver.ResolveFromEnvironment();
-        var mtlsMaterial = mtlsMaterialOverride
-            ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls);
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, mtlsOptions, mtlsMaterial);
+        var mtlsMaterial = mtlsMaterialOverride ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
 
         _ = builder.Services.AddSquirixValidatedOptions(
             cluster,
@@ -77,10 +74,10 @@ internal static class SquirixServerHostingComposition
             backpressureOptions,
             persistenceOptionsOverride,
             memoryPressureOptions,
-            mtlsOptionsOverride: mtlsOptions,
-            mtlsMaterialOverride: mtlsMaterial);
+            mtlsOptions,
+            mtlsMaterial);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
-        _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, httpHandlerOverride);
+        _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, peerHandlerFactory);
         if (persistenceEnabled)
             _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
 
@@ -126,6 +123,15 @@ internal static class SquirixServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
+    private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
+    {
+        _ = app.MapSquirixEndpoints(authEnabled);
+        var extensions = app.Services.GetService<SquirixServerExtensionOptions>();
+        extensions?.MapEndpoints?.Invoke(app);
+        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
+        return app;
+    }
+
     private static PersistenceOptions? ResolvePersistenceOptions(SquirixServerOptions options)
     {
         if (!options.PersistenceEnabled)
@@ -139,15 +145,6 @@ internal static class SquirixServerHostingComposition
                 SnapshotIntervalSec = 60,
             }
             : new PersistenceOptions { DataDir = options.DataDirectory };
-    }
-
-    private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
-    {
-        _ = app.MapSquirixEndpoints(authEnabled);
-        var extensions = app.Services.GetService<SquirixServerExtensionOptions>();
-        extensions?.MapEndpoints?.Invoke(app);
-        extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
-        return app;
     }
 
     private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);

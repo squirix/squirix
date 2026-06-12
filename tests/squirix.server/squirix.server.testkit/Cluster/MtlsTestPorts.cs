@@ -9,13 +9,6 @@ internal static class MtlsTestPorts
     private static readonly PortAllocator Allocator = new(52000, 55999);
 
     /// <summary>
-    /// Allocates a dedicated internal listener port that differs from the primary HTTPS port.
-    /// </summary>
-    /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
-    /// <returns>An internal listener port for cluster mTLS.</returns>
-    public static int AllocateInternalPort(int primaryListenPort) => AllocateInternalPort([primaryListenPort]);
-
-    /// <summary>
     /// Allocates a dedicated internal listener port that differs from all excluded primary ports.
     /// </summary>
     /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
@@ -24,20 +17,11 @@ internal static class MtlsTestPorts
     {
         ArgumentNullException.ThrowIfNull(excludedPorts);
 
+        var excludedPortSet = new HashSet<int>(excludedPorts);
         for (var attempt = 0; attempt < 64; attempt++)
         {
             var port = Allocator.Allocate();
-            var isExcluded = false;
-            foreach (var excludedPort in excludedPorts)
-            {
-                if (excludedPort == port)
-                {
-                    isExcluded = true;
-                    break;
-                }
-            }
-
-            if (!isExcluded)
+            if (!excludedPortSet.Contains(port))
                 return port;
         }
 

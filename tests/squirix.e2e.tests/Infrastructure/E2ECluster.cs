@@ -86,7 +86,8 @@ internal sealed class E2ECluster : IAsyncDisposable
 
     private static PortAllocator CreatePrimaryPortAllocator()
     {
-        var start = 40000 + ((Environment.ProcessId % 200) * 20);
+        var processId = Environment.ProcessId % 200;
+        var start = 40000 + (processId * 20);
         return new PortAllocator(start, start + 199);
     }
 

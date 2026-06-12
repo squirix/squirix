@@ -49,8 +49,9 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
+    /// <param name="localNodeId">Configured cluster node identifier; required when inter-node mTLS is enabled.</param>
     /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
-    public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls)
+    public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate(primaryListenPort, requiresInterNodeMtls);
@@ -58,9 +59,13 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         if (!requiresInterNodeMtls)
             return Disabled;
 
+        if (string.IsNullOrWhiteSpace(localNodeId))
+            throw new InvalidOperationException("Cluster NodeId is required to load inter-node mTLS certificate material.");
+
         var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
         var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
         MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
+        MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
         return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
     }
 

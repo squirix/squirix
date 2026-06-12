@@ -50,9 +50,12 @@ internal static class ClusterRuntimeServiceRegistration
         /// </summary>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory; defaults to a conservative remote policy.</param>
-        /// <param name="httpHandlerOverride">Optional HTTP handler override for pooled gRPC channels.</param>
+        /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory for pooled gRPC channels.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        public IServiceCollection AddSquirixClusterServices(ClusterConfig cluster, Func<string, CallPolicy>? callPolicyFactory, HttpMessageHandler? httpHandlerOverride)
+        public IServiceCollection AddSquirixClusterServices(
+            ClusterConfig cluster,
+            Func<string, CallPolicy>? callPolicyFactory,
+            Func<string, HttpMessageHandler>? peerHandlerFactory)
         {
             _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
@@ -66,14 +69,14 @@ internal static class ClusterRuntimeServiceRegistration
                 var material = sp.GetRequiredService<MtlsCertificateMaterial>();
                 var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
                 var interNodeMtlsEnabled = material.Enabled;
-                var handler = httpHandlerOverride ?? (interNodeMtlsEnabled ? GrpcTransportEndpoints.CreateMtlsHandler(material) : null);
                 return new ClientPool(
                     cluster.Peers,
                     callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),
-                    handler,
+                    peerHandlerFactory,
                     sp.GetRequiredService<Correlation.ClientInterceptor>(),
                     internalOwnerInterceptor: interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
                     mtlsOptions: mtlsOptions,
+                    mtlsMaterial: material,
                     interNodeMtlsEnabled: interNodeMtlsEnabled);
             });
 

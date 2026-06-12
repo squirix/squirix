@@ -22,7 +22,7 @@ internal static class MtlsTestCertificateFactory
         var ca = caRequest.CreateSelfSigned(notBefore, notAfter);
 
         using var nodeKey = RSA.Create(2048);
-        var nodeRequest = new CertificateRequest("CN=squirix-node-a", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var nodeRequest = new CertificateRequest("CN=node-a", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         nodeRequest.AddClusterNodeExtensions();
         var nodePublic = nodeRequest.Create(ca, ca.NotBefore, ca.NotAfter, Guid.NewGuid().ToByteArray());
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
@@ -30,11 +30,7 @@ internal static class MtlsTestCertificateFactory
         return new MtlsTestCertificateBundle(directory, ca, nodeCertificate);
     }
 
-    public static X509Certificate2 CreatePeerCertificate(
-        X509Certificate2 ca,
-        string commonName,
-        DateTimeOffset? notBefore = null,
-        DateTimeOffset? notAfter = null)
+    public static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
     {
         ArgumentNullException.ThrowIfNull(ca);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);

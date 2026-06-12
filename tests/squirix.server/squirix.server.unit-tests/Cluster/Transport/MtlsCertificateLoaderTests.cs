@@ -13,15 +13,24 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class MtlsCertificateLoaderTests
 {
     /// <summary>
-    /// Ensures standalone topology returns an empty material instance.
+    /// Ensures PEM loading works for trusted test certificates.
     /// </summary>
     [Fact]
-    public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
+    public void LoadLoadsPemBackedNodeCertificateAndTrustAnchor()
     {
-        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
+        using var bundle = MtlsTestCertificateFactory.Create();
+        var options = new MtlsOptions
+        {
+            CaPath = bundle.CaPath,
+            CertPath = bundle.CertPath,
+            KeyPath = bundle.KeyPath,
+            InternalListenPort = 6102,
+        };
 
-        Assert.Same(MtlsCertificateMaterial.Disabled, material);
-        Assert.False(material.Enabled);
+        using var material = MtlsCertificateMaterial.Load(options, 6001, true, "node-a");
+
+        Assert.True(material.Enabled);
+        Assert.True(material.NodeCertificate!.HasPrivateKey);
     }
 
     /// <summary>
@@ -38,33 +47,12 @@ public sealed class MtlsCertificateLoaderTests
             InternalListenPort = 6101,
         };
 
-        using var material = MtlsCertificateMaterial.Load(options, 6001, true);
+        using var material = MtlsCertificateMaterial.Load(options, 6001, true, "node-a");
 
         Assert.True(material.Enabled);
         Assert.NotNull(material.NodeCertificate);
         Assert.NotNull(material.TrustAnchor);
         Assert.True(material.NodeCertificate.HasPrivateKey);
-    }
-
-    /// <summary>
-    /// Ensures PEM loading works for trusted test certificates.
-    /// </summary>
-    [Fact]
-    public void LoadLoadsPemBackedNodeCertificateAndTrustAnchor()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-        var options = new MtlsOptions
-        {
-            CaPath = bundle.CaPath,
-            CertPath = bundle.CertPath,
-            KeyPath = bundle.KeyPath,
-            InternalListenPort = 6102,
-        };
-
-        using var material = MtlsCertificateMaterial.Load(options, 6001, true);
-
-        Assert.True(material.Enabled);
-        Assert.True(material.NodeCertificate!.HasPrivateKey);
     }
 
     /// <summary>
@@ -76,10 +64,27 @@ public sealed class MtlsCertificateLoaderTests
         using var bundle = MtlsTestCertificateFactory.Create();
         using var certOnly = X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath);
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca));
+        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca));
 
         Assert.Contains("private key", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Ensures node certificates with a mismatched common name are rejected at startup.
+    /// </summary>
+    [Fact]
+    public void LoadRejectsNodeCertificateWithMismatchedNodeId()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        var options = new MtlsOptions
+        {
+            CaPath = bundle.CaPath,
+            CertPfxPath = bundle.PfxPath,
+            InternalListenPort = 6104,
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "node-b"));
+        Assert.Contains("does not match configured NodeId", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -105,7 +110,19 @@ public sealed class MtlsCertificateLoaderTests
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true));
+        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "node-a"));
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Ensures standalone topology returns an empty material instance.
+    /// </summary>
+    [Fact]
+    public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
+    {
+        var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
+
+        Assert.Same(MtlsCertificateMaterial.Disabled, material);
+        Assert.False(material.Enabled);
     }
 }

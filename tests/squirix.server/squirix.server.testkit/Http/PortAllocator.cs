@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -10,13 +11,15 @@ namespace Squirix.Server.TestKit.Http;
 /// Port allocator with process-wide synchronization and bind probes to reduce collisions.
 /// Note: still TOCTOU across processes; use different ranges per process to avoid conflicts.
 /// </summary>
-public sealed class PortAllocator
+public sealed class PortAllocator : IDisposable
 {
     // Process-wide reservation to avoid duplicates between allocators inside one process
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
+    private readonly List<int> _allocatedPorts = [];
     private readonly int _endInclusive;
     private readonly int _rangeSize;
     private readonly int _start;
+    private bool _disposed;
     private int _next; // rolling cursor
 
     /// <summary>
@@ -82,6 +85,8 @@ public sealed class PortAllocator
     /// </example>
     public int Allocate(int maxAttempts = 3_000)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var candidate = NextCandidate();
@@ -93,6 +98,7 @@ public sealed class PortAllocator
             if (ProbeBind(candidate))
             {
                 // Port appears free (bind succeeded and released)
+                _allocatedPorts.Add(candidate);
                 return candidate;
             }
 
@@ -101,6 +107,19 @@ public sealed class PortAllocator
         }
 
         throw new InvalidOperationException($"Failed to allocate a free port in range {_start}-{_endInclusive} after {maxAttempts} attempts.");
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        foreach (var port in _allocatedPorts)
+            _ = Reserved.TryRemove(port, out _);
+
+        _allocatedPorts.Clear();
+        _disposed = true;
     }
 
     private static bool ProbeBind(int port)

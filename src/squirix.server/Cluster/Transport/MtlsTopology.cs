@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -8,6 +9,27 @@ namespace Squirix.Server.Cluster.Transport;
 /// </summary>
 internal static class MtlsTopology
 {
+    /// <summary>
+    /// Returns configured remote peer node identifiers for inbound inter-node certificate checks.
+    /// </summary>
+    /// <param name="cluster">Cluster topology configuration.</param>
+    /// <returns>Remote peer node identifiers excluding the local node.</returns>
+    public static string[] GetRemotePeerNodeIds(ClusterConfig cluster)
+    {
+        ArgumentNullException.ThrowIfNull(cluster);
+
+        var peers = cluster.Peers;
+        var remotePeerNodeIds = new List<string>(peers.Length);
+
+        for (var i = 0; i < peers.Length; i++)
+        {
+            if (!string.Equals(peers[i].NodeId, cluster.NodeId, StringComparison.Ordinal))
+                remotePeerNodeIds.Add(peers[i].NodeId);
+        }
+
+        return [.. remotePeerNodeIds];
+    }
+
     /// <summary>
     /// Returns whether the configured topology performs inter-node traffic that requires mTLS.
     /// </summary>

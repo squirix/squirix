@@ -12,26 +12,41 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class MtlsClientCertificateValidatorTests
 {
     /// <summary>
-    /// Ensures missing client certificates are rejected.
-    /// </summary>
-    [Fact]
-    public void ValidateRejectsMissingClientCertificate()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-
-        Assert.False(MtlsClientCertificateValidator.Validate(null, bundle.Ca));
-    }
-
-    /// <summary>
     /// Ensures client certificates signed by the cluster CA are accepted.
     /// </summary>
     [Fact]
     public void ValidateAcceptsCertificateSignedByClusterCa()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
+    }
+
+    /// <summary>
+    /// Ensures inbound validation accepts configured remote peer identities only.
+    /// </summary>
+    [Fact]
+    public void ValidateForConfiguredRemotePeerAcceptsOnlyConfiguredNodeIds()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+
+        Assert.True(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-b", "node-c"]));
+        Assert.False(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-c"]));
+    }
+
+    /// <summary>
+    /// Ensures expected node identity is enforced for peer certificates.
+    /// </summary>
+    [Fact]
+    public void ValidateForExpectedNodeIdRejectsMismatchedIdentity()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+
+        Assert.True(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-b"));
+        Assert.False(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-c"));
     }
 
     /// <summary>
@@ -42,7 +57,7 @@ public sealed class MtlsClientCertificateValidatorTests
     {
         using var bundle = MtlsTestCertificateFactory.Create();
         using var otherCa = CreateStandaloneCa("CN=Other CA");
-        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "peer-node-b");
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "node-b");
 
         Assert.False(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
     }
@@ -56,9 +71,20 @@ public sealed class MtlsClientCertificateValidatorTests
         using var bundle = MtlsTestCertificateFactory.Create();
         var notBefore = bundle.Ca.NotBefore;
         var notAfter = notBefore.AddHours(1);
-        using var expiredCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
+        using var expiredCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
 
         Assert.False(MtlsClientCertificateValidator.Validate(expiredCertificate, bundle.Ca));
+    }
+
+    /// <summary>
+    /// Ensures missing client certificates are rejected.
+    /// </summary>
+    [Fact]
+    public void ValidateRejectsMissingClientCertificate()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+
+        Assert.False(MtlsClientCertificateValidator.Validate(null, bundle.Ca));
     }
 
     private static X509Certificate2 CreateStandaloneCa(string distinguishedName)

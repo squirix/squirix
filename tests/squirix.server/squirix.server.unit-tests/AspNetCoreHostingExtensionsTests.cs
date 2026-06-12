@@ -30,7 +30,8 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var marker = new ExtensionMarker();
-        var port = new PortAllocator(27000, 27999).Allocate();
+        using var allocator = new PortAllocator(27000, 27999);
+        var port = allocator.Allocate();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -61,7 +62,8 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         bool? authEnabled = null;
-        var port = new PortAllocator(29000, 29999).Allocate();
+        using var allocator = new PortAllocator(29000, 29999);
+        var port = allocator.Allocate();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -86,7 +88,8 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
-        var port = new PortAllocator(25000, 25999).Allocate();
+        using var allocator = new PortAllocator(25000, 25999);
+        var port = allocator.Allocate();
 
         _ = builder.AddSquirixServer(
             options =>
@@ -118,7 +121,8 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var callbackCount = 0;
-        var port = new PortAllocator(28000, 28999).Allocate();
+        using var allocator = new PortAllocator(28000, 28999);
+        var port = allocator.Allocate();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -145,7 +149,8 @@ public sealed class AspNetCoreHostingExtensionsTests
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        var port = new PortAllocator(26000, 26999).Allocate();
+        using var allocator = new PortAllocator(26000, 26999);
+        var port = allocator.Allocate();
         var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions

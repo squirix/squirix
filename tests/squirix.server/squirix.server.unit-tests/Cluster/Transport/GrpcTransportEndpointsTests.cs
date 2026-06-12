@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Cluster.Transport;
@@ -13,10 +14,10 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class GrpcTransportEndpointsTests
 {
     /// <summary>
-    /// Ensures disabled cluster mTLS keeps the default HTTPS handler without a client certificate.
+    /// Ensures disabled material keeps the default HTTPS handler without a client certificate.
     /// </summary>
     [Fact]
-    public void CreateChannelHandlerWithoutMtlsUsesDefaultHandler()
+    public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
     {
         using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
 
@@ -24,12 +25,12 @@ public sealed class GrpcTransportEndpointsTests
     }
 
     /// <summary>
-    /// Ensures disabled material keeps the default HTTPS handler without a client certificate.
+    /// Ensures disabled cluster mTLS keeps the default HTTPS handler without a client certificate.
     /// </summary>
     [Fact]
-    public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
+    public void CreateChannelHandlerWithoutMtlsUsesDefaultHandler()
     {
-        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler(MtlsCertificateMaterial.Disabled);
+        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
 
         Assert.Null(handler.SslOptions.ClientCertificates);
     }
@@ -49,52 +50,14 @@ public sealed class GrpcTransportEndpointsTests
                 InternalListenPort = 6101,
             },
             6001,
-            true);
+            true,
+            "node-a");
 
-        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material);
+        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material, "node-b");
 
         Assert.NotNull(handler.SslOptions.ClientCertificates);
         var clientCertificate = Assert.Single(handler.SslOptions.ClientCertificates);
         Assert.Equal(material.NodeCertificate, clientCertificate);
-    }
-
-    /// <summary>
-    /// Ensures peer server certificates signed by the cluster CA are accepted.
-    /// </summary>
-    [Fact]
-    public void ValidatePeerServerCertificateAcceptsCertificateSignedByClusterCa()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
-
-        Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca));
-    }
-
-    /// <summary>
-    /// Ensures peer server certificates signed by an untrusted CA are rejected.
-    /// </summary>
-    [Fact]
-    public void ValidatePeerServerCertificateRejectsCertificateSignedByUntrustedCa()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-        using var untrustedCa = CreateStandaloneCa("CN=Other CA");
-        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "peer-node-b");
-
-        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca));
-    }
-
-    /// <summary>
-    /// Ensures expired peer server certificates are rejected.
-    /// </summary>
-    [Fact]
-    public void ValidatePeerServerCertificateRejectsExpiredCertificate()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-        var notBefore = bundle.Ca.NotBefore;
-        var notAfter = notBefore.AddHours(1);
-        using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
-
-        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -112,11 +75,63 @@ public sealed class GrpcTransportEndpointsTests
                 InternalListenPort = 6102,
             },
             6001,
-            true);
-        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material);
+            true,
+            "node-a");
+        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material, "node-b");
         var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
 
-        Assert.False(callback(this, null, null, sslPolicyErrors: System.Net.Security.SslPolicyErrors.None));
+        Assert.False(callback(this, null, null, SslPolicyErrors.None));
+    }
+
+    /// <summary>
+    /// Ensures peer server certificates signed by the cluster CA are accepted for the expected peer.
+    /// </summary>
+    [Fact]
+    public void ValidatePeerServerCertificateAcceptsCertificateSignedByClusterCa()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+
+        Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-b"));
+    }
+
+    /// <summary>
+    /// Ensures peer server certificates signed by an untrusted CA are rejected.
+    /// </summary>
+    [Fact]
+    public void ValidatePeerServerCertificateRejectsCertificateSignedByUntrustedCa()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var untrustedCa = CreateStandaloneCa("CN=Other CA");
+        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "node-b");
+
+        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-b"));
+    }
+
+    /// <summary>
+    /// Ensures expired peer server certificates are rejected.
+    /// </summary>
+    [Fact]
+    public void ValidatePeerServerCertificateRejectsExpiredCertificate()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        var notBefore = bundle.Ca.NotBefore;
+        var notAfter = notBefore.AddHours(1);
+        using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
+
+        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, bundle.Ca, "node-b"));
+    }
+
+    /// <summary>
+    /// Ensures peer server certificates with the wrong node identity are rejected.
+    /// </summary>
+    [Fact]
+    public void ValidatePeerServerCertificateRejectsMismatchedNodeId()
+    {
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
+
+        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-c"));
     }
 
     private static X509Certificate2 CreateStandaloneCa(string distinguishedName)

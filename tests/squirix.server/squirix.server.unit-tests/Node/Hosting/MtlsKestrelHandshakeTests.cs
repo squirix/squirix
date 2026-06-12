@@ -30,10 +30,11 @@ public sealed class MtlsKestrelHandshakeTests
     public async Task OutboundMtlsHandlerCompletesTlsHandshakeWithInternalListener()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        var internalPort = new PortAllocator(35000, 35999).Allocate();
+        using var allocator = new PortAllocator(35000, 35999);
+        var internalPort = allocator.Allocate();
         await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", TestContext.Current.CancellationToken);
 
-        Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor));
+        Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor, ["node-a"]));
 
         using var tcpClient = new TcpClient();
         await tcpClient.ConnectAsync("127.0.0.1", internalPort, TestContext.Current.CancellationToken);
@@ -128,9 +129,9 @@ public sealed class MtlsKestrelHandshakeTests
         }
 
         private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            SquirixKestrelConfiguration.ValidateClientCertificate(certificate, TrustAnchor);
+            SquirixKestrelConfiguration.ValidateClientCertificate(certificate, TrustAnchor, ["node-a"]);
 
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, TrustAnchor);
+            GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
     }
 }

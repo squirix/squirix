@@ -351,7 +351,7 @@ public static class DirectoryKit
     {
         // Check name without extension
         var name = seg;
-        var dot = seg.IndexOf('.');
+        var dot = seg.IndexOf('.', StringComparison.Ordinal);
         if (dot > 0)
             name = seg[..dot];
 
@@ -390,7 +390,7 @@ public static class DirectoryKit
             throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
 
         // Wildcards typically indicate a glob, not a concrete path
-        if (path.Contains('*') || path.Contains('?'))
+        if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
             throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
     }
 

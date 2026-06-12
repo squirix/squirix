@@ -28,7 +28,7 @@ internal static class SquirixNodeHost
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
         PersistenceOptions? persistenceOptionsOverride = null,
-        HttpMessageHandler? httpHandlerOverride = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
         CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
@@ -55,14 +55,14 @@ internal static class SquirixNodeHost
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            httpHandlerOverride,
+            peerHandlerFactory,
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
             securityOptionsOverride,
             extensions,
-            mtlsOptionsOverride: mtlsOptionsOverride,
-            mtlsMaterialOverride: mtlsMaterialOverride);
+            mtlsOptionsOverride,
+            mtlsMaterialOverride);
 
         var app = builder.Build();
         _ = SquirixServerHostingComposition.MapServer(app);

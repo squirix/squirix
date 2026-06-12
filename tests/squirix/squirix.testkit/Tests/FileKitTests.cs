@@ -10,7 +10,7 @@ namespace Squirix.TestKit.Tests;
 /// <summary>
 /// Unit tests for <see cref="FileKit" />.
 /// </summary>
-internal sealed class FileKitTests : IAsyncLifetime
+public sealed class FileKitTests : IAsyncLifetime
 {
     private string _dir = null!;
 
@@ -20,9 +20,9 @@ internal sealed class FileKitTests : IAsyncLifetime
     [Fact]
     public void ExistsReturnsFalseForMissingFile()
     {
-        var path = PathKit.Combine(_dir, "missing.json");
+        var missing = PathKit.Combine(_dir, "missing.json");
 
-        Assert.False(FileKit.Exists(path));
+        Assert.False(FileKit.Exists(missing));
     }
 
     /// <summary>
@@ -103,7 +103,7 @@ internal sealed class FileKitTests : IAsyncLifetime
     {
         var path = PathKit.Combine(_dir, "data-async.txt");
 
-        await FileKit.WriteAllTextAsync(path, "hello");
+        await FileKit.WriteAllTextAsync(path, "hello").ConfigureAwait(false);
 
         Assert.True(FileKit.Exists(path));
         Assert.Equal(5, FileKit.GetLength(path));

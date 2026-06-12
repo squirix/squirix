@@ -26,7 +26,8 @@ internal static class GrpcEndpointSurfaceCollector
 
     private static WebApplication BuildProductionHost()
     {
-        var port = new PortAllocator(32000, 32999).Allocate();
+        using var allocator = new PortAllocator(32000, 32999);
+        var port = allocator.Allocate();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
