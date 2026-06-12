@@ -35,12 +35,12 @@ public sealed class SquirixKestrelConfigurationTests
     /// Ensures disabled cluster mTLS keeps the primary HTTPS listener configuration buildable.
     /// </summary>
     [Fact]
-    public void ConfigureKestrelWithDisabledClusterMtlsBuildsPrimaryListenerOnly()
+    public void ConfigureKestrelWithStandaloneTopologyBuildsPrimaryListenerOnly()
     {
         var port = new PortAllocator(31000, 31999).Allocate();
         var builder = WebApplication.CreateBuilder();
-        var options = new ClusterMtlsOptions { Enabled = false };
-        var material = ClusterMtlsCertificateMaterial.Load(options);
+        var options = new ClusterMtlsOptions();
+        var material = ClusterMtlsCertificateMaterial.Load(options, port, false);
 
         SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{port}"), options, material);
 
@@ -59,12 +59,11 @@ public sealed class SquirixKestrelConfigurationTests
         var internalPort = new PortAllocator(33000, 33999).Allocate();
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
             InternalListenPort = internalPort,
         };
-        using var material = ClusterMtlsCertificateMaterial.Load(options, primaryPort);
+        using var material = ClusterMtlsCertificateMaterial.Load(options, primaryPort, true);
         var builder = WebApplication.CreateBuilder();
 
         SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{primaryPort}"), options, material);

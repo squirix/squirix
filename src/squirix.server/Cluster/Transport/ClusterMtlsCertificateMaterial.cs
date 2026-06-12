@@ -48,13 +48,14 @@ internal sealed class ClusterMtlsCertificateMaterial : IDisposable
     /// </summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
-    /// <returns>Loaded certificate material.</returns>
-    public static ClusterMtlsCertificateMaterial Load(ClusterMtlsOptions options, int? primaryListenPort = null)
+    /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
+    /// <returns>Loaded certificate material, or <see cref="Disabled"/> when inter-node mTLS is not required.</returns>
+    public static ClusterMtlsCertificateMaterial Load(ClusterMtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls)
     {
         ArgumentNullException.ThrowIfNull(options);
-        options.Validate(primaryListenPort);
+        options.Validate(primaryListenPort, requiresInterNodeMtls);
 
-        if (!options.Enabled)
+        if (!requiresInterNodeMtls)
             return Disabled;
 
         var trustAnchor = ClusterMtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);

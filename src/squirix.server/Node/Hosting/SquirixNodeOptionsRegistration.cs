@@ -32,7 +32,16 @@ internal static class SquirixNodeOptionsRegistration
         AddValidatedInstance<ClusterMtlsOptions, SquirixOptionsValidators.ClusterMtlsOptionsValidator>(services, clusterMtlsOptions);
         _ = clusterMtlsMaterialOverride is not null
             ? services.AddSingleton(clusterMtlsMaterialOverride)
-            : services.AddSingleton(static provider => ClusterMtlsCertificateMaterial.Load(provider.GetRequiredService<ClusterMtlsOptions>()));
+            : services.AddSingleton(static provider =>
+            {
+                var registeredCluster = provider.GetRequiredService<ClusterConfig>();
+                var options = provider.GetRequiredService<ClusterMtlsOptions>();
+                var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : (int?)null;
+                return ClusterMtlsCertificateMaterial.Load(
+                    options,
+                    primaryListenPort,
+                    ClusterMtlsTopology.RequiresInterNodeMtls(registeredCluster));
+            });
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);

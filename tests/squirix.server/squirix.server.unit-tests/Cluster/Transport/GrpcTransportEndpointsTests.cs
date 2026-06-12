@@ -44,11 +44,12 @@ public sealed class GrpcTransportEndpointsTests
         using var material = ClusterMtlsCertificateMaterial.Load(
             new ClusterMtlsOptions
             {
-                Enabled = true,
                 CaPath = bundle.CaPath,
                 CertPfxPath = bundle.PfxPath,
                 InternalListenPort = 6101,
-            });
+            },
+            6001,
+            true);
 
         using var handler = GrpcTransportEndpoints.CreateClusterMtlsHandler(material);
 
@@ -106,11 +107,12 @@ public sealed class GrpcTransportEndpointsTests
         using var material = ClusterMtlsCertificateMaterial.Load(
             new ClusterMtlsOptions
             {
-                Enabled = true,
                 CaPath = bundle.CaPath,
                 CertPfxPath = bundle.PfxPath,
                 InternalListenPort = 6102,
-            });
+            },
+            6001,
+            true);
         using var handler = GrpcTransportEndpoints.CreateClusterMtlsHandler(material);
         var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
 

@@ -20,11 +20,12 @@ internal static class SquirixEndpointMapping
             app.MapSquirixMetrics(metricsOptions.Path);
 
         var clusterMtlsOptions = app.Services.GetRequiredService<ClusterMtlsOptions>();
+        var clusterMtlsMaterial = app.Services.GetRequiredService<ClusterMtlsCertificateMaterial>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
             _ = cacheGrpc.RequireAuthorization(SquirixSecurityServiceRegistration.JwtBearerPolicy);
 
-        if (clusterMtlsOptions is not { Enabled: true, InternalListenPort: > 0 })
+        if (!clusterMtlsMaterial.Enabled || clusterMtlsOptions.InternalListenPort <= 0)
             return app;
         _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{clusterMtlsOptions.InternalListenPort}");
         return app;

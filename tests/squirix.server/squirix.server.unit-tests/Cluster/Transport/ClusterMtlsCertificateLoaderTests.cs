@@ -13,12 +13,12 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class ClusterMtlsCertificateLoaderTests
 {
     /// <summary>
-    /// Ensures disabled options return an empty material instance.
+    /// Ensures standalone topology returns an empty material instance.
     /// </summary>
     [Fact]
-    public void LoadReturnsDisabledMaterialWhenClusterMtlsIsDisabled()
+    public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
     {
-        var material = ClusterMtlsCertificateMaterial.Load(new ClusterMtlsOptions { Enabled = false });
+        var material = ClusterMtlsCertificateMaterial.Load(new ClusterMtlsOptions(), 6001, false);
 
         Assert.Same(ClusterMtlsCertificateMaterial.Disabled, material);
         Assert.False(material.Enabled);
@@ -33,13 +33,12 @@ public sealed class ClusterMtlsCertificateLoaderTests
         using var bundle = ClusterMtlsTestCertificateFactory.Create();
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
             InternalListenPort = 6101,
         };
 
-        using var material = ClusterMtlsCertificateMaterial.Load(options);
+        using var material = ClusterMtlsCertificateMaterial.Load(options, 6001, true);
 
         Assert.True(material.Enabled);
         Assert.NotNull(material.NodeCertificate);
@@ -56,14 +55,13 @@ public sealed class ClusterMtlsCertificateLoaderTests
         using var bundle = ClusterMtlsTestCertificateFactory.Create();
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPath = bundle.CertPath,
             KeyPath = bundle.KeyPath,
             InternalListenPort = 6102,
         };
 
-        using var material = ClusterMtlsCertificateMaterial.Load(options);
+        using var material = ClusterMtlsCertificateMaterial.Load(options, 6001, true);
 
         Assert.True(material.Enabled);
         Assert.True(material.NodeCertificate!.HasPrivateKey);
@@ -101,14 +99,13 @@ public sealed class ClusterMtlsCertificateLoaderTests
 
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPath = untrustedCertPath,
             KeyPath = untrustedKeyPath,
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => ClusterMtlsCertificateMaterial.Load(options));
+        var ex = Assert.Throws<InvalidOperationException>(() => ClusterMtlsCertificateMaterial.Load(options, 6001, true));
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

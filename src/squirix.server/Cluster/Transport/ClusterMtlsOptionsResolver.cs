@@ -14,7 +14,6 @@ internal static class ClusterMtlsOptionsResolver
     public static ClusterMtlsOptions ResolveFromEnvironment() =>
         new()
         {
-            Enabled = EnvVariables.ReadBool("SQUIRIX_CLUSTER_MTLS_ENABLED"),
             CertPfxPath = NormalizePath(EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH")),
             CertPfxPassword = EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD"),
             CertPath = NormalizePath(EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PATH")),

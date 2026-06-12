@@ -34,7 +34,7 @@ internal static class SquirixKestrelConfiguration
         ArgumentNullException.ThrowIfNull(clusterMtlsOptions);
         ArgumentNullException.ThrowIfNull(clusterMtlsMaterial);
 
-        var clusterMtlsEnabled = clusterMtlsOptions.Enabled && clusterMtlsMaterial.Enabled;
+        var clusterMtlsEnabled = clusterMtlsMaterial.Enabled;
         var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
         _ = builder.WebHost.ConfigureKestrel(kestrel =>

@@ -68,7 +68,8 @@ internal static class SquirixServerHostingComposition
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
         var clusterMtlsOptions = ClusterMtlsOptionsResolver.ResolveFromEnvironment();
-        var clusterMtlsMaterial = ClusterMtlsCertificateMaterial.Load(clusterMtlsOptions, uri.Port);
+        var requiresInterNodeMtls = ClusterMtlsTopology.RequiresInterNodeMtls(cluster);
+        var clusterMtlsMaterial = ClusterMtlsCertificateMaterial.Load(clusterMtlsOptions, uri.Port, requiresInterNodeMtls);
         SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, clusterMtlsOptions, clusterMtlsMaterial);
 
         _ = builder.Services.AddSquirixValidatedOptions(

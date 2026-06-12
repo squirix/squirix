@@ -1,5 +1,7 @@
 using System;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.IO;
 using Xunit;
 
@@ -11,68 +13,67 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class ClusterMtlsOptionsTests
 {
     /// <summary>
-    /// Ensures disabled cluster mTLS does not require certificate paths.
+    /// Ensures standalone topology does not require cluster mTLS material.
     /// </summary>
     [Fact]
-    public void DisabledOptionsDoNotRequireCertificatePaths()
+    public void StandaloneTopologyDoesNotRequireCertificatePaths()
     {
-        var options = new ClusterMtlsOptions { Enabled = false };
+        var options = new ClusterMtlsOptions();
 
-        var ex = Record.Exception(() => options.Validate());
+        var ex = Record.Exception(() => options.Validate(6001, false));
         Assert.Null(ex);
     }
 
     /// <summary>
-    /// Ensures enabled cluster mTLS requires a CA path and node certificate material.
+    /// Ensures multi-node topology requires CA, node certificate, and internal listen port.
     /// </summary>
     [Fact]
-    public void EnabledOptionsRequireCaAndNodeCertificatePaths()
+    public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
     {
-        var options = new ClusterMtlsOptions { Enabled = true };
+        var options = new ClusterMtlsOptions();
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures enabled cluster mTLS rejects an internal port that matches the primary listener.
+    /// Ensures multi-node topology rejects an internal port that matches the primary listener.
     /// </summary>
     [Fact]
-    public void EnabledOptionsRejectInternalPortMatchingPrimaryListener()
+    public void RemotePeersRejectInternalPortMatchingPrimaryListener()
     {
         using var bundle = ClusterMtlsTestCertificateFactory.Create();
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
             InternalListenPort = 6001,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001));
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
         Assert.Contains("must differ", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures missing files fail validation.
+    /// Ensures missing files fail validation for multi-node topology.
     /// </summary>
     [Fact]
-    public void EnabledOptionsRejectMissingFiles()
+    public void RemotePeersRejectMissingFiles()
     {
         var missingRoot = DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-missing");
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = PathKit.Combine(missingRoot, "missing-ca.crt"),
             CertPath = PathKit.Combine(missingRoot, "missing-node.crt"),
             KeyPath = PathKit.Combine(missingRoot, "missing-node.key"),
+            InternalListenPort = 6101,
         };
 
         try
         {
-            var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
+            var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
             Assert.Contains("CA file was not found", ex.Message, StringComparison.Ordinal);
             Assert.Contains("certificate file was not found", ex.Message, StringComparison.Ordinal);
             Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
@@ -87,19 +88,39 @@ public sealed class ClusterMtlsOptionsTests
     /// Ensures PFX and PEM inputs cannot be mixed.
     /// </summary>
     [Fact]
-    public void EnabledOptionsRejectMixedPfxAndPemPaths()
+    public void RemotePeersRejectMixedPfxAndPemPaths()
     {
         using var bundle = ClusterMtlsTestCertificateFactory.Create();
         var options = new ClusterMtlsOptions
         {
-            Enabled = true,
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
             CertPath = bundle.CertPath,
             KeyPath = bundle.KeyPath,
+            InternalListenPort = 6101,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate());
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
         Assert.Contains("not both", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures startup validation allows standalone topology without mTLS material.
+    /// </summary>
+    [Fact]
+    public void StartupValidatorAllowsStandaloneTopologyWithoutMtlsMaterial()
+    {
+        var cluster = new ClusterConfig
+        {
+            ClusterId = "test",
+            NodeId = "node-a",
+            Url = "https://localhost:6001",
+            Peers = [new Peer { NodeId = "node-a", Url = "https://localhost:6001" }],
+        };
+        var validator = new SquirixOptionsValidators.ClusterMtlsOptionsValidator(cluster);
+
+        var result = validator.Validate(null, new ClusterMtlsOptions());
+
+        Assert.False(result.Failed);
     }
 }
