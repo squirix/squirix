@@ -16,7 +16,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.Limits;
@@ -175,8 +174,6 @@ public abstract class SmokeTestBase : IDisposable
         }
 
         var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
-        var clusterHttpHandler = mtlsMaterial is { Enabled: true } ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial) : LoopbackHttp.CreateHandler();
-
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -194,7 +191,7 @@ public abstract class SmokeTestBase : IDisposable
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            clusterHttpHandler,
+            null,
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,

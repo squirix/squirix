@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -28,13 +29,15 @@ internal sealed class ClientPool : IClientPool
     private int _disposed;
     private volatile bool _draining;
 
+    [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     public ClientPool(
         IEnumerable<Peer> peers,
         Func<string, ICallPolicy> policyFactory,
-        HttpMessageHandler? handler = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         Interceptor? interceptor = null,
         BootstrapConnectOptions? connectOptions = null,
         MtlsOptions? mtlsOptions = null,
+        MtlsCertificateMaterial? mtlsMaterial = null,
         bool interNodeMtlsEnabled = false,
         Interceptor? internalOwnerInterceptor = null)
     {
@@ -47,9 +50,18 @@ internal sealed class ClientPool : IClientPool
         {
             var p = peerList[i];
             var address = ClusterPeerChannelAddress.Resolve(p, resolvedMtlsOptions, interNodeMtlsEnabled);
+            HttpMessageHandler? peerHandler = null;
+            if (interNodeMtlsEnabled)
+            {
+                if (mtlsMaterial is not { Enabled: true })
+                    throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport.");
+
+                peerHandler = peerHandlerFactory?.Invoke(p.NodeId) ?? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial, p.NodeId);
+            }
+
             var opts = new GrpcChannelOptions
             {
-                HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
+                HttpHandler = peerHandler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             };

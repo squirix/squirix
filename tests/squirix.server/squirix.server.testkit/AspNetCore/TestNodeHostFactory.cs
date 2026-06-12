@@ -5,11 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Http;
 
 namespace Squirix.Server.TestKit.AspNetCore;
 
@@ -103,8 +101,7 @@ public static class TestNodeHostFactory
             Peers = peers,
         };
 
-        var (mtlsOptions, mtlsMaterial, clusterHttpHandler) = mtls?.ResolveNodeStartup(clusterConfig, address, mtlsProfile) ?? (null, null, null);
-        clusterHttpHandler ??= mtlsMaterial is { Enabled: true } ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial) : LoopbackHttp.CreateHandler();
+        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls?.ResolveNodeStartup(clusterConfig, address, mtlsProfile) ?? (null, null, null);
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -117,7 +114,7 @@ public static class TestNodeHostFactory
                 _ = b.AddFilter("Squirix", LogLevel.Warning);
             },
             persistenceOptionsOverride: persistenceOptions,
-            httpHandlerOverride: clusterHttpHandler,
+            peerHandlerFactory: peerHandlerFactory,
             securityOptionsOverride: security?.ToServerOptions(),
             mtlsOptionsOverride: mtlsOptions,
             mtlsMaterialOverride: mtlsMaterial,

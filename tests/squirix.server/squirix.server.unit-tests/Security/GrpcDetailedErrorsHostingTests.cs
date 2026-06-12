@@ -37,7 +37,8 @@ public sealed class GrpcDetailedErrorsHostingTests
 
     private static WebApplication BuildHost(string environmentName)
     {
-        var port = new PortAllocator(30000, 30999).Allocate();
+        using var allocator = new PortAllocator(30000, 30999);
+        var port = allocator.Allocate();
         var applicationOptions = new WebApplicationOptions
         {
             EnvironmentName = environmentName,

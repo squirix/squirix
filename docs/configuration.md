@@ -338,7 +338,7 @@ without external network access. E2E tests run with xUnit parallelization enable
 
 Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
 the same auth pipeline used by in-process overrides above. Docker images also set
-`ASPNETCORE_Kestrel__Certificates__Default__Path` and `ASPNETCORE_Kestrel__Certificates__Default__Password` for the
+`ASPNETCORE_Kestrel__Certificates__Default__Path` for the
 bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
@@ -349,9 +349,9 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
 | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for inter-node gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Url` port.                                    |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Mutually exclusive with PEM cert/key paths.                                                                                                                       |
+| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
 | `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
-| `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                                                                       |
+| `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Certificate CN must equal `Cluster.NodeId`. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                           |
 | `SQUIRIX_CLUSTER_MTLS_KEY_PATH`                      | PEM-encoded node private key path.                                                                                                                                                                                 |
 | `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when remote cluster peers are configured.                                                                                                                            |
 | `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
@@ -369,13 +369,15 @@ Security notes:
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
   inter-node mTLS is required at startup. Inter-node gRPC is served on the dedicated internal HTTPS listener
-  (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Outbound `ClientPool` calls attach
-  the local node certificate and validate peer server certificates against the cluster trust root. Standalone nodes
-  without remote peers do not require cluster mTLS material. The primary listener keeps external client behavior unchanged.
-- Deployment, rotation, dev certificate generation, and the relationship to inter-node JWT are documented in
+  (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
+  its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
+  expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
+  identity checks to peer server certificates. Standalone nodes without remote peers do not require cluster mTLS
+  material. The primary listener keeps external client behavior unchanged.
+- Deployment, rotation, and dev certificate generation are documented in
   [security/inter-node-mtls.md](security/inter-node-mtls.md). Squirix consumes externally managed cluster certificates;
-  it does not act as a production CA. Inter-node trust is limited to the PEM cluster CA configured at
-  `SQUIRIX_CLUSTER_MTLS_CA_PATH`.
+  it does not act as a production CA. Inter-node trust requires the PEM cluster CA at
+  `SQUIRIX_CLUSTER_MTLS_CA_PATH` and certificate CN equal to the expected cluster `NodeId`.
 
 ## Sample `appsettings.json`
 

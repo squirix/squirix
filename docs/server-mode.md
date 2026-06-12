@@ -54,7 +54,7 @@ HTTP/2 on one port). Non-loopback URLs require JWT settings at startup.
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
 `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for inter-node gRPC with mutual TLS. External clients continue to use the primary
-port with JWT/OIDC; cluster forwarding uses the internal port and node certificates. See
+port with JWT/OIDC; cluster forwarding uses the internal port and per-node certificates (`CN` = `NodeId`). See
 [security/inter-node-mtls.md](security/inter-node-mtls.md).
 
 Explicit settings path:

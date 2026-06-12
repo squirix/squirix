@@ -14,6 +14,6 @@ Or run from the repository:
 dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ```
 
-Docker images: see [containerization](../../docs/containerization.md) (`Dockerfile.dev` and `Dockerfile.release`).
+Docker images: see [containerization](../../docs/containerization.md) (`docker/Dockerfile` and `docker/Dockerfile.release`).
 
 Run `squirix-server help` for operational commands and flags.
