@@ -56,6 +56,6 @@ internal static class GrpcEndpointSurfaceCollector
             methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
         }
 
-        return methods.OrderBy(static method => method, StringComparer.Ordinal).ToArray();
+        return [.. methods.OrderBy(static method => method, StringComparer.Ordinal)];
     }
 }

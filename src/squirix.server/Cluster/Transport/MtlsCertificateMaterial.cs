@@ -49,7 +49,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
-    /// <returns>Loaded certificate material, or <see cref="Disabled"/> when inter-node mTLS is not required.</returns>
+    /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
     public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -72,5 +72,18 @@ internal sealed class MtlsCertificateMaterial : IDisposable
 
         NodeCertificate?.Dispose();
         TrustAnchor?.Dispose();
+    }
+
+    /// <summary>
+    /// Creates enabled material from pre-built test certificates without reloading from disk.
+    /// </summary>
+    /// <param name="nodeCertificate">Local node certificate including its private key.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <returns>Enabled certificate material for test host overrides.</returns>
+    internal static MtlsCertificateMaterial FromCertificates(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    {
+        ArgumentNullException.ThrowIfNull(nodeCertificate);
+        ArgumentNullException.ThrowIfNull(trustAnchor);
+        return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
     }
 }

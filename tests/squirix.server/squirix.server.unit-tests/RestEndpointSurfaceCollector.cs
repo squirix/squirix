@@ -69,6 +69,6 @@ internal static class RestEndpointSurfaceCollector
                 routes.Add($"{method} {pattern}");
         }
 
-        return routes.OrderBy(static route => route, StringComparer.Ordinal).ToArray();
+        return [.. routes.OrderBy(static route => route, StringComparer.Ordinal)];
     }
 }

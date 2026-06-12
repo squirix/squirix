@@ -32,16 +32,16 @@ public static class TestNodeHostFactory
         string address,
         (string NodeId, string Address)[] topology,
         TestNodeHostStartOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        StartNodeAsync(
-            nodeId,
-            address,
-            topology,
-            options?.DataDir,
-            options?.DataDir is not null,
-            options?.Security,
-            options?.Mtls,
-            cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        nodeId,
+        address,
+        topology,
+        options?.DataDir,
+        options?.DataDir is not null,
+        options?.Security,
+        options?.Mtls,
+        options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
+        cancellationToken);
 
     /// <summary>
     /// Starts an ephemeral in-memory node with the provided cluster topology.
@@ -55,8 +55,7 @@ public static class TestNodeHostFactory
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
-        CancellationToken cancellationToken = default) =>
-        StartNodeAsync(nodeId, address, topology, options: null, cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, options: null, cancellationToken);
 
     /// <summary>
     /// Starts a node with the provided cluster topology and persistence directory.
@@ -72,8 +71,7 @@ public static class TestNodeHostFactory
         string address,
         (string NodeId, string Address)[] topology,
         string dataDir,
-        CancellationToken cancellationToken = default) =>
-        StartNodeAsync(nodeId, address, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
@@ -87,6 +85,7 @@ public static class TestNodeHostFactory
         bool persistence,
         TestNodeSecurityOptions? security,
         MtlsTestContext? mtls,
+        MtlsTestNodeProfile mtlsProfile,
         CancellationToken cancellationToken)
     {
         if (persistence)
@@ -104,10 +103,8 @@ public static class TestNodeHostFactory
             Peers = peers,
         };
 
-        var (mtlsOptions, mtlsMaterial) = mtls?.Resolve(clusterConfig, address) ?? (null, null);
-        var clusterHttpHandler = mtlsMaterial is { Enabled: true }
-            ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial)
-            : LoopbackHttp.CreateHandler();
+        var (mtlsOptions, mtlsMaterial, clusterHttpHandler) = mtls?.ResolveNodeStartup(clusterConfig, address, mtlsProfile) ?? (null, null, null);
+        clusterHttpHandler ??= mtlsMaterial is { Enabled: true } ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial) : LoopbackHttp.CreateHandler();
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,

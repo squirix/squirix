@@ -35,7 +35,7 @@ internal static class PrometheusScrapeLabelPolicy
             return [];
 
         filtered.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-        return filtered.ToArray();
+        return [.. filtered];
     }
 
     /// <summary>

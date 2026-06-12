@@ -22,19 +22,16 @@ internal sealed class MtlsTestBundle : IDisposable
     {
         _rootDirectory = DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-cluster");
         _ca = CreateCertificateAuthority();
-        FileKit.WriteAllText(CaPath, _ca.ExportCertificatePem());
+        FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
     }
-
-    private string CaPath => PathKit.Combine(_rootDirectory, "cluster-ca.crt");
 
     /// <summary>
     /// Creates validated cluster mTLS options and loaded material for a test node.
     /// </summary>
     /// <param name="nodeId">Local node identifier.</param>
-    /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
     /// <param name="internalListenPort">Dedicated internal HTTPS listener port.</param>
     /// <returns>Options and material suitable for host startup overrides.</returns>
-    public (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNode(string nodeId, int primaryListenPort, int internalListenPort)
+    public (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNode(string nodeId, int internalListenPort)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
 
@@ -42,18 +39,7 @@ internal sealed class MtlsTestBundle : IDisposable
         DirectoryKit.CreateDirectory(nodeDirectory);
 
         using var nodeCertificate = CreateNodeCertificate(nodeId);
-        var pfxPath = PathKit.Combine(nodeDirectory, "node.pfx");
-        File.WriteAllBytes(pfxPath, nodeCertificate.Export(X509ContentType.Pfx));
-
-        var options = new MtlsOptions
-        {
-            CaPath = CaPath,
-            CertPfxPath = pfxPath,
-            InternalListenPort = internalListenPort,
-        };
-
-        var material = MtlsCertificateMaterial.Load(options, primaryListenPort, true);
-        return (options, material);
+        return CreateNodeFromCertificate(nodeId, internalListenPort, nodeDirectory, nodeCertificate);
     }
 
     /// <inheritdoc />
@@ -62,6 +48,21 @@ internal sealed class MtlsTestBundle : IDisposable
         _ca.Dispose();
         DirectoryKit.TryDeleteDirectory(_rootDirectory);
     }
+
+    internal (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(
+        string nodeId,
+        int internalListenPort,
+        X509Certificate2 nodeCertificate)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentNullException.ThrowIfNull(nodeCertificate);
+
+        var nodeDirectory = PathKit.Combine(_rootDirectory, nodeId);
+        DirectoryKit.CreateDirectory(nodeDirectory);
+        return CreateNodeFromCertificate(nodeId, internalListenPort, nodeDirectory, nodeCertificate);
+    }
+
+    internal X509Certificate2 GetClusterCertificateAuthority() => _ca;
 
     private static X509Certificate2 CreateCertificateAuthority()
     {
@@ -81,4 +82,28 @@ internal sealed class MtlsTestBundle : IDisposable
         var nodePublic = nodeRequest.Create(_ca, _ca.NotBefore, _ca.NotAfter, Guid.NewGuid().ToByteArray());
         return nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
     }
+
+    private (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(
+        string nodeId,
+        int internalListenPort,
+        string nodeDirectory,
+        X509Certificate2 nodeCertificate)
+    {
+        _ = nodeId;
+        var exportableCertificate = MtlsTestCertificates.LoadExportableCertificate(nodeCertificate);
+        var pfxPath = PathKit.Combine(nodeDirectory, "node.pfx");
+        File.WriteAllBytes(pfxPath, exportableCertificate.Export(X509ContentType.Pfx));
+
+        var options = new MtlsOptions
+        {
+            CaPath = GetClusterCertificateAuthorityPath(),
+            CertPfxPath = pfxPath,
+            InternalListenPort = internalListenPort,
+        };
+
+        var material = MtlsCertificateMaterial.FromCertificates(exportableCertificate, _ca);
+        return (options, material);
+    }
+
+    private string GetClusterCertificateAuthorityPath() => PathKit.Combine(_rootDirectory, "cluster-ca.crt");
 }
