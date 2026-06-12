@@ -52,6 +52,11 @@ await app.RunAsync();
 HTTP/2 on one port). Non-loopback URLs require JWT settings at startup.
 `MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
+Multi-node clusters with remote peers also open a **second HTTPS listener** on
+`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for inter-node gRPC with mutual TLS. External clients continue to use the primary
+port with JWT/OIDC; cluster forwarding uses the internal port and node certificates. See
+[security/inter-node-mtls.md](security/inter-node-mtls.md).
+
 Explicit settings path:
 
 ```csharp

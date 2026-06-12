@@ -43,6 +43,10 @@ Full semantics: [consistency.md](consistency.md).
 
 Docker Compose examples with two nodes: [containerization.md](containerization.md).
 
+Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate, internal listener port). External
+application clients still authenticate with JWT on the primary listener. Full guidance:
+[security/inter-node-mtls.md](security/inter-node-mtls.md).
+
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
 `https://localhost:5002`) with the compose JWT settings. Inside the Docker network, nodes use service DNS names and container
 port **5000** (`https://squirix-node-a:5000` in mounted settings).

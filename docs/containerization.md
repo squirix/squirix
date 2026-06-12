@@ -128,10 +128,36 @@ Health and metrics:
 - `GET /health/ready/details`
 - `GET /metrics` (Prometheus text scrape; enabled by default)
 
+## Multi-node inter-node mTLS
+
+The two-node compose layouts configure **external** JWT auth and a **primary** HTTPS listener (container port **5000**).
+When `Peers[]` lists remote nodes, Squirix also requires **cluster mTLS** environment variables and mounted certificate
+files. Squirix does not generate production certificates; mount test or PKI-issued material read-only.
+
+Example additions per service (adjust paths to match your image layout):
+
+```yaml
+environment:
+  SQUIRIX_CLUSTER_MTLS_CA_PATH: /mtls/cluster-ca.crt
+  SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH: /mtls/node.pfx
+  SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD: dev-mtls
+  SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT: "5100"
+volumes:
+  - ./mtls/node-a:/mtls:ro
+```
+
+Use the **same internal port number on every node** (here `5100`). It must differ from the primary listener port
+(`5000` in the sample settings). Peers connect to `https://<service-host>:5100` on the Docker network. Generate dev
+certificates with OpenSSL as described in [security/inter-node-mtls.md](security/inter-node-mtls.md#local-and-development-clusters).
+
+Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH`; do not add ad hoc certificate validation overrides.
+
 ## Security
 
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
   testing only.
+- Multi-node clusters require cluster mTLS material in addition to JWT. See
+  [security/inter-node-mtls.md](security/inter-node-mtls.md).
 - `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;
   host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
   [diagnostics.md](diagnostics.md).
