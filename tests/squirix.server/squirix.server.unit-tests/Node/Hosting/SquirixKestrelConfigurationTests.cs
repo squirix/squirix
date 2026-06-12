@@ -81,7 +81,7 @@ public sealed class SquirixKestrelConfigurationTests
         using var bundle = MtlsTestCertificateFactory.Create();
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
 
-        Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(peerCertificate, null, bundle.Ca));
+        Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(peerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -92,6 +92,6 @@ public sealed class SquirixKestrelConfigurationTests
     {
         using var bundle = MtlsTestCertificateFactory.Create();
 
-        Assert.False(SquirixKestrelConfiguration.ValidateClientCertificate(null, null, bundle.Ca));
+        Assert.False(SquirixKestrelConfiguration.ValidateClientCertificate(null, bundle.Ca));
     }
 }

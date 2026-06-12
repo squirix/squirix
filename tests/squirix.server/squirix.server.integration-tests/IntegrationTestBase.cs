@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
@@ -16,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Core;
 using Squirix.Server.Limits;
@@ -234,6 +236,8 @@ public abstract class IntegrationTestBase : IDisposable
         }
 
         var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
+        var clusterHttpHandler = httpHandlerOverride
+            ?? (mtlsMaterial is { Enabled: true } ? GrpcTransportEndpoints.CreateMtlsHandler(mtlsMaterial) : LoopbackHttp.CreateHandler());
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -252,7 +256,7 @@ public abstract class IntegrationTestBase : IDisposable
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            httpHandlerOverride ?? LoopbackHttp.CreateHandler(),
+            clusterHttpHandler,
             backpressureOptions,
             runtimeOptions,
             memoryPressureOptions,
@@ -263,6 +267,46 @@ public abstract class IntegrationTestBase : IDisposable
             DefaultCancellationToken);
 
         return new TestNodeHost(application, url, dataDir, persistenceOptionsOverride is not null);
+    }
+
+    /// <summary>
+    /// Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.
+    /// </summary>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <returns>Peer entries for host startup.</returns>
+    internal Peer[] BuildClusterPeers(params (string NodeId, string Url)[] topology) =>
+        MtlsTestContext.CreatePeers(ref _mtls, topology);
+
+    /// <summary>
+    /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
+    /// </summary>
+    /// <param name="localUrl">Primary listen URL for the local node.</param>
+    /// <param name="peers">Configured cluster peers.</param>
+    /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
+    internal SocketsHttpHandler CreateClusterCaTrustingHandlerWithoutClientCertificate(string localUrl, Peer[] peers)
+    {
+        var cluster = new ClusterConfig
+        {
+            NodeId = peers.First(peer => string.Equals(peer.Url, localUrl, StringComparison.OrdinalIgnoreCase)).NodeId,
+            Url = localUrl,
+            VirtualNodes = 128,
+            Peers = peers,
+        };
+        var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, localUrl);
+        if (material is not { Enabled: true, TrustAnchor: not null })
+            return LoopbackHttp.CreateHandler();
+
+        var trustAnchor = material.TrustAnchor;
+        return new SocketsHttpHandler
+        {
+            UseProxy = false,
+            EnableMultipleHttp2Connections = true,
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
+                RemoteCertificateValidationCallback = (_, certificate, _, _) => GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, trustAnchor),
+            },
+        };
     }
 
     /// <summary>

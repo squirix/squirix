@@ -67,7 +67,7 @@ public sealed class GrpcTransportEndpointsTests
         using var bundle = MtlsTestCertificateFactory.Create();
         using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
 
-        Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, null, bundle.Ca));
+        Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed class GrpcTransportEndpointsTests
         using var untrustedCa = CreateStandaloneCa("CN=Other CA");
         using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "peer-node-b");
 
-        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, null, bundle.Ca));
+        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca));
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public sealed class GrpcTransportEndpointsTests
         var notAfter = notBefore.AddHours(1);
         using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
 
-        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, null, bundle.Ca));
+        Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, bundle.Ca));
     }
 
     /// <summary>
