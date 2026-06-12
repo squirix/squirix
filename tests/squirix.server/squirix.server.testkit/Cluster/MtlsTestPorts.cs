@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Squirix.Server.TestKit.Http;
 
 namespace Squirix.Server.TestKit.Cluster;
@@ -12,12 +13,31 @@ internal static class MtlsTestPorts
     /// </summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
     /// <returns>An internal listener port for cluster mTLS.</returns>
-    public static int AllocateInternalPort(int primaryListenPort)
+    public static int AllocateInternalPort(int primaryListenPort) => AllocateInternalPort([primaryListenPort]);
+
+    /// <summary>
+    /// Allocates a dedicated internal listener port that differs from all excluded primary ports.
+    /// </summary>
+    /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
+    /// <returns>An internal listener port for cluster mTLS.</returns>
+    public static int AllocateInternalPort(IReadOnlyCollection<int> excludedPorts)
     {
-        for (var attempt = 0; attempt < 32; attempt++)
+        ArgumentNullException.ThrowIfNull(excludedPorts);
+
+        for (var attempt = 0; attempt < 64; attempt++)
         {
             var port = Allocator.Allocate();
-            if (port != primaryListenPort)
+            var isExcluded = false;
+            foreach (var excludedPort in excludedPorts)
+            {
+                if (excludedPort == port)
+                {
+                    isExcluded = true;
+                    break;
+                }
+            }
+
+            if (!isExcluded)
                 return port;
         }
 
