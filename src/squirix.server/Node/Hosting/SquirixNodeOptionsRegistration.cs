@@ -23,30 +23,34 @@ internal static class SquirixNodeOptionsRegistration
         BackpressureOptions? backpressureOptions,
         PersistenceOptions? persistenceOptionsOverride,
         MemoryPressureOptions? memoryPressureOptionsOverride,
-        bool persistenceEnabled,
-        ClusterMtlsOptions? clusterMtlsOptionsOverride = null,
-        ClusterMtlsCertificateMaterial? clusterMtlsMaterialOverride = null)
+        MtlsOptions? mtlsOptionsOverride = null,
+        MtlsCertificateMaterial? mtlsMaterialOverride = null)
     {
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
-        var clusterMtlsOptions = clusterMtlsOptionsOverride ?? ClusterMtlsOptionsResolver.ResolveFromEnvironment();
-        AddValidatedInstance<ClusterMtlsOptions, SquirixOptionsValidators.ClusterMtlsOptionsValidator>(services, clusterMtlsOptions);
-        _ = clusterMtlsMaterialOverride is not null
-            ? services.AddSingleton(clusterMtlsMaterialOverride)
-            : services.AddSingleton(static provider => ClusterMtlsCertificateMaterial.Load(provider.GetRequiredService<ClusterMtlsOptions>()));
+        var mtlsOptions = mtlsOptionsOverride ?? MtlsOptionsResolver.ResolveFromEnvironment();
+        AddValidatedInstance<MtlsOptions, SquirixOptionsValidators.MtlsOptionsValidator>(services, mtlsOptions);
+        _ = mtlsMaterialOverride is not null
+            ? services.AddSingleton(mtlsMaterialOverride)
+            : services.AddSingleton(static provider =>
+            {
+                var registeredCluster = provider.GetRequiredService<ClusterConfig>();
+                var options = provider.GetRequiredService<MtlsOptions>();
+                var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : (int?)null;
+                return MtlsCertificateMaterial.Load(
+                    options,
+                    primaryListenPort,
+                    MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+            });
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
 
-        if (persistenceEnabled)
+        if (persistenceOptionsOverride is not null)
         {
-            var dataDir = persistenceOptionsOverride?.DataDir ?? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId);
-            var persistence = persistenceOptionsOverride ?? new PersistenceOptions
-            {
-                DataDir = dataDir,
-                JournalMaxSegmentMb = 64,
-                FlushIntervalMs = 10,
-                SnapshotIntervalSec = 60,
-            };
+            var dataDir = string.IsNullOrWhiteSpace(persistenceOptionsOverride.DataDir)
+                ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId)
+                : persistenceOptionsOverride.DataDir;
+            var persistence = persistenceOptionsOverride with { DataDir = dataDir };
 
             AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
             var snapshot = snapshotOptions ?? new SnapshotTriggerOptions

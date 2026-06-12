@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
@@ -33,6 +34,8 @@ internal static class SquirixNodeHost
         MemoryPressureOptions? memoryPressureOptions = null,
         SecurityOptions? securityOptionsOverride = null,
         Action<SquirixServerExtensionOptions>? configureExtensions = null,
+        MtlsOptions? mtlsOptionsOverride = null,
+        MtlsCertificateMaterial? mtlsMaterialOverride = null,
         CancellationToken cancellationToken = default)
     {
         var builder = CreateBuilder(configureLogging);
@@ -57,7 +60,9 @@ internal static class SquirixNodeHost
             runtimeOptions,
             memoryPressureOptions,
             securityOptionsOverride,
-            extensions);
+            extensions,
+            mtlsOptionsOverride: mtlsOptionsOverride,
+            mtlsMaterialOverride: mtlsMaterialOverride);
 
         var app = builder.Build();
         _ = SquirixServerHostingComposition.MapServer(app);
