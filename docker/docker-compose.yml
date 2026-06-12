@@ -2,12 +2,16 @@ services:
   node-a:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: docker/Dockerfile
     container_name: squirix-node-a
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-A.pfx
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5001:5000" # HTTPS gRPC + /health + /metrics
@@ -20,12 +24,16 @@ services:
   node-b:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: docker/Dockerfile
     container_name: squirix-node-b
     environment:
       - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
       - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
       - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-B.pfx
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5002:5000"

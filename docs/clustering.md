@@ -43,7 +43,8 @@ Full semantics: [consistency.md](consistency.md).
 
 Docker Compose examples with two nodes: [containerization.md](containerization.md).
 
-Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate, internal listener port). External
+Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate with `CN` equal to `NodeId`, internal
+listener port). External
 application clients still authenticate with JWT on the primary listener. Full guidance:
 [security/inter-node-mtls.md](security/inter-node-mtls.md).
 

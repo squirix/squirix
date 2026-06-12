@@ -27,7 +27,7 @@ using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
 var previousCurrentDirectory = Directory.GetCurrentDirectory();
-var demoRoot = Path.Combine(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
+var demoRoot = Path.Join(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
 
 try
@@ -174,5 +174,5 @@ static void WriteSettingsFile(string directory, string endpoint)
           }
         }
         """;
-    File.WriteAllText(Path.Combine(directory, "Squirix.settings.json"), settings);
+    File.WriteAllText(Path.Join(directory, "Squirix.settings.json"), settings);
 }

@@ -38,7 +38,7 @@ Single-container examples start in the default **ephemeral** mode (in-memory cac
 example enables persistence with `--persist --data-dir /data` and named volumes.
 
 ```powershell
-docker build -f Dockerfile.dev -t squirix-server .
+docker build -f docker/Dockerfile -t squirix-server .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
@@ -54,7 +54,7 @@ outside the container.
 Release image (pinned NuGet tool version):
 
 ```powershell
-docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.4 .
 docker run --rm `
   -p 5000:5000 `
   -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
