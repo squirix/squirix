@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
@@ -22,6 +23,7 @@ internal static class MtlsTestCertificateFactory
 
         using var nodeKey = RSA.Create(2048);
         var nodeRequest = new CertificateRequest("CN=squirix-node-a", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        nodeRequest.AddClusterNodeExtensions();
         var nodePublic = nodeRequest.Create(ca, ca.NotBefore, ca.NotAfter, Guid.NewGuid().ToByteArray());
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
 
@@ -42,6 +44,7 @@ internal static class MtlsTestCertificateFactory
 
         using var peerKey = RSA.Create(2048);
         var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        peerRequest.AddClusterNodeExtensions();
         var peerPublic = peerRequest.Create(ca, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
         return peerPublic.CopyWithPrivateKey(peerKey);
     }

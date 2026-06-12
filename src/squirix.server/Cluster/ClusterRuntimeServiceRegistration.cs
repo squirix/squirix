@@ -59,16 +59,22 @@ internal static class ClusterRuntimeServiceRegistration
             _ = services.AddSingleton<INodeOwnershipResolver, NodeOwnershipResolver>();
             _ = services.AddSingleton<Correlation.ClientInterceptor>();
             _ = services.AddSingleton<Correlation.ServerInterceptor>();
+            _ = services.AddSingleton<ClusterInternalOwnerClientInterceptor>();
             _ = services.AddSingleton<IdempotencyStore>();
             _ = services.AddSingleton<IClientPool>(sp =>
             {
                 var material = sp.GetRequiredService<MtlsCertificateMaterial>();
-                var handler = httpHandlerOverride ?? (material.Enabled ? GrpcTransportEndpoints.CreateMtlsHandler(material) : null);
+                var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
+                var interNodeMtlsEnabled = material.Enabled;
+                var handler = httpHandlerOverride ?? (interNodeMtlsEnabled ? GrpcTransportEndpoints.CreateMtlsHandler(material) : null);
                 return new ClientPool(
                     cluster.Peers,
                     callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),
                     handler,
-                    sp.GetRequiredService<Correlation.ClientInterceptor>());
+                    sp.GetRequiredService<Correlation.ClientInterceptor>(),
+                    internalOwnerInterceptor: interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
+                    mtlsOptions: mtlsOptions,
+                    interNodeMtlsEnabled: interNodeMtlsEnabled);
             });
 
             return services;
