@@ -9,7 +9,7 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 /// <summary>
 /// Unit tests for inbound cluster mTLS client certificate validation.
 /// </summary>
-public sealed class ClusterMtlsClientCertificateValidatorTests
+public sealed class MtlsClientCertificateValidatorTests
 {
     /// <summary>
     /// Ensures missing client certificates are rejected.
@@ -17,9 +17,9 @@ public sealed class ClusterMtlsClientCertificateValidatorTests
     [Fact]
     public void ValidateRejectsMissingClientCertificate()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        using var bundle = MtlsTestCertificateFactory.Create();
 
-        Assert.False(ClusterMtlsClientCertificateValidator.Validate(null, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(null, null, bundle.Ca));
     }
 
     /// <summary>
@@ -28,10 +28,10 @@ public sealed class ClusterMtlsClientCertificateValidatorTests
     [Fact]
     public void ValidateAcceptsCertificateSignedByClusterCa()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        using var peerCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
 
-        Assert.True(ClusterMtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
+        Assert.True(MtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
     }
 
     /// <summary>
@@ -40,11 +40,11 @@ public sealed class ClusterMtlsClientCertificateValidatorTests
     [Fact]
     public void ValidateRejectsCertificateSignedByUntrustedCa()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        using var bundle = MtlsTestCertificateFactory.Create();
         using var otherCa = CreateStandaloneCa("CN=Other CA");
-        using var peerCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "peer-node-b");
+        using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "peer-node-b");
 
-        Assert.False(ClusterMtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(peerCertificate, null, bundle.Ca));
     }
 
     /// <summary>
@@ -53,12 +53,12 @@ public sealed class ClusterMtlsClientCertificateValidatorTests
     [Fact]
     public void ValidateRejectsExpiredCertificate()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        using var bundle = MtlsTestCertificateFactory.Create();
         var notBefore = bundle.Ca.NotBefore;
         var notAfter = notBefore.AddHours(1);
-        using var expiredCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
+        using var expiredCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
 
-        Assert.False(ClusterMtlsClientCertificateValidator.Validate(expiredCertificate, null, bundle.Ca));
+        Assert.False(MtlsClientCertificateValidator.Validate(expiredCertificate, null, bundle.Ca));
     }
 
     private static X509Certificate2 CreateStandaloneCa(string distinguishedName)

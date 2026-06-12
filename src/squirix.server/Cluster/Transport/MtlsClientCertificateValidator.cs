@@ -7,7 +7,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Validates inbound inter-node client certificates against the configured cluster trust root.
 /// </summary>
-internal static class ClusterMtlsClientCertificateValidator
+internal static class MtlsClientCertificateValidator
 {
     /// <summary>
     /// Validates a peer client certificate against the configured cluster CA.

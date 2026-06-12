@@ -42,7 +42,6 @@ internal sealed class ClientPool : IClientPool
         for (var i = 0; i < peerList.Length; i++)
         {
             var p = peerList[i];
-            GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),

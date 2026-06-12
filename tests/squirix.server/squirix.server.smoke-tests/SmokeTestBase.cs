@@ -26,6 +26,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.XUnit;
@@ -48,6 +49,7 @@ public abstract class SmokeTestBase : IDisposable
 
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
 
+    private MtlsTestContext? _mtls;
     private HttpClient? _httpClient;
 
     /// <summary>
@@ -66,6 +68,7 @@ public abstract class SmokeTestBase : IDisposable
     /// </summary>
     public void Dispose()
     {
+        _mtls?.Dispose();
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
         GC.SuppressFinalize(this);
@@ -152,6 +155,8 @@ public abstract class SmokeTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
+        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
+
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -175,6 +180,8 @@ public abstract class SmokeTestBase : IDisposable
             memoryPressureOptions,
             (security ?? UnauthenticatedSecurity).ToServerOptions(),
             null,
+            mtlsOptions,
+            mtlsMaterial,
             cancellationToken);
 
         return new TestNodeHost(app, url, dataDir, persistenceOptionsOverride is not null);

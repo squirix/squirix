@@ -7,7 +7,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Loads cluster mTLS certificates from explicit file paths.
 /// </summary>
-internal static class ClusterMtlsCertificateLoader
+internal static class MtlsCertificateLoader
 {
     /// <summary>
     /// Loads the cluster trust root certificate.
@@ -21,7 +21,7 @@ internal static class ClusterMtlsCertificateLoader
     /// </summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <returns>The loaded node certificate.</returns>
-    public static X509Certificate2 LoadNodeCertificate(ClusterMtlsOptions options)
+    public static X509Certificate2 LoadNodeCertificate(MtlsOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -56,9 +56,9 @@ internal static class ClusterMtlsCertificateLoader
             return;
 
         var errors = string.Join("; ", chain.ChainStatus.Select(static status => status.StatusInformation.Trim()));
-        var clusterMtlsNodeCertificateDoesNotChainToTheConfiguredTrustRoot = string.IsNullOrWhiteSpace(errors)
-            ? "Cluster mTLS node certificate does not chain to the configured trust root."
-            : $"Cluster mTLS node certificate does not chain to the configured trust root. {errors}";
-        throw new InvalidOperationException(clusterMtlsNodeCertificateDoesNotChainToTheConfiguredTrustRoot);
+        var chainFailureMessage = string.IsNullOrWhiteSpace(errors)
+            ? "mTLS node certificate does not chain to the configured trust root."
+            : $"mTLS node certificate does not chain to the configured trust root. {errors}";
+        throw new InvalidOperationException(chainFailureMessage);
     }
 }
