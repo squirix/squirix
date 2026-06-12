@@ -21,20 +21,19 @@ internal static class SquirixKestrelConfiguration
     /// </summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="uri">The primary HTTPS listen URI.</param>
+    /// <param name="cluster">Cluster topology configuration.</param>
     /// <param name="mtlsOptions">Cluster mTLS options.</param>
     /// <param name="mtlsMaterial">Loaded cluster mTLS certificate material.</param>
-    public static void ConfigureKestrel(
-        WebApplicationBuilder builder,
-        Uri uri,
-        MtlsOptions mtlsOptions,
-        MtlsCertificateMaterial mtlsMaterial)
+    public static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, ClusterConfig cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(uri);
+        ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
         ArgumentNullException.ThrowIfNull(mtlsMaterial);
 
         var mtlsEnabled = mtlsMaterial.Enabled;
+        var remotePeerNodeIds = MtlsTopology.GetRemotePeerNodeIds(cluster);
         var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
         _ = builder.WebHost.ConfigureKestrel(kestrel =>
@@ -50,9 +49,9 @@ internal static class SquirixKestrelConfiguration
             if (!mtlsEnabled)
                 return;
             if (isLoopbackHost)
-                kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial));
+                kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial, remotePeerNodeIds));
             else
-                kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial));
+                kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial, remotePeerNodeIds));
         });
     }
 
@@ -66,11 +65,9 @@ internal static class SquirixKestrelConfiguration
     {
         ArgumentNullException.ThrowIfNull(cluster);
 
-        if (!Uri.TryCreate(cluster.Url, UriKind.Absolute, out var uri) ||
-            !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (!Uri.TryCreate(cluster.Url, UriKind.Absolute, out var uri) || !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
-                $"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
+            throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
         }
     }
 
@@ -79,29 +76,27 @@ internal static class SquirixKestrelConfiguration
     /// </summary>
     /// <param name="clientCertificate">The presented client certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="remotePeerNodeIds">Configured cluster node identifiers for remote peers.</param>
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    internal static bool ValidateClientCertificate(
-        X509Certificate2? clientCertificate,
-        X509Certificate2 trustAnchor) =>
-        MtlsClientCertificateValidator.Validate(clientCertificate, trustAnchor);
+    internal static bool ValidateClientCertificate(X509Certificate2? clientCertificate, X509Certificate2 trustAnchor, string[] remotePeerNodeIds) =>
+        MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(clientCertificate, trustAnchor, remotePeerNodeIds);
+
+    private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] remotePeerNodeIds)
+    {
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+        _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, remotePeerNodeIds));
+    }
+
+    private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificateMaterial material, string[] remotePeerNodeIds)
+    {
+        https.ServerCertificate = material.NodeCertificate;
+        https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+        https.ClientCertificateValidation = (certificate, _, _) => ValidateClientCertificate(certificate, material.TrustAnchor!, remotePeerNodeIds);
+    }
 
     private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
     {
         listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
         _ = listenOptions.UseHttps();
-    }
-
-    private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material)
-    {
-        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-        _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material));
-    }
-
-    private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificateMaterial material)
-    {
-        https.ServerCertificate = material.NodeCertificate;
-        https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
-        https.ClientCertificateValidation = (certificate, _, _) =>
-            ValidateClientCertificate(certificate, material.TrustAnchor!);
     }
 }

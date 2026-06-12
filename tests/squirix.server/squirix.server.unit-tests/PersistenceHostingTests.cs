@@ -20,7 +20,8 @@ public sealed class PersistenceHostingTests
     [Fact]
     public void DefaultHostingDoesNotRegisterPersistenceOptions()
     {
-        var port = new PortAllocator(30000, 30999).Allocate();
+        using var allocator = new PortAllocator(30000, 30999);
+        var port = allocator.Allocate();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
@@ -42,7 +43,8 @@ public sealed class PersistenceHostingTests
     public void UsePersistenceRegistersPersistenceOptions()
     {
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
-        var port = new PortAllocator(31000, 31999).Allocate();
+        using var allocator = new PortAllocator(31000, 31999);
+        var port = allocator.Allocate();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {

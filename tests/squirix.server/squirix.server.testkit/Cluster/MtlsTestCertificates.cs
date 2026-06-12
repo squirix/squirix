@@ -16,10 +16,12 @@ public static class MtlsTestCertificates
     /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
     /// </summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
     /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
-    public static SocketsHttpHandler CreateClusterCaTrustingHandlerWithoutClientCertificate(X509Certificate2 trustAnchor)
+    public static SocketsHttpHandler CreateClusterCaTrustingHandlerWithoutClientCertificate(X509Certificate2 trustAnchor, string expectedPeerNodeId)
     {
         ArgumentNullException.ThrowIfNull(trustAnchor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
 
         return new SocketsHttpHandler
         {
@@ -28,7 +30,7 @@ public static class MtlsTestCertificates
             SslOptions = new SslClientAuthenticationOptions
             {
                 ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
-                RemoteCertificateValidationCallback = (_, certificate, _, _) => GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, trustAnchor),
+                RemoteCertificateValidationCallback = (_, certificate, _, _) => GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
             },
         };
     }
