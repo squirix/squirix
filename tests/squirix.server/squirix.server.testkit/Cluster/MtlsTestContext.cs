@@ -89,7 +89,7 @@ public sealed class MtlsTestContext : IDisposable
             return (null, null, null);
 
         _bundle ??= new MtlsTestBundle();
-        var internalPort = GetOrAllocateInternalPort(cluster.NodeId, url);
+        var internalPort = GetOrAllocateInternalPort(cluster.NodeId, cluster);
         var (options, material) = _bundle.CreateNode(cluster.NodeId, internalPort);
 
         return profile switch
@@ -119,13 +119,34 @@ public sealed class MtlsTestContext : IDisposable
         return nodeIds.Count > 1;
     }
 
+    private static HashSet<int> CollectExcludedPrimaryPorts(IReadOnlyList<(string NodeId, string Url)> topology)
+    {
+        var excludedPorts = new HashSet<int>();
+        for (var i = 0; i < topology.Count; i++)
+            _ = excludedPorts.Add(new Uri(topology[i].Url).Port);
+
+        return excludedPorts;
+    }
+
+    private static HashSet<int> CollectExcludedPrimaryPorts(ClusterConfig cluster)
+    {
+        var excludedPorts = new HashSet<int>();
+        for (var i = 0; i < cluster.Peers.Length; i++)
+        {
+            if (Uri.TryCreate(cluster.Peers[i].Url, UriKind.Absolute, out var peerUri))
+                _ = excludedPorts.Add(peerUri.Port);
+        }
+
+        return excludedPorts;
+    }
+
     private Peer[] BuildPeers(IReadOnlyList<(string NodeId, string Url)> topology)
     {
         var peers = new Peer[topology.Count];
         for (var i = 0; i < topology.Count; i++)
         {
             var (nodeId, url) = topology[i];
-            var internalPort = GetOrAllocateInternalPort(nodeId, url);
+            var internalPort = GetOrAllocateInternalPort(nodeId, topology);
             peers[i] = new Peer
             {
                 NodeId = nodeId,
@@ -181,13 +202,30 @@ public sealed class MtlsTestContext : IDisposable
         return (options, material, GrpcTransportEndpoints.CreateMtlsHandler(outboundMaterial));
     }
 
-    private int GetOrAllocateInternalPort(string nodeId, string url)
+    private int GetOrAllocateInternalPort(string nodeId, IReadOnlyList<(string NodeId, string Url)> topology)
     {
         if (_internalPortsByNodeId.TryGetValue(nodeId, out var existingPort))
             return existingPort;
 
-        var primaryPort = new Uri(url).Port;
-        var internalPort = MtlsTestPorts.AllocateInternalPort(primaryPort);
+        var excludedPorts = CollectExcludedPrimaryPorts(topology);
+        foreach (var allocatedPort in _internalPortsByNodeId.Values)
+            _ = excludedPorts.Add(allocatedPort);
+
+        var internalPort = MtlsTestPorts.AllocateInternalPort(excludedPorts);
+        _internalPortsByNodeId[nodeId] = internalPort;
+        return internalPort;
+    }
+
+    private int GetOrAllocateInternalPort(string nodeId, ClusterConfig cluster)
+    {
+        if (_internalPortsByNodeId.TryGetValue(nodeId, out var existingPort))
+            return existingPort;
+
+        var excludedPorts = CollectExcludedPrimaryPorts(cluster);
+        foreach (var allocatedPort in _internalPortsByNodeId.Values)
+            _ = excludedPorts.Add(allocatedPort);
+
+        var internalPort = MtlsTestPorts.AllocateInternalPort(excludedPorts);
         _internalPortsByNodeId[nodeId] = internalPort;
         return internalPort;
     }
