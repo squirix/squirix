@@ -15,8 +15,8 @@ internal static class GrpcTransportEndpoints
     /// </summary>
     /// <param name="material">Optional loaded cluster mTLS material.</param>
     /// <returns>A handler suitable for secure gRPC transport.</returns>
-    public static HttpMessageHandler CreateChannelHandler(ClusterMtlsCertificateMaterial? material = null) =>
-        material is { Enabled: true } ? CreateClusterMtlsHandler(material) : new SocketsHttpHandler();
+    public static HttpMessageHandler CreateChannelHandler(MtlsCertificateMaterial? material = null) =>
+        material is { Enabled: true } ? CreateMtlsHandler(material) : new SocketsHttpHandler();
 
     /// <summary>
     /// Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.
@@ -25,7 +25,7 @@ internal static class GrpcTransportEndpoints
     /// <returns>A handler configured for inter-node mutual TLS.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="material" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when cluster mTLS material is not loaded.</exception>
-    public static SocketsHttpHandler CreateClusterMtlsHandler(ClusterMtlsCertificateMaterial material)
+    public static SocketsHttpHandler CreateMtlsHandler(MtlsCertificateMaterial material)
     {
         ArgumentNullException.ThrowIfNull(material);
         if (!material.Enabled || material.NodeCertificate is null || material.TrustAnchor is null)
@@ -57,6 +57,6 @@ internal static class GrpcTransportEndpoints
             return false;
 
         using var certificate = new X509Certificate2(serverCertificate);
-        return ClusterMtlsClientCertificateValidator.Validate(certificate, chain, trustAnchor);
+        return MtlsClientCertificateValidator.Validate(certificate, chain, trustAnchor);
     }
 }

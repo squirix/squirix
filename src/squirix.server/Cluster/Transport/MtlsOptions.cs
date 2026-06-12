@@ -7,7 +7,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.
 /// </summary>
-internal sealed record ClusterMtlsOptions
+internal sealed record MtlsOptions
 {
     /// <summary>
     /// Gets the path to the node certificate PFX/PKCS#12 file.

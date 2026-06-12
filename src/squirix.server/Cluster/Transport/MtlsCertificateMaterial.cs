@@ -7,14 +7,14 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Loaded cluster mTLS certificate material for later transport wiring.
 /// </summary>
-internal sealed class ClusterMtlsCertificateMaterial : IDisposable
+internal sealed class MtlsCertificateMaterial : IDisposable
 {
-    private ClusterMtlsCertificateMaterial()
+    private MtlsCertificateMaterial()
     {
         Enabled = false;
     }
 
-    private ClusterMtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    private MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         Enabled = true;
         NodeCertificate = nodeCertificate;
@@ -24,7 +24,7 @@ internal sealed class ClusterMtlsCertificateMaterial : IDisposable
     /// <summary>
     /// Gets a disabled material instance with no loaded certificates.
     /// </summary>
-    public static ClusterMtlsCertificateMaterial Disabled { get; } = new();
+    public static MtlsCertificateMaterial Disabled { get; } = new();
 
     /// <summary>
     /// Gets a value indicating whether cluster mTLS material was loaded.
@@ -50,7 +50,7 @@ internal sealed class ClusterMtlsCertificateMaterial : IDisposable
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
     /// <returns>Loaded certificate material, or <see cref="Disabled"/> when inter-node mTLS is not required.</returns>
-    public static ClusterMtlsCertificateMaterial Load(ClusterMtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls)
+    public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate(primaryListenPort, requiresInterNodeMtls);
@@ -58,10 +58,10 @@ internal sealed class ClusterMtlsCertificateMaterial : IDisposable
         if (!requiresInterNodeMtls)
             return Disabled;
 
-        var trustAnchor = ClusterMtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
-        var nodeCertificate = ClusterMtlsCertificateLoader.LoadNodeCertificate(options);
-        ClusterMtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
-        return new ClusterMtlsCertificateMaterial(nodeCertificate, trustAnchor);
+        var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
+        var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
+        MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
+        return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
     }
 
     /// <inheritdoc />

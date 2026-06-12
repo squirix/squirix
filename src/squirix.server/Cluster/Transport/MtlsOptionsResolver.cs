@@ -5,13 +5,13 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Resolves cluster mTLS options from process environment variables.
 /// </summary>
-internal static class ClusterMtlsOptionsResolver
+internal static class MtlsOptionsResolver
 {
     /// <summary>
     /// Loads cluster mTLS options from environment variables.
     /// </summary>
     /// <returns>Resolved options.</returns>
-    public static ClusterMtlsOptions ResolveFromEnvironment() =>
+    public static MtlsOptions ResolveFromEnvironment() =>
         new()
         {
             CertPfxPath = NormalizePath(EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH")),

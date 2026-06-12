@@ -5,9 +5,9 @@ using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-internal static class ClusterMtlsTestCertificateFactory
+internal static class MtlsTestCertificateFactory
 {
-    public static ClusterMtlsTestCertificateBundle Create(string? rootDirectory = null)
+    public static MtlsTestCertificateBundle Create(string? rootDirectory = null)
     {
         var directory = rootDirectory ?? DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-tests");
         if (rootDirectory is not null)
@@ -25,7 +25,7 @@ internal static class ClusterMtlsTestCertificateFactory
         var nodePublic = nodeRequest.Create(ca, ca.NotBefore, ca.NotAfter, Guid.NewGuid().ToByteArray());
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
 
-        return new ClusterMtlsTestCertificateBundle(directory, ca, nodeCertificate);
+        return new MtlsTestCertificateBundle(directory, ca, nodeCertificate);
     }
 
     public static X509Certificate2 CreatePeerCertificate(

@@ -62,8 +62,8 @@ internal static class ClusterRuntimeServiceRegistration
             _ = services.AddSingleton<IdempotencyStore>();
             _ = services.AddSingleton<IClientPool>(sp =>
             {
-                var material = sp.GetRequiredService<ClusterMtlsCertificateMaterial>();
-                var handler = httpHandlerOverride ?? (material.Enabled ? GrpcTransportEndpoints.CreateClusterMtlsHandler(material) : null);
+                var material = sp.GetRequiredService<MtlsCertificateMaterial>();
+                var handler = httpHandlerOverride ?? (material.Enabled ? GrpcTransportEndpoints.CreateMtlsHandler(material) : null);
                 return new ClientPool(
                     cluster.Peers,
                     callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),

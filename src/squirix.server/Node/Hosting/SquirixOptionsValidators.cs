@@ -39,18 +39,18 @@ internal static class SquirixOptionsValidators
     }
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
-    internal sealed class ClusterMtlsOptionsValidator : IValidateOptions<ClusterMtlsOptions>
+    internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
     {
         private readonly ClusterConfig _cluster;
 
-        public ClusterMtlsOptionsValidator(ClusterConfig cluster) => _cluster = cluster;
+        public MtlsOptionsValidator(ClusterConfig cluster) => _cluster = cluster;
 
-        public ValidateOptionsResult Validate(string? name, ClusterMtlsOptions options)
+        public ValidateOptionsResult Validate(string? name, MtlsOptions options)
         {
             try
             {
                 var primaryListenPort = Uri.TryCreate(_cluster.Url, UriKind.Absolute, out var uri) ? uri.Port : (int?)null;
-                options.Validate(primaryListenPort, ClusterMtlsTopology.RequiresInterNodeMtls(_cluster));
+                options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
                 return ValidateOptionsResult.Success;
             }
             catch (InvalidOperationException ex)

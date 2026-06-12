@@ -21,20 +21,20 @@ internal static class SquirixKestrelConfiguration
     /// </summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="uri">The primary HTTPS listen URI.</param>
-    /// <param name="clusterMtlsOptions">Cluster mTLS options.</param>
-    /// <param name="clusterMtlsMaterial">Loaded cluster mTLS certificate material.</param>
+    /// <param name="mtlsOptions">Cluster mTLS options.</param>
+    /// <param name="mtlsMaterial">Loaded cluster mTLS certificate material.</param>
     public static void ConfigureKestrel(
         WebApplicationBuilder builder,
         Uri uri,
-        ClusterMtlsOptions clusterMtlsOptions,
-        ClusterMtlsCertificateMaterial clusterMtlsMaterial)
+        MtlsOptions mtlsOptions,
+        MtlsCertificateMaterial mtlsMaterial)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(uri);
-        ArgumentNullException.ThrowIfNull(clusterMtlsOptions);
-        ArgumentNullException.ThrowIfNull(clusterMtlsMaterial);
+        ArgumentNullException.ThrowIfNull(mtlsOptions);
+        ArgumentNullException.ThrowIfNull(mtlsMaterial);
 
-        var clusterMtlsEnabled = clusterMtlsMaterial.Enabled;
+        var mtlsEnabled = mtlsMaterial.Enabled;
         var isLoopbackHost = SquirixExternalAccessSecurity.IsLoopbackHost(uri.Host);
 
         _ = builder.WebHost.ConfigureKestrel(kestrel =>
@@ -47,12 +47,12 @@ internal static class SquirixKestrelConfiguration
             else
                 kestrel.ListenAnyIP(uri.Port, ConfigurePrimaryEndpoint);
 
-            if (!clusterMtlsEnabled)
+            if (!mtlsEnabled)
                 return;
             if (isLoopbackHost)
-                kestrel.ListenLocalhost(clusterMtlsOptions.InternalListenPort, listenOptions => ConfigureClusterMtlsEndpoint(listenOptions, clusterMtlsMaterial));
+                kestrel.ListenLocalhost(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial));
             else
-                kestrel.ListenAnyIP(clusterMtlsOptions.InternalListenPort, listenOptions => ConfigureClusterMtlsEndpoint(listenOptions, clusterMtlsMaterial));
+                kestrel.ListenAnyIP(mtlsOptions.InternalListenPort, listenOptions => ConfigureMtlsEndpoint(listenOptions, mtlsMaterial));
         });
     }
 
@@ -81,11 +81,11 @@ internal static class SquirixKestrelConfiguration
     /// <param name="chain">Optional chain supplied by the TLS stack.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    internal static bool ValidateClusterClientCertificate(
+    internal static bool ValidateClientCertificate(
         X509Certificate2? clientCertificate,
         X509Chain? chain,
         X509Certificate2 trustAnchor) =>
-        ClusterMtlsClientCertificateValidator.Validate(clientCertificate, chain, trustAnchor);
+        MtlsClientCertificateValidator.Validate(clientCertificate, chain, trustAnchor);
 
     private static void ConfigurePrimaryEndpoint(ListenOptions listenOptions)
     {
@@ -93,17 +93,17 @@ internal static class SquirixKestrelConfiguration
         _ = listenOptions.UseHttps();
     }
 
-    private static void ConfigureClusterMtlsEndpoint(ListenOptions listenOptions, ClusterMtlsCertificateMaterial material)
+    private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material)
     {
         listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-        _ = listenOptions.UseHttps(https => ConfigureClusterMutualTls(https, material));
+        _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material));
     }
 
-    private static void ConfigureClusterMutualTls(HttpsConnectionAdapterOptions https, ClusterMtlsCertificateMaterial material)
+    private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificateMaterial material)
     {
         https.ServerCertificate = material.NodeCertificate;
         https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
         https.ClientCertificateValidation = (certificate, chain, _) =>
-            ValidateClusterClientCertificate(certificate, chain, material.TrustAnchor!);
+            ValidateClientCertificate(certificate, chain, material.TrustAnchor!);
     }
 }

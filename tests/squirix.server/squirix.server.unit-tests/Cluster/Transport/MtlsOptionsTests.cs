@@ -8,9 +8,9 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>
-/// Unit tests for <see cref="ClusterMtlsOptions" /> validation.
+/// Unit tests for <see cref="MtlsOptions" /> validation.
 /// </summary>
-public sealed class ClusterMtlsOptionsTests
+public sealed class MtlsOptionsTests
 {
     /// <summary>
     /// Ensures standalone topology does not require cluster mTLS material.
@@ -18,7 +18,7 @@ public sealed class ClusterMtlsOptionsTests
     [Fact]
     public void StandaloneTopologyDoesNotRequireCertificatePaths()
     {
-        var options = new ClusterMtlsOptions();
+        var options = new MtlsOptions();
 
         var ex = Record.Exception(() => options.Validate(6001, false));
         Assert.Null(ex);
@@ -30,7 +30,7 @@ public sealed class ClusterMtlsOptionsTests
     [Fact]
     public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
     {
-        var options = new ClusterMtlsOptions();
+        var options = new MtlsOptions();
 
         var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
@@ -44,8 +44,8 @@ public sealed class ClusterMtlsOptionsTests
     [Fact]
     public void RemotePeersRejectInternalPortMatchingPrimaryListener()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        var options = new ClusterMtlsOptions
+        using var bundle = MtlsTestCertificateFactory.Create();
+        var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
@@ -63,7 +63,7 @@ public sealed class ClusterMtlsOptionsTests
     public void RemotePeersRejectMissingFiles()
     {
         var missingRoot = DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-missing");
-        var options = new ClusterMtlsOptions
+        var options = new MtlsOptions
         {
             CaPath = PathKit.Combine(missingRoot, "missing-ca.crt"),
             CertPath = PathKit.Combine(missingRoot, "missing-node.crt"),
@@ -90,8 +90,8 @@ public sealed class ClusterMtlsOptionsTests
     [Fact]
     public void RemotePeersRejectMixedPfxAndPemPaths()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        var options = new ClusterMtlsOptions
+        using var bundle = MtlsTestCertificateFactory.Create();
+        var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
             CertPfxPath = bundle.PfxPath,
@@ -117,9 +117,9 @@ public sealed class ClusterMtlsOptionsTests
             Url = "https://localhost:6001",
             Peers = [new Peer { NodeId = "node-a", Url = "https://localhost:6001" }],
         };
-        var validator = new SquirixOptionsValidators.ClusterMtlsOptionsValidator(cluster);
+        var validator = new SquirixOptionsValidators.MtlsOptionsValidator(cluster);
 
-        var result = validator.Validate(null, new ClusterMtlsOptions());
+        var result = validator.Validate(null, new MtlsOptions());
 
         Assert.False(result.Failed);
     }

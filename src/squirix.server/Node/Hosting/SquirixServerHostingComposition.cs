@@ -35,8 +35,7 @@ internal static class SquirixServerHostingComposition
             builder,
             cluster,
             options.WaitForRecovery,
-            persistenceEnabled: options.PersistenceEnabled,
-            persistenceOptionsOverride: CreatePersistenceOptions(options),
+            persistenceOptionsOverride: ResolvePersistenceOptions(options),
             extensions: extensions);
     }
 
@@ -56,21 +55,21 @@ internal static class SquirixServerHostingComposition
         MemoryPressureOptions? memoryPressureOptions = null,
         SecurityOptions? securityOptionsOverride = null,
         SquirixServerExtensionOptions? extensions = null,
-        bool persistenceEnabled = false)
+        MtlsOptions? mtlsOptionsOverride = null,
+        MtlsCertificateMaterial? mtlsMaterialOverride = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
 
-        if (persistenceOptionsOverride is not null)
-            persistenceEnabled = true;
-
+        var persistenceEnabled = persistenceOptionsOverride is not null;
         var uri = new Uri(cluster.Url);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
-        var clusterMtlsOptions = ClusterMtlsOptionsResolver.ResolveFromEnvironment();
-        var requiresInterNodeMtls = ClusterMtlsTopology.RequiresInterNodeMtls(cluster);
-        var clusterMtlsMaterial = ClusterMtlsCertificateMaterial.Load(clusterMtlsOptions, uri.Port, requiresInterNodeMtls);
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, clusterMtlsOptions, clusterMtlsMaterial);
+        var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);
+        var mtlsOptions = mtlsOptionsOverride ?? MtlsOptionsResolver.ResolveFromEnvironment();
+        var mtlsMaterial = mtlsMaterialOverride
+            ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, mtlsOptions, mtlsMaterial);
 
         _ = builder.Services.AddSquirixValidatedOptions(
             cluster,
@@ -78,9 +77,8 @@ internal static class SquirixServerHostingComposition
             backpressureOptions,
             persistenceOptionsOverride,
             memoryPressureOptions,
-            persistenceEnabled,
-            clusterMtlsOptionsOverride: clusterMtlsOptions,
-            clusterMtlsMaterialOverride: clusterMtlsMaterial);
+            mtlsOptionsOverride: mtlsOptions,
+            mtlsMaterialOverride: mtlsMaterial);
         _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, httpHandlerOverride);
         if (persistenceEnabled)
@@ -128,13 +126,18 @@ internal static class SquirixServerHostingComposition
         return MapEndpoints(app, options.AuthEnabled);
     }
 
-    private static PersistenceOptions? CreatePersistenceOptions(SquirixServerOptions options)
+    private static PersistenceOptions? ResolvePersistenceOptions(SquirixServerOptions options)
     {
         if (!options.PersistenceEnabled)
             return null;
 
         return string.IsNullOrWhiteSpace(options.DataDirectory)
-            ? null
+            ? new PersistenceOptions
+            {
+                JournalMaxSegmentMb = 64,
+                FlushIntervalMs = 10,
+                SnapshotIntervalSec = 60,
+            }
             : new PersistenceOptions { DataDir = options.DataDirectory };
     }
 

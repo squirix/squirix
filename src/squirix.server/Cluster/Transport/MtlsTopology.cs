@@ -6,7 +6,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>
 /// Determines when inter-node cluster mTLS is required from cluster topology.
 /// </summary>
-internal static class ClusterMtlsTopology
+internal static class MtlsTopology
 {
     /// <summary>
     /// Returns whether the configured topology performs inter-node traffic that requires mTLS.

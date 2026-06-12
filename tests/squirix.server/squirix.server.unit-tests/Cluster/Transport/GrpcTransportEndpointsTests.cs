@@ -16,7 +16,7 @@ public sealed class GrpcTransportEndpointsTests
     /// Ensures disabled cluster mTLS keeps the default HTTPS handler without a client certificate.
     /// </summary>
     [Fact]
-    public void CreateChannelHandlerWithoutClusterMtlsUsesDefaultHandler()
+    public void CreateChannelHandlerWithoutMtlsUsesDefaultHandler()
     {
         using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
 
@@ -29,7 +29,7 @@ public sealed class GrpcTransportEndpointsTests
     [Fact]
     public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
     {
-        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler(ClusterMtlsCertificateMaterial.Disabled);
+        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler(MtlsCertificateMaterial.Disabled);
 
         Assert.Null(handler.SslOptions.ClientCertificates);
     }
@@ -38,11 +38,11 @@ public sealed class GrpcTransportEndpointsTests
     /// Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.
     /// </summary>
     [Fact]
-    public void CreateClusterMtlsHandlerAttachesLocalNodeCertificate()
+    public void CreateMtlsHandlerAttachesLocalNodeCertificate()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        using var material = ClusterMtlsCertificateMaterial.Load(
-            new ClusterMtlsOptions
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var material = MtlsCertificateMaterial.Load(
+            new MtlsOptions
             {
                 CaPath = bundle.CaPath,
                 CertPfxPath = bundle.PfxPath,
@@ -51,7 +51,7 @@ public sealed class GrpcTransportEndpointsTests
             6001,
             true);
 
-        using var handler = GrpcTransportEndpoints.CreateClusterMtlsHandler(material);
+        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material);
 
         Assert.NotNull(handler.SslOptions.ClientCertificates);
         var clientCertificate = Assert.Single(handler.SslOptions.ClientCertificates);
@@ -64,8 +64,8 @@ public sealed class GrpcTransportEndpointsTests
     [Fact]
     public void ValidatePeerServerCertificateAcceptsCertificateSignedByClusterCa()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        using var peerServerCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "peer-node-b");
 
         Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, null, bundle.Ca));
     }
@@ -76,9 +76,9 @@ public sealed class GrpcTransportEndpointsTests
     [Fact]
     public void ValidatePeerServerCertificateRejectsCertificateSignedByUntrustedCa()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        using var bundle = MtlsTestCertificateFactory.Create();
         using var untrustedCa = CreateStandaloneCa("CN=Other CA");
-        using var peerServerCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "peer-node-b");
+        using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "peer-node-b");
 
         Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, null, bundle.Ca));
     }
@@ -89,10 +89,10 @@ public sealed class GrpcTransportEndpointsTests
     [Fact]
     public void ValidatePeerServerCertificateRejectsExpiredCertificate()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
+        using var bundle = MtlsTestCertificateFactory.Create();
         var notBefore = bundle.Ca.NotBefore;
         var notAfter = notBefore.AddHours(1);
-        using var expiredServerCertificate = ClusterMtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
+        using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "expired-peer", notBefore, notAfter);
 
         Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, null, bundle.Ca));
     }
@@ -101,11 +101,11 @@ public sealed class GrpcTransportEndpointsTests
     /// Ensures the outbound handler rejects missing peer server certificates.
     /// </summary>
     [Fact]
-    public void CreateClusterMtlsHandlerRejectsMissingPeerServerCertificate()
+    public void CreateMtlsHandlerRejectsMissingPeerServerCertificate()
     {
-        using var bundle = ClusterMtlsTestCertificateFactory.Create();
-        using var material = ClusterMtlsCertificateMaterial.Load(
-            new ClusterMtlsOptions
+        using var bundle = MtlsTestCertificateFactory.Create();
+        using var material = MtlsCertificateMaterial.Load(
+            new MtlsOptions
             {
                 CaPath = bundle.CaPath,
                 CertPfxPath = bundle.PfxPath,
@@ -113,7 +113,7 @@ public sealed class GrpcTransportEndpointsTests
             },
             6001,
             true);
-        using var handler = GrpcTransportEndpoints.CreateClusterMtlsHandler(material);
+        using var handler = GrpcTransportEndpoints.CreateMtlsHandler(material);
         var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
 
         Assert.False(callback(this, null, null, sslPolicyErrors: System.Net.Security.SslPolicyErrors.None));
