@@ -138,8 +138,30 @@ The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disa
 
 Access control is enforced on every request:
 
-- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials (typical same-host Prometheus).
-- **All other clients** must authenticate with a JWT bearer token. There is no settings flag to disable this rule.
+- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials. This is a deliberate tradeoff for same-host
+  Prometheus and local development: **loopback is treated as trusted**. Any process on the host can reach loopback.
+- **All other clients** must authenticate with a JWT bearer token. There is no settings flag to change loopback access.
+
+<!-- markdownlint-disable-next-line MD033 -->
+<a id="metrics-loopback-trust"></a>
+
+### Loopback trust and multi-tenant hosts
+
+**Risk (low / design tradeoff):** on shared or multi-tenant machines, co-located processes can scrape `/metrics`
+anonymously over loopback and learn operational state (throughput, memory pressure, journal backlog, and similar).
+
+**Assumption:** production nodes that expose `/metrics` on loopback expect a **single-tenant** host or a controlled
+environment where local processes are trusted.
+
+**Mitigations when that assumption does not hold:**
+
+- Disable the HTTP scrape endpoint (`PrometheusMetrics.enabled: false`) and use OpenTelemetry or `MeterListener`
+  exporters with your platform's auth model.
+- Keep the primary listener on loopback only when the node must not accept remote clients (see
+  [server-mode.md](server-mode.md#loopback-development-default-not-production-posture)).
+- Run one squirix node per dedicated VM or container with network policies that limit who can reach the listener.
+
+Implementation: `SquirixMetricsConnectionSecurity` in `src/squirix.server/Node/Observability/Metrics/`.
 
 Remote scrapers should use the same JWT as cache routes. Example header: `Authorization: Bearer <token>`. See
 [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
@@ -163,8 +185,9 @@ other `MeterListener` exporters.
 
 - `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
 - `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
-- Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous; remote clients must present a JWT bearer
-  token when server auth is enabled (see [Metrics route](#metrics-route)).
+- Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous by design (loopback is trusted); remote
+  clients must present a JWT bearer token when server auth is enabled. See
+  [Metrics route — Loopback trust](#metrics-loopback-trust) for multi-tenant risk and mitigations.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 

@@ -276,7 +276,14 @@ Example fragment:
 
 Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
 the same JWT bearer token used for cache routes (see
-[diagnostics — Security](diagnostics.md#metrics-route)).
+[diagnostics — Metrics route](diagnostics.md#metrics-route)).
+
+**Loopback trust assumption:** anonymous loopback scrapes assume the host is **single-tenant** and that any local
+process reaching `127.0.0.1` / `::1` is trusted. On **shared or multi-tenant** hosts, another tenant's process can
+scrape `/metrics` without JWT and read operational data. Mitigations: bind the primary listener to loopback only when
+appropriate, disable the HTTP scrape (`PrometheusMetrics.enabled: false`) and export through OpenTelemetry /
+`MeterListener` instead, or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
+scrapes — the tradeoff is intentional for same-host Prometheus ergonomics.
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
 labels are stripped before export). See [diagnostics — Scrape privacy model](diagnostics.md#scrape-privacy-model).
