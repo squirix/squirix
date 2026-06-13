@@ -61,6 +61,10 @@ Current limitation:
 
 This route is a readiness/diagnostics payload, not a complete observability surface.
 
+Access control matches `/metrics`: loopback clients may scrape anonymously; remote clients must authenticate with
+the same JWT bearer token used for cache routes when server auth is enabled. `/health`, `/health/live`, and
+`/health/ready` stay anonymous for probes.
+
 ## Logical operation tracing
 
 Logical cache operation spans are owned by `TracingCacheDecorator<T>` in the hosted cache pipeline. The decorator wraps
@@ -157,9 +161,10 @@ other `MeterListener` exporters.
 
 ## Security
 
-- `/health` and `/metrics` are served on the primary HTTPS listener only.
-- Loopback `/metrics` scrapes stay anonymous; remote clients must present a JWT bearer token (see
-  [Metrics route](#metrics-route)).
+- `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
+- `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
+- Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous; remote clients must present a JWT bearer
+  token when server auth is enabled (see [Metrics route](#metrics-route)).
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 
