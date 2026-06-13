@@ -21,10 +21,10 @@ namespace Squirix.Server.TestKit.Security;
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
     private static readonly PortAllocator PortPool = new(48000, 48999);
-
-    private readonly RSA _signingKey;
     private readonly WebApplication _app;
     private readonly string _keyId;
+
+    private readonly RSA _signingKey;
 
     private MockOidcAuthority(WebApplication app, string authorityUrl, string issuer, RSA signingKey, string keyId)
     {

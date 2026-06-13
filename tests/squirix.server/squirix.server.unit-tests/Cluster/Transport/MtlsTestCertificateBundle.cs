@@ -25,7 +25,7 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         File.WriteAllBytes(PfxPath, nodeCertificate.Export(X509ContentType.Pfx));
     }
 
-    public string RootDirectory { get; }
+    public X509Certificate2 Ca { get; }
 
     public string CaPath { get; }
 
@@ -35,7 +35,7 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
 
     public string PfxPath { get; }
 
-    public X509Certificate2 Ca { get; }
+    public string RootDirectory { get; }
 
     public void Dispose()
     {

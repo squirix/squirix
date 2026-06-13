@@ -13,21 +13,6 @@ namespace Squirix.Server.UnitTests.Limits;
 public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Checks if an entry below the limit doesn't throw.
-    /// </summary>
-    [Fact]
-    public void EntryJustBelowLimitDoesNotThrow()
-    {
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
-        var entry = new CacheEntry<object?> { Value = value, Version = 1 };
-
-        var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));
-
-        Assert.Null(ex);
-        Assert.True(EntryPayloadSizeGuard.MeasureSerializedBytes(entry) <= SquirixEntryLimits.MaxEntrySizeBytes);
-    }
-
-    /// <summary>
     /// Checks if an entry below the limit throws.
     /// </summary>
     [Fact]
@@ -41,5 +26,20 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
         Assert.Equal(SquirixErrorCode.PayloadTooLarge, ex.Code);
         Assert.Equal("PayloadTooLarge", ex.Error);
         Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Checks if an entry below the limit doesn't throw.
+    /// </summary>
+    [Fact]
+    public void EntryJustBelowLimitDoesNotThrow()
+    {
+        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+        var entry = new CacheEntry<object?> { Value = value, Version = 1 };
+
+        var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));
+
+        Assert.Null(ex);
+        Assert.True(EntryPayloadSizeGuard.MeasureSerializedBytes(entry) <= SquirixEntryLimits.MaxEntrySizeBytes);
     }
 }

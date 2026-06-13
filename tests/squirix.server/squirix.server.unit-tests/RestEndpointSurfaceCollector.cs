@@ -34,9 +34,7 @@ internal static class RestEndpointSurfaceCollector
                 EnvironmentName = "Production",
             });
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
-            loadDiscoveredSettings: false);
+        _ = builder.AddSquirixServer(options => options.Url = new Uri($"https://localhost:{port}"), loadDiscoveredSettings: false);
 
         return builder.Build();
     }

@@ -42,26 +42,24 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         var moveCompleted = false;
         try
         {
-            await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous))
+            using var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous);
+            await foreach (var (k, e) in ToAsync(items, cancellationToken).ConfigureAwait(false))
             {
-                await foreach (var (k, e) in ToAsync(items, cancellationToken).ConfigureAwait(false))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var json = SerializationProvider.Instance.SerializeToUtf8Bytes(new SnapshotFrame { Kind = "entry", Namespace = k.Namespace, Key = k.Key, Entry = e });
-                    await FrameCodec.WriteFrameAsync(fs, json, cancellationToken).ConfigureAwait(false);
-                }
-
-                await foreach (var record in ToAsync(idempotencyRecords, cancellationToken).ConfigureAwait(false))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var json = JsonSerializer.SerializeToUtf8Bytes(
-                        new SnapshotFrame { Kind = "idempotency", Idempotency = record },
-                        SquirixJsonSerializerContext.Default.SnapshotFrame);
-                    await FrameCodec.WriteFrameAsync(fs, json, cancellationToken).ConfigureAwait(false);
-                }
-
-                await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                var json = SerializationProvider.Instance.SerializeToUtf8Bytes(new SnapshotFrame { Kind = "entry", Namespace = k.Namespace, Key = k.Key, Entry = e });
+                await FrameCodec.WriteFrameAsync(fs, json, cancellationToken).ConfigureAwait(false);
             }
+
+            await foreach (var record in ToAsync(idempotencyRecords, cancellationToken).ConfigureAwait(false))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var json = JsonSerializer.SerializeToUtf8Bytes(
+                    new SnapshotFrame { Kind = "idempotency", Idempotency = record },
+                    SquirixJsonSerializerContext.Default.SnapshotFrame);
+                await FrameCodec.WriteFrameAsync(fs, json, cancellationToken).ConfigureAwait(false);
+            }
+
+            await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
 
             var snap = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Snapshot}{index:000000}{StorageFileExtensions.Snapshot}");
             _fileOperations.PublishSnapshot(tmp, snap);

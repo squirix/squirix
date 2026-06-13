@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Storage.Maintenance;
 
@@ -8,5 +9,5 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <param name="EntryCount">The number of active entries.</param>
 /// <param name="IdempotencyRecordCount">The number of idempotency records.</param>
 /// <param name="Entries">A bounded entry preview.</param>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal sealed record SnapshotDumpReport(int EntryCount, int IdempotencyRecordCount, IReadOnlyList<SnapshotEntryPreview> Entries);

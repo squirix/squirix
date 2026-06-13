@@ -107,15 +107,18 @@ internal static class SquirixServerProcess
         var options = LoadOptions(command);
         var builder = WebApplication.CreateBuilder();
         _ = builder.AddSquirixServer(target => SquirixServerConfiguration.CopyOptions(options, target), null, false);
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
+        var app = builder.Build();
+        await using (app.ConfigureAwait(false))
+        {
+            _ = app.MapSquirixServer();
 
-        await app.StartAsync().ConfigureAwait(false);
-        WriteRunServerStatus(command, options);
+            await app.StartAsync().ConfigureAwait(false);
+            WriteRunServerStatus(command, options);
 
-        using var shutdown = new ShutdownSignal();
-        await app.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
-        return 0;
+            using var shutdown = new ShutdownSignal();
+            await app.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
+            return 0;
+        }
     }
 
     private static int ValidateConfig(SquirixServerCommand command)

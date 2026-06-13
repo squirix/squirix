@@ -153,7 +153,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
                 },
             });
 
-        var result = await StorageMaintenanceTool.RepairAsync(_dir, cancellationToken: DefaultCancellationToken);
+        var result = await StorageMaintenanceTool.RepairAsync(_dir, DefaultCancellationToken);
 
         Assert.True(result.Report.ManifestReadable);
         Assert.Equal(watermark, result.Report.LastAppliedSequence);
@@ -180,7 +180,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
 
         FileKit.TryDelete(PathKit.Combine(false, _dir, "man-current"));
 
-        var result = await StorageMaintenanceTool.RepairAsync(_dir, cancellationToken: DefaultCancellationToken);
+        var result = await StorageMaintenanceTool.RepairAsync(_dir, DefaultCancellationToken);
 
         Assert.Equal("repair", result.Action);
         Assert.True(result.Report.CurrentPointerExists);
@@ -199,7 +199,7 @@ public sealed class StorageMaintenanceToolTests : ServerUnitTestBase, IAsyncLife
         var snapshotWriter = new SnapshotWriter(_dir);
         var snapshotPath = await snapshotWriter.WriteAsync(3, [("k1", BuildEntryJsonElement("snap"))], DefaultCancellationToken);
 
-        var result = await StorageMaintenanceTool.RepairAsync(_dir, cancellationToken: DefaultCancellationToken);
+        var result = await StorageMaintenanceTool.RepairAsync(_dir, DefaultCancellationToken);
 
         Assert.Equal("repair", result.Action);
         Assert.True(result.Report.ManifestReadable);

@@ -54,9 +54,8 @@ internal static class JournalCompactor
         var newFirstIdx = GetNextJournalSegmentIndex(existingSegments);
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-
-        await using (var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous))
         {
+            using var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
             JournalFraming.WriteFileHeader(fs);
             var seq = lastSeq == 0UL ? 1UL : lastSeq + 1UL;
 

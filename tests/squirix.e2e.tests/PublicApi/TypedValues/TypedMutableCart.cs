@@ -5,6 +5,8 @@ namespace Squirix.E2ETests.PublicApi.TypedValues;
 
 internal sealed class TypedMutableCart
 {
+    public string? CouponCode { get; init; }
+
     public string Id { get; init; } = string.Empty;
 
     public List<TypedCartItem> Items { get; init; } = [];
@@ -12,6 +14,4 @@ internal sealed class TypedMutableCart
     public decimal Total { get; init; }
 
     public DateTimeOffset UpdatedAt { get; init; }
-
-    public string? CouponCode { get; init; }
 }

@@ -122,6 +122,18 @@ public sealed class PortAllocator : IDisposable
         _disposed = true;
     }
 
+    private static int CreateProcessOffset()
+    {
+        unchecked
+        {
+            var hash = Environment.ProcessId;
+            foreach (var ch in AppContext.BaseDirectory)
+                hash = (hash * 31) + ch;
+
+            return hash & int.MaxValue;
+        }
+    }
+
     private static bool ProbeBind(int port)
     {
         try
@@ -138,18 +150,6 @@ public sealed class PortAllocator : IDisposable
         catch (SocketException)
         {
             return false;
-        }
-    }
-
-    private static int CreateProcessOffset()
-    {
-        unchecked
-        {
-            var hash = Environment.ProcessId;
-            foreach (var ch in AppContext.BaseDirectory)
-                hash = (hash * 31) + ch;
-
-            return hash & int.MaxValue;
         }
     }
 

@@ -15,6 +15,54 @@ namespace Squirix.Server.UnitTests.Storage;
 public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBase
 {
     /// <summary>
+    /// Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.
+    /// </summary>
+    [Fact]
+    public void WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
+    {
+        using var sink = new MeasurementSink("Squirix");
+        var logger = new CollectingLogger();
+        var dir = DirectoryKit.CreateTempDirectory("journal-retention-delete-failure");
+        var staleJournalSegment = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
+        try
+        {
+            var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
+            File.WriteAllText(staleJournalSegment, "stale journal");
+            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
+            File.WriteAllText(currentJournalPath, "current journal");
+            var options = new PersistenceOptions { DataDir = dir };
+            var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleJournalSegment));
+            store.Write(
+                new Manifest
+                {
+                    CurrentJournal = 3,
+                    LastSnapshot = new Manifest.SnapshotRef
+                    {
+                        Index = 1,
+                        Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
+                        CreatedUtc = DateTime.UtcNow,
+                        LastAppliedSequence = 20,
+                        ReplayFromJournalSegment = 3,
+                    },
+                });
+
+            Assert.True(File.Exists(currentJournalPath));
+            Assert.True(File.Exists(staleJournalSegment));
+            Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
+            Assert.True(
+                sink.HasEvent(
+                    "squirix_storage_retention_delete_failures_total",
+                    ("artifact", ManifestRetentionArtifactKind.JournalSegment),
+                    ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+        }
+        finally
+        {
+            RestoreNormalAttributes(staleJournalSegment);
+            DirectoryKit.TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
     /// Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.
     /// </summary>
     [Fact]
@@ -107,54 +155,6 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         }
     }
 
-    /// <summary>
-    /// Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.
-    /// </summary>
-    [Fact]
-    public void WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
-    {
-        using var sink = new MeasurementSink("Squirix");
-        var logger = new CollectingLogger();
-        var dir = DirectoryKit.CreateTempDirectory("journal-retention-delete-failure");
-        var staleJournalSegment = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        try
-        {
-            var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
-            File.WriteAllText(staleJournalSegment, "stale journal");
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
-            File.WriteAllText(currentJournalPath, "current journal");
-            var options = new PersistenceOptions { DataDir = dir };
-            var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleJournalSegment));
-            store.Write(
-                new Manifest
-                {
-                    CurrentJournal = 3,
-                    LastSnapshot = new Manifest.SnapshotRef
-                    {
-                        Index = 1,
-                        Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
-                        CreatedUtc = DateTime.UtcNow,
-                        LastAppliedSequence = 20,
-                        ReplayFromJournalSegment = 3,
-                    },
-                });
-
-            Assert.True(File.Exists(currentJournalPath));
-            Assert.True(File.Exists(staleJournalSegment));
-            Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
-            Assert.True(
-                sink.HasEvent(
-                    "squirix_storage_retention_delete_failures_total",
-                    ("artifact", ManifestRetentionArtifactKind.JournalSegment),
-                    ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
-        }
-        finally
-        {
-            RestoreNormalAttributes(staleJournalSegment);
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
-    }
-
     private static void RestoreNormalAttributes(string path)
     {
         if (File.Exists(path))
@@ -180,7 +180,6 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
 
         public void PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
 
-        public bool TryDelete(string path) =>
-            !string.Equals(path, retainedPath, StringComparison.OrdinalIgnoreCase) && _inner.TryDelete(path);
+        public bool TryDelete(string path) => !string.Equals(path, retainedPath, StringComparison.OrdinalIgnoreCase) && _inner.TryDelete(path);
     }
 }

@@ -29,15 +29,13 @@ internal static class SquirixNodeOptionsRegistration
         AddValidatedInstance<ClusterConfig, SquirixOptionsValidators.ClusterConfigValidator>(services, cluster);
         var mtlsOptions = mtlsOptionsOverride ?? MtlsOptionsResolver.ResolveFromEnvironment();
         AddValidatedInstance<MtlsOptions, SquirixOptionsValidators.MtlsOptionsValidator>(services, mtlsOptions);
-        _ = mtlsMaterialOverride is not null
-            ? services.AddSingleton(mtlsMaterialOverride)
-            : services.AddSingleton(static provider =>
-            {
-                var registeredCluster = provider.GetRequiredService<ClusterConfig>();
-                var options = provider.GetRequiredService<MtlsOptions>();
-                var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : (int?)null;
-                return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster), registeredCluster.NodeId);
-            });
+        _ = mtlsMaterialOverride is not null ? services.AddSingleton(mtlsMaterialOverride) : services.AddSingleton(static provider =>
+        {
+            var registeredCluster = provider.GetRequiredService<ClusterConfig>();
+            var options = provider.GetRequiredService<MtlsOptions>();
+            var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : (int?)null;
+            return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+        });
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
         var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(MemoryPressureBootstrap.Load(), GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);

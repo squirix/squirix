@@ -30,46 +30,45 @@ internal static class SquirixSecurityServiceRegistration
         if (string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtIssuer))
             throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
 
-        _ = services.AddAuthentication()
-            .AddJwtBearer(
-                JwtBearerDefaults.AuthenticationScheme,
-                o =>
+        _ = services.AddAuthentication().AddJwtBearer(
+            JwtBearerDefaults.AuthenticationScheme,
+            o =>
+            {
+                var hasAuthority = !string.IsNullOrWhiteSpace(jwtAuthority);
+                o.Authority = hasAuthority ? jwtAuthority : null;
+                o.RequireHttpsMetadata = hasAuthority && !jwtAllowHttpMetadata;
+
+                if (!string.IsNullOrWhiteSpace(jwtAudience))
+                    o.Audience = jwtAudience;
+
+                var parameters = new TokenValidationParameters
                 {
-                    var hasAuthority = !string.IsNullOrWhiteSpace(jwtAuthority);
-                    o.Authority = hasAuthority ? jwtAuthority : null;
-                    o.RequireHttpsMetadata = hasAuthority && !jwtAllowHttpMetadata;
+                    ValidateAudience = !string.IsNullOrWhiteSpace(jwtAudience),
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ClockSkew = TimeSpan.FromMinutes(2),
+                };
 
-                    if (!string.IsNullOrWhiteSpace(jwtAudience))
-                        o.Audience = jwtAudience;
-
-                    var parameters = new TokenValidationParameters
-                    {
-                        ValidateAudience = !string.IsNullOrWhiteSpace(jwtAudience),
-                        ValidateLifetime = true,
-                        ValidateIssuerSigningKey = true,
-                        ClockSkew = TimeSpan.FromMinutes(2),
-                    };
-
-                    if (!string.IsNullOrWhiteSpace(jwtAuthority))
-                    {
-                        parameters.ValidateIssuer = true;
-                        if (!string.IsNullOrWhiteSpace(jwtIssuer))
-                            parameters.ValidIssuer = jwtIssuer;
-                    }
-                    else
-                    {
-                        parameters.ValidateIssuer = true;
+                if (!string.IsNullOrWhiteSpace(jwtAuthority))
+                {
+                    parameters.ValidateIssuer = true;
+                    if (!string.IsNullOrWhiteSpace(jwtIssuer))
                         parameters.ValidIssuer = jwtIssuer;
-                    }
+                }
+                else
+                {
+                    parameters.ValidateIssuer = true;
+                    parameters.ValidIssuer = jwtIssuer;
+                }
 
-                    if (!string.IsNullOrWhiteSpace(jwtAudience))
-                        parameters.ValidAudience = jwtAudience;
+                if (!string.IsNullOrWhiteSpace(jwtAudience))
+                    parameters.ValidAudience = jwtAudience;
 
-                    if (signingKeyBytes is not null)
-                        parameters.IssuerSigningKey = new SymmetricSecurityKey(signingKeyBytes);
+                if (signingKeyBytes is not null)
+                    parameters.IssuerSigningKey = new SymmetricSecurityKey(signingKeyBytes);
 
-                    o.TokenValidationParameters = parameters;
-                });
+                o.TokenValidationParameters = parameters;
+            });
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
             JwtBearerPolicy,
@@ -80,6 +79,19 @@ internal static class SquirixSecurityServiceRegistration
             });
 
         return true;
+    }
+
+    private static ResolvedSecurityConfiguration ResolveFromEnvironment()
+    {
+        var jwtAuthority = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUTHORITY");
+        var jwtAudience = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUDIENCE");
+        var jwtIssuer = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_ISSUER");
+        var jwtSigningKey = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_SIGNING_KEY");
+        var jwtAllowHttpMetadata = EnvVariables.ReadBool("SQUIRIX_JWT_ALLOW_HTTP_METADATA");
+        var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
+        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
+
+        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
     private static ResolvedSecurityConfiguration ResolveSecurityConfiguration(SecurityOptions? securityOptionsOverride)
@@ -94,26 +106,7 @@ internal static class SquirixSecurityServiceRegistration
         var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
         var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
 
-        return new ResolvedSecurityConfiguration(
-            jwtAuthority,
-            jwtAudience,
-            jwtIssuer,
-            securityOptionsOverride.JwtAllowHttpMetadata,
-            signingKeyBytes,
-            jwtEnabled);
-    }
-
-    private static ResolvedSecurityConfiguration ResolveFromEnvironment()
-    {
-        var jwtAuthority = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUTHORITY");
-        var jwtAudience = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_AUDIENCE");
-        var jwtIssuer = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_ISSUER");
-        var jwtSigningKey = EnvVariables.ReadStringOrEmpty("SQUIRIX_JWT_SIGNING_KEY");
-        var jwtAllowHttpMetadata = EnvVariables.ReadBool("SQUIRIX_JWT_ALLOW_HTTP_METADATA");
-        var signingKeyBytes = TryDecodeSymmetricKey(jwtSigningKey);
-        var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
-
-        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
+        return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
     private static byte[]? TryDecodeSymmetricKey(string value)

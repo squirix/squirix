@@ -75,8 +75,7 @@ internal static class SquirixCachePipelineRegistration
             var corePipeline = sp.GetRequiredService<TracingCacheDecorator<object?>>();
             var basicPipeline = new BasicExtensionCachePipelineAdapter<object?>(corePipeline);
             var decoratedPipeline = extensions?.DecorateCachePipeline?.Invoke(sp, basicPipeline);
-            return decoratedPipeline is null || ReferenceEquals(decoratedPipeline, basicPipeline)
-                ? corePipeline
+            return decoratedPipeline is null || ReferenceEquals(decoratedPipeline, basicPipeline) ? corePipeline
                 : new ExtensionCachePipelineAdapter<object?>(corePipeline, decoratedPipeline);
         });
 

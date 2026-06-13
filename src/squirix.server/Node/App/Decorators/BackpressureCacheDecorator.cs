@@ -197,8 +197,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             return WithBackpressureTryGetAwaited(acquireTask, cacheName, key, cancellationToken);
 
         var (decision, lease) = acquireTask.Result;
-        return !decision.IsAccepted
-            ? throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown")
+        return !decision.IsAccepted ? throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown")
             : RunWithLeaseForTryGet(cacheName, key, lease, cancellationToken);
     }
 
