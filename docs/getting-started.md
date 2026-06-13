@@ -38,6 +38,10 @@ curl -k https://localhost:5001/metrics
 
 ### Docker (fastest if you have Docker Desktop)
 
+> **Development only.** Examples below use the public test JWT key `dev-squirix-docker-jwt-key!!!!!!` and bundled dev
+> HTTPS/mTLS certificates. Do not reuse them outside a local machine.
+> See [containerization.md](containerization.md#security).
+
 Single-container examples start in the default **ephemeral** mode (in-memory cache). The two-node `docker compose`
 example enables persistence with `--persist --data-dir /data` and named volumes.
 
