@@ -14,17 +14,6 @@ namespace Squirix.Server.UnitTests.Security;
 public sealed class GrpcDetailedErrorsHostingTests
 {
     /// <summary>
-    /// Ensures production-like hosts do not enable detailed gRPC errors by default.
-    /// </summary>
-    [Fact]
-    public void ProductionHostDisablesDetailedGrpcErrorsByDefault()
-    {
-        using var app = BuildHost("Production");
-        var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
-        Assert.False(options.EnableDetailedErrors);
-    }
-
-    /// <summary>
     /// Ensures development hosts keep detailed gRPC diagnostics available intentionally.
     /// </summary>
     [Fact]
@@ -33,6 +22,17 @@ public sealed class GrpcDetailedErrorsHostingTests
         using var app = BuildHost("Development");
         var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
         Assert.True(options.EnableDetailedErrors);
+    }
+
+    /// <summary>
+    /// Ensures production-like hosts do not enable detailed gRPC errors by default.
+    /// </summary>
+    [Fact]
+    public void ProductionHostDisablesDetailedGrpcErrorsByDefault()
+    {
+        using var app = BuildHost("Production");
+        var options = app.Services.GetRequiredService<IOptions<GrpcServiceOptions>>().Value;
+        Assert.False(options.EnableDetailedErrors);
     }
 
     private static WebApplication BuildHost(string environmentName)
@@ -45,9 +45,7 @@ public sealed class GrpcDetailedErrorsHostingTests
         };
         var builder = WebApplication.CreateBuilder(applicationOptions);
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
-            loadDiscoveredSettings: false);
+        _ = builder.AddSquirixServer(options => options.Url = new Uri($"https://localhost:{port}"), loadDiscoveredSettings: false);
 
         return builder.Build();
     }

@@ -31,8 +31,7 @@ internal static class MtlsCertificateLoader
             return;
 
         var errors = string.Join("; ", chain.ChainStatus.Select(static status => status.StatusInformation.Trim()));
-        var chainFailureMessage = string.IsNullOrWhiteSpace(errors)
-            ? "mTLS node certificate does not chain to the configured trust root."
+        var chainFailureMessage = string.IsNullOrWhiteSpace(errors) ? "mTLS node certificate does not chain to the configured trust root."
             : $"mTLS node certificate does not chain to the configured trust root. {errors}";
         throw new InvalidOperationException(chainFailureMessage);
     }

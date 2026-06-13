@@ -26,9 +26,7 @@ public sealed class MemoryPressureOptionsResolverTests
     [Fact]
     public void ResolvePreservesConfiguredMaxBelowCap()
     {
-        var resolved = MemoryPressureOptionsResolver.Resolve(
-            new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000 },
-            new FixedMemoryBudgetProvider(1_000_000));
+        var resolved = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 500_000 }, new FixedMemoryBudgetProvider(1_000_000));
 
         Assert.Equal(500_000L, resolved.MaxEstimatedCacheBytes);
     }

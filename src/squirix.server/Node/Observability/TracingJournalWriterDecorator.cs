@@ -43,17 +43,17 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
     public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken) =>
         TracePutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
 
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.RemoveExpiration,
-        Enrich(JournalWriterTracing.ForKey(key)),
-        () => _inner.AppendRemoveExpirationAsync(key, cancellationToken));
-
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
         _tracer,
         JournalOperationKind.Remove,
         Enrich(JournalWriterTracing.ForKey(key)),
         () => _inner.AppendRemoveAsync(key, cancellationToken));
+
+    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
+        _tracer,
+        JournalOperationKind.RemoveExpiration,
+        Enrich(JournalWriterTracing.ForKey(key)),
+        () => _inner.AppendRemoveExpirationAsync(key, cancellationToken));
 
     public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
         _tracer,

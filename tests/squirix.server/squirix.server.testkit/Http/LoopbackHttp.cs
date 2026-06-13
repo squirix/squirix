@@ -27,8 +27,7 @@ public static class LoopbackHttp
     public static SocketsHttpHandler CreateHandlerAllowingCertificateNameMismatch()
     {
         var handler = CreateHandler();
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, errors) =>
-            errors is SslPolicyErrors.None or SslPolicyErrors.RemoteCertificateNameMismatch;
+        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, errors) => errors is SslPolicyErrors.None or SslPolicyErrors.RemoteCertificateNameMismatch;
         return handler;
     }
 }

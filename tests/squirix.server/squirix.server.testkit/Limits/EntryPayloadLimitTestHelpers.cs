@@ -8,6 +8,12 @@ namespace Squirix.Server.TestKit.Limits;
 public static class EntryPayloadLimitTestHelpers
 {
     /// <summary>
+    /// Returns the largest string payload whose discriminated entry JSON fits the fixed server entry limit.
+    /// </summary>
+    /// <returns>A near-limit string value for benchmarks and integration tests.</returns>
+    public static string CreateNearLimitDiscriminatedStringValue() => CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+
+    /// <summary>
     /// Returns the largest string payload whose discriminated entry JSON is at most <paramref name="maxSerializedBytes" />.
     /// </summary>
     /// <param name="maxSerializedBytes">Maximum allowed discriminated JSON byte length.</param>
@@ -33,15 +39,7 @@ public static class EntryPayloadLimitTestHelpers
     /// Returns the smallest string payload whose discriminated entry JSON exceeds <see cref="SquirixEntryLimits.MaxEntrySizeBytes" />.
     /// </summary>
     /// <returns>A string value guaranteed to exceed the entry limit once serialized.</returns>
-    public static string CreateStringValueExceedingEntryLimit() =>
-        new('x', CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes).Length + 1);
-
-    /// <summary>
-    /// Returns the largest string payload whose discriminated entry JSON fits the fixed server entry limit.
-    /// </summary>
-    /// <returns>A near-limit string value for benchmarks and integration tests.</returns>
-    public static string CreateNearLimitDiscriminatedStringValue() =>
-        CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+    public static string CreateStringValueExceedingEntryLimit() => new('x', CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes).Length + 1);
 
     private static int MeasureStringPayload(int stringLength) =>
         EntryPayloadSizeGuard.MeasureSerializedBytes(new CacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });

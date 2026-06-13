@@ -17,8 +17,8 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
     private static readonly ISquirixSerializer Serializer = new SystemTextJsonSerializer();
 
     private readonly string _cacheName;
-    private readonly SquirixCacheService.SquirixCacheServiceClient _client;
     private readonly GrpcChannel _channel;
+    private readonly SquirixCacheService.SquirixCacheServiceClient _client;
     private int _disposed;
 
     private BenchmarkRawGrpcCache(GrpcChannel channel, SquirixCacheService.SquirixCacheServiceClient client, string cacheName)
@@ -53,13 +53,6 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
         return new BenchmarkRawGrpcCache(channel, new SquirixCacheService.SquirixCacheServiceClient(channel), cacheName);
     }
 
-    internal async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
-    {
-        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        return response.Found ? ProtoEx.FromCacheValue<string>(response.Value, Serializer) : null;
-    }
-
     internal async ValueTask<bool> GetValueFoundAsync(string key, CancellationToken cancellationToken)
     {
         var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -70,5 +63,12 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
     {
         var response = await _client.GetValueAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
         return response.Found;
+    }
+
+    internal async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
+    {
+        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        return response.Found ? ProtoEx.FromCacheValue<string>(response.Value, Serializer) : null;
     }
 }

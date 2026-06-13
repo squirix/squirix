@@ -85,9 +85,7 @@ internal sealed class ClientPool : IClientPool
             if (!_channels.TryGetValue(nodeId, out var channel))
                 continue;
 
-            var connectOptions = primaryNodeId is null
-                ? _connectOptions
-                : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
+            var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
 
             try
             {

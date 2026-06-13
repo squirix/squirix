@@ -82,8 +82,7 @@ internal static class PathKit
             if (Path.IsPathRooted(segment))
                 throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
 
-            while (result.Length > 0 &&
-                   (result[^1] == Path.DirectorySeparatorChar || result[^1] == Path.AltDirectorySeparatorChar))
+            while (result.Length > 0 && (result[^1] == Path.DirectorySeparatorChar || result[^1] == Path.AltDirectorySeparatorChar))
             {
                 result.Length--;
             }

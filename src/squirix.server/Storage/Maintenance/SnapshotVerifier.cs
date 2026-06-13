@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage.Maintenance;
@@ -10,7 +11,7 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <summary>
 /// Provides read-only verification of snapshot files.
 /// </summary>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal static class SnapshotVerifier
 {
     /// <summary>
@@ -30,10 +31,7 @@ internal static class SnapshotVerifier
         try
         {
             var loaded = await SnapshotReader.LoadStrictAsync<object?>(full, true, cancellationToken).ConfigureAwait(false);
-            return new StorageVerificationResult(
-                true,
-                $"Snapshot is valid. Entries: {loaded.Entries.Count}; idempotency records: {loaded.IdempotencyRecords.Count}.",
-                null);
+            return new StorageVerificationResult(true, $"Snapshot is valid. Entries: {loaded.Entries.Count}; idempotency records: {loaded.IdempotencyRecords.Count}.", null);
         }
         catch (InvalidDataException ex)
         {

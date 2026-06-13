@@ -49,12 +49,6 @@ internal static class RecordCodec
         }
     }
 
-    private static void RecordErrorMetrics(string operation, Stopwatch sw)
-    {
-        JournalJsonCodecMetrics.AddOp(operation, "error");
-        JournalJsonCodecMetrics.RecordDuration(operation, sw.Elapsed.TotalSeconds);
-    }
-
     private static JournalEnvelope FromDto(RecordEnvelope dto)
     {
         var env = new JournalEnvelope
@@ -101,6 +95,12 @@ internal static class RecordCodec
         }
 
         return env;
+    }
+
+    private static void RecordErrorMetrics(string operation, Stopwatch sw)
+    {
+        JournalJsonCodecMetrics.AddOp(operation, "error");
+        JournalJsonCodecMetrics.RecordDuration(operation, sw.Elapsed.TotalSeconds);
     }
 
     private static ByteString ToByteString(byte[]? utf8) => utf8 is { Length: > 0 } ? UnsafeByteOperations.UnsafeWrap(utf8) : ByteString.Empty;

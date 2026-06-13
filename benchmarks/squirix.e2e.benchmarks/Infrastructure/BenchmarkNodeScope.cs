@@ -80,15 +80,16 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         if (usePersistence)
             _ = Directory.CreateDirectory(dataDir);
 
-        var host = usePersistence
-            ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)
+        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)
             : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
 
         try
         {
-            if (warmUpClient)
+            if (!warmUpClient)
+                return new BenchmarkNodeScope(host, dataDir, host.Address);
+            var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
+            await using (unused.ConfigureAwait(false))
             {
-                await using var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
             }
 
             return new BenchmarkNodeScope(host, dataDir, host.Address);

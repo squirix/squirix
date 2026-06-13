@@ -47,10 +47,28 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
         return owner == _selfId ? _local.GetExpirationAsync(cacheName, key, cancellationToken) : _remote.GetExpirationAsync(owner, cacheName, key, cancellationToken);
     }
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var owner = OwnerFor(cacheName, key);
+        return owner == _selfId ? _local.GetOrAddAsync(cacheName, key, entry, cancellationToken) : _remote.GetOrAddAsync(owner, cacheName, key, entry, cancellationToken);
+    }
+
     public async ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         var entry = await GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         return entry is null ? default : entry.Value;
+    }
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var owner = OwnerFor(cacheName, key);
+        return owner == _selfId ? _local.RemoveAsync(cacheName, key, cancellationToken) : _remote.RemoveAsync(owner, cacheName, key, cancellationToken);
+    }
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var owner = OwnerFor(cacheName, key);
+        return owner == _selfId ? _local.RemoveExpirationAsync(cacheName, key, cancellationToken) : _remote.RemoveExpirationAsync(owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
@@ -63,18 +81,6 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
             await _local.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
         else
             await _remote.SetAsync(owner, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-    }
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var owner = OwnerFor(cacheName, key);
-        return owner == _selfId ? _local.RemoveExpirationAsync(cacheName, key, cancellationToken) : _remote.RemoveExpirationAsync(owner, cacheName, key, cancellationToken);
-    }
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var owner = OwnerFor(cacheName, key);
-        return owner == _selfId ? _local.RemoveAsync(cacheName, key, cancellationToken) : _remote.RemoveAsync(owner, cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -102,12 +108,6 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
     {
         var owner = OwnerFor(cacheName, key);
         return owner == _selfId ? _local.TryRemoveAsync(cacheName, key, cancellationToken) : _remote.TryRemoveAsync(owner, cacheName, key, cancellationToken);
-    }
-
-    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var owner = OwnerFor(cacheName, key);
-        return owner == _selfId ? _local.GetOrAddAsync(cacheName, key, entry, cancellationToken) : _remote.GetOrAddAsync(owner, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)

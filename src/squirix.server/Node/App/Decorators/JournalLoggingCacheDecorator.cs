@@ -45,32 +45,22 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetExpirationAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
-
-    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
-
-    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
-        {
-            await _inner.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-            return;
-        }
+            return await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null);
-        var cacheKey = new CacheKey(cacheName, key);
-        _ = await _durableMutations.ExecuteAsync(
-            cacheKey.ToString(),
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
-            async ct =>
-            {
-                await _inner.SetAsync(cacheName, key, entry, ct).ConfigureAwait(false);
-                return true;
-            },
-            cancellationToken).ConfigureAwait(false);
+        var existing = await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        if (existing.Found)
+            return existing;
+
+        if (await TryAddCore(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+            return new CacheValueResult<T>(true, entry.Value);
+
+        return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
     }
+
+    public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
 
     public async ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
@@ -100,6 +90,31 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken).ConfigureAwait(false);
     }
 
+    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+
+    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        if (!IsLocalOwner(cacheName, key))
+        {
+            await _inner.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null);
+        var cacheKey = new CacheKey(cacheName, key);
+        _ = await _durableMutations.ExecuteAsync(
+            cacheKey.ToString(),
+            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+            ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
+            async ct =>
+            {
+                await _inner.SetAsync(cacheName, key, entry, ct).ConfigureAwait(false);
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
@@ -121,19 +136,21 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         TryAddCore(cacheName, key, entry, cancellationToken);
 
-    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.TryGetValueAsync(cacheName, key, cancellationToken);
+
+    public async ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
-            return await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            return await _inner.TryRemoveAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
 
-        var existing = await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing.Found)
-            return existing;
-
-        if (await TryAddCore(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
-            return new CacheValueResult<T>(true, entry.Value);
-
-        return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var cacheKey = new CacheKey(cacheName, key);
+        return await _durableMutations.ExecuteAsync(
+            cacheKey.ToString(),
+            static _ => ValueTask.FromResult(DurableMutationCondition<CacheRemoveResult<T>>.Apply()),
+            ct => _journal.AppendRemoveAsync(cacheKey, ct),
+            ct => _inner.TryRemoveAsync(cacheName, key, ct),
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
@@ -155,23 +172,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.TryGetValueAsync(cacheName, key, cancellationToken);
-
-    public async ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        if (!IsLocalOwner(cacheName, key))
-            return await _inner.TryRemoveAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-
-        var cacheKey = new CacheKey(cacheName, key);
-        return await _durableMutations.ExecuteAsync(
-            cacheKey.ToString(),
-            static _ => ValueTask.FromResult(DurableMutationCondition<CacheRemoveResult<T>>.Apply()),
-            ct => _journal.AppendRemoveAsync(cacheKey, ct),
-            ct => _inner.TryRemoveAsync(cacheName, key, ct),
-            cancellationToken).ConfigureAwait(false);
-    }
-
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 
     private async ValueTask<bool> TryAddCore(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
@@ -183,8 +183,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         var cacheKey = new CacheKey(cacheName, key);
         return await _durableMutations.ExecuteAsync(
             cacheKey.ToString(),
-            async ct => await _inner.ContainsAsync(cacheName, key, ct).ConfigureAwait(false)
-                ? new DurableMutationCondition<bool>(false, false)
+            async ct => await _inner.ContainsAsync(cacheName, key, ct).ConfigureAwait(false) ? new DurableMutationCondition<bool>(false, false)
                 : DurableMutationCondition<bool>.Apply(),
             ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
             ct => _inner.TryAddAsync(cacheName, key, entry, ct),

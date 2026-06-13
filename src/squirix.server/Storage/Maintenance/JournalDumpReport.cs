@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Storage.Maintenance;
 
@@ -9,5 +10,5 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <param name="FirstSequence">The first observed sequence.</param>
 /// <param name="LastSequence">The last observed sequence.</param>
 /// <param name="Frames">A bounded frame preview.</param>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal sealed record JournalDumpReport(int FrameCount, ulong FirstSequence, ulong LastSequence, IReadOnlyList<JournalFramePreview> Frames);

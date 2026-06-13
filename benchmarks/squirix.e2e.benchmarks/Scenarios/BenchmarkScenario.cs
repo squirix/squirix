@@ -23,8 +23,7 @@ public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValu
             return CreateDurabilityComparisonMatrix();
 
         var durabilityModes = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_DURABILITY"), "1", StringComparison.Ordinal)
-            ? new[] { E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence }
-            : new[] { E2EBenchmarkDurabilityMode.Ephemeral };
+            ? new[] { E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence } : new[] { E2EBenchmarkDurabilityMode.Ephemeral };
 
         var topologies = new[]
         {

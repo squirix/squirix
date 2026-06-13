@@ -12,13 +12,13 @@ internal interface ICacheApi<T>
 {
     ValueTask<CacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken);
 
-    ValueTask<CacheValueResult<T>> TryGetValueAsync(string key, CancellationToken cancellationToken);
-
     ValueTask InsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken);
 
     ValueTask<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken);
+
+    ValueTask<CacheValueResult<T>> TryGetValueAsync(string key, CancellationToken cancellationToken);
 
     ValueTask<bool> TryInsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken);
 

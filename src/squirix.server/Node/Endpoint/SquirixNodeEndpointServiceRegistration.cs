@@ -16,8 +16,7 @@ internal static class SquirixNodeEndpointServiceRegistration
         public IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
         {
             _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
-            _ = persistenceEnabled
-                ? services.AddSingleton<IHealthReadyDetailsProvider, HealthReadyDetailsProvider>()
+            _ = persistenceEnabled ? services.AddSingleton<IHealthReadyDetailsProvider, HealthReadyDetailsProvider>()
                 : services.AddSingleton<IHealthReadyDetailsProvider, EphemeralHealthReadyDetailsProvider>();
 
             return services;

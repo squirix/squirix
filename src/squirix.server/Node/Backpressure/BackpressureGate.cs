@@ -84,8 +84,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         ClientState client,
         CancellationToken cancellationToken)
     {
-        return await _slots.WaitAsync(0, cancellationToken).ConfigureAwait(false)
-            ? (BackpressureDecision.Accepted(), AcquireLease(clientId, client))
+        return await _slots.WaitAsync(0, cancellationToken).ConfigureAwait(false) ? (BackpressureDecision.Accepted(), AcquireLease(clientId, client))
             : await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
     }
 

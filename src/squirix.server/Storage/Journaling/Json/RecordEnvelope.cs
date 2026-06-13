@@ -8,9 +8,9 @@ internal sealed class RecordEnvelope
 
     public RemoveExpirationOp? RemoveExpiration { get; set; }
 
-    public TouchExpirationOp? TouchExpiration { get; set; }
-
     public ulong Seq { get; init; }
+
+    public TouchExpirationOp? TouchExpiration { get; set; }
 
     public long UnixMs { get; init; }
 }

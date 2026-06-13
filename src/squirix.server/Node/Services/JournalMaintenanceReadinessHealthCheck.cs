@@ -34,8 +34,7 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         if (_compaction.State == CompactionState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
-        var healthy = _snapshot.HasFatalFailure
-            ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")
+        var healthy = _snapshot.HasFatalFailure ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")
             : HealthCheckResult.Healthy("journal maintenance is ready.");
         return Task.FromResult(healthy);
     }

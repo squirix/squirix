@@ -106,14 +106,14 @@ internal sealed class RecoveryService<T> : IHostedService
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment == 0 && manifestCurrentJournal != 1;
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
-        return missingInitialSegment || journalGapDetected
-            ? throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false)
+        return missingInitialSegment || journalGapDetected ? throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false)
             : Math.Max(firstAvailableSegment, manifestCurrentJournal);
     }
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
 
-    private static bool IsExpiredForRecovery(CacheEntry<T> entry) => (entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow) || (entry.Expiration is { } expiration && expiration <= TimeSpan.Zero);
+    private static bool IsExpiredForRecovery(CacheEntry<T> entry) =>
+        (entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow) || (entry.Expiration is { } expiration && expiration <= TimeSpan.Zero);
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
@@ -159,7 +159,8 @@ internal sealed class RecoveryService<T> : IHostedService
                 var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
                 var cacheNamespace = PersistedCacheNamespace.Normalize(touchExpiration.Namespace);
                 var expiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime;
-                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, touchExpiration.Key), expiresUtc, cancellationToken).ConfigureAwait(false);
+                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, touchExpiration.Key), expiresUtc, cancellationToken)
+                                     .ConfigureAwait(false);
                 break;
             }
 
@@ -190,6 +191,14 @@ internal sealed class RecoveryService<T> : IHostedService
         }
 
         return (firstAvailableSegment, lastAvailableSegment);
+    }
+
+    private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
+    {
+        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
+        RequireFullJournalReplayRange(context.ManifestCurrentJournal);
+        fromSegment = context.FirstJournalSegmentOrDefault;
+        lastAppliedSeq = 0;
     }
 
     private ReplayContext LoadReplayContext()
@@ -358,14 +367,6 @@ internal sealed class RecoveryService<T> : IHostedService
         fromSegment = context.FirstJournalSegmentOrDefault;
         lastAppliedSeq = 0;
         return new ReplayState(fromSegment, lastAppliedSeq);
-    }
-
-    private void HandleSnapshotLoadFailure(ReplayContext context, string snapshotPath, out int fromSegment, out ulong lastAppliedSeq)
-    {
-        LogManager.RecoveryFailedToLoadSnapshot(_log, snapshotPath);
-        RequireFullJournalReplayRange(context.ManifestCurrentJournal);
-        fromSegment = context.FirstJournalSegmentOrDefault;
-        lastAppliedSeq = 0;
     }
 
     private sealed record ReplayContext(

@@ -27,40 +27,6 @@ public sealed class MemoryPressureStateEvaluatorTests
     }
 
     /// <summary>
-    /// Verifies usage below the high ratio maps to <see cref="MemoryPressureState.Normal" />.
-    /// </summary>
-    [Fact]
-    public void EvaluateReturnsNormalBelowHighThreshold()
-    {
-        var e = CreateEvaluator(
-            new MemoryPressureOptions
-            {
-                MaxEstimatedCacheBytes = 1000,
-                HighPressureThresholdPercent = 80,
-                CriticalPressureThresholdPercent = 95,
-            });
-
-        Assert.Equal(MemoryPressureState.Normal, e.Evaluate(799));
-    }
-
-    /// <summary>
-    /// Verifies usage between high and critical ratios maps to <see cref="MemoryPressureState.High" />.
-    /// </summary>
-    [Fact]
-    public void EvaluateReturnsHighBetweenThresholds()
-    {
-        var e = CreateEvaluator(
-            new MemoryPressureOptions
-            {
-                MaxEstimatedCacheBytes = 1000,
-                HighPressureThresholdPercent = 80,
-                CriticalPressureThresholdPercent = 95,
-            });
-
-        Assert.Equal(MemoryPressureState.High, e.Evaluate(900));
-    }
-
-    /// <summary>
     /// Verifies usage exactly at the critical ratio maps to <see cref="MemoryPressureState.Critical" />.
     /// </summary>
     [Fact]
@@ -92,6 +58,40 @@ public sealed class MemoryPressureStateEvaluatorTests
             });
 
         Assert.Equal(MemoryPressureState.High, e.Evaluate(800));
+    }
+
+    /// <summary>
+    /// Verifies usage between high and critical ratios maps to <see cref="MemoryPressureState.High" />.
+    /// </summary>
+    [Fact]
+    public void EvaluateReturnsHighBetweenThresholds()
+    {
+        var e = CreateEvaluator(
+            new MemoryPressureOptions
+            {
+                MaxEstimatedCacheBytes = 1000,
+                HighPressureThresholdPercent = 80,
+                CriticalPressureThresholdPercent = 95,
+            });
+
+        Assert.Equal(MemoryPressureState.High, e.Evaluate(900));
+    }
+
+    /// <summary>
+    /// Verifies usage below the high ratio maps to <see cref="MemoryPressureState.Normal" />.
+    /// </summary>
+    [Fact]
+    public void EvaluateReturnsNormalBelowHighThreshold()
+    {
+        var e = CreateEvaluator(
+            new MemoryPressureOptions
+            {
+                MaxEstimatedCacheBytes = 1000,
+                HighPressureThresholdPercent = 80,
+                CriticalPressureThresholdPercent = 95,
+            });
+
+        Assert.Equal(MemoryPressureState.Normal, e.Evaluate(799));
     }
 
     /// <summary>

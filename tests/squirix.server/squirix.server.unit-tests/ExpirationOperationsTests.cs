@@ -64,31 +64,6 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration once and returns false when the key is already persistent.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
-    [Fact]
-    public async Task RemoveExpirationAsyncReturnsFalseWhenAlreadyPersistent()
-    {
-        await using var cache = new PhysicalCache<string>();
-        await cache.InsertAsync(
-            "k",
-            new CacheEntry<string>
-            {
-                Value = "v",
-                Expiration = TimeSpan.FromMinutes(1),
-            },
-            DefaultCancellationToken);
-
-        Assert.True(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
-        Assert.False(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
-        var entry = await cache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.NotNull(entry);
-        Assert.Equal("v", entry.Value);
-        Assert.Null(await cache.GetExpirationAsync("k", DefaultCancellationToken));
-    }
-
-    /// <summary>
     /// Verifies RemoveExpirationAsync on a non-expiring key returns false and leaves the value and absence of expiration unchanged.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the test.</returns>
@@ -114,5 +89,30 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     {
         await using var cache = new PhysicalCache<int>();
         Assert.False(await cache.RemoveExpirationAsync("missing", DefaultCancellationToken));
+    }
+
+    /// <summary>
+    /// Verifies RemoveExpirationAsync removes expiration once and returns false when the key is already persistent.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    [Fact]
+    public async Task RemoveExpirationAsyncReturnsFalseWhenAlreadyPersistent()
+    {
+        await using var cache = new PhysicalCache<string>();
+        await cache.InsertAsync(
+            "k",
+            new CacheEntry<string>
+            {
+                Value = "v",
+                Expiration = TimeSpan.FromMinutes(1),
+            },
+            DefaultCancellationToken);
+
+        Assert.True(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
+        Assert.False(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
+        var entry = await cache.GetValueAsync("k", DefaultCancellationToken);
+        Assert.NotNull(entry);
+        Assert.Equal("v", entry.Value);
+        Assert.Null(await cache.GetExpirationAsync("k", DefaultCancellationToken));
     }
 }
