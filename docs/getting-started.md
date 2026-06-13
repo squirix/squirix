@@ -16,8 +16,12 @@ dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
 squirix-server run
 ```
 
-The host listens on `https://localhost:5001` by default, runs as an in-memory cache, and prints ready-to-use client and
-operational endpoint URLs. For WAL/snapshot durability:
+The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
+ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
+access the cache API. This is a development convenience, not production hardening. See
+[server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
+
+For WAL/snapshot durability:
 
 ```powershell
 squirix-server run --persist --data-dir ./data
