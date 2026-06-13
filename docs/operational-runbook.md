@@ -67,8 +67,8 @@ Security checks during triage:
 - Confirm auth is enabled where required for exposed interfaces.
 - For symmetric JWT deployments, treat `SQUIRIX_JWT_SIGNING_KEY` compromise as full external API forgery risk; prefer
   OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
-- Verify that gRPC cache and remote `/metrics` scrapes are challenged consistently for missing/invalid
-  credentials (`/health` remains anonymous).
+- Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
+  consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
 - Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the

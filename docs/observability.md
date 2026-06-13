@@ -9,7 +9,7 @@ squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTele
 | `GET /health` | Aggregate health |
 | `GET /health/live` | Liveness probe |
 | `GET /health/ready` | Readiness probe |
-| `GET /health/ready/details` | JSON diagnostics payload |
+| `GET /health/ready/details` | JSON diagnostics payload (loopback-anonymous; remote JWT when auth is enabled) |
 
 When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
@@ -26,7 +26,9 @@ Full field reference: [diagnostics.md](diagnostics.md).
 `GET /metrics` — Prometheus text exposition (enabled by default; configurable in settings).
 
 Loopback scrapes are anonymous; remote clients (including host → Docker published ports) must send a JWT bearer token
-when server auth is enabled. Details: [diagnostics — Metrics route](diagnostics.md#metrics-route).
+when server auth is enabled. The same rule applies to `/health/ready/details`. Details:
+[diagnostics — Metrics route](diagnostics.md#metrics-route) and
+[diagnostics — Readiness details](diagnostics.md#readiness-details).
 
 Client-side bootstrap warm-up skips emit `squirix_client_pool_bootstrap_warmup_skipped_total`.
 

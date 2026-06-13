@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Squirix.Server.Adapters.Endpoint.Rest;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Contracts;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 
@@ -32,8 +33,11 @@ internal static class HttpEndpointEx
             _ = app.MapGet("/health", static () => Results.Ok("OK"));
             _ = app.MapGet(
                 "/health/ready/details",
-                static (IHealthReadyDetailsProvider provider) =>
+                static (HttpContext ctx, IHealthReadyDetailsProvider provider) =>
                 {
+                    if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx))
+                        return Results.Unauthorized();
+
                     var snapshot = provider.GetSnapshot();
                     var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
                     var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
