@@ -49,8 +49,24 @@ await app.RunAsync();
 ```
 
 `AddSquirixServer(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
-HTTP/2 on one port). Non-loopback URLs require JWT settings at startup.
-`MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+HTTP/2 on one port). `MapSquirixServer()` maps gRPC, health, and metrics endpoints.
+
+## Loopback development default (not production posture)
+
+The default standalone URL `https://localhost:5001` binds the primary listener to a **loopback interface**
+(`localhost` / `127.0.0.1`). In that configuration, Squirix **does not require JWT** at startup unless you configure
+`SQUIRIX_JWT_*` explicitly. Any process on the same machine can call gRPC cache routes and scrape `/metrics` without
+credentials. This is intentional for local development and tests — it is **not** a hardened production posture.
+
+Production and shared-network deployments must:
+
+- bind the primary listener on a **non-loopback** address (`0.0.0.0`, a service hostname, or a public interface) and
+  configure JWT or OIDC — startup **refuses** non-loopback binds without auth; or
+- keep a loopback bind but treat the host as a trusted single-user machine (rare outside local dev).
+
+There is no opt-out that allows unauthenticated cache access on non-loopback interfaces. See
+[configuration.md — Security notes](configuration.md#security-notes) and
+[diagnostics.md — metrics route](diagnostics.md#metrics-route).
 
 Multi-node clusters with remote peers also open a **second HTTPS listener** on
 `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` for inter-node gRPC with mutual TLS. External clients continue to use the primary

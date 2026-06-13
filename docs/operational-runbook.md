@@ -60,6 +60,9 @@ Trace ownership during triage:
 
 Security checks during triage:
 
+- Confirm whether the primary listener is loopback-only or exposed on a non-loopback interface. Loopback binds
+  (`localhost`, `127.0.0.1`) may run without JWT by design; that trusts all local processes — not a production posture.
+  See [server-mode.md](server-mode.md#loopback-development-default-not-production-posture).
 - Non-loopback listen URLs refuse startup without JWT settings.
 - Confirm auth is enabled where required for exposed interfaces.
 - For symmetric JWT deployments, treat `SQUIRIX_JWT_SIGNING_KEY` compromise as full external API forgery risk; prefer
