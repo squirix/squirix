@@ -62,6 +62,8 @@ Security checks during triage:
 
 - Non-loopback listen URLs refuse startup without JWT settings.
 - Confirm auth is enabled where required for exposed interfaces.
+- For symmetric JWT deployments, treat `SQUIRIX_JWT_SIGNING_KEY` compromise as full external API forgery risk; prefer
+  OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
 - Verify that gRPC cache and remote `/metrics` scrapes are challenged consistently for missing/invalid
   credentials (`/health` remains anonymous).
 - Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
