@@ -41,8 +41,7 @@ public sealed class SquirixClientConnectTests
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync("http://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static () => SquirixClient.ConnectAsync("http://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

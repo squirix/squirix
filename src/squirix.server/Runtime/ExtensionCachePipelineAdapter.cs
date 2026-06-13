@@ -28,32 +28,38 @@ internal sealed class ExtensionCachePipelineAdapter<T> : ILogicalNamespacedCache
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _entryDecorated?.GetEntryAsync(cacheName, key, cancellationToken) ?? _core.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _decorated.GetExpirationAsync(cacheName, key, cancellationToken);
+    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _decorated.GetExpirationAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _core.GetOrAddAsync(cacheName, key, entry, cancellationToken);
 
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _decorated.GetValueAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _decorated.RemoveAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _core.RemoveExpirationAsync(cacheName, key, cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _decorated.InsertAsync(cacheName, key, value, cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         _entryDecorated?.InsertAsync(cacheName, key, entry, cancellationToken) ?? _core.SetAsync(cacheName, key, entry, cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _core.RemoveExpirationAsync(cacheName, key, cancellationToken);
+    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        _decorated.TouchAsync(cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _decorated.RemoveAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => _decorated.TouchAsync(cacheName, key, expiration, cancellationToken);
-
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _decorated.TryAddAsync(cacheName, key, value, cancellationToken);
+    public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        _decorated.TryAddAsync(cacheName, key, value, cancellationToken);
 
     public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         _entryDecorated?.TryAddAsync(cacheName, key, entry, cancellationToken) ?? _core.TryAddAsync(cacheName, key, entry, cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _core.TryGetValueAsync(cacheName, key, cancellationToken);
+    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _core.TryGetValueAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _core.TryRemoveAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _core.GetOrAddAsync(cacheName, key, entry, cancellationToken);
+    public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _core.TryRemoveAsync(cacheName, key, cancellationToken);
 
     public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _core.UpdateAsync(cacheName, key, value, cancellationToken);
 }

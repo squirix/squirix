@@ -26,10 +26,15 @@ internal sealed class BootstrapEndpointFailover
         _activeIndex = ResolveActiveIndex(bootstrapNodeIds, primaryNodeId);
     }
 
-    public ValueTask<TResult> ExecuteAsync<TResult>(Func<string, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
-        ExecuteAsync(static (nodeId, callback, token) => callback(nodeId, token), action, cancellationToken);
+    public ValueTask<TResult> ExecuteAsync<TResult>(Func<string, CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) => ExecuteAsync(
+        static (nodeId, callback, token) => callback(nodeId, token),
+        action,
+        cancellationToken);
 
-    public async ValueTask<TResult> ExecuteAsync<TState, TResult>(Func<string, TState, CancellationToken, ValueTask<TResult>> action, TState state, CancellationToken cancellationToken)
+    public async ValueTask<TResult> ExecuteAsync<TState, TResult>(
+        Func<string, TState, CancellationToken, ValueTask<TResult>> action,
+        TState state,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 

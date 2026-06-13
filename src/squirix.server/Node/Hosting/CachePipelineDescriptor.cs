@@ -21,8 +21,7 @@ internal static class CachePipelineDescriptor
     /// <summary>
     /// Marker for the logical aggregate registration that resolves the outermost decorator instance.
     /// </summary>
-    internal const string LogicalAggregateRegistrationMarker =
-        "AddSingleton<ILogicalNamespacedCache<object?>>(sp =>";
+    internal const string LogicalAggregateRegistrationMarker = "AddSingleton<ILogicalNamespacedCache<object?>>(sp =>";
 
     /// <summary>
     /// Gets <c>AddSingleton</c> registration order in <see cref="SquirixCachePipelineRegistration" /> (inner toward outer).

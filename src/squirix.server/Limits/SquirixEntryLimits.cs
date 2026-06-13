@@ -6,9 +6,8 @@ namespace Squirix.Server.Limits;
 /// </summary>
 internal static class SquirixEntryLimits
 {
-    public const int MaxEntrySizeBytes = 4 * 1024 * 1024;
-
     public const int GrpcMaxReceiveMessageSizeBytes = 8 * 1024 * 1024;
 
     public const int GrpcMaxSendMessageSizeBytes = 8 * 1024 * 1024;
+    public const int MaxEntrySizeBytes = 4 * 1024 * 1024;
 }

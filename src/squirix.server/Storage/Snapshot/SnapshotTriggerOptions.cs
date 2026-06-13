@@ -55,6 +55,22 @@ internal sealed class SnapshotTriggerOptions
     public bool Enabled { get; init; } = true;
 
     /// <summary>
+    /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
+    /// Default is 0 (disabled).
+    /// </summary>
+    public long JournalGrowthThrottleBytes
+    {
+        get;
+        init
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(JournalGrowthThrottleBytes), value, "JournalGrowthThrottleBytes cannot be negative.");
+
+            field = value;
+        }
+    }
+
+    /// <summary>
     /// Gets the latency SLO for journal append operations, in milliseconds.
     /// If the observed p95 (or chosen percentile) exceeds this value within the evaluation window,
     /// snapshot attempts are throttled for <see cref="LatencyThrottleDuration" />. Default is 0 (disabled).
@@ -82,22 +98,6 @@ internal sealed class SnapshotTriggerOptions
         {
             if (value < TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(LatencyThrottleDuration), value, "LatencyThrottleDuration cannot be negative.");
-
-            field = value;
-        }
-    }
-
-    /// <summary>
-    /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
-    /// Default is 0 (disabled).
-    /// </summary>
-    public long JournalGrowthThrottleBytes
-    {
-        get;
-        init
-        {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGrowthThrottleBytes), value, "JournalGrowthThrottleBytes cannot be negative.");
 
             field = value;
         }

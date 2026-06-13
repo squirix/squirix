@@ -34,56 +34,6 @@ public sealed class ExtensionCachePipelineAdapterTests
         Assert.Same(entry, result);
     }
 
-    private sealed class RecordingLogicalCache : ILogicalNamespacedCache<object?>
-    {
-        public int GetEntryCalls { get; private set; }
-
-        public int InsertEntryCalls { get; private set; }
-
-        public ValueTask AddAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
-
-        public ValueTask AddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => default;
-
-        public ValueTask<bool> ContainsAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<CacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            GetEntryCalls++;
-            return new ValueTask<CacheEntry<object?>?>((CacheEntry<object?>?)null);
-        }
-
-        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new((TimeSpan?)null);
-
-        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new((object?)null);
-
-        public ValueTask SetAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
-
-        public ValueTask SetAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken)
-        {
-            InsertEntryCalls++;
-            return default;
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<bool> TryAddAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<CacheValueResult<object?>> GetOrAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) =>
-            new(new CacheValueResult<object?>(false, null));
-
-        public ValueTask<bool> UpdateAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<CacheValueResult<object?>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new(new CacheValueResult<object?>(false, null));
-
-        public ValueTask<CacheRemoveResult<object?>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => new(new CacheRemoveResult<object?>(false, null));
-    }
-
     private sealed class RecordingEntryPipeline : ISquirixServerEntryCachePipeline<object?>
     {
         private CacheEntry<object?>? _entry;
@@ -124,5 +74,57 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<bool> TryAddAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
 
         public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
+    }
+
+    private sealed class RecordingLogicalCache : ILogicalNamespacedCache<object?>
+    {
+        public int GetEntryCalls { get; private set; }
+
+        public int InsertEntryCalls { get; private set; }
+
+        public ValueTask AddAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
+
+        public ValueTask AddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => default;
+
+        public ValueTask<bool> ContainsAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask<CacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            GetEntryCalls++;
+            return new ValueTask<CacheEntry<object?>?>((CacheEntry<object?>?)null);
+        }
+
+        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new((TimeSpan?)null);
+
+        public ValueTask<CacheValueResult<object?>> GetOrAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) =>
+            new(new CacheValueResult<object?>(false, null));
+
+        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new((object?)null);
+
+        public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask SetAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
+
+        public ValueTask SetAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken)
+        {
+            InsertEntryCalls++;
+            return default;
+        }
+
+        public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask<bool> TryAddAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
+
+        public ValueTask<CacheValueResult<object?>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            new(new CacheValueResult<object?>(false, null));
+
+        public ValueTask<CacheRemoveResult<object?>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+            new(new CacheRemoveResult<object?>(false, null));
+
+        public ValueTask<bool> UpdateAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
     }
 }

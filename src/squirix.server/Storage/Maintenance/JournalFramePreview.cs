@@ -1,3 +1,5 @@
+using JetBrains.Annotations;
+
 namespace Squirix.Server.Storage.Maintenance;
 
 /// <summary>
@@ -8,5 +10,5 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <param name="Key">The cache key, when available.</param>
 /// <param name="CacheNamespace">The cache namespace, when available.</param>
 /// <param name="Detail">Additional bounded operation detail.</param>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal readonly record struct JournalFramePreview(ulong Sequence, string Operation, string? Key, string? CacheNamespace, string? Detail);

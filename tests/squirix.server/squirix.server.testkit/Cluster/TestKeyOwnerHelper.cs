@@ -63,19 +63,6 @@ internal sealed class TestKeyOwnerHelper
         return HashBytes(bytes);
     }
 
-    private string[] FindKeysOwnedBy(string cacheName, string ownerId, int count, string prefix, int maxAttempts = 200_000)
-    {
-        var keys = new List<string>(count);
-        for (var i = 0; i < maxAttempts && keys.Count < count; i++)
-        {
-            var candidate = string.Concat(prefix, ":", i.ToString(CultureInfo.InvariantCulture));
-            if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
-                keys.Add(candidate);
-        }
-
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count} keys owned by '{ownerId}'.");
-    }
-
     private int FindFirstGreaterOrEqual(ulong hash)
     {
         var lo = 0;
@@ -90,6 +77,19 @@ internal sealed class TestKeyOwnerHelper
         }
 
         return lo == _ring.Length ? 0 : lo;
+    }
+
+    private string[] FindKeysOwnedBy(string cacheName, string ownerId, int count, string prefix, int maxAttempts = 200_000)
+    {
+        var keys = new List<string>(count);
+        for (var i = 0; i < maxAttempts && keys.Count < count; i++)
+        {
+            var candidate = string.Concat(prefix, ":", i.ToString(CultureInfo.InvariantCulture));
+            if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
+                keys.Add(candidate);
+        }
+
+        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count} keys owned by '{ownerId}'.");
     }
 
     private string GetOwner(string cacheName, string key)

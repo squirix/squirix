@@ -55,7 +55,8 @@ internal static class JournalCompactor
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
 
-        await using (var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous))
+        var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        try
         {
             JournalFraming.WriteFileHeader(fs);
             var seq = lastSeq == 0UL ? 1UL : lastSeq + 1UL;
@@ -91,6 +92,10 @@ internal static class JournalCompactor
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await fs.DisposeAsync().ConfigureAwait(false);
         }
 
         // 4) Install the compacted journal before deleting any old segments.

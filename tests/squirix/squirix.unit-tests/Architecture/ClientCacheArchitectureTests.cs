@@ -54,36 +54,6 @@ public sealed class ClientCacheArchitectureTests
     }
 
     /// <summary>
-    /// Ensures the client project does not grow server-hosting dependency debt.
-    /// </summary>
-    [Fact]
-    public void ClientProjectShouldNotReferenceServerHostingPackages()
-    {
-        var project = LoadProject("src/squirix/Squirix.csproj");
-        var serverPackageReferences = ReadIncludes(project, "PackageReference").Where(static include =>
-            include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)).ToArray();
-
-        Assert.Empty(serverPackageReferences);
-
-        var serverFrameworkReferences = ReadIncludes(project, "FrameworkReference").Where(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                                                                                   .ToArray();
-
-        Assert.Empty(serverFrameworkReferences);
-    }
-
-    /// <summary>
-    /// Ensures the client API describes owner-local atomic batching without exposing topology terminology.
-    /// </summary>
-    [Fact]
-    public void ClientPublicApiShouldNotExposeShardTerminology()
-    {
-        var offenders = ClientArchitecture.MainAssembly.ExportedTypes.Where(static type => type.FullName is not null && type.FullName.Contains("Shard", StringComparison.Ordinal))
-                                          .Select(static type => type.FullName).OrderBy(static name => name, StringComparer.Ordinal).ToArray();
-
-        Assert.Empty(offenders);
-    }
-
-    /// <summary>
     /// Ensures the client package does not grant the server assembly access to internal SDK types.
     /// </summary>
     [Fact]
@@ -122,6 +92,24 @@ public sealed class ClientCacheArchitectureTests
     }
 
     /// <summary>
+    /// Ensures the client project does not grow server-hosting dependency debt.
+    /// </summary>
+    [Fact]
+    public void ClientProjectShouldNotReferenceServerHostingPackages()
+    {
+        var project = LoadProject("src/squirix/Squirix.csproj");
+        var serverPackageReferences = ReadIncludes(project, "PackageReference").Where(static include =>
+            include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)).ToArray();
+
+        Assert.Empty(serverPackageReferences);
+
+        var serverFrameworkReferences = ReadIncludes(project, "FrameworkReference").Where(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
+                                                                                   .ToArray();
+
+        Assert.Empty(serverFrameworkReferences);
+    }
+
+    /// <summary>
     /// Ensures the core project does not depend on the server project.
     /// </summary>
     [Fact]
@@ -131,6 +119,18 @@ public sealed class ClientCacheArchitectureTests
 
         Assert.DoesNotContain(references, static reference => reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Ensures the client API describes owner-local atomic batching without exposing topology terminology.
+    /// </summary>
+    [Fact]
+    public void ClientPublicApiShouldNotExposeShardTerminology()
+    {
+        var offenders = ClientArchitecture.MainAssembly.ExportedTypes.Where(static type => type.FullName is not null && type.FullName.Contains("Shard", StringComparison.Ordinal))
+                                          .Select(static type => type.FullName).OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+
+        Assert.Empty(offenders);
     }
 
     /// <summary>

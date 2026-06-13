@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using JetBrains.Annotations;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.JournalProto;
 
@@ -9,7 +10,7 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <summary>
 /// Provides read-only journal directory dumps.
 /// </summary>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal static class JournalDumper
 {
     /// <summary>
@@ -46,14 +47,20 @@ internal static class JournalDumper
     {
         return envelope.OpCase switch
         {
-            JournalEnvelope.OpOneofCase.Put when envelope.Put is { } put =>
-                new JournalFramePreview(envelope.Seq, "Put", put.Item?.Key, put.Item?.Namespace, null),
-            JournalEnvelope.OpOneofCase.Remove when envelope.Remove is { } remove =>
-                new JournalFramePreview(envelope.Seq, "Remove", remove.Key, remove.Namespace, null),
-            JournalEnvelope.OpOneofCase.RemoveExpiration when envelope.RemoveExpiration is { } removeExpiration =>
-                new JournalFramePreview(envelope.Seq, "RemoveExpiration", removeExpiration.Key, removeExpiration.Namespace, null),
-            JournalEnvelope.OpOneofCase.TouchExpiration when envelope.TouchExpiration is { } touchExpiration =>
-                new JournalFramePreview(envelope.Seq, "TouchExpiration", touchExpiration.Key, touchExpiration.Namespace, null),
+            JournalEnvelope.OpOneofCase.Put when envelope.Put is { } put => new JournalFramePreview(envelope.Seq, "Put", put.Item?.Key, put.Item?.Namespace, null),
+            JournalEnvelope.OpOneofCase.Remove when envelope.Remove is { } remove => new JournalFramePreview(envelope.Seq, "Remove", remove.Key, remove.Namespace, null),
+            JournalEnvelope.OpOneofCase.RemoveExpiration when envelope.RemoveExpiration is { } removeExpiration => new JournalFramePreview(
+                envelope.Seq,
+                "RemoveExpiration",
+                removeExpiration.Key,
+                removeExpiration.Namespace,
+                null),
+            JournalEnvelope.OpOneofCase.TouchExpiration when envelope.TouchExpiration is { } touchExpiration => new JournalFramePreview(
+                envelope.Seq,
+                "TouchExpiration",
+                touchExpiration.Key,
+                touchExpiration.Namespace,
+                null),
             JournalEnvelope.OpOneofCase.None => new JournalFramePreview(envelope.Seq, "None", null, null, null),
             _ => new JournalFramePreview(envelope.Seq, envelope.OpCase.ToString(), null, null, null),
         };

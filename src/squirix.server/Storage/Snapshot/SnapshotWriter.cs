@@ -42,7 +42,8 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         var moveCompleted = false;
         try
         {
-            await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous))
+            var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.Asynchronous);
+            try
             {
                 await foreach (var (k, e) in ToAsync(items, cancellationToken).ConfigureAwait(false))
                 {
@@ -61,6 +62,10 @@ internal sealed class SnapshotWriter : ISnapshotWriter
                 }
 
                 await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await fs.DisposeAsync().ConfigureAwait(false);
             }
 
             var snap = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Snapshot}{index:000000}{StorageFileExtensions.Snapshot}");

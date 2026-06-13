@@ -8,6 +8,11 @@ namespace Squirix.Server.Storage.Maintenance;
 internal sealed class StorageMaintenanceReport
 {
     /// <summary>
+    /// Gets the current journal segment index recorded in manifest.
+    /// </summary>
+    public int CurrentJournal { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether the CURRENT pointer file exists.
     /// </summary>
     public bool CurrentPointerExists { get; init; }
@@ -18,11 +23,6 @@ internal sealed class StorageMaintenanceReport
     public string? CurrentPointerTarget { get; init; }
 
     /// <summary>
-    /// Gets the current journal segment index recorded in manifest.
-    /// </summary>
-    public int CurrentJournal { get; init; }
-
-    /// <summary>
     /// Gets the inspected data directory.
     /// </summary>
     public string DataDir { get; init; } = string.Empty;
@@ -31,6 +31,11 @@ internal sealed class StorageMaintenanceReport
     /// Gets issues detected while inspecting storage layout.
     /// </summary>
     public IReadOnlyList<string> Issues { get; init; } = [];
+
+    /// <summary>
+    /// Gets the discovered journal segment indices on disk.
+    /// </summary>
+    public int[] JournalSegments { get; init; } = [];
 
     /// <summary>
     /// Gets the last applied sequence recorded for the last snapshot, when available.
@@ -66,9 +71,4 @@ internal sealed class StorageMaintenanceReport
     /// Gets the discovered snapshot indices on disk.
     /// </summary>
     public int[] SnapshotIndices { get; init; } = [];
-
-    /// <summary>
-    /// Gets the discovered journal segment indices on disk.
-    /// </summary>
-    public int[] JournalSegments { get; init; } = [];
 }

@@ -147,11 +147,7 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
         var key = FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
         var updated = TypedValueFactory.CreateUpdatedProfile(key);
 
-        await cluster.CacheA.SetAsync(
-            key,
-            TypedValueFactory.CreateProfile(key),
-            new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
-            DefaultCancellationToken);
+        await cluster.CacheA.SetAsync(key, TypedValueFactory.CreateProfile(key), new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) }, DefaultCancellationToken);
 
         Assert.True(await cluster.CacheA.UpdateAsync(key, updated, DefaultCancellationToken));
         var result = await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken);

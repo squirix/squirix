@@ -18,15 +18,15 @@ public sealed class CacheEntry<T>
     }
 
     /// <summary>
+    /// Gets the relative expiration. If provided, it takes precedence over <see cref="ExpiresUtc" />.
+    /// </summary>
+    public TimeSpan? Expiration { get; init; }
+
+    /// <summary>
     /// Gets the absolute UTC expiration time. If set and reached, the entry is considered expired.
     /// Ignored if <see cref="Expiration" /> is provided.
     /// </summary>
     public DateTime? ExpiresUtc { get; init; }
-
-    /// <summary>
-    /// Gets the relative expiration. If provided, it takes precedence over <see cref="ExpiresUtc" />.
-    /// </summary>
-    public TimeSpan? Expiration { get; init; }
 
     /// <summary>
     /// Gets the value to store. May be <c>null</c>.

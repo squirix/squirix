@@ -150,8 +150,7 @@ public abstract class IntegrationTestBase : IDisposable
             Peers = peers,
         };
         var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, bootstrapPeer.Url);
-        return material is not { Enabled: true, TrustAnchor: not null }
-            ? LoopbackHttp.CreateHandler()
+        return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor, targetPeerNodeId);
     }
 

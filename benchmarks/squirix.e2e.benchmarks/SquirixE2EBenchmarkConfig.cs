@@ -25,7 +25,6 @@ public static class SquirixE2EBenchmarkConfig
                                                    .WithOptions(ConfigOptions.DisableOptimizationsValidator).WithOptions(ConfigOptions.JoinSummary)
                                                    .WithOptions(ConfigOptions.StopOnFirstError).AddValidator(JitOptimizationsValidator.DontFailOnError);
 
-    private static Job CreateJob() => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal)
-        ? Job.Default.WithId("Long")
+    private static Job CreateJob() => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? Job.Default.WithId("Long")
         : Job.ShortRun.WithId("Short");
 }

@@ -44,11 +44,6 @@ public sealed class TestNodeHost : IAsyncDisposable
     public string Address { get; }
 
     /// <summary>
-    /// Gets the root service provider of the hosted application for resolving test dependencies.
-    /// </summary>
-    public IServiceProvider Services => _app.Services;
-
-    /// <summary>
     /// Gets the absolute path to the node's data directory created for the test run.
     /// </summary>
     public string DataDir { get; }
@@ -57,6 +52,11 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// Gets a value indicating whether persistence is enabled for the hosted node.
     /// </summary>
     public bool PersistenceEnabled { get; }
+
+    /// <summary>
+    /// Gets the root service provider of the hosted application for resolving test dependencies.
+    /// </summary>
+    public IServiceProvider Services => _app.Services;
 
     /// <summary>
     /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.

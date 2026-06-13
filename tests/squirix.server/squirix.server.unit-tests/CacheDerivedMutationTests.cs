@@ -13,39 +13,6 @@ namespace Squirix.Server.UnitTests;
 public sealed class CacheDerivedMutationTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Ensures UpdateAsync changes the value while preserving expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task UpdateAsyncPreservesExpirationOnPhysicalCache()
-    {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var cache = new PhysicalCache<string>(clock);
-        var expires = clock.UtcNow.AddMinutes(5);
-        await cache.InsertAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
-
-        var updated = await cache.UpdateAsync("k", "new", DefaultCancellationToken);
-
-        Assert.True(updated);
-        var entry = await cache.GetValueAsync("k", DefaultCancellationToken);
-        Assert.NotNull(entry);
-        Assert.Equal("new", entry.Value);
-        Assert.Equal(expires, entry.ExpiresUtc);
-    }
-
-    /// <summary>
-    /// Ensures UpdateAsync returns false for missing keys.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task UpdateAsyncReturnsFalseForMissingKey()
-    {
-        await using var cache = new PhysicalCache<string>();
-        var updated = await cache.UpdateAsync("missing", "new", DefaultCancellationToken);
-        Assert.False(updated);
-    }
-
-    /// <summary>
     /// Ensures ClientCache GetOrAddAsync invokes the factory once under concurrency.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
@@ -115,5 +82,38 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         Assert.NotNull(entry);
         Assert.Equal("new", entry.Value);
         Assert.Equal(expires, entry.ExpiresUtc);
+    }
+
+    /// <summary>
+    /// Ensures UpdateAsync changes the value while preserving expiration.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task UpdateAsyncPreservesExpirationOnPhysicalCache()
+    {
+        var clock = new FakeClock(DateTime.UtcNow);
+        await using var cache = new PhysicalCache<string>(clock);
+        var expires = clock.UtcNow.AddMinutes(5);
+        await cache.InsertAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+
+        var updated = await cache.UpdateAsync("k", "new", DefaultCancellationToken);
+
+        Assert.True(updated);
+        var entry = await cache.GetValueAsync("k", DefaultCancellationToken);
+        Assert.NotNull(entry);
+        Assert.Equal("new", entry.Value);
+        Assert.Equal(expires, entry.ExpiresUtc);
+    }
+
+    /// <summary>
+    /// Ensures UpdateAsync returns false for missing keys.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task UpdateAsyncReturnsFalseForMissingKey()
+    {
+        await using var cache = new PhysicalCache<string>();
+        var updated = await cache.UpdateAsync("missing", "new", DefaultCancellationToken);
+        Assert.False(updated);
     }
 }

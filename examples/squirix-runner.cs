@@ -34,20 +34,26 @@ try
     WriteSettingsFile(demoRoot, endpoint);
     Directory.SetCurrentDirectory(demoRoot);
 
-    await using var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
-    await using var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
-    var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
-    var users = await client.GetCacheAsync<string>("users", cancellationToken).ConfigureAwait(false);
-
-    await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
-    await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
-
-    await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics").ConfigureAwait(false);
-
-    if (runLoad)
+    var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
+    await using (host.ConfigureAwait(false))
     {
-        await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.").ConfigureAwait(false);
-        await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        await using (client.ConfigureAwait(false))
+        {
+            var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
+            var users = await client.GetCacheAsync<string>("users", cancellationToken).ConfigureAwait(false);
+
+            await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+            await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
+
+            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics").ConfigureAwait(false);
+
+            if (runLoad)
+            {
+                await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.").ConfigureAwait(false);
+                await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     return 0;
