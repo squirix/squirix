@@ -69,6 +69,8 @@ Security checks during triage:
   OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
 - Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
   consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
+- On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
+  see [diagnostics — Loopback trust](diagnostics.md#metrics-loopback-trust).
 - Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
