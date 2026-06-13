@@ -157,7 +157,7 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
 ## Security
 
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
-  testing only.
+  testing only — see [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
 - Multi-node clusters require cluster mTLS material in addition to JWT. See
   [security/inter-node-mtls.md](security/inter-node-mtls.md).
 - `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;

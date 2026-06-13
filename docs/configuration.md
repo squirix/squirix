@@ -374,10 +374,13 @@ Security notes:
   expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
   identity checks to peer server certificates. Standalone nodes without remote peers do not require cluster mTLS
   material. The primary listener keeps external client behavior unchanged.
-- Deployment, rotation, and dev certificate generation are documented in
+- Deployment, rotation, and dev certificate generation for **inter-node mTLS** are documented in
   [security/inter-node-mtls.md](security/inter-node-mtls.md). Squirix consumes externally managed cluster certificates;
   it does not act as a production CA. Inter-node trust requires the PEM cluster CA at
   `SQUIRIX_CLUSTER_MTLS_CA_PATH` and certificate CN equal to the expected cluster `NodeId`.
+- **External JWT** signing, blast radius, and rotation (symmetric vs OIDC) are documented in
+  [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Inter-node forwarding does not use JWT when mTLS is
+  enforced.
 
 ## Sample `appsettings.json`
 
