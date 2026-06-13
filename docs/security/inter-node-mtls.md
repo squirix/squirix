@@ -190,6 +190,7 @@ host helpers) for integration and E2E suites. That machinery is **test-only** an
 ## Related documentation
 
 - [configuration.md](../configuration.md) — full environment variable table
+- [security/jwt-signing-keys.md](jwt-signing-keys.md) — external JWT signing and rotation
 - [clustering.md](../clustering.md) — static topology and routing
 - [server-mode.md](../server-mode.md) — standalone and embedded hosts
 - [containerization.md](../containerization.md) — Docker layouts
