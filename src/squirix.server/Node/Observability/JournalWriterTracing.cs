@@ -50,7 +50,6 @@ internal static class JournalWriterTracing
 
     public static JournalOperationTraceContext WithDurability(in JournalOperationTraceContext context, JournalWriter writer) => context with
     {
-        StrictFsync = JournalWriter.StrictFsync,
         GroupCommitEnabled = writer.IsJournalGroupCommitEnabled,
     };
 }

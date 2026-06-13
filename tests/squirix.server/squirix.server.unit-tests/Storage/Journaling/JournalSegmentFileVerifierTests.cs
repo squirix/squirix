@@ -62,13 +62,6 @@ public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase
         Assert.Equal($"journal frame CRC mismatch at offset {corruptedFrameOffset}", error);
     }
 
-    /// <inheritdoc />
-    public override void Dispose()
-    {
-        DirectoryKit.TryDeleteDirectory(_dir);
-        base.Dispose();
-    }
-
     /// <summary>
     /// Verifies invalid file headers fail without decoded frames.
     /// </summary>
@@ -281,6 +274,15 @@ public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase
 
         AssertVerifierDoesNotMutate(validPath);
         AssertVerifierDoesNotMutate(invalidPath);
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            DirectoryKit.TryDeleteDirectory(_dir);
+
+        base.Dispose(disposing);
     }
 
     private static void AssertVerifierDoesNotMutate(string path)

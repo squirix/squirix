@@ -73,7 +73,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
                     _ = unused;
                 }
             });
-            Assert.Contains("ChecksumMismatch", ex.Message);
+            Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
         }
         finally
         {

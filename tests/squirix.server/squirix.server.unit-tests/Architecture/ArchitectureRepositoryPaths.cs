@@ -7,7 +7,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>
 /// Resolves repository layout paths for source-based architecture tests.
 /// </summary>
-public static class ArchitectureRepositoryPaths
+internal static class ArchitectureRepositoryPaths
 {
     /// <summary>
     /// Finds the repository root using embedded MSBuild metadata when available, otherwise walks upward from the test base directory.

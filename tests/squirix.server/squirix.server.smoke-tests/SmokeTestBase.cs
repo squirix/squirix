@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Grpc.Net.Client;
+using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
@@ -38,6 +39,7 @@ namespace Squirix.Server.SmokeTests;
 /// Base class for all smoke tests, providing helper methods to start test nodes,
 /// manage test directories, construct HTTP clients, and build common cache entries.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class SmokeTestBase : IDisposable
 {
     private const int PortRangeSize = 200;
@@ -68,9 +70,7 @@ public abstract class SmokeTestBase : IDisposable
     /// </summary>
     public void Dispose()
     {
-        _mtls?.Dispose();
-        _socketsHttpHandler.Dispose();
-        _httpClient?.Dispose();
+        Dispose(true);
         GC.SuppressFinalize(this);
     }
 
@@ -183,7 +183,7 @@ public abstract class SmokeTestBase : IDisposable
                 _ = b.AddFilter("Grpc", LogLevel.Debug);
                 _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
-                _ = output != null ? b.AddProvider(new XUnitKit.XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
+                _ = output != null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
             true,
             snapshotOptions,
@@ -209,7 +209,7 @@ public abstract class SmokeTestBase : IDisposable
     /// </summary>
     /// <param name="url">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(string url) => GrpcChannel.ForAddress(
+    protected static GrpcChannel CreateGrpcChannel(Uri url) => GrpcChannel.ForAddress(
         url,
         new GrpcChannelOptions
         {
@@ -235,7 +235,22 @@ public abstract class SmokeTestBase : IDisposable
     /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
     /// is a free port reserved from the shared pool.
     /// </returns>
-    protected static string GetNextHttpUrl() => $"https://127.0.0.1:{PortPool.Allocate()}";
+    protected static string GetNextHttpAddress() => $"https://127.0.0.1:{PortPool.Allocate()}";
+
+    /// <summary>
+    /// Disposes managed resources owned by the test base.
+    /// </summary>
+    /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
+    [UsedImplicitly]
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposing)
+            return;
+
+        _mtls?.Dispose();
+        _socketsHttpHandler.Dispose();
+        _httpClient?.Dispose();
+    }
 
     /// <summary>
     /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.

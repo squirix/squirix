@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -16,13 +17,13 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class JournalCompactionService<T> : BackgroundService, IJournalCompactionStatus
 {
+    private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
     private readonly ILogger<JournalCompactionService<T>> _log;
     private readonly ManifestStore _manifest;
     private readonly string _nodeId;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly SnapshotCoordinator<T> _snap;
-    private readonly IExclusiveMaintenanceExecutor _journalMaintenance;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
@@ -101,7 +102,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             try
             {
                 await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, ct)), cancellationToken)
-                                     .ConfigureAwait(false);
+                                         .ConfigureAwait(false);
                 resultLabel = "success";
             }
             finally
@@ -179,10 +180,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 // Jitter next wake-up to avoid thundering herd across nodes
                 var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
                 var jitterMs = (int)Math.Clamp(baseGap.TotalMilliseconds * 0.1, 50, 10_000);
-                var delay = baseGap + TimeSpan.FromMilliseconds(Random.Shared.Next(-jitterMs, jitterMs));
-                await Task.Delay(delay, cancellationToken);
+                var delay = baseGap + TimeSpan.FromMilliseconds(RandomNumberGenerator.GetInt32(-jitterMs, jitterMs));
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
 
-                var res = await MaybeCompactAsync(null, cancellationToken);
+                var res = await MaybeCompactAsync(null, cancellationToken).ConfigureAwait(false);
 
                 if (res != AttemptResult.Failed)
                     continue;
@@ -191,9 +192,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                 ChangeState(CompactionState.BackingOff);
                 var pow = Math.Min(_consecutiveFailures, 10); // cap exponent
                 var maxDelay = TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, pow))); // up to 60s
-                var backoff = TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Math.Max(10, maxDelay.TotalMilliseconds)));
+                var backoff = TimeSpan.FromMilliseconds(RandomNumberGenerator.GetInt32(0, (int)Math.Max(10, maxDelay.TotalMilliseconds)));
                 LogManager.CompactionBackoff(_log, _consecutiveFailures, (int)backoff.TotalMilliseconds);
-                await Task.Delay(backoff, cancellationToken);
+                await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)

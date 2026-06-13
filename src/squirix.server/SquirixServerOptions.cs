@@ -14,11 +14,6 @@ public sealed class SquirixServerOptions
     public string ClusterId { get; set; } = "cluster";
 
     /// <summary>
-    /// Gets or sets a value indicating whether WAL/snapshot persistence is enabled.
-    /// </summary>
-    public bool PersistenceEnabled { get; set; }
-
-    /// <summary>
     /// Gets or sets an optional persistence data directory override.
     /// </summary>
     public string? DataDirectory { get; set; }
@@ -31,7 +26,12 @@ public sealed class SquirixServerOptions
     /// <summary>
     /// Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.
     /// </summary>
-    public List<SquirixServerPeerOptions> Peers { get; set; } = [];
+    public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets a value indicating whether WAL/snapshot persistence is enabled.
+    /// </summary>
+    public bool PersistenceEnabled { get; set; }
 
     /// <summary>
     /// Gets or sets the primary HTTP/2 URL used for gRPC and node traffic.
@@ -49,6 +49,13 @@ public sealed class SquirixServerOptions
     public bool WaitForRecovery { get; set; } = true;
 
     /// <summary>
+    /// Validates the current configuration without throwing.
+    /// </summary>
+    /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when configuration is valid.</returns>
+    public bool TryValidate(out IReadOnlyList<string> errors) => ClusterTopologyValidator.TryValidate(this, out errors);
+
+    /// <summary>
     /// Enables WAL/snapshot persistence for this node.
     /// </summary>
     /// <param name="dataDirectory">Optional data directory override.</param>
@@ -58,13 +65,6 @@ public sealed class SquirixServerOptions
         if (!string.IsNullOrWhiteSpace(dataDirectory))
             DataDirectory = dataDirectory;
     }
-
-    /// <summary>
-    /// Validates the current configuration without throwing.
-    /// </summary>
-    /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
-    /// <returns><see langword="true" /> when configuration is valid.</returns>
-    public bool TryValidate(out IReadOnlyList<string> errors) => ClusterTopologyValidator.TryValidate(this, out errors);
 
     /// <summary>
     /// Validates the current configuration and throws when a value is invalid.

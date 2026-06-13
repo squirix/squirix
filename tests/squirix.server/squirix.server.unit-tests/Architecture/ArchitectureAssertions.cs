@@ -8,7 +8,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>
 /// Shared assertion helpers for NetArchTest <see cref="TestResult" /> values.
 /// </summary>
-public static class ArchitectureAssertions
+internal static class ArchitectureAssertions
 {
     /// <summary>
     /// Fails the test with a sorted, newline-separated list of failing type names when the rule is not satisfied.

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -10,11 +11,7 @@ namespace Squirix.Internal.Cluster.Transport;
 
 internal static class GrpcChannelConnectWarmup
 {
-    public static async ValueTask ConnectWithRetryAsync(
-        GrpcChannel channel,
-        string endpointName,
-        BootstrapConnectOptions options,
-        CancellationToken cancellationToken)
+    public static async ValueTask ConnectWithRetryAsync(GrpcChannel channel, string endpointName, BootstrapConnectOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
@@ -44,8 +41,7 @@ internal static class GrpcChannelConnectWarmup
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                lastFailure = new InvalidOperationException(
-                    $"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds}ms.");
+                lastFailure = new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds}ms.");
             }
             catch (HttpRequestException ex)
             {
@@ -71,15 +67,14 @@ internal static class GrpcChannelConnectWarmup
             await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
         }
 
-        throw lastFailure ?? new InvalidOperationException(
-            $"Failed to connect to endpoint '{endpointName}' within {options.OverallDeadline.TotalSeconds}s.");
+        throw lastFailure ?? new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.OverallDeadline.TotalSeconds}s.");
     }
 
     private static TimeSpan BackoffWithJitter(int attempt, BootstrapConnectOptions options)
     {
         var pow = Math.Min(attempt - 1, 6);
         var cappedMs = Math.Min(options.MaxBackoff.TotalMilliseconds, options.BaseBackoff.TotalMilliseconds * Math.Pow(2, pow));
-        var jitterFactor = 0.5 + (Random.Shared.NextDouble() * 0.5);
+        var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
         var finalMs = Math.Max(cappedMs * jitterFactor, Math.Min(50.0, cappedMs));
         return TimeSpan.FromMilliseconds(finalMs);
     }

@@ -106,7 +106,7 @@ internal static class Correlation
             using var activity = StartServerActivity(tp, ts, context.Method);
             using var scope = BeginStandardScope(_log, _nodeId, context.Method);
             using var deadlineScope = RpcDeadlineContext.Push(context.Deadline);
-            return await base.UnaryServerHandler(request, context, continuation);
+            return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
         }
 
         private static Activity? StartServerActivity(string? traceParent, string? traceState, string method)

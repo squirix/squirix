@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -92,8 +91,6 @@ internal static class JournalCompactor
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
-            if (PersistenceOptions.StrictFsync)
-                fs.Flush(true);
         }
 
         // 4) Install the compacted journal before deleting any old segments.
@@ -108,10 +105,7 @@ internal static class JournalCompactor
         var finalJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}{StorageFileExtensions.Journal}");
         var backupJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.bak");
         _ = FileEx.TryDeleteFile(backupJournalPath);
-        if (File.Exists(finalJournalPath))
-            File.Replace(tmpPath, finalJournalPath, backupJournalPath);
-        else
-            File.Move(tmpPath, finalJournalPath);
+        FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
 
         // 5) Update manifest.
         // Safe post-state invariant after successful compaction:
@@ -138,7 +132,6 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    [SuppressMessage("Usage", "CA2208:Instantiate argument exceptions correctly", Justification = "Not applicable")]
     private static void Apply(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
         switch (env.OpCase)
@@ -205,7 +198,7 @@ internal static class JournalCompactor
                 break;
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(env.OpCase));
+                throw new ArgumentOutOfRangeException(nameof(env));
         }
     }
 
