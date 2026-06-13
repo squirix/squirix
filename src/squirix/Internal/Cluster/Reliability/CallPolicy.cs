@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -43,6 +44,9 @@ internal sealed class CallPolicy : ICallPolicy
         _semaphore = new SemaphoreSlim(cap, cap);
     }
 
+    public ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+        ExecuteAsync(static (callback, token) => callback(token), action, cancellationToken);
+
     public void BeginDrain() => _draining = true;
 
     public ValueTask DisposeAsync()
@@ -68,9 +72,6 @@ internal sealed class CallPolicy : ICallPolicy
             return new ValueTask(_disposeTask);
         }
     }
-
-    public ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
-        ExecuteAsync(static (callback, token) => callback(token), action, cancellationToken);
 
     public async ValueTask<T> ExecuteAsync<TState, T>(Func<TState, CancellationToken, ValueTask<T>> action, TState state, CancellationToken cancellationToken)
     {
@@ -133,8 +134,7 @@ internal sealed class CallPolicy : ICallPolicy
                         last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
                     }
                     catch (RpcException rx) when (rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
-                                                  attempt < _maxAttempts &&
-                                                  OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+                                                  attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
                     {
                         // Transient issue: retry with backoff
                         if (rx.StatusCode == StatusCode.DeadlineExceeded)
@@ -144,8 +144,7 @@ internal sealed class CallPolicy : ICallPolicy
                         last = rx;
                         last = await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), last, effectiveToken).ConfigureAwait(false);
                     }
-                    catch (HttpRequestException ex) when (attempt < _maxAttempts &&
-                                                          OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+                    catch (HttpRequestException ex) when (attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
                     {
                         CallPolicyMetrics.RetriesTotal.WithLabels(_peer, ClassifyRetryReason(ex)).Inc(1);
                         last = ex;
@@ -271,7 +270,7 @@ internal sealed class CallPolicy : ICallPolicy
         var cappedMs = Math.Min(_maxBackoff.TotalMilliseconds, _baseBackoff.TotalMilliseconds * Math.Pow(2, pow));
 
         // Use jitter factor in [0.5, 1.0) to avoid near-zero waits
-        var jitterFactor = 0.5 + (Random.Shared.NextDouble() * 0.5);
+        var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
         var candidateMs = cappedMs * jitterFactor;
 
         // Enforce a small floor (50ms) per backoff when cap permits, to avoid flaky sub-50ms totals

@@ -102,15 +102,15 @@ internal static class SquirixServerHostingComposition
         {
             try
             {
-                await next();
+                await next().ConfigureAwait(false);
             }
             catch (ResourceExhaustedException ex)
             {
-                await ex.ToHttpResult().ExecuteAsync(context);
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
             }
             catch (SquirixException ex)
             {
-                await ex.ToHttpResult().ExecuteAsync(context);
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
             }
         });
 

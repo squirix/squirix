@@ -15,6 +15,7 @@ namespace Squirix.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
 {
@@ -24,13 +25,38 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     private CallPolicy? _policy;
 
     /// <summary>
-    /// Runs a baseline completed <see cref="ValueTask{TResult}" /> without wrappers.
+    /// Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.
     /// </summary>
-    [Benchmark(Baseline = true, OperationsPerInvoke = Batch)]
-    public void DirectCompletedValueTaskBatched()
+    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task BootstrapAndCallPolicyCompletedValueTaskBatched()
     {
+        var failover = _failover!;
+        var policy = _policy!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(42);
+        {
+            var result = await failover.ExecuteAsync((_, ct) => policy.ExecuteAsync(static token => CompletedValueTask(token), ct), CancellationToken.None).ConfigureAwait(false);
+            _consumer.Consume(result);
+        }
+    }
+
+    /// <summary>
+    /// Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatched()
+    {
+        var failover = _failover!;
+        var policy = _policy!;
+        for (var i = 0; i < Batch; i++)
+        {
+            var result = await failover.ExecuteAsync(
+                static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTask(token), 0, ct),
+                policy,
+                CancellationToken.None).ConfigureAwait(false);
+            _consumer.Consume(result);
+        }
     }
 
     /// <summary>
@@ -58,6 +84,23 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     }
 
     /// <summary>
+    /// Releases benchmark resources.
+    /// </summary>
+    /// <returns>A <see cref="ValueTask" /> that completes when cleanup is done.</returns>
+    [GlobalCleanup]
+    public ValueTask CleanupAsync() => DisposeAsync();
+
+    /// <summary>
+    /// Runs a baseline completed <see cref="ValueTask{TResult}" /> without wrappers.
+    /// </summary>
+    [Benchmark(Baseline = true, OperationsPerInvoke = Batch)]
+    public void DirectCompletedValueTaskBatched()
+    {
+        for (var i = 0; i < Batch; i++)
+            _consumer.Consume(42);
+    }
+
+    /// <summary>
     /// Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.
     /// </summary>
     [Benchmark(OperationsPerInvoke = Batch)]
@@ -68,48 +111,14 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     }
 
     /// <summary>
-    /// Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.
+    /// Creates reusable wrapper instances.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyCompletedValueTaskBatched()
+    [GlobalSetup]
+    public void Setup()
     {
-        var failover = _failover!;
-        var policy = _policy!;
-        for (var i = 0; i < Batch; i++)
-        {
-            var result = await failover.ExecuteAsync(
-                (_, ct) => policy.ExecuteAsync(static token => CompletedValueTask(token), ct),
-                CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result);
-        }
+        _failover = new BootstrapEndpointFailover(["node-a"], "node-a");
+        _policy = new CallPolicy(peer: "node-a");
     }
-
-    /// <summary>
-    /// Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatched()
-    {
-        var failover = _failover!;
-        var policy = _policy!;
-        for (var i = 0; i < Batch; i++)
-        {
-            var result = await failover.ExecuteAsync(
-                static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTask(token), 0, ct),
-                policy,
-                CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result);
-        }
-    }
-
-    /// <summary>
-    /// Releases benchmark resources.
-    /// </summary>
-    /// <returns>A <see cref="ValueTask" /> that completes when cleanup is done.</returns>
-    [GlobalCleanup]
-    public ValueTask CleanupAsync() => DisposeAsync();
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
@@ -121,16 +130,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
         }
 
         GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// Creates reusable wrapper instances.
-    /// </summary>
-    [GlobalSetup]
-    public void Setup()
-    {
-        _failover = new BootstrapEndpointFailover(["node-a"], "node-a");
-        _policy = new CallPolicy(peer: "node-a");
     }
 
     private static ValueTask<int> CompletedValueTask(CancellationToken cancellationToken)

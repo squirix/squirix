@@ -97,7 +97,7 @@ public sealed class MtlsKestrelHandshakeTests
                 TargetHost = ServerNodeId,
                 ClientCertificates = [ClientCertificate],
                 ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                EnabledSslProtocols = SslProtocols.None,
                 RemoteCertificateValidationCallback = ValidateRemoteServer,
             },
             cancellationToken);

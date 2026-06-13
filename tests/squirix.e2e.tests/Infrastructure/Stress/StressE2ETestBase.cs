@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +10,7 @@ namespace Squirix.E2ETests.Infrastructure.Stress;
 /// Base class for SDK stress tests. Lives outside <c>Squirix.E2ETests.PublicApi</c> so it may use extra infrastructure
 /// helpers without widening the PublicApi architecture guard, while still exercising only the public SDK surface.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class StressE2ETestBase : E2ETestBase
 {
     internal static async Task<IReadOnlyList<E2EClientHandle>> ConnectClientsAsync(E2ECluster cluster, int count, string nodeId, CancellationToken cancellationToken)

@@ -28,8 +28,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
             _ = activity.SetTag("journal.namespace", context.Namespace);
         if (context.PayloadBytes is { } payloadBytes)
             _ = activity.SetTag("journal.bytes_payload", payloadBytes);
-        if (context.StrictFsync is { } strictFsync)
-            _ = activity.SetTag("journal.strict_fsync", strictFsync);
+        _ = activity.SetTag("journal.strict_fsync", true);
         if (context.GroupCommitEnabled is { } groupCommitEnabled)
             _ = activity.SetTag("journal.group_commit", groupCommitEnabled);
     }

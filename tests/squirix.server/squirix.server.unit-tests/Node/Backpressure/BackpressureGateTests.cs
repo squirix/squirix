@@ -89,48 +89,30 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        using var gate = new BackpressureGate(backpressureOptions);
-        var current = new int[1];
-        var observedMax = new int[1];
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var tasks = new List<Task>(24);
-
-        for (var i = 0; i < 24; i++)
+        var gate = new BackpressureGate(backpressureOptions);
+        try
         {
-            tasks.Add(RunClientAsync(gate, start.Task, current, observedMax, $"grpc:client-{i}"));
+            IBackpressureGate gateForClients = gate;
+            var current = new int[1];
+            var observedMax = new int[1];
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var clients = new Task[24];
+            for (var i = 0; i < clients.Length; i++)
+            {
+                clients[i] = RunClientAsync(gateForClients, i, start.Task, current, observedMax, DefaultCancellationToken);
+            }
+
+            var runClients = Task.WhenAll(clients);
+
+            _ = start.TrySetResult();
+            await runClients;
+
+            Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0]} exceeded limit {maxInFlight}.");
         }
-
-        _ = start.TrySetResult();
-        await Task.WhenAll(tasks);
-
-        Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0]} exceeded limit {maxInFlight}.");
-        return;
-
-        static async Task RunClientAsync(BackpressureGate gate, Task start, int[] current, int[] observedMax, string clientId)
+        finally
         {
-            await start.ConfigureAwait(false);
-
-            var (decision, lease) = await gate.AcquireAsync("grpc", "insert", clientId, DefaultCancellationToken).ConfigureAwait(false);
-
-            if (!decision.IsAccepted)
-            {
-                return;
-            }
-
-            using (lease)
-            {
-                var now = Interlocked.Increment(ref current[0]);
-                UpdateMax(ref observedMax[0], now);
-
-                try
-                {
-                    await Task.Yield();
-                }
-                finally
-                {
-                    _ = Interlocked.Decrement(ref current[0]);
-                }
-            }
+            gate.Dispose();
         }
     }
 
@@ -169,22 +151,19 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         listener.Start();
 
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                RejectThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(200),
-            });
-
+        var backpressureOptions = new BackpressureOptions
+        {
+            MaxInFlight = 1,
+            MaxQueue = 1,
+            SlowdownThreshold = 1,
+            RejectThreshold = 1,
+            MaxSlowdownDelay = TimeSpan.Zero,
+            MaxQueueWait = TimeSpan.FromMilliseconds(200),
+        };
+        using var gate = new BackpressureGate(backpressureOptions);
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken).AsTask();
-
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
-
         first.Dispose();
 
         var (_, secondLease) = await secondAcquire;
@@ -536,6 +515,28 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     private static bool IsBackpressureGauge(string instrumentName) =>
         instrumentName is BackpressureInFlightInstrumentName or BackpressureQueueDepthInstrumentName or BackpressureTrackedClientsInstrumentName;
+
+    private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, Task startTask, int[] current, int[] observedMax, CancellationToken cancellationToken)
+    {
+        await startTask.ConfigureAwait(false);
+
+        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex}", cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAccepted)
+            return;
+
+        var now = Interlocked.Increment(ref current[0]);
+        UpdateMax(ref observedMax[0], now);
+
+        try
+        {
+            await Task.Yield();
+        }
+        finally
+        {
+            _ = Interlocked.Decrement(ref current[0]);
+            lease.Dispose();
+        }
+    }
 
     private static void UpdateMax(ref int target, int candidate)
     {

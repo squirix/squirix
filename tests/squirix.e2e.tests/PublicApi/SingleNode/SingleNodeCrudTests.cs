@@ -109,8 +109,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
         var entry = await cache.GetEntryAsync("k", DefaultCancellationToken);
-
-        Assert.NotNull(entry);
+        Assert.True(entry.Found);
     }
 
     /// <summary>
@@ -127,7 +126,8 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
 
         await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
         var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
-        Assert.NotNull(e);
+        Assert.True(e.Found);
+        Assert.Equal("v1", e.Value);
 
         await Task.Delay(Delay90, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
@@ -147,7 +147,8 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
 
         await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
         var e = await cache.GetEntryAsync("k1", DefaultCancellationToken);
-        Assert.NotNull(e);
+        Assert.True(e.Found);
+        Assert.Equal("v1", e.Value);
 
         await Task.Delay(Delay90, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
@@ -250,7 +251,8 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
         var before = await cache.GetEntryAsync("k", DefaultCancellationToken);
-        Assert.NotNull(before);
+        Assert.True(before.Found);
+        Assert.Equal("v", before.Value);
 
         var removed = await cache.RemoveAsync("k", DefaultCancellationToken);
 
@@ -419,7 +421,6 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
 
         Assert.True(added);
         var expiration = await cache.GetExpirationAsync("k", DefaultCancellationToken);
-        Assert.NotNull(expiration);
         Assert.True(expiration.Value > TimeSpan.Zero);
     }
 

@@ -19,7 +19,7 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedResolvingCacheThrows()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
         var host = await StartNodeAsync(url, peers);
         await host.DisposeAsync();
@@ -34,7 +34,7 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
         var host = await StartNodeAsync(url, peers);
         await host.DisposeAsync();

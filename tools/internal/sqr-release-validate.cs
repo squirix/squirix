@@ -20,15 +20,16 @@ var packageProjects = new[]
     "src/squirix.server/Squirix.Server.csproj",
 };
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-release-validate — validate release readiness and package artifacts.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]");
+    output.WriteLine("sqr-release-validate — validate release readiness and package artifacts.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]");
     return 0;
 }
 
@@ -165,7 +166,7 @@ try
         RunDotnetOrThrow(repoRootResolved, ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"]);
     }
 
-    Console.WriteLine($"Release validation completed. Artifacts: {packageOutputPath}");
+    output.WriteLine($"Release validation completed. Artifacts: {packageOutputPath}");
     return 0;
 }
 catch (InvalidOperationException ex)
@@ -276,7 +277,7 @@ string ResolveRepoRoot()
 
 static void Step(string name)
 {
-    Console.WriteLine($"==> {name}");
+    Console.Out.WriteLine($"==> {name}");
 }
 
 void RunDotnetOrThrow(string workingDirectory, IReadOnlyList<string> args)

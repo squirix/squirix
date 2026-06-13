@@ -15,10 +15,7 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("squirix-runner - file-based demo runner for squirix.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file examples/squirix-runner.cs -- [--skip-load]");
+    PrintHelp();
     return 0;
 }
 
@@ -45,11 +42,11 @@ try
     await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
     await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
 
-    Console.WriteLine($"Metrics endpoint available at {endpoint}/metrics");
+    await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics").ConfigureAwait(false);
 
     if (runLoad)
     {
-        Console.WriteLine("Running demo load for up to five minutes. Press Ctrl+C to stop.");
+        await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.").ConfigureAwait(false);
         await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
     }
 
@@ -71,28 +68,36 @@ static async Task DemoDefaultCacheAsync(ICache<object?> cache, CancellationToken
         cancellationToken).ConfigureAwait(false);
 
     var session = await cache.GetEntryAsync("session:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"Default cache -> payload={session.Entry?.Value}");
+    await Console.Out.WriteLineAsync($"Default cache -> payload={session.Entry?.Value}").ConfigureAwait(false);
 
     var touched = await cache.TouchAsync("session:42", TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
     var expiration = await cache.GetExpirationAsync("session:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"TouchAsync -> updated={touched}, expiration={expiration}");
+    await Console.Out.WriteLineAsync($"TouchAsync -> updated={touched}, expiration={expiration}").ConfigureAwait(false);
 }
 
 static async Task DemoTypedNamedCacheAsync(ICache<string> users, CancellationToken cancellationToken)
 {
     var added = await users.TryAddAsync("user:42", "created", cancellationToken: cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"TryAddAsync -> added={added}");
+    await Console.Out.WriteLineAsync($"TryAddAsync -> added={added}").ConfigureAwait(false);
 
     var stored = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"GetValueAsync -> found={stored.Found}, value={stored.Value}");
+    await Console.Out.WriteLineAsync($"GetValueAsync -> found={stored.Found}, value={stored.Value}").ConfigureAwait(false);
 
     await users.SetAsync("user:42", "updated", cancellationToken: cancellationToken).ConfigureAwait(false);
 
     var lookup = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"GetValueAsync -> present={lookup.Found}");
+    await Console.Out.WriteLineAsync($"GetValueAsync -> present={lookup.Found}").ConfigureAwait(false);
 
     var removed = await users.RemoveAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"RemoveAsync -> removed={removed}");
+    await Console.Out.WriteLineAsync($"RemoveAsync -> removed={removed}").ConfigureAwait(false);
+}
+
+static void PrintHelp()
+{
+    Console.Out.WriteLine("squirix-runner - file-based demo runner for squirix.");
+    Console.Out.WriteLine();
+    Console.Out.WriteLine("Usage:");
+    Console.Out.WriteLine("  dotnet run --file examples/squirix-runner.cs -- [--skip-load]");
 }
 
 static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken cancellationToken)

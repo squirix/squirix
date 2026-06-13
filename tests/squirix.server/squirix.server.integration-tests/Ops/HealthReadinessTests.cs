@@ -1,3 +1,4 @@
+using System;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -38,7 +39,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     [Fact]
     public async Task ReadyDetailsEndpointReportsReadinessSignals()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "node_health_A", Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, usePersistence: true);
@@ -47,7 +48,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         // Cause some journal activity
         await cache.SetAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
-        var resp = await HttpClient.GetAsync(node.Address + "/health/ready/details", DefaultCancellationToken);
+        var resp = await HttpClient.GetAsync(new Uri(node.Address + "/health/ready/details"), DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();
 
         var json = await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);

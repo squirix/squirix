@@ -22,11 +22,11 @@ internal static class Program
 
         var endpoint = $"https://localhost:{NextFreePort()}";
         WriteSettings("external-smoke", endpoint);
-        await using var host = await SquirixServer.StartAsync(CancellationToken.None);
-        await using var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None);
+        _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
 
-        await RunIsolationAsync(client, CancellationToken.None);
-        await RunExpirationAsync(client, CancellationToken.None);
+        await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
+        await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
 
         return 0;
     }
@@ -40,10 +40,10 @@ internal static class Program
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
     {
-        var cache = await client.GetCacheAsync<string>("smoke-expiration", ct);
-        await cache.SetAsync("expiring", "x", new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(80) }, ct);
-        await Task.Delay(200, ct);
-        var result = await cache.GetValueAsync("expiring", ct);
+        var cache = await client.GetCacheAsync<string>("smoke-expiration", ct).ConfigureAwait(false);
+        await cache.SetAsync("expiring", "x", new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(80) }, ct).ConfigureAwait(false);
+        await Task.Delay(200, ct).ConfigureAwait(false);
+        var result = await cache.GetValueAsync("expiring", ct).ConfigureAwait(false);
         if (result.Found)
         {
             throw new InvalidOperationException("Expected expiration key to be absent after wait.");
@@ -52,12 +52,12 @@ internal static class Program
 
     private static async Task RunIsolationAsync(ISquirixClient client, CancellationToken ct)
     {
-        var a = await client.GetCacheAsync<string>("smoke-a", ct);
-        var b = await client.GetCacheAsync<string>("smoke-b", ct);
-        await a.SetAsync(IsolationSharedKey, "from-a", cancellationToken: ct);
-        await b.SetAsync(IsolationSharedKey, "from-b", cancellationToken: ct);
-        var v1 = (await a.GetValueAsync(IsolationSharedKey, ct)).Value;
-        var v2 = (await b.GetValueAsync(IsolationSharedKey, ct)).Value;
+        var a = await client.GetCacheAsync<string>("smoke-a", ct).ConfigureAwait(false);
+        var b = await client.GetCacheAsync<string>("smoke-b", ct).ConfigureAwait(false);
+        await a.SetAsync(IsolationSharedKey, "from-a", cancellationToken: ct).ConfigureAwait(false);
+        await b.SetAsync(IsolationSharedKey, "from-b", cancellationToken: ct).ConfigureAwait(false);
+        var v1 = (await a.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
+        var v2 = (await b.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Named cache isolation failed.");
