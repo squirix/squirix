@@ -20,7 +20,7 @@ internal sealed class SnapshotReader
         var entries = new List<(CacheKey Key, CacheEntry<T> Entry)>();
         var idempotencyRecords = new List<PersistedIdempotencyRecord>();
 
-        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         while (true)
         {
             var (ok, payload) = await FrameCodec.ReadFrameStrictAsync(fs, frame => ReadStrictPayload<T>(frame, skipExpired), cancellationToken).ConfigureAwait(false);
@@ -41,7 +41,7 @@ internal sealed class SnapshotReader
         bool skipExpired = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         while (true)
         {
             var (ok, frame) = await FrameCodec.ReadFrameAsync(fs, payload => ReadEntryPayload<T>(payload, skipExpired), cancellationToken).ConfigureAwait(false);

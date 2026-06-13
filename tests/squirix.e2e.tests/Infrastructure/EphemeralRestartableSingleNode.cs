@@ -9,10 +9,13 @@ namespace Squirix.E2ETests.Infrastructure;
 
 internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 {
-    private TestNodeHost? _host;
     private E2EClientHandle? _client;
+    private TestNodeHost? _host;
 
-    private EphemeralRestartableSingleNode(string address) => Address = address;
+    private EphemeralRestartableSingleNode(string address)
+    {
+        Address = address;
+    }
 
     private string Address { get; }
 

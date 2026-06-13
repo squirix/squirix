@@ -59,9 +59,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
         var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
-        var root = usePersistence
-            ? PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N"))
-            : string.Empty;
+        var root = usePersistence ? PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N")) : string.Empty;
         if (usePersistence)
             _ = Directory.CreateDirectory(root);
 

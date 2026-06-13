@@ -11,8 +11,8 @@ namespace Squirix.E2ETests.Infrastructure;
 
 internal sealed class E2ERestartableSingleNode : IAsyncDisposable
 {
-    private TestNodeHost? _host;
     private E2EClientHandle? _client;
+    private TestNodeHost? _host;
 
     private E2ERestartableSingleNode(string dataDir, string address)
     {

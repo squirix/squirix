@@ -22,9 +22,9 @@ internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceE
 
     ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken);
 
-    ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken);
-
     ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken);
+
+    ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken);
 
     ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken);
 

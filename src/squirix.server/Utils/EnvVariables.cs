@@ -32,8 +32,7 @@ internal static class EnvVariables
             return null;
 
         var trimmed = raw.Trim();
-        return int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
+        return int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed
             : throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{raw}'. Expected a valid integer.");
     }
 
@@ -50,8 +49,7 @@ internal static class EnvVariables
             return null;
 
         var trimmed = raw.Trim();
-        return long.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
+        return long.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed
             : throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{raw}'. Expected a valid integer.");
     }
 

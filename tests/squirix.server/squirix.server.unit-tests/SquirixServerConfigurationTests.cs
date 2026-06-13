@@ -83,6 +83,18 @@ public sealed class SquirixServerConfigurationTests
     }
 
     /// <summary>
+    /// Ensures TryValidate surfaces multiple validation failures.
+    /// </summary>
+    [Fact]
+    public void TryValidateReturnsErrorsWithoutThrowing()
+    {
+        var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
+        var ok = options.TryValidate(out var errors);
+        Assert.False(ok);
+        Assert.True(errors.Count >= 2);
+    }
+
+    /// <summary>
     /// Ensures strict validation rejects invalid memory pressure thresholds.
     /// </summary>
     [Fact]
@@ -119,17 +131,5 @@ public sealed class SquirixServerConfigurationTests
         {
             DirectoryKit.TryDeleteDirectory(dir);
         }
-    }
-
-    /// <summary>
-    /// Ensures TryValidate surfaces multiple validation failures.
-    /// </summary>
-    [Fact]
-    public void TryValidateReturnsErrorsWithoutThrowing()
-    {
-        var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
-        var ok = options.TryValidate(out var errors);
-        Assert.False(ok);
-        Assert.True(errors.Count >= 2);
     }
 }

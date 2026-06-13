@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage.Maintenance;
@@ -9,7 +10,7 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <summary>
 /// Provides read-only snapshot metadata dumps.
 /// </summary>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal static class SnapshotDumper
 {
     /// <summary>

@@ -137,14 +137,13 @@ internal static class SquirixServerHostingComposition
         if (!options.PersistenceEnabled)
             return null;
 
-        return string.IsNullOrWhiteSpace(options.DataDirectory)
-            ? new PersistenceOptions
-            {
-                JournalMaxSegmentMb = 64,
-                FlushIntervalMs = 10,
-                SnapshotIntervalSec = 60,
-            }
-            : new PersistenceOptions { DataDir = options.DataDirectory };
+        var resolvePersistenceOptions = new PersistenceOptions
+        {
+            JournalMaxSegmentMb = 64,
+            FlushIntervalMs = 10,
+            SnapshotIntervalSec = 60,
+        };
+        return string.IsNullOrWhiteSpace(options.DataDirectory) ? resolvePersistenceOptions : new PersistenceOptions { DataDir = options.DataDirectory };
     }
 
     private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);

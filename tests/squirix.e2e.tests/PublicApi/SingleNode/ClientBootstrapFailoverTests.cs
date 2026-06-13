@@ -16,7 +16,9 @@ public sealed class ClientBootstrapFailoverTests : E2ETestBase
     [Fact]
     public async Task ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss()
     {
-        await using var cluster = await E2ECluster.StartTwoNodeAsync(nameof(ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss), cancellationToken: DefaultCancellationToken);
+        await using var cluster = await E2ECluster.StartTwoNodeAsync(
+            nameof(ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss),
+            cancellationToken: DefaultCancellationToken);
         var urlA = cluster.GetAddress("nodeA");
         var urlB = cluster.GetAddress("nodeB");
         var key = new E2EKeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];

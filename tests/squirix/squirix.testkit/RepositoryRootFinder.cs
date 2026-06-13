@@ -64,7 +64,8 @@ public static class RepositoryRootFinder
             throw new InvalidOperationException($"Repository root not found. Expected '{SolutionFileName}' and '{SourceLayoutProbeFile}' when walking upward.");
     }
 
-    private static bool IsSourceLayoutRoot(string fullPath) => File.Exists(PathKit.Combine(fullPath, SolutionFileName)) && File.Exists(PathKit.Combine(fullPath, SourceLayoutProbeFile));
+    private static bool IsSourceLayoutRoot(string fullPath) =>
+        File.Exists(PathKit.Combine(fullPath, SolutionFileName)) && File.Exists(PathKit.Combine(fullPath, SourceLayoutProbeFile));
 
     private static string? WalkUpForSourceLayout(string? startPath)
     {

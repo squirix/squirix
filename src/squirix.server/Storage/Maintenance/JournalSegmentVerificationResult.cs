@@ -1,3 +1,5 @@
+using JetBrains.Annotations;
+
 namespace Squirix.Server.Storage.Maintenance;
 
 /// <summary>
@@ -7,5 +9,5 @@ namespace Squirix.Server.Storage.Maintenance;
 /// <param name="Frames">The number of decoded journal frames.</param>
 /// <param name="LastSequence">The largest decoded journal sequence.</param>
 /// <param name="Error">The validation failure reason, when available.</param>
-[JetBrains.Annotations.UsedImplicitly(JetBrains.Annotations.ImplicitUseTargetFlags.WithMembers)]
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 internal readonly record struct JournalSegmentVerificationResult(bool IsValid, int Frames, ulong LastSequence, string? Error);

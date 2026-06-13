@@ -24,39 +24,6 @@ public interface ICache<T>
     /// <exception cref="CacheConflictException">Thrown when a live entry already exists for <paramref name="key" />.</exception>
     Task AddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
 
-    /// <summary>Attempts to add a new value for the key without throwing for an existing live entry.</summary>
-    /// <param name="key">Cache key.</param>
-    /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <c>null</c>, the cache-configured default expiration is used.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when the value was added; otherwise <c>false</c>.</returns>
-    Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
-
-    /// <summary>Creates or overwrites the value for the key.</summary>
-    /// <param name="key">Cache key.</param>
-    /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <c>null</c>, the cache-configured default expiration is used.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the value has been stored.</returns>
-    Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
-
-    /// <summary>Updates the value of a live entry without affecting its expiration.</summary>
-    /// <param name="key">Cache key.</param>
-    /// <param name="value">New value to store.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when a live entry was updated; otherwise <c>false</c>.</returns>
-    /// <remarks>
-    /// The value update and expiration preservation are performed as a single cache operation.
-    /// If the key is missing or expired, no value is written.
-    /// </remarks>
-    Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default);
-
-    /// <summary>Gets a value with presence information. Expired entries are returned as not found.</summary>
-    /// <param name="key">Cache key.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A value lookup result.</returns>
-    Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default);
-
     /// <summary>Gets a full entry with presence information. Expired entries are returned as not found.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -86,11 +53,31 @@ public interface ICache<T>
         CacheEntryOptions? options = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Gets a value with presence information. Expired entries are returned as not found.</summary>
+    /// <param name="key">Cache key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A value lookup result.</returns>
+    Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default);
+
     /// <summary>Removes a live entry.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> when a live entry was removed; otherwise <c>false</c>.</returns>
     Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes expiration from a live entry.</summary>
+    /// <param name="key">Cache key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> when a live entry expiration was removed; otherwise <c>false</c>.</returns>
+    Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>Creates or overwrites the value for the key.</summary>
+    /// <param name="key">Cache key.</param>
+    /// <param name="value">Value to store.</param>
+    /// <param name="options">Entry options. When <c>null</c>, the cache-configured default expiration is used.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the value has been stored.</returns>
+    Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>Updates the expiration of a live entry using the provided relative expiration.</summary>
     /// <param name="key">Cache key.</param>
@@ -106,9 +93,22 @@ public interface ICache<T>
     /// <returns><c>true</c> when a live entry was updated; otherwise <c>false</c>.</returns>
     Task<bool> TouchAsync(string key, DateTimeOffset absoluteExpiration, CancellationToken cancellationToken = default);
 
-    /// <summary>Removes expiration from a live entry.</summary>
+    /// <summary>Attempts to add a new value for the key without throwing for an existing live entry.</summary>
     /// <param name="key">Cache key.</param>
+    /// <param name="value">Value to store.</param>
+    /// <param name="options">Entry options. When <c>null</c>, the cache-configured default expiration is used.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when a live entry expiration was removed; otherwise <c>false</c>.</returns>
-    Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default);
+    /// <returns><c>true</c> when the value was added; otherwise <c>false</c>.</returns>
+    Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Updates the value of a live entry without affecting its expiration.</summary>
+    /// <param name="key">Cache key.</param>
+    /// <param name="value">New value to store.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> when a live entry was updated; otherwise <c>false</c>.</returns>
+    /// <remarks>
+    /// The value update and expiration preservation are performed as a single cache operation.
+    /// If the key is missing or expired, no value is written.
+    /// </remarks>
+    Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default);
 }

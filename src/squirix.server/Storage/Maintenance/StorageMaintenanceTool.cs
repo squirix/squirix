@@ -18,6 +18,34 @@ namespace Squirix.Server.Storage.Maintenance;
 internal static class StorageMaintenanceTool
 {
     /// <summary>
+    /// Compacts journal segments for the specified data directory using the current manifest snapshot boundary.
+    /// </summary>
+    /// <param name="dataDir">Storage data directory to compact.</param>
+    /// <param name="strictFsync">Whether strict fsync semantics should be used while persisting manifest updates.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A result describing the post-compaction storage state.</returns>
+    [UsedImplicitly]
+    public static async Task<StorageMaintenanceResult> CompactAsync(string dataDir, bool strictFsync = true, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var persistence = new PersistenceOptions
+        {
+            DataDir = dataDir,
+        };
+
+        var manifestStore = new ManifestStore(persistence);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, cancellationToken).ConfigureAwait(false);
+
+        return new StorageMaintenanceResult
+        {
+            Action = "compact",
+            Report = Inspect(dataDir),
+        };
+    }
+
+    /// <summary>
     /// Inspects the specified data directory and returns a report describing manifest, snapshot, and journal state.
     /// </summary>
     /// <param name="dataDir">Storage data directory to inspect.</param>
@@ -27,9 +55,10 @@ internal static class StorageMaintenanceTool
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
 
         var issues = new List<string>();
-        var snapshotFiles = Directory.Exists(dataDir)
-            ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}", SearchOption.TopDirectoryOnly)
-            : [];
+        var snapshotFiles = Directory.Exists(dataDir) ? Directory.GetFiles(
+            dataDir,
+            $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}",
+            SearchOption.TopDirectoryOnly) : [];
         var snapshotIndices = GetIndexedSnapshotFiles(snapshotFiles, false);
 
         var journalSegments = CollectJournalSegments(dataDir);
@@ -145,34 +174,6 @@ internal static class StorageMaintenanceTool
     }
 
     /// <summary>
-    /// Compacts journal segments for the specified data directory using the current manifest snapshot boundary.
-    /// </summary>
-    /// <param name="dataDir">Storage data directory to compact.</param>
-    /// <param name="strictFsync">Whether strict fsync semantics should be used while persisting manifest updates.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A result describing the post-compaction storage state.</returns>
-    [UsedImplicitly]
-    public static async Task<StorageMaintenanceResult> CompactAsync(string dataDir, bool strictFsync = true, CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var persistence = new PersistenceOptions
-        {
-            DataDir = dataDir,
-        };
-
-        var manifestStore = new ManifestStore(persistence);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, cancellationToken).ConfigureAwait(false);
-
-        return new StorageMaintenanceResult
-        {
-            Action = "compact",
-            Report = Inspect(dataDir),
-        };
-    }
-
-    /// <summary>
     /// Repairs manifest/CURRENT metadata conservatively so the node can recover offline state safely.
     /// </summary>
     /// <param name="dataDir">Storage data directory to repair.</param>
@@ -213,21 +214,18 @@ internal static class StorageMaintenanceTool
             {
                 CurrentJournal = latestJournalSegment,
                 NextSequence = nextSequence,
-                LastSnapshot = existing.LastSnapshotIndex is null || string.IsNullOrWhiteSpace(existing.LastSnapshotPath)
-                    ? null
-                    : new Manifest.SnapshotRef
-                    {
-                        Index = existing.LastSnapshotIndex.Value,
-                        Path = existing.LastSnapshotPath,
-                        CreatedUtc = File.Exists(existing.LastSnapshotPath) ? File.GetCreationTimeUtc(existing.LastSnapshotPath) : DateTime.UtcNow,
-                        LastAppliedSequence = existing.LastAppliedSequence.GetValueOrDefault(),
-                        ReplayFromJournalSegment = existing.ReplayFromJournalSegment.GetValueOrDefault(1),
-                    },
+                LastSnapshot = existing.LastSnapshotIndex is null || string.IsNullOrWhiteSpace(existing.LastSnapshotPath) ? null : new Manifest.SnapshotRef
+                {
+                    Index = existing.LastSnapshotIndex.Value,
+                    Path = existing.LastSnapshotPath,
+                    CreatedUtc = File.Exists(existing.LastSnapshotPath) ? File.GetCreationTimeUtc(existing.LastSnapshotPath) : DateTime.UtcNow,
+                    LastAppliedSequence = existing.LastAppliedSequence.GetValueOrDefault(),
+                    ReplayFromJournalSegment = existing.ReplayFromJournalSegment.GetValueOrDefault(1),
+                },
             };
         }
 
-        var snapshots = Directory.Exists(dataDir)
-            ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}", SearchOption.TopDirectoryOnly)
+        var snapshots = Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}", SearchOption.TopDirectoryOnly)
             : [];
         var hasLatestSnapshot = TryGetLatestSnapshotFile(snapshots, out var latestSnapshot);
 

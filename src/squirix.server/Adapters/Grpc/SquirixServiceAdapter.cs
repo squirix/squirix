@@ -180,8 +180,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     }
 
     private static string RequireCacheName(string cacheName) => string.IsNullOrWhiteSpace(cacheName)
-        ? throw new RpcException(new Status(StatusCode.InvalidArgument, "cache_name is required for internal cluster RPCs."))
-        : cacheName;
+        ? throw new RpcException(new Status(StatusCode.InvalidArgument, "cache_name is required for internal cluster RPCs.")) : cacheName;
 
     private static void RequireValidCacheKey(string key)
     {

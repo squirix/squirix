@@ -68,13 +68,7 @@ internal static class RestDtos
 
     internal sealed class HealthMemoryPressureDetails
     {
-        public HealthMemoryPressureDetails(
-            string state,
-            long maxEstimatedCacheBytes,
-            long estimatedCacheBytes,
-            long entryCount,
-            long rejectedWriteCount,
-            bool writeRejectionActive)
+        public HealthMemoryPressureDetails(string state, long maxEstimatedCacheBytes, long estimatedCacheBytes, long entryCount, long rejectedWriteCount, bool writeRejectionActive)
         {
             State = state;
             MaxEstimatedCacheBytes = maxEstimatedCacheBytes;

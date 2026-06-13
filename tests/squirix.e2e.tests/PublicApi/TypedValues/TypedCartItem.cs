@@ -2,9 +2,9 @@ namespace Squirix.E2ETests.PublicApi.TypedValues;
 
 internal sealed class TypedCartItem
 {
-    public string Sku { get; init; } = string.Empty;
+    public decimal Price { get; init; }
 
     public int Quantity { get; init; }
 
-    public decimal Price { get; init; }
+    public string Sku { get; init; } = string.Empty;
 }

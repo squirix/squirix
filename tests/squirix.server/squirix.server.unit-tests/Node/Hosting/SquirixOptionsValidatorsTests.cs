@@ -198,6 +198,34 @@ public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// Verifies journal compaction validator accepts valid local scalar values after setter validation.
+    /// </summary>
+    [Fact]
+    public void JournalCompactionValidatorAcceptsValidTailSegments()
+    {
+        var v = new SquirixOptionsValidators.JournalCompactionOptionsValidator();
+        var options = new JournalCompactionOptions { MinTailSegments = 0 };
+
+        var result = v.Validate(Options.DefaultName, options);
+
+        Assert.False(result.Failed);
+    }
+
+    /// <summary>
+    /// Verifies journal metrics exporter validator accepts valid intervals after setter validation.
+    /// </summary>
+    [Fact]
+    public void JournalMetricsExporterValidatorAcceptsValidInterval()
+    {
+        var v = new SquirixOptionsValidators.JournalMetricsExporterOptionsValidator();
+        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
+
+        var result = v.Validate(Options.DefaultName, options);
+
+        Assert.False(result.Failed);
+    }
+
+    /// <summary>
     /// Verifies memory pressure cross-property validation stays in the validator path.
     /// </summary>
     [Fact]
@@ -246,34 +274,6 @@ public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
     {
         var v = new SquirixOptionsValidators.SnapshotTriggerOptionsValidator();
         var options = new SnapshotTriggerOptions { SnapshotEveryNOps = 0 };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        Assert.False(result.Failed);
-    }
-
-    /// <summary>
-    /// Verifies journal compaction validator accepts valid local scalar values after setter validation.
-    /// </summary>
-    [Fact]
-    public void JournalCompactionValidatorAcceptsValidTailSegments()
-    {
-        var v = new SquirixOptionsValidators.JournalCompactionOptionsValidator();
-        var options = new JournalCompactionOptions { MinTailSegments = 0 };
-
-        var result = v.Validate(Options.DefaultName, options);
-
-        Assert.False(result.Failed);
-    }
-
-    /// <summary>
-    /// Verifies journal metrics exporter validator accepts valid intervals after setter validation.
-    /// </summary>
-    [Fact]
-    public void JournalMetricsExporterValidatorAcceptsValidInterval()
-    {
-        var v = new SquirixOptionsValidators.JournalMetricsExporterOptionsValidator();
-        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
 
         var result = v.Validate(Options.DefaultName, options);
 

@@ -9,20 +9,6 @@ namespace Squirix.Server.Cluster.Transport;
 internal static class MtlsCertificateIdentity
 {
     /// <summary>
-    /// Reads the cluster <see cref="Membership.Peer.NodeId" /> from the certificate common name.
-    /// </summary>
-    /// <param name="certificate">Peer or node certificate.</param>
-    /// <param name="nodeId">Parsed node identifier when present.</param>
-    /// <returns><see langword="true" /> when the certificate exposes a non-empty common name.</returns>
-    public static bool TryGetNodeId(X509Certificate2 certificate, out string nodeId)
-    {
-        ArgumentNullException.ThrowIfNull(certificate);
-
-        nodeId = certificate.GetNameInfo(X509NameType.SimpleName, false);
-        return !string.IsNullOrWhiteSpace(nodeId);
-    }
-
-    /// <summary>
     /// Returns whether the certificate common name matches the expected cluster node identifier.
     /// </summary>
     /// <param name="certificate">Peer or node certificate.</param>
@@ -34,5 +20,19 @@ internal static class MtlsCertificateIdentity
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedNodeId);
 
         return TryGetNodeId(certificate, out var nodeId) && string.Equals(nodeId, expectedNodeId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reads the cluster <see cref="Membership.Peer.NodeId" /> from the certificate common name.
+    /// </summary>
+    /// <param name="certificate">Peer or node certificate.</param>
+    /// <param name="nodeId">Parsed node identifier when present.</param>
+    /// <returns><see langword="true" /> when the certificate exposes a non-empty common name.</returns>
+    public static bool TryGetNodeId(X509Certificate2 certificate, out string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+
+        nodeId = certificate.GetNameInfo(X509NameType.SimpleName, false);
+        return !string.IsNullOrWhiteSpace(nodeId);
     }
 }

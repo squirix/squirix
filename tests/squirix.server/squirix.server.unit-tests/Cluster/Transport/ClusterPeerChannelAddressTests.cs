@@ -10,16 +10,16 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class ClusterPeerChannelAddressTests
 {
     /// <summary>
-    /// Ensures pooled cluster clients use the primary peer URL when inter-node mTLS is disabled.
+    /// Ensures pooled cluster clients fall back to the local internal listen port when no inter-node URL is configured.
     /// </summary>
     [Fact]
-    public void ResolveUsesPrimaryUrlWhenInterNodeMtlsDisabled()
+    public void ResolveUsesConfiguredInternalListenPortWhenInterNodeUrlMissing()
     {
-        var peer = new Peer { NodeId = "node-a", Url = "https://localhost:6001" };
+        var peer = new Peer { NodeId = "node-b", Url = "https://127.0.0.1:6001" };
 
-        var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, false);
+        var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
 
-        Assert.Equal(peer.Url, address);
+        Assert.Equal("https://127.0.0.1:6101/", address);
     }
 
     /// <summary>
@@ -41,15 +41,15 @@ public sealed class ClusterPeerChannelAddressTests
     }
 
     /// <summary>
-    /// Ensures pooled cluster clients fall back to the local internal listen port when no inter-node URL is configured.
+    /// Ensures pooled cluster clients use the primary peer URL when inter-node mTLS is disabled.
     /// </summary>
     [Fact]
-    public void ResolveUsesConfiguredInternalListenPortWhenInterNodeUrlMissing()
+    public void ResolveUsesPrimaryUrlWhenInterNodeMtlsDisabled()
     {
-        var peer = new Peer { NodeId = "node-b", Url = "https://127.0.0.1:6001" };
+        var peer = new Peer { NodeId = "node-a", Url = "https://localhost:6001" };
 
-        var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
+        var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, false);
 
-        Assert.Equal("https://127.0.0.1:6101/", address);
+        Assert.Equal(peer.Url, address);
     }
 }

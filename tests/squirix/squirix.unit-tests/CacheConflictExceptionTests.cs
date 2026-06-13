@@ -1,3 +1,4 @@
+using System;
 using Xunit;
 
 namespace Squirix.UnitTests;
@@ -16,6 +17,6 @@ public sealed class CacheConflictExceptionTests
         var ex = new CacheConflictException("orders:42");
 
         Assert.Equal("orders:42", ex.Key);
-        Assert.Contains("orders:42", ex.Message, System.StringComparison.Ordinal);
+        Assert.Contains("orders:42", ex.Message, StringComparison.Ordinal);
     }
 }

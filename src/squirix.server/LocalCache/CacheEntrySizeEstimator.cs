@@ -50,20 +50,18 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTypedPayloadBytes(T? value)
     {
-        return value is null
-            ? 0
-            : value switch
-            {
-                string s => Encoding.UTF8.GetByteCount(s),
-                byte[] bytes => bytes.LongLength,
-                bool => 1,
-                char => 2,
-                sbyte or byte => 1,
-                short or ushort => 2,
-                int or uint or float => 4,
-                long or ulong or double => 8,
-                decimal => 16,
-                _ => UnknownTypedPayloadFallbackBytes,
-            };
+        return value is null ? 0 : value switch
+        {
+            string s => Encoding.UTF8.GetByteCount(s),
+            byte[] bytes => bytes.LongLength,
+            bool => 1,
+            char => 2,
+            sbyte or byte => 1,
+            short or ushort => 2,
+            int or uint or float => 4,
+            long or ulong or double => 8,
+            decimal => 16,
+            _ => UnknownTypedPayloadFallbackBytes,
+        };
     }
 }

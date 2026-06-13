@@ -21,11 +21,7 @@ public sealed class DurabilityTypedValueTests : E2ETestBase
         await using var node = await E2ERestartableSingleNode.StartAsync(nameof(RestartShouldNotRestoreExpiredCustomRecord), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
 
-        await cache.SetAsync(
-            "k",
-            TypedValueFactory.CreateProfile("expired"),
-            new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(100) },
-            DefaultCancellationToken);
+        await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(100) }, DefaultCancellationToken);
 
         // Expiration is time-based; wait past the TTL before restart so recovery observes a deterministically expired entry.
         await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);

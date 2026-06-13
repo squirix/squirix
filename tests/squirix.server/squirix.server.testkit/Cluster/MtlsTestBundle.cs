@@ -49,10 +49,7 @@ internal sealed class MtlsTestBundle : IDisposable
         DirectoryKit.TryDeleteDirectory(_rootDirectory);
     }
 
-    internal (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(
-        string nodeId,
-        int internalListenPort,
-        X509Certificate2 nodeCertificate)
+    internal (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(string nodeId, int internalListenPort, X509Certificate2 nodeCertificate)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(nodeCertificate);

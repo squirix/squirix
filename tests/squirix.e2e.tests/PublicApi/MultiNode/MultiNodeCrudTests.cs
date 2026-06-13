@@ -74,8 +74,7 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
         var key = FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
         var tasks = Enumerable.Range(0, 50).Select(i =>
-            i % 2 == 0
-                ? cluster.CacheA.SetAsync(key, $"a-{i}", cancellationToken: DefaultCancellationToken)
+            i % 2 == 0 ? cluster.CacheA.SetAsync(key, $"a-{i}", cancellationToken: DefaultCancellationToken)
                 : cluster.CacheB.SetAsync(key, $"b-{i}", cancellationToken: DefaultCancellationToken)).ToArray();
 
         await Task.WhenAll(tasks);

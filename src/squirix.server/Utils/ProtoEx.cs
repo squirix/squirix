@@ -118,8 +118,7 @@ internal static class ProtoEx
         if (typeof(T) != typeof(object))
         {
             return s.Fields.Count == 1 && s.Fields.TryGetValue("value", out var onlyWrapped)
-                ? TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped)
-                : DeserializeFromProtoValue<T>(Value.ForStruct(s));
+                ? TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped) : DeserializeFromProtoValue<T>(Value.ForStruct(s));
         }
 
         if (s.Fields.Count == 1 && s.Fields.TryGetValue("value", out var only))

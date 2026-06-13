@@ -24,6 +24,35 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         _mutation = mutation ?? throw new ArgumentNullException(nameof(mutation));
     }
 
+    public ValueTask<CacheValueResult<T>> GetOrAddWithFactoryAsync(
+        string cacheName,
+        string key,
+        Func<string, CancellationToken, ValueTask<T?>> valueFactory,
+        CacheEntry<T>? entryTemplate,
+        CancellationToken cancellationToken) => _getOrAddFlights.RunAsync(
+        $"{cacheName}\0{key}",
+        async ct =>
+        {
+            var existing = await TryGetValueAsync(cacheName, key, ct).ConfigureAwait(false);
+            if (existing.Found)
+                return existing;
+
+            var created = await valueFactory(key, ct).ConfigureAwait(false);
+            var entry = entryTemplate is null ? new CacheEntry<T> { Value = created } : new CacheEntry<T>
+            {
+                Value = created,
+                Expiration = entryTemplate.Expiration,
+                ExpiresUtc = entryTemplate.ExpiresUtc,
+            };
+
+            if (await TryAddAsync(cacheName, key, entry, ct).ConfigureAwait(false))
+                return new CacheValueResult<T>(true, created);
+
+            var afterRace = await TryGetValueAsync(cacheName, key, ct).ConfigureAwait(false);
+            return afterRace.Found ? afterRace : new CacheValueResult<T>(true, created);
+        },
+        cancellationToken);
+
     public ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _mutation.AddAsync(Key(cacheName, key), value, cancellationToken);
 
     public ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
@@ -34,13 +63,8 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetValueAsync(Key(cacheName, key), cancellationToken);
 
-    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _read.GetExpirationAsync(Key(cacheName, key), cancellationToken);
-
-    public async ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var entry = await _read.GetValueAsync(Key(cacheName, key), cancellationToken).ConfigureAwait(false);
-        return entry is null ? default : entry.Value;
-    }
+    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _read.GetExpirationAsync(Key(cacheName, key), cancellationToken);
 
     public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
@@ -54,37 +78,16 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         return await TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<CacheValueResult<T>> GetOrAddWithFactoryAsync(
-        string cacheName,
-        string key,
-        Func<string, CancellationToken, ValueTask<T?>> valueFactory,
-        CacheEntry<T>? entryTemplate,
-        CancellationToken cancellationToken) =>
-        _getOrAddFlights.RunAsync(
-            $"{cacheName}\0{key}",
-            async ct =>
-            {
-                var existing = await TryGetValueAsync(cacheName, key, ct).ConfigureAwait(false);
-                if (existing.Found)
-                    return existing;
+    public async ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var entry = await _read.GetValueAsync(Key(cacheName, key), cancellationToken).ConfigureAwait(false);
+        return entry is null ? default : entry.Value;
+    }
 
-                var created = await valueFactory(key, ct).ConfigureAwait(false);
-                var entry = entryTemplate is null
-                    ? new CacheEntry<T> { Value = created }
-                    : new CacheEntry<T>
-                    {
-                        Value = created,
-                        Expiration = entryTemplate.Expiration,
-                        ExpiresUtc = entryTemplate.ExpiresUtc,
-                    };
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
 
-                if (await TryAddAsync(cacheName, key, entry, ct).ConfigureAwait(false))
-                    return new CacheValueResult<T>(true, created);
-
-                var afterRace = await TryGetValueAsync(cacheName, key, ct).ConfigureAwait(false);
-                return afterRace.Found ? afterRace : new CacheValueResult<T>(true, created);
-            },
-            cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         SetAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
@@ -102,18 +105,8 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         await _mutation.InsertAsync(cacheKey, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _mutation.RemoveAsync(Key(cacheName, key), cancellationToken);
-
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
-
-    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
-    {
-        var cacheKey = Key(cacheName, key);
-        return await _mutation.UpdateAsync(cacheKey, value, cancellationToken).ConfigureAwait(false);
-    }
 
     public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         _mutation.TryAddAsync(Key(cacheName, key), value, cancellationToken);
@@ -126,6 +119,12 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _mutation.TryRemoveAsync(Key(cacheName, key), cancellationToken);
+
+    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        var cacheKey = Key(cacheName, key);
+        return await _mutation.UpdateAsync(cacheKey, value, cancellationToken).ConfigureAwait(false);
+    }
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);
 }

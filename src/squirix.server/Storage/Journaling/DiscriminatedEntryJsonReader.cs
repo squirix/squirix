@@ -9,9 +9,9 @@ namespace Squirix.Server.Storage.Journaling;
 
 internal static class DiscriminatedEntryJsonReader
 {
+    private const string FieldExpirationTicks = "expirationTicks";
     private const string FieldExpiresUtc = "expUtc";
     private const string FieldTags = "tags";
-    private const string FieldExpirationTicks = "expirationTicks";
     private const string FieldTypeTag = "$t";
     private const string FieldValue = "v";
     private const string FieldVersion = "ver";

@@ -149,5 +149,7 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
         return envelopes;
     }
 
-    private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(dataDir, $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
+    private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
+        dataDir,
+        $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
 }

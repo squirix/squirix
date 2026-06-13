@@ -16,11 +16,11 @@ internal sealed class ManifestStore
     private readonly string _currentPath;
 
     private readonly string _dataDir;
+    private readonly IStorageFileOperations _fileOperations;
     private readonly Lock _lock = new();
     private readonly ILogger<ManifestStore>? _logger;
     private readonly int _retention;
     private readonly int _snapshotRetention;
-    private readonly IStorageFileOperations _fileOperations;
 
     public ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger = null)
         : this(options, logger, new StorageFileOperations())

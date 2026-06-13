@@ -7,9 +7,9 @@ namespace Squirix.E2EBenchmarks.Infrastructure;
 /// </summary>
 internal static class BenchmarkRuntime
 {
+    internal static void ConfigureRemoteClient(SquirixOptions options) => ArgumentNullException.ThrowIfNull(options);
+
     internal static void EnsureInitialized()
     {
     }
-
-    internal static void ConfigureRemoteClient(SquirixOptions options) => ArgumentNullException.ThrowIfNull(options);
 }

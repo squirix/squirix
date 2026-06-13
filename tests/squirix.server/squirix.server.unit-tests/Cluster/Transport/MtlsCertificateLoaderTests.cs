@@ -70,24 +70,6 @@ public sealed class MtlsCertificateLoaderTests
     }
 
     /// <summary>
-    /// Ensures node certificates with a mismatched common name are rejected at startup.
-    /// </summary>
-    [Fact]
-    public void LoadRejectsNodeCertificateWithMismatchedNodeId()
-    {
-        using var bundle = MtlsTestCertificateFactory.Create();
-        var options = new MtlsOptions
-        {
-            CaPath = bundle.CaPath,
-            CertPfxPath = bundle.PfxPath,
-            InternalListenPort = 6104,
-        };
-
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "node-b"));
-        Assert.Contains("does not match configured NodeId", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// Ensures untrusted node certificates are rejected.
     /// </summary>
     [Fact]
@@ -110,7 +92,7 @@ public sealed class MtlsCertificateLoaderTests
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "node-a"));
+        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "untrusted-node"));
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 

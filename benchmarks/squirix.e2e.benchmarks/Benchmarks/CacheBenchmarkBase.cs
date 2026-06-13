@@ -101,8 +101,7 @@ public abstract class CacheBenchmarkBase
     /// Gets the next deterministic hit key.
     /// </summary>
     /// <returns>A key from the hit keyspace.</returns>
-    protected string NextHitKey() => Scenario.Topology == BenchmarkTopology.TwoNodeHotKeys
-        ? Keyspace.HotKey(Interlocked.Increment(ref _hitOffset))
+    protected string NextHitKey() => Scenario.Topology == BenchmarkTopology.TwoNodeHotKeys ? Keyspace.HotKey(Interlocked.Increment(ref _hitOffset))
         : Keyspace.HitKey(Interlocked.Increment(ref _hitOffset));
 
     /// <summary>

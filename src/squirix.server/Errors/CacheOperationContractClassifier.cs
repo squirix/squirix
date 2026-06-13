@@ -36,8 +36,7 @@ internal static class CacheOperationContractClassifier
     /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
     private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
     {
-        return CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail)
-            ? CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent
+        return CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail) ? CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent
             : CacheOperationFailedPreconditionKind.None;
     }
 }

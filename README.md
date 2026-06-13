@@ -12,13 +12,13 @@ durability, and operational endpoints.
 
 ## Status
 
-| | |
-| --- | --- |
-| **Release line** | **0.1.0** (first public preview) |
-| **NuGet version** | `0.1.0-preview.4` |
-| **Maturity** | Early preview — **not production-ready** |
-| **Target framework** | .NET 10 only |
-| **License** | Apache-2.0 |
+|                      |                                          |
+|----------------------|------------------------------------------|
+| **Release line**     | **0.1.0** (first public preview)         |
+| **NuGet version**    | `0.1.0-preview.4`                        |
+| **Maturity**         | Early preview — **not production-ready** |
+| **Target framework** | .NET 10 only                             |
+| **License**          | Apache-2.0                               |
 
 We are looking for API, architecture, and operational feedback — not production adoption yet.
 [Release notes](docs/release-notes/v0.1.0.md)
@@ -66,16 +66,16 @@ Full setup options (Docker with bundled dev TLS + API keys, ASP.NET Core embeddi
 
 ## Documentation
 
-| Topic | Guide |
-| --- | --- |
-| First run | [getting-started.md](docs/getting-started.md) |
-| Client and server model | [client-server.md](docs/client-server.md) |
-| Configuration | [configuration.md](docs/configuration.md) |
-| Persistence and recovery | [persistence.md](docs/persistence.md) |
-| Cluster routing | [clustering.md](docs/clustering.md) |
-| Health, metrics, tracing | [observability.md](docs/observability.md) |
-| Client API | [api.md](docs/api.md) |
-| Build, limits, roadmap | [operations.md](docs/operations.md) |
+| Topic                    | Guide                                         |
+|--------------------------|-----------------------------------------------|
+| First run                | [getting-started.md](docs/getting-started.md) |
+| Client and server model  | [client-server.md](docs/client-server.md)     |
+| Configuration            | [configuration.md](docs/configuration.md)     |
+| Persistence and recovery | [persistence.md](docs/persistence.md)         |
+| Cluster routing          | [clustering.md](docs/clustering.md)           |
+| Health, metrics, tracing | [observability.md](docs/observability.md)     |
+| Client API               | [api.md](docs/api.md)                         |
+| Build, limits, roadmap   | [operations.md](docs/operations.md)           |
 
 Additional references: [architecture](docs/architecture.md), [operational runbook](docs/operational-runbook.md),
 [containerization](docs/containerization.md), [serialization](docs/serialization.md).

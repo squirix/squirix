@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -20,6 +21,7 @@ internal static class SquirixOptionsValidators
 {
     private static ValidateOptionsResult ToResult(List<string> failures) => failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class BackpressureOptionsValidator : IValidateOptions<BackpressureOptions>
     {
         public ValidateOptionsResult Validate(string? name, BackpressureOptions options)
@@ -36,12 +38,14 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class ClusterConfigValidator : IValidateOptions<ClusterConfig>
     {
         public ValidateOptionsResult Validate(string? name, ClusterConfig options) =>
             ClusterTopologyValidator.TryValidate(options, out var failures) ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class JournalCompactionOptionsValidator : IValidateOptions<JournalCompactionOptions>
     {
         public ValidateOptionsResult Validate(string? name, JournalCompactionOptions options)
@@ -58,13 +62,14 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class JournalMetricsExporterOptionsValidator : IValidateOptions<JournalMetricsExporterOptions>
     {
-        public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero
-            ? ValidateOptionsResult.Success
+        public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail("journal metrics exporter Interval must be greater than zero.");
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class MemoryPressureOptionsValidator : IValidateOptions<MemoryPressureOptions>
     {
         public ValidateOptionsResult Validate(string? name, MemoryPressureOptions options)
@@ -81,6 +86,7 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
     {
         private readonly ClusterConfig _cluster;
@@ -105,6 +111,7 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class PersistenceOptionsValidator : IValidateOptions<PersistenceOptions>
     {
         public ValidateOptionsResult Validate(string? name, PersistenceOptions options)
@@ -131,6 +138,7 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class PrometheusMetricsEndpointOptionsValidator : IValidateOptions<PrometheusMetricsEndpointOptions>
     {
         public ValidateOptionsResult Validate(string? name, PrometheusMetricsEndpointOptions options) => options switch
@@ -142,6 +150,7 @@ internal static class SquirixOptionsValidators
         };
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class SnapshotTriggerOptionsValidator : IValidateOptions<SnapshotTriggerOptions>
     {
         public ValidateOptionsResult Validate(string? name, SnapshotTriggerOptions options)
@@ -166,6 +175,7 @@ internal static class SquirixOptionsValidators
         }
     }
 
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class StartupOptionsValidator<TOptions> : IHostedService
         where TOptions : class
     {

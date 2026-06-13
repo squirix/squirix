@@ -11,11 +11,11 @@ internal sealed class HealthReadyDetailsSnapshot
 
     public required HealthCoordinationSnapshot Coordination { get; init; }
 
+    public required long JournalBacklogOps { get; init; }
+
     public required HealthMemoryPressureSnapshot MemoryPressure { get; init; }
 
     public required double? SnapshotAgeSeconds { get; init; }
 
     public required bool SnapshotInFlight { get; init; }
-
-    public required long JournalBacklogOps { get; init; }
 }

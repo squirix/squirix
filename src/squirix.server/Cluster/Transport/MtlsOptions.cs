@@ -10,14 +10,9 @@ namespace Squirix.Server.Cluster.Transport;
 internal sealed record MtlsOptions
 {
     /// <summary>
-    /// Gets the path to the node certificate PFX/PKCS#12 file.
+    /// Gets the path to the PEM-encoded cluster CA / trust root certificate.
     /// </summary>
-    public string? CertPfxPath { get; init; }
-
-    /// <summary>
-    /// Gets the optional password for <see cref="CertPfxPath" />.
-    /// </summary>
-    public string? CertPfxPassword { get; init; }
+    public string? CaPath { get; init; }
 
     /// <summary>
     /// Gets the path to the PEM-encoded node certificate.
@@ -25,19 +20,24 @@ internal sealed record MtlsOptions
     public string? CertPath { get; init; }
 
     /// <summary>
-    /// Gets the path to the PEM-encoded node private key.
+    /// Gets the optional password for <see cref="CertPfxPath" />.
     /// </summary>
-    public string? KeyPath { get; init; }
+    public string? CertPfxPassword { get; init; }
 
     /// <summary>
-    /// Gets the path to the PEM-encoded cluster CA / trust root certificate.
+    /// Gets the path to the node certificate PFX/PKCS#12 file.
     /// </summary>
-    public string? CaPath { get; init; }
+    public string? CertPfxPath { get; init; }
 
     /// <summary>
     /// Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.
     /// </summary>
     public int InternalListenPort { get; init; }
+
+    /// <summary>
+    /// Gets the path to the PEM-encoded node private key.
+    /// </summary>
+    public string? KeyPath { get; init; }
 
     /// <summary>
     /// Validates configuration shape and file presence without loading certificates.
@@ -64,7 +64,10 @@ internal sealed record MtlsOptions
             failures.Add("Cluster mTLS must use either SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or PEM cert/key paths, not both.");
 
         if (!hasPfx && !hasPemCert && !hasPemKey)
-            failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or SQUIRIX_CLUSTER_MTLS_CERT_PATH and SQUIRIX_CLUSTER_MTLS_KEY_PATH when cluster peers are configured.");
+        {
+            failures.Add(
+                "Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or SQUIRIX_CLUSTER_MTLS_CERT_PATH and SQUIRIX_CLUSTER_MTLS_KEY_PATH when cluster peers are configured.");
+        }
 
         if (hasPfx)
         {

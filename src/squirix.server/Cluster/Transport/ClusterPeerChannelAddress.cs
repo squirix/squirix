@@ -29,8 +29,7 @@ internal static class ClusterPeerChannelAddress
         if (mtlsOptions.InternalListenPort <= 0)
             throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for inter-node transport.");
 
-        return !Uri.TryCreate(peer.Url, UriKind.Absolute, out var primaryUri)
-            ? throw new InvalidOperationException($"Cluster peer URL is invalid: '{peer.Url}'.")
+        return !Uri.TryCreate(peer.Url, UriKind.Absolute, out var primaryUri) ? throw new InvalidOperationException($"Cluster peer URL is invalid: '{peer.Url}'.")
             : new UriBuilder(primaryUri.Scheme, primaryUri.Host, mtlsOptions.InternalListenPort).Uri.AbsoluteUri;
     }
 }

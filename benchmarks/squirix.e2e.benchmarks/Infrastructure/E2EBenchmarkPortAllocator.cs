@@ -14,6 +14,20 @@ internal static class E2EBenchmarkPortAllocator
 
     internal static string NextHttpUrl() => $"https://127.0.0.1:{NextPort()}";
 
+    private static bool CanBind(int port)
+    {
+        try
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
+
     private static int NextPort()
     {
         for (var attempt = 0; attempt < 512; attempt++)
@@ -30,19 +44,5 @@ internal static class E2EBenchmarkPortAllocator
         }
 
         throw new InvalidOperationException("Unable to allocate a local benchmark port.");
-    }
-
-    private static bool CanBind(int port)
-    {
-        try
-        {
-            using var listener = new TcpListener(IPAddress.Loopback, port);
-            listener.Start();
-            return true;
-        }
-        catch (SocketException)
-        {
-            return false;
-        }
     }
 }

@@ -13,32 +13,6 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class MtlsOptionsTests
 {
     /// <summary>
-    /// Ensures standalone topology does not require cluster mTLS material.
-    /// </summary>
-    [Fact]
-    public void StandaloneTopologyDoesNotRequireCertificatePaths()
-    {
-        var options = new MtlsOptions();
-
-        var ex = Record.Exception(() => options.Validate(6001, false));
-        Assert.Null(ex);
-    }
-
-    /// <summary>
-    /// Ensures multi-node topology requires CA, node certificate, and internal listen port.
-    /// </summary>
-    [Fact]
-    public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
-    {
-        var options = new MtlsOptions();
-
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
-        Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// Ensures multi-node topology rejects an internal port that matches the primary listener.
     /// </summary>
     [Fact]
@@ -102,6 +76,32 @@ public sealed class MtlsOptionsTests
 
         var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
         Assert.Contains("not both", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures multi-node topology requires CA, node certificate, and internal listen port.
+    /// </summary>
+    [Fact]
+    public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
+    {
+        var options = new MtlsOptions();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures standalone topology does not require cluster mTLS material.
+    /// </summary>
+    [Fact]
+    public void StandaloneTopologyDoesNotRequireCertificatePaths()
+    {
+        var options = new MtlsOptions();
+
+        var ex = Record.Exception(() => options.Validate(6001, false));
+        Assert.Null(ex);
     }
 
     /// <summary>

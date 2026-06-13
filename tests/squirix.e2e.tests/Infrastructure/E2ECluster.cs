@@ -84,13 +84,6 @@ internal sealed class E2ECluster : IAsyncDisposable
         _mtls?.Dispose();
     }
 
-    private static PortAllocator CreatePrimaryPortAllocator()
-    {
-        var processId = Environment.ProcessId % 200;
-        var start = 40000 + (processId * 20);
-        return new PortAllocator(start, start + 199);
-    }
-
     private static string BuildDataDir(string nodeId, string? testName)
     {
         var scope = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
@@ -98,6 +91,13 @@ internal sealed class E2ECluster : IAsyncDisposable
         var target = PathKit.Combine(root, $"{scope}__{Environment.ProcessId}", nodeId, Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(target);
         return target;
+    }
+
+    private static PortAllocator CreatePrimaryPortAllocator()
+    {
+        var processId = Environment.ProcessId % 200;
+        var start = 40000 + (processId * 20);
+        return new PortAllocator(start, start + 199);
     }
 
     private static string GetNextHttpUrl() => $"https://127.0.0.1:{PrimaryPortPool.Allocate()}";

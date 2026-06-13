@@ -33,12 +33,6 @@ internal sealed class ClientScopedCache<T> : ICache<T>
         return _inner.GetExpirationAsync(key, cancellationToken);
     }
 
-    public Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
-    {
-        _client.ThrowIfDisposed();
-        return _inner.GetValueAsync(key, cancellationToken);
-    }
-
     public Task<CacheValueResult<T>> GetOrAddAsync(
         string key,
         Func<string, CancellationToken, Task<T?>> valueFactory,
@@ -47,6 +41,12 @@ internal sealed class ClientScopedCache<T> : ICache<T>
     {
         _client.ThrowIfDisposed();
         return _inner.GetOrAddAsync(key, valueFactory, options, cancellationToken);
+    }
+
+    public Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
+    {
+        _client.ThrowIfDisposed();
+        return _inner.GetValueAsync(key, cancellationToken);
     }
 
     public Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
@@ -79,15 +79,15 @@ internal sealed class ClientScopedCache<T> : ICache<T>
         return _inner.TouchAsync(key, absoluteExpiration, cancellationToken);
     }
 
-    public Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default)
-    {
-        _client.ThrowIfDisposed();
-        return _inner.UpdateAsync(key, value, cancellationToken);
-    }
-
     public Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         _client.ThrowIfDisposed();
         return _inner.TryAddAsync(key, value, options, cancellationToken);
+    }
+
+    public Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default)
+    {
+        _client.ThrowIfDisposed();
+        return _inner.UpdateAsync(key, value, cancellationToken);
     }
 }

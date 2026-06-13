@@ -12,11 +12,7 @@ namespace Squirix.E2EBenchmarks.Harness;
 /// </summary>
 internal static class E2EBenchmarkValueAdapter
 {
-    internal static async Task<IE2EBenchmarkValueAdapter> CreateAsync(
-        E2EBenchmarkCluster cluster,
-        BenchmarkValueShape shape,
-        string cacheName,
-        CancellationToken cancellationToken)
+    internal static async Task<IE2EBenchmarkValueAdapter> CreateAsync(E2EBenchmarkCluster cluster, BenchmarkValueShape shape, string cacheName, CancellationToken cancellationToken)
     {
         return shape switch
         {

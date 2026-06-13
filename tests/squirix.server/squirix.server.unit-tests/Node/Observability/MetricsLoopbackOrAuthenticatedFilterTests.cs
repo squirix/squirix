@@ -29,23 +29,6 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
     }
 
     /// <summary>
-    /// Verifies remote unauthenticated clients are rejected.
-    /// </summary>
-    [Fact]
-    public void IsRequestAuthorizedRejectsRemoteWithoutAuthentication()
-    {
-        var http = new DefaultHttpContext
-        {
-            Connection =
-            {
-                RemoteIpAddress = IPAddress.Parse("203.0.113.10"),
-            },
-        };
-
-        Assert.False(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
-    }
-
-    /// <summary>
     /// Verifies remote authenticated clients can scrape metrics.
     /// </summary>
     [Fact]
@@ -61,5 +44,22 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
         };
 
         Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
+    }
+
+    /// <summary>
+    /// Verifies remote unauthenticated clients are rejected.
+    /// </summary>
+    [Fact]
+    public void IsRequestAuthorizedRejectsRemoteWithoutAuthentication()
+    {
+        var http = new DefaultHttpContext
+        {
+            Connection =
+            {
+                RemoteIpAddress = IPAddress.Parse("203.0.113.10"),
+            },
+        };
+
+        Assert.False(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 }

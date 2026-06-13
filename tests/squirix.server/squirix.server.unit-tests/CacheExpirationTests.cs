@@ -48,8 +48,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var clock = new FakeClock(DateTime.UtcNow);
         await using var cache = new PhysicalCache<string>(clock);
 
-        var entry = useAbsoluteExpires
-            ? new CacheEntry<string> { Value = "v", ExpiresUtc = clock.UtcNow.AddMilliseconds(expirationMs) }
+        var entry = useAbsoluteExpires ? new CacheEntry<string> { Value = "v", ExpiresUtc = clock.UtcNow.AddMilliseconds(expirationMs) }
             : new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
 
         await cache.InsertAsync("k", entry, DefaultCancellationToken);

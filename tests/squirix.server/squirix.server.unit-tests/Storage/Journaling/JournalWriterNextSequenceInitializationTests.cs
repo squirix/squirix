@@ -331,6 +331,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
         ManifestRetentionCount = 1,
     };
 
+    private static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalEnvelope> envelopes)
+    {
+        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index:000000}{StorageFileExtensions.Journal}");
+        WriteSegmentWithFrames(path, envelopes);
+    }
+
     private static void WriteSegmentWithFrames(string path, IReadOnlyList<JournalEnvelope> envelopes)
     {
         using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
@@ -342,11 +348,5 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
         }
 
         stream.Flush(true);
-    }
-
-    private static void WriteJournalSegment(string dir, int index, IReadOnlyList<JournalEnvelope> envelopes)
-    {
-        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index:000000}{StorageFileExtensions.Journal}");
-        WriteSegmentWithFrames(path, envelopes);
     }
 }

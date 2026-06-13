@@ -17,11 +17,19 @@ internal static class MtlsTestPorts
     {
         ArgumentNullException.ThrowIfNull(excludedPorts);
 
-        var excludedPortSet = new HashSet<int>(excludedPorts);
         for (var attempt = 0; attempt < 64; attempt++)
         {
             var port = Allocator.Allocate();
-            if (!excludedPortSet.Contains(port))
+            var isExcluded = false;
+            foreach (var excludedPort in excludedPorts)
+            {
+                if (excludedPort != port)
+                    continue;
+                isExcluded = true;
+                break;
+            }
+
+            if (!isExcluded)
                 return port;
         }
 

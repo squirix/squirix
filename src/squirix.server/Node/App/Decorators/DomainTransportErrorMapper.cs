@@ -69,18 +69,6 @@ internal static class DomainTransportErrorMapper
             cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private static void ThrowIfPayloadTooLargeContract(RpcException ex)
-    {
-        if (ex.StatusCode != StatusCode.ResourceExhausted)
-            return;
-
-        var detail = ex.Status.Detail;
-        if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
-            return;
-
-        throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
-    }
-
     private static void ThrowIfFailedPreconditionContract(RpcException ex)
     {
         if (ex.StatusCode != StatusCode.FailedPrecondition)
@@ -96,5 +84,17 @@ internal static class DomainTransportErrorMapper
             return;
 
         throw new ArgumentException(ex.Status.Detail, ex);
+    }
+
+    private static void ThrowIfPayloadTooLargeContract(RpcException ex)
+    {
+        if (ex.StatusCode != StatusCode.ResourceExhausted)
+            return;
+
+        var detail = ex.Status.Detail;
+        if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
+            return;
+
+        throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 }
