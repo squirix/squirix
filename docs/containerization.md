@@ -184,9 +184,9 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
   [security/inter-node-mtls.md](security/inter-node-mtls.md).
 - For production, prefer **OIDC/JWKS** (`SQUIRIX_JWT_AUTHORITY`) over symmetric `SQUIRIX_JWT_SIGNING_KEY`, mount your
   own cluster CA and node certificates, and store secrets in a secret manager — not in compose files or images.
-- `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;
-  host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
-  [diagnostics.md](diagnostics.md).
+- `/health`, `/health/live`, and `/health/ready` stay anonymous. `/metrics` and `/health/ready/details` follow the
+  same auth rules as cache routes for remote clients; host → published port counts as remote inside the container.
+  See [configuration.md](configuration.md) and [diagnostics.md](diagnostics.md).
 
 ## Generate per-environment secrets
 
