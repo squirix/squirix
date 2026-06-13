@@ -23,7 +23,7 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcAcceptsValidOidcJwtAndRejectsMissingAuth()
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "node-oidc-auth", Url = url } };
 
         await using var node = await StartNodeAsync(
@@ -33,14 +33,11 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(new Uri(url, UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueRequest { CacheName = "default", Key = "oidc-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(request, cancellationToken: DefaultCancellationToken);
-        });
+        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetValueAsync(request, cancellationToken: DefaultCancellationToken); });
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };

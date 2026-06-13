@@ -14,7 +14,7 @@ namespace Squirix.E2EBenchmarks.Benchmarks;
 /// <summary>
 /// Shared setup and cleanup for parameterized E2E benchmark classes.
 /// </summary>
-[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "BenchmarkDotNet calls GlobalCleanup.")]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class CacheBenchmarkBase
 {
     /// <summary>
@@ -29,17 +29,17 @@ public abstract class CacheBenchmarkBase
     private int _uniqueAddOffset;
 
     /// <summary>
-    /// Gets the scenario matrix used by BenchmarkDotNet.
-    /// </summary>
-    public virtual IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDefaultMatrix();
-
-    /// <summary>
     /// Gets or sets the scenario measured by the current BenchmarkDotNet case.
     /// </summary>
     [ParamsSource(nameof(Scenarios))]
     [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "A property annotated with [ParamsSource] must have a public setter")]
     [SuppressMessage("ReSharper", "AutoPropertyCanBeMadeGetOnly.Global", Justification = "A property annotated with [ParamsSource] must have a public setter")]
     public BenchmarkScenario Scenario { get; set; } = BenchmarkScenario.CreateDefaultMatrix()[0];
+
+    /// <summary>
+    /// Gets the scenario matrix used by BenchmarkDotNet.
+    /// </summary>
+    public virtual IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDefaultMatrix();
 
     /// <summary>
     /// Gets the typed value adapter for the active value shape.

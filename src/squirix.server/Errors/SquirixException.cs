@@ -1,12 +1,43 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Errors;
 
 /// <summary>
 /// Represents a bounded squirix error with a stable machine-readable code.
 /// </summary>
-internal sealed class SquirixException : Exception
+public sealed class SquirixException : Exception
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SquirixException" /> class.
+    /// </summary>
+    [PublicAPI]
+    public SquirixException()
+    {
+        Error = string.Empty;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SquirixException" /> class with a message.
+    /// </summary>
+    /// <param name="message">The exception message.</param>
+    public SquirixException(string message)
+        : base(message)
+    {
+        Error = message;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SquirixException" /> class with a message and inner exception.
+    /// </summary>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The inner exception.</param>
+    public SquirixException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+        Error = message;
+    }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="SquirixException" /> class.
     /// </summary>

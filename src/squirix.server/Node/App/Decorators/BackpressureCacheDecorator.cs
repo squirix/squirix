@@ -51,9 +51,24 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetExpirationAsync(cacheName, key, cancellationToken),
         cancellationToken);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.GetOrAdd,
+        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
+        cancellationToken);
+
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Get,
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
+        cancellationToken);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.Remove,
+        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
+        cancellationToken);
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.RemoveExpiration,
+        () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
         cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
@@ -64,16 +79,6 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
     public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Set,
         () => _inner.SetAsync(cacheName, key, entry, cancellationToken),
-        cancellationToken);
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.RemoveExpiration,
-        () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
-        cancellationToken);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
         cancellationToken);
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => WithBackpressureAsync(
@@ -91,16 +96,6 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryAddAsync(cacheName, key, entry, cancellationToken),
         cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.GetOrAdd,
-        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
-        cancellationToken);
-
-    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.Update,
-        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
-        cancellationToken);
-
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithBackpressureReadAsync(cacheName, key, cancellationToken);
 
@@ -109,18 +104,18 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryRemoveAsync(cacheName, key, cancellationToken),
         cancellationToken);
 
-    private static ValueTask RunWithLease(Func<ValueTask> action, BackpressureLease lease)
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
+        CacheOperationNames.Update,
+        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
+        cancellationToken);
+
+    private static async ValueTask RunWithLease(Func<ValueTask> action, BackpressureLease lease)
     {
         var task = action();
-        if (!task.IsCompleted)
-            return RunWithLeaseAwaited(lease, task);
-
         using (lease)
         {
-            task.GetAwaiter().GetResult();
+            await task.ConfigureAwait(false);
         }
-
-        return ValueTask.CompletedTask;
     }
 
     private static ValueTask<TResult> RunWithLease<TResult>(Func<ValueTask<TResult>> action, BackpressureLease lease)
@@ -132,14 +127,6 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         using (lease)
         {
             return ValueTask.FromResult(task.Result);
-        }
-    }
-
-    private static async ValueTask RunWithLeaseAwaited(BackpressureLease lease, ValueTask task)
-    {
-        using (lease)
-        {
-            await task.ConfigureAwait(false);
         }
     }
 

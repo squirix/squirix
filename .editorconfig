@@ -147,6 +147,8 @@ csharp_indent_switch_labels = true
 csharp_indent_case_contents = true
 csharp_indent_case_contents_when_block = false
 
+dotnet_diagnostic.CA2007.severity = none
+
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none
 

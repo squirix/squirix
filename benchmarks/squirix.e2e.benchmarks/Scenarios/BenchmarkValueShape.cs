@@ -1,8 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Squirix.E2EBenchmarks.Scenarios;
 
 /// <summary>
 /// Value shape used by a benchmark scenario.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark parameter enum is part of public benchmark parameterization.")]
 public enum BenchmarkValueShape
 {
     /// <summary>

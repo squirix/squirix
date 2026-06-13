@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
@@ -9,6 +10,25 @@ namespace Squirix.Server.UnitTests.Node.Observability;
 /// </summary>
 public sealed class PrometheusScrapeLabelPolicyTests
 {
+    /// <summary>
+    /// Verifies filtered tags render to a Prometheus label set without stripped names.
+    /// </summary>
+    [Fact]
+    public void BuildLabelKeyOmitsStrippedLabelsInPublicExport()
+    {
+        KeyValuePair<string, object?>[] tags =
+        [
+            new("cache", "secret-cache"),
+            new("operation", "set"),
+            new("result", "ok"),
+        ];
+
+        var labelKey = PrometheusScrapeLabelPolicy.BuildLabelKey(PrometheusScrapeLabelPolicy.FilterPublicTags(tags));
+
+        Assert.Equal("operation=\"set\",result=\"ok\"", labelKey);
+        Assert.DoesNotContain("cache=", labelKey, StringComparison.InvariantCulture);
+    }
+
     /// <summary>
     /// Verifies cache and exception_type labels are removed from public export tags.
     /// </summary>
@@ -30,24 +50,5 @@ public sealed class PrometheusScrapeLabelPolicyTests
         Assert.Equal("get", filtered[0].Value);
         Assert.Equal("result", filtered[1].Key);
         Assert.Equal("ok", filtered[1].Value);
-    }
-
-    /// <summary>
-    /// Verifies filtered tags render to a Prometheus label set without stripped names.
-    /// </summary>
-    [Fact]
-    public void BuildLabelKeyOmitsStrippedLabelsInPublicExport()
-    {
-        KeyValuePair<string, object?>[] tags =
-        [
-            new("cache", "secret-cache"),
-            new("operation", "set"),
-            new("result", "ok"),
-        ];
-
-        var labelKey = PrometheusScrapeLabelPolicy.BuildLabelKey(PrometheusScrapeLabelPolicy.FilterPublicTags(tags));
-
-        Assert.Equal("operation=\"set\",result=\"ok\"", labelKey);
-        Assert.DoesNotContain("cache=", labelKey);
     }
 }

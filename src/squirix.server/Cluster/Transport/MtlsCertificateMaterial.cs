@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -34,13 +33,11 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <summary>
     /// Gets the local node certificate including its private key.
     /// </summary>
-    [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "Read by inbound/outbound cluster mTLS transport wiring.")]
     internal X509Certificate2? NodeCertificate { get; }
 
     /// <summary>
     /// Gets the configured cluster trust root.
     /// </summary>
-    [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "Read by inbound/outbound cluster mTLS transport wiring.")]
     internal X509Certificate2? TrustAnchor { get; }
 
     /// <summary>

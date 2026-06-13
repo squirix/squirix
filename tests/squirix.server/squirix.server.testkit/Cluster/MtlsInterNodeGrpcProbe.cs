@@ -23,13 +23,23 @@ public static class MtlsInterNodeGrpcProbe
     /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resulting gRPC status code.</returns>
-    public static async Task<StatusCode> TryGetValueAsync(
-        string primaryUrl,
-        string? bearerToken,
-        bool includeInternalOwnerHeader,
-        CancellationToken cancellationToken)
+    public static async Task<StatusCode> TryGetValueAsync(string primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(primaryUrl);
+        return await TryGetValueAsync(new Uri(primaryUrl, UriKind.Absolute), bearerToken, includeInternalOwnerHeader, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.
+    /// </summary>
+    /// <param name="primaryUrl">Primary external HTTPS listener URL.</param>
+    /// <param name="bearerToken">Optional external bearer token.</param>
+    /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The resulting gRPC status code.</returns>
+    private static async Task<StatusCode> TryGetValueAsync(Uri primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(primaryUrl);
 
         using var channel = GrpcChannel.ForAddress(
             primaryUrl,

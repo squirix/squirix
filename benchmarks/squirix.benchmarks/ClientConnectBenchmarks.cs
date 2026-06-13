@@ -8,6 +8,7 @@ namespace Squirix.Benchmarks;
 /// Phase-1 remote client benchmark: connect and dispose per iteration.
 /// </summary>
 [MemoryDiagnoser]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class ClientConnectBenchmarks : RemoteBenchmarkLifecycleBase
 {

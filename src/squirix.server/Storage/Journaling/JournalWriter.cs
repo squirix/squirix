@@ -59,8 +59,6 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     public event Action? OnAppended;
 
-    public static bool StrictFsync => PersistenceOptions.StrictFsync;
-
     public long AppendedBytes => Interlocked.Read(ref _bytes);
 
     public long AppendedOps => Interlocked.Read(ref _ops);
@@ -119,21 +117,21 @@ internal sealed class JournalWriter : IJournalCoordinator
         return AppendPutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
     }
 
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
-        new JournalEnvelope
-        {
-            Seq = AllocateSequence(),
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            RemoveExpiration = new RemoveExpiration { Key = key.Key, Namespace = key.Namespace },
-        },
-        cancellationToken);
-
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
         new JournalEnvelope
         {
             Seq = AllocateSequence(),
             UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Remove = new Remove { Key = key.Key, Namespace = key.Namespace },
+        },
+        cancellationToken);
+
+    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
+        new JournalEnvelope
+        {
+            Seq = AllocateSequence(),
+            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            RemoveExpiration = new RemoveExpiration { Key = key.Key, Namespace = key.Namespace },
         },
         cancellationToken);
 
@@ -423,10 +421,10 @@ internal sealed class JournalWriter : IJournalCoordinator
         return next;
     }
 
-    private static FileOptions GetJournalFileOptions(bool strictFsync)
+    private static FileOptions GetJournalFileOptions()
     {
         var opts = FileOptions.Asynchronous;
-        if (strictFsync && OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
             opts |= FileOptions.WriteThrough;
         return opts;
     }
@@ -646,8 +644,6 @@ internal sealed class JournalWriter : IJournalCoordinator
             return;
 
         stream.Flush();
-        if (PersistenceOptions.StrictFsync)
-            stream.Flush(true);
         _dirty = false;
     }
 
@@ -655,8 +651,6 @@ internal sealed class JournalWriter : IJournalCoordinator
     {
         var stream = GetOrCreateStream();
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        if (PersistenceOptions.StrictFsync)
-            stream.Flush(true);
         _dirty = false;
     }
 
@@ -724,7 +718,7 @@ internal sealed class JournalWriter : IJournalCoordinator
     {
         var path = PathEx.Combine(_opt.DataDir, $"{StorageFilePrefixes.Journal}{idx:000000}{StorageFileExtensions.Journal}");
         var modes = append ? FileMode.OpenOrCreate : FileMode.Create;
-        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions(PersistenceOptions.StrictFsync));
+        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions());
         if (fs.Length == 0)
         {
             JournalFraming.WriteFileHeader(fs);

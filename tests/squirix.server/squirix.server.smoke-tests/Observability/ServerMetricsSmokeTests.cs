@@ -19,7 +19,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     [Fact]
     public async Task MetricsEndpointExposesCountersAfterOperations()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "node_A", Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
@@ -32,8 +32,8 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
 
         var body = await GetWithRetryAsync(url + "/metrics", TimeSpan.FromMilliseconds(50), 30);
         Assert.False(string.IsNullOrWhiteSpace(body));
-        Assert.DoesNotContain("cache=\"", body);
-        Assert.DoesNotContain("exception_type=", body);
+        Assert.DoesNotContain("cache=\"", body, StringComparison.InvariantCulture);
+        Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);
 
         var hasOps = OpsTotalRegex().IsMatch(body);
         var match = AppendsTotalRegex().IsMatch(body);
@@ -50,7 +50,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     {
         for (var i = 0; i < attempts; i++)
         {
-            var resp = await HttpClient.GetAsync(metricsUrl, DefaultCancellationToken);
+            var resp = await HttpClient.GetAsync(new Uri(metricsUrl), DefaultCancellationToken);
             if (resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(DefaultCancellationToken);
@@ -61,7 +61,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
             await Task.Delay(delay, DefaultCancellationToken);
         }
 
-        var last = await HttpClient.GetAsync(metricsUrl, DefaultCancellationToken);
+        var last = await HttpClient.GetAsync(new Uri(metricsUrl), DefaultCancellationToken);
         var lastBody = await last.Content.ReadAsStringAsync(DefaultCancellationToken);
         throw new XunitException($"Metrics endpoint did not return expected content. Status={(int)last.StatusCode} {last.ReasonPhrase}. Body='{lastBody}'");
     }

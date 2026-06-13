@@ -5,7 +5,7 @@ namespace Squirix.UnitTests.Architecture;
 /// <summary>
 /// Central access to the client SDK assembly for architecture rules.
 /// </summary>
-public static class ClientArchitecture
+internal static class ClientArchitecture
 {
     /// <summary>
     /// Gets the client SDK assembly under test.

@@ -24,8 +24,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwner()
     {
-        var urlA = GetNextHttpUrl();
-        var urlB = GetNextHttpUrl();
+        var urlA = GetNextHttpAddress();
+        var urlB = GetNextHttpAddress();
         var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
@@ -34,7 +34,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit");
         var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(new Uri(urlA, UriKind.Absolute));
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
@@ -50,7 +50,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
 
-        using var channelB = CreateGrpcChannel(urlB);
+        using var channelB = CreateGrpcChannel(new Uri(urlB, UriKind.Absolute));
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
         {
@@ -66,11 +66,11 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task GrpcInsertAboveLimitReturnsResourceExhaustedAndDoesNotPersist()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
         await using var node = await StartNodeAsync(url, peers);
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(new Uri(url, UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
 

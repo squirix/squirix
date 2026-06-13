@@ -5,7 +5,9 @@ P:Squirix.CacheEntryOptions::ExpiresAt:System.Nullable<System.DateTimeOffset>.se
 P:Squirix.CacheEntryOptions::Expiration:System.Nullable<System.TimeSpan>.get
 P:Squirix.CacheEntryOptions::Expiration:System.Nullable<System.TimeSpan>.set
 T:Squirix.CacheConflictException
+M:Squirix.CacheConflictException::.ctor()
 M:Squirix.CacheConflictException::.ctor(System.String)
+M:Squirix.CacheConflictException::.ctor(System.String,System.Exception)
 P:Squirix.CacheConflictException::Key:System.String.get
 T:Squirix.CacheEntryResult`1
 M:Squirix.CacheEntryResult`1::.ctor(System.Boolean,Squirix.CacheEntry<!!0>)
@@ -32,6 +34,7 @@ P:Squirix.CacheEntry`1::Value:!!0.get
 P:Squirix.CacheEntry`1::Value:!!0.set
 T:Squirix.CacheExpirationResult
 M:Squirix.CacheExpirationResult::.ctor(System.Boolean,System.Boolean,System.Nullable<System.TimeSpan>)
+M:Squirix.CacheExpirationResult::CompareTo(System.TimeSpan)
 M:Squirix.CacheExpirationResult::Deconstruct(System.Boolean&,System.Boolean&,System.Nullable<System.TimeSpan>&)
 M:Squirix.CacheExpirationResult::Equals(Squirix.CacheExpirationResult)
 M:Squirix.CacheExpirationResult::Equals(System.Object)

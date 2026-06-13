@@ -220,7 +220,6 @@ internal static class ProtoEx
         return s;
     }
 
-    [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Style rule compatibility")]
     private static Struct ToStruct<T>(T? value)
     {
         switch (value)
@@ -252,9 +251,6 @@ internal static class ProtoEx
 
             case bool boolean:
                 return WrapAsStruct("value", Value.ForBool(boolean));
-
-            default:
-                break;
         }
 
         // SerializeToElement uses the same JsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].

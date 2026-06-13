@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Running;
 using Squirix.Benchmarks.Infrastructure;
 
@@ -7,6 +8,7 @@ namespace Squirix.Benchmarks;
 /// <summary>
 /// Entry point for running the BenchmarkDotNet benchmark suite in this assembly.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet entry point must remain public.")]
 public static class Program
 {
     /// <summary>
@@ -17,6 +19,7 @@ public static class Program
     /// </param>
     public static void Main(string[] args)
     {
+        ArgumentNullException.ThrowIfNull(args);
         BenchmarkRuntime.EnsureInitialized();
 
         if (args.Length == 0)

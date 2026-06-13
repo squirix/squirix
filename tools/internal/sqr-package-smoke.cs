@@ -4,15 +4,16 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-package-smoke — build and run external package smoke sample.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-package-smoke.cs --");
+    output.WriteLine("sqr-package-smoke — build and run external package smoke sample.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-package-smoke.cs --");
     return 0;
 }
 

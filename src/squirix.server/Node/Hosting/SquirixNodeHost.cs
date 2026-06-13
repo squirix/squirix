@@ -67,7 +67,7 @@ internal static class SquirixNodeHost
         var app = builder.Build();
         _ = SquirixServerHostingComposition.MapServer(app);
 
-        await app.StartAsync(cancellationToken);
+        await app.StartAsync(cancellationToken).ConfigureAwait(false);
         return app;
     }
 

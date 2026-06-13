@@ -9,6 +9,7 @@ namespace Squirix.Benchmarks.Infrastructure;
 /// Shared BenchmarkDotNet lifecycle for benchmarks that talk to an in-process node over the remote client SDK.
 /// </summary>
 [InProcess]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class RemoteBenchmarkLifecycleBase
 {
     private BenchmarkCacheSession? _cacheSession;
@@ -17,31 +18,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Gets the shared cache opened by <see cref="StartSharedCache" />.
     /// </summary>
-    protected ICache<object?> SharedCache =>
-        (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
-
-    /// <summary>
-    /// Starts the in-process benchmark node. Safe to call from workload methods before class <c>[GlobalSetup]</c> runs.
-    /// </summary>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _node which StopNode disposes.")]
-    protected void StartNode()
-    {
-        if (_node is not null)
-            return;
-
-        BenchmarkRuntime.EnsureInitialized();
-        _node = BenchmarkNodeScope.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
-    }
-
-    /// <summary>
-    /// Stops the in-process benchmark node. Call from each benchmark class <c>[GlobalCleanup]</c>.
-    /// </summary>
-    protected void StopNode()
-    {
-        var node = _node;
-        _node = null;
-        node?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-    }
+    protected ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
 
     /// <summary>
     /// Connects a client and disposes it before returning.
@@ -72,6 +49,19 @@ public abstract class RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>
+    /// Starts the in-process benchmark node. Safe to call from workload methods before class <c>[GlobalSetup]</c> runs.
+    /// </summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _node which StopNode disposes.")]
+    protected void StartNode()
+    {
+        if (_node is not null)
+            return;
+
+        BenchmarkRuntime.EnsureInitialized();
+        _node = BenchmarkNodeScope.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
     /// Opens a long-lived client and cache session on the benchmark node.
     /// </summary>
     /// <param name="cacheName">Cache name.</param>
@@ -80,6 +70,16 @@ public abstract class RemoteBenchmarkLifecycleBase
     {
         StartNode();
         _cacheSession = BenchmarkCacheSession.OpenAsync(RequireNode(), cacheName, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Stops the in-process benchmark node. Call from each benchmark class <c>[GlobalCleanup]</c>.
+    /// </summary>
+    protected void StopNode()
+    {
+        var node = _node;
+        _node = null;
+        node?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -95,6 +95,5 @@ public abstract class RemoteBenchmarkLifecycleBase
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Caller disposes the returned lease.")]
     private BenchmarkClientLease OpenClientLease() => RequireNode().OpenClientAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-    private BenchmarkNodeScope RequireNode() =>
-        _node ?? throw new InvalidOperationException("Benchmark node was not started. Global setup did not run.");
+    private BenchmarkNodeScope RequireNode() => _node ?? throw new InvalidOperationException("Benchmark node was not started. Global setup did not run.");
 }

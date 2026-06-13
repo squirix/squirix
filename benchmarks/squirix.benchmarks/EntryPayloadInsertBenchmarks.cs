@@ -13,6 +13,7 @@ namespace Squirix.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
 {
@@ -22,18 +23,6 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     private string _smallValue = null!;
 
     /// <summary>
-    /// Starts the node and prepares payload strings.
-    /// </summary>
-    [GlobalSetup]
-    public void Setup()
-    {
-        StartNode();
-        StartSharedCache("bench-entry-payload");
-        _smallValue = new string('x', 256);
-        _largeValue = EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue();
-    }
-
-    /// <summary>
     /// Stops the shared cache session and benchmark node.
     /// </summary>
     [GlobalCleanup]
@@ -41,6 +30,17 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     {
         StopSharedCache();
         StopNode();
+    }
+
+    /// <summary>
+    /// Inserts near-limit string values through the public client SDK.
+    /// </summary>
+    /// <returns>A task that completes when the batch finishes.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize, Description = "SetAsync near-limit payload")]
+    public async Task InsertNearLimitPayloadBatched()
+    {
+        for (var i = 0; i < BatchSize; i++)
+            await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), _largeValue, cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -55,13 +55,14 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     }
 
     /// <summary>
-    /// Inserts near-limit string values through the public client SDK.
+    /// Starts the node and prepares payload strings.
     /// </summary>
-    /// <returns>A task that completes when the batch finishes.</returns>
-    [Benchmark(OperationsPerInvoke = BatchSize, Description = "SetAsync near-limit payload")]
-    public async Task InsertNearLimitPayloadBatched()
+    [GlobalSetup]
+    public void Setup()
     {
-        for (var i = 0; i < BatchSize; i++)
-            await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), _largeValue, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        StartNode();
+        StartSharedCache("bench-entry-payload");
+        _smallValue = new string('x', 256);
+        _largeValue = EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue();
     }
 }

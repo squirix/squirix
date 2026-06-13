@@ -20,7 +20,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
         var invalidBackpressure = new BackpressureOptions
         {
@@ -46,7 +46,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
         var invalid = new MemoryPressureOptions
         {

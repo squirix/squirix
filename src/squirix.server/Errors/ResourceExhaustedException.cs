@@ -1,4 +1,5 @@
 using System;
+using JetBrains.Annotations;
 
 namespace Squirix.Server.Errors;
 
@@ -7,7 +8,7 @@ namespace Squirix.Server.Errors;
 /// Transports map this failure to appropriate REST/gRPC status codes via <see cref="PublicErrorCode" /> and <see cref="StableDetail" />.
 /// This is a deterministic capacity signal; it does not indicate recovery from <see cref="OutOfMemoryException" />.
 /// </summary>
-internal sealed class ResourceExhaustedException : Exception
+public sealed class ResourceExhaustedException : Exception
 {
     /// <summary>
     /// Stable machine-readable error code used in REST <c>code</c> and docs (<c>MEMORY_PRESSURE</c>).
@@ -24,6 +25,26 @@ internal sealed class ResourceExhaustedException : Exception
     /// </summary>
     public ResourceExhaustedException()
         : base(StableDetail)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ResourceExhaustedException" /> class with a message.
+    /// </summary>
+    /// <param name="message">The exception message.</param>
+    [PublicAPI]
+    public ResourceExhaustedException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ResourceExhaustedException" /> class with a message and inner exception.
+    /// </summary>
+    /// <param name="message">The exception message.</param>
+    /// <param name="innerException">The inner exception.</param>
+    public ResourceExhaustedException(string message, Exception innerException)
+        : base(message, innerException)
     {
     }
 }

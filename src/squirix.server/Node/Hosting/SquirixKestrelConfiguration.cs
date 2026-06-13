@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -60,7 +59,6 @@ internal static class SquirixKestrelConfiguration
     /// </summary>
     /// <param name="cluster">Cluster configuration including the node URL.</param>
     /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
-    [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Switch is used to throw exception")]
     public static void EnsureHttpsTransport(ClusterConfig cluster)
     {
         ArgumentNullException.ThrowIfNull(cluster);

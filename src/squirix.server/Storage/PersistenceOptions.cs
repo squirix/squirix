@@ -30,6 +30,11 @@ internal sealed record PersistenceOptions
     }
 
     /// <summary>
+    /// Gets a value indicating whether journal group commit is enabled.
+    /// </summary>
+    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+
+    /// <summary>
     /// Gets the maximum number of concurrent durable mutations that can share one durability flush.
     /// </summary>
     [JsonPropertyName("groupCommitMaxBatch")]
@@ -62,10 +67,18 @@ internal sealed record PersistenceOptions
         }
     }
 
-    /// <summary>
-    /// Gets a value indicating whether journal group commit is enabled.
-    /// </summary>
-    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+    [JsonPropertyName("journalMaxSegmentMb")]
+    public int JournalMaxSegmentMb
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(JournalMaxSegmentMb), value, "JournalMaxSegmentMb must be greater than zero.");
+
+            field = value;
+        }
+    }
 
     public int ManifestRetentionCount
     {
@@ -98,21 +111,6 @@ internal sealed record PersistenceOptions
         {
             if (value <= 0)
                 throw new ArgumentOutOfRangeException(nameof(SnapshotRetentionCount), value, "SnapshotRetentionCount must be greater than zero.");
-
-            field = value;
-        }
-    }
-
-    public static bool StrictFsync => true;
-
-    [JsonPropertyName("journalMaxSegmentMb")]
-    public int JournalMaxSegmentMb
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalMaxSegmentMb), value, "JournalMaxSegmentMb must be greater than zero.");
 
             field = value;
         }

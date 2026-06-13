@@ -43,8 +43,8 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var body = await response.Content.ReadAsStringAsync(DefaultCancellationToken);
-        Assert.DoesNotContain($"cache=\"{secretCacheName}\"", body);
-        Assert.DoesNotContain(secretCacheName, body);
-        Assert.DoesNotContain("exception_type=", body);
+        Assert.DoesNotContain($"cache=\"{secretCacheName}\"", body, StringComparison.InvariantCulture);
+        Assert.DoesNotContain(secretCacheName, body, StringComparison.InvariantCulture);
+        Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);
     }
 }

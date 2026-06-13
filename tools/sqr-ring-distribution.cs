@@ -2,17 +2,18 @@
 #:property PublishAot=false
 using Squirix.Server.Cluster;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
 {
-    Console.WriteLine("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]");
-    Console.WriteLine();
-    Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 internal");
+    output.WriteLine("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]");
+    output.WriteLine();
+    output.WriteLine("Exit codes: 0 ok, 2 usage, 3 internal");
     return 0;
 }
 
@@ -81,34 +82,34 @@ try
         distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
     }
 
-    Console.WriteLine("OK: ring distribution computed");
-    Console.WriteLine($"cache: {cacheName}");
-    Console.WriteLine($"virtualNodes: {virtualNodes}");
-    Console.WriteLine($"sampleSize: {sampleSize}");
+    output.WriteLine("OK: ring distribution computed");
+    output.WriteLine($"cache: {cacheName}");
+    output.WriteLine($"virtualNodes: {virtualNodes}");
+    output.WriteLine($"sampleSize: {sampleSize}");
     foreach (var item in distribution.OrderBy(static x => x.Key, StringComparer.Ordinal))
     {
         var share = Math.Round((double)item.Value / sampleSize, 6);
-        Console.WriteLine($"node.{item.Key}.count: {item.Value}");
-        Console.WriteLine($"node.{item.Key}.share: {share}");
+        output.WriteLine($"node.{item.Key}.count: {item.Value}");
+        output.WriteLine($"node.{item.Key}.share: {share}");
     }
 
     return 0;
 }
 catch (InvalidOperationException ex)
 {
-    Console.WriteLine("ERROR: unexpected internal failure");
-    Console.WriteLine(ex.Message);
+    output.WriteLine("ERROR: unexpected internal failure");
+    output.WriteLine(ex.Message);
     return 3;
 }
 catch (ArgumentException ex)
 {
-    Console.WriteLine("ERROR: unexpected internal failure");
-    Console.WriteLine(ex.Message);
+    output.WriteLine("ERROR: unexpected internal failure");
+    output.WriteLine(ex.Message);
     return 3;
 }
 
 static int Usage(string message)
 {
-    Console.WriteLine($"ERROR: {message}");
+    Console.Out.WriteLine($"ERROR: {message}");
     return 2;
 }

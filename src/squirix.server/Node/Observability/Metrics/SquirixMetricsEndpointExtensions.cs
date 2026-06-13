@@ -31,7 +31,7 @@ internal static class SquirixMetricsEndpointExtensions
 
                 ctx.Response.ContentType = "text/plain; version=0.0.4";
                 var text = PrometheusMetricsScraper.Instance.Scrape();
-                await ctx.Response.WriteAsync(text);
+                await ctx.Response.WriteAsync(text).ConfigureAwait(false);
             });
     }
 }

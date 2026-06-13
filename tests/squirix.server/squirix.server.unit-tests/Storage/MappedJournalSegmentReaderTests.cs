@@ -56,7 +56,7 @@ public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsync
         }
 
         var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
-        Assert.Contains("ChecksumMismatch", ex.Message);
+        Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
     }
 
     /// <summary>
@@ -113,7 +113,7 @@ public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsync
         }
 
         var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
-        Assert.Contains("JSON corruption", ex.Message);
+        Assert.Contains("JSON corruption", ex.Message, StringComparison.InvariantCulture);
     }
 
     /// <summary>

@@ -88,19 +88,6 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     }
 
     /// <summary>
-    /// Verifies GetValueAsync sees a named-cache entry written by another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [Fact]
-    public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
-    {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
-
-        Assert.True((await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken)).Found);
-    }
-
-    /// <summary>
     /// Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
@@ -131,6 +118,19 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
         var entry = await cluster.CacheB.GetEntryAsync("k1", DefaultCancellationToken);
 
         Assert.True(entry.Found);
+    }
+
+    /// <summary>
+    /// Verifies GetValueAsync sees a named-cache entry written by another node.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    [Fact]
+    public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
+    {
+        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
+        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+
+        Assert.True((await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -168,7 +168,7 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
-    public async Task RemoveOnNodeBDeletesEntryInsertedOnNodeA()
+    public async Task RemoveNodeBDeletesEntryInsertedOnNodeA()
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
         await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
@@ -181,7 +181,7 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
-    public async Task RemoveOnNodeBThenGetOnNodeAReturnsNull()
+    public async Task RemoveNodeBThenGetOnNodeAReturnsNull()
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
 
@@ -282,7 +282,7 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
         await cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
 
         var before = await cluster.CacheA.GetEntryAsync(key, DefaultCancellationToken);
-        Assert.NotNull(before);
+        Assert.True(before.Found);
 
         var removed = await cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
 

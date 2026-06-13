@@ -14,7 +14,7 @@ public sealed class MultiNodeExpirationTests : PublicApiMultiNodeTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
-    public async Task AddOnNodeBTreatsExpiredRemoteKeyAsAbsent()
+    public async Task AddNodeBTreatsExpiredRemoteKeyAsAbsent()
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
         var key = FindKeyOwnedBy("orders", "nodeA", "remote-add-expired");
@@ -29,9 +29,7 @@ public sealed class MultiNodeExpirationTests : PublicApiMultiNodeTestBase
             DefaultCancellationToken);
 
         await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
-
         await cluster.CacheB.AddAsync(key, "new", cancellationToken: DefaultCancellationToken);
-
         Assert.Equal("new", (await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
@@ -66,8 +64,9 @@ public sealed class MultiNodeExpirationTests : PublicApiMultiNodeTestBase
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
         await cluster.CacheA.SetAsync("k1", "v1", Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
-
-        Assert.NotNull(await cluster.CacheB.GetExpirationAsync("k1", DefaultCancellationToken));
+        var expiration = await cluster.CacheB.GetExpirationAsync("k1", DefaultCancellationToken);
+        Assert.True(expiration.Found);
+        Assert.True(expiration.HasExpiration);
     }
 
     /// <summary>
@@ -198,7 +197,7 @@ public sealed class MultiNodeExpirationTests : PublicApiMultiNodeTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
-    public async Task RemoveOnNodeBTreatsExpiredRemoteKeyAsMissing()
+    public async Task RemoveNodeBTreatsExpiredRemoteKeyAsMissing()
     {
         await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
         var key = FindKeyOwnedBy("orders", "nodeA", "remote-remove-expired");
@@ -234,7 +233,6 @@ public sealed class MultiNodeExpirationTests : PublicApiMultiNodeTestBase
 
         var expiration = await cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken);
 
-        Assert.NotNull(expiration);
         Assert.True(expiration.Value > TimeSpan.Zero);
         Assert.Equal("v", (await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }

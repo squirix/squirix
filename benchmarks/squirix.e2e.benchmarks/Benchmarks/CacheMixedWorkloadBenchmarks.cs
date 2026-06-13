@@ -9,6 +9,7 @@ namespace Squirix.E2EBenchmarks.Benchmarks;
 /// End-to-end public API benchmarks for deterministic mixed workloads.
 /// </summary>
 [BenchmarkCategory("e2e", "mixed")]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
 public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
 {
@@ -26,6 +27,23 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
                 await Adapter.SetAsync(Keyspace.HotKey(i), i, CancellationToken.None).ConfigureAwait(false);
             else
                 Consumer.Consume(await Adapter.GetValueHitAsync(Keyspace.HotKey(i), CancellationToken.None).ConfigureAwait(false));
+        }
+    }
+
+    /// <summary>
+    /// Measures a 95 percent read, 5 percent write workload.
+    /// </summary>
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [Benchmark(OperationsPerInvoke = BatchSize)]
+    [BenchmarkCategory("mixed", "read", "write")]
+    public async Task ReadHeavy95To5ShouldExecute()
+    {
+        for (var i = 0; i < BatchSize; i++)
+        {
+            if (i % 20 == 0)
+                await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
+            else
+                Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
         }
     }
 
@@ -51,23 +69,6 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
             {
                 Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
             }
-        }
-    }
-
-    /// <summary>
-    /// Measures a 95 percent read, 5 percent write workload.
-    /// </summary>
-    /// <returns>A task that completes when the batch has finished.</returns>
-    [Benchmark(OperationsPerInvoke = BatchSize)]
-    [BenchmarkCategory("mixed", "read", "write")]
-    public async Task ReadHeavy95To5ShouldExecute()
-    {
-        for (var i = 0; i < BatchSize; i++)
-        {
-            if (i % 20 == 0)
-                await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
-            else
-                Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
         }
     }
 

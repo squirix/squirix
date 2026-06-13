@@ -23,7 +23,7 @@ public sealed class GrpcAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcRejectsMissingAndInvalidJwtAndAcceptsValidJwtWhenConfigured()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "node-grpc-auth", Url = url } };
 
         await using var node = await StartNodeAsync(
@@ -33,14 +33,11 @@ public sealed class GrpcAuthSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(new Uri(url, UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetAsync(getRequest, cancellationToken: DefaultCancellationToken);
-        });
+        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetAsync(getRequest, cancellationToken: DefaultCancellationToken); });
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };

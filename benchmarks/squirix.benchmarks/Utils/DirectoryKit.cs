@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 
@@ -8,6 +9,7 @@ namespace Squirix.Benchmarks.Utils;
 /// Utilities for robust, cross-platform directory creation and cleanup,
 /// with guardrails suitable for tests and tooling.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Utility is shared across benchmark and test tooling.")]
 public static class DirectoryKit
 {
     /// <summary>

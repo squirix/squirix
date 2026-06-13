@@ -5,7 +5,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>
 /// Central access to the server assembly for architecture rules.
 /// </summary>
-public static class SquirixArchitecture
+internal static class SquirixArchitecture
 {
     /// <summary>
     /// Gets the server runtime assembly under test.

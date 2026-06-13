@@ -1,17 +1,18 @@
 #:property PublishAot=false
 using System.Diagnostics;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-examples-verify — compile and smoke-run file-based examples.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-examples-verify.cs --");
-    Console.WriteLine();
-    Console.WriteLine("Exit codes: 0 ok, 1 failed example execution");
+    output.WriteLine("sqr-examples-verify — compile and smoke-run file-based examples.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-examples-verify.cs --");
+    output.WriteLine();
+    output.WriteLine("Exit codes: 0 ok, 1 failed example execution");
     return 0;
 }
 
@@ -48,19 +49,19 @@ foreach (var file in files)
     var name = Path.GetFileName(file);
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
-    Console.WriteLine($"---- {relativePath} --help ----");
+    output.WriteLine($"---- {relativePath} --help ----");
     if (RunDotnet(repoRoot, ["run", "--file", relativePath, "--", "--help"]) != 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
-        Console.WriteLine($"---- {relativePath} {string.Join(' ', smokeArgs)} ----");
+        output.WriteLine($"---- {relativePath} {string.Join(' ', smokeArgs)} ----");
         if (RunDotnet(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]) != 0)
             return 1;
     }
 }
 
-Console.WriteLine("OK: all file-based examples compiled and smoke-run successfully.");
+output.WriteLine("OK: all file-based examples compiled and smoke-run successfully.");
 return 0;
 
 static IEnumerable<string[]> GetSmokeArgs(string fileName)
@@ -74,7 +75,7 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
 
 static int RunDotnet(string workingDirectory, string[] args)
 {
-    var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ') ? $"\"{arg}\"" : arg));
+    var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg));
     using var proc = Process.Start(new ProcessStartInfo
     {
         FileName = "dotnet",

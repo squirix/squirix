@@ -9,7 +9,7 @@ namespace Squirix.Server.UnitTests.Node.Hosting;
 /// <summary>
 /// Shared assertions for <see cref="SquirixCachePipelineRegistration" /> source order vs <see cref="CachePipelineDescriptor" />.
 /// </summary>
-public static class CachePipelineRegistrationOrderAssertions
+internal static class CachePipelineRegistrationOrderAssertions
 {
     /// <summary>
     /// Asserts singleton markers appear in <see cref="CachePipelineDescriptor.AddSingletonRegistrationInnerToOuter" /> order.

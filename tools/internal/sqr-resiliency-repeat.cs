@@ -11,15 +11,16 @@ var runs = new[]
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Reliability.ClientPoolLifecycleIntegrationTests", "Client-pool lifecycle integration tests"),
 };
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-resiliency-repeat — run selected resiliency tests repeatedly.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]");
+    output.WriteLine("sqr-resiliency-repeat — run selected resiliency tests repeatedly.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]");
     return 0;
 }
 
@@ -59,10 +60,10 @@ for (var i = 0; i < argv.Length; i++)
 var repoRoot = ResolveRepoRoot();
 for (var iteration = 1; iteration <= iterations; iteration++)
 {
-    Console.WriteLine($"Iteration {iteration}/{iterations}");
+    output.WriteLine($"Iteration {iteration}/{iterations}");
     foreach (var run in runs)
     {
-        Console.WriteLine($"Running {run.Label}");
+        output.WriteLine($"Running {run.Label}");
         var list = new List<string>
         {
             "test",
@@ -82,7 +83,7 @@ for (var iteration = 1; iteration <= iterations; iteration++)
     }
 }
 
-Console.WriteLine("All resiliency repeat runs passed.");
+output.WriteLine("All resiliency repeat runs passed.");
 return 0;
 
 static string ResolveRepoRoot()

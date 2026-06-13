@@ -97,7 +97,7 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
-    public async Task RemoveOnExpiredKeyReturnsFalse()
+    public async Task RemoveExpiredKeyReturnsFalse()
     {
         var clock = new FakeClock(DateTime.UtcNow);
         await using var cache = new PhysicalCache<string>(clock);

@@ -1,14 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-[SuppressMessage("Usage", "CA1001:Types that own disposable fields should be disposable", Justification = "Disposed by DI container at shutdown.")]
 internal sealed class IdempotencyStore : IDisposable
 {
     private readonly SemaphoreSlim _mutex = new(1, 1);

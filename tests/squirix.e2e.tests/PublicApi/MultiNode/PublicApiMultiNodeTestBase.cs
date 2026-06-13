@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -10,6 +11,7 @@ namespace Squirix.E2ETests.PublicApi.MultiNode;
 /// <summary>
 /// Shared fixtures for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class PublicApiMultiNodeTestBase : E2ETestBase
 {
     internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value)
@@ -37,10 +39,9 @@ public abstract class PublicApiMultiNodeTestBase : E2ETestBase
         }
     }
 
-    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) =>
-        expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
-
     internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => FindKeysOwnedBy(cacheName, ownerId, 1, prefix)[0];
+
+    internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
 
     internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>([CallerMemberName] string testName = "")
     {

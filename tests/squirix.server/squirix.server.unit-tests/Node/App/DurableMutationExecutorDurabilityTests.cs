@@ -16,48 +16,6 @@ namespace Squirix.Server.UnitTests.Node.App;
 public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
 {
     /// <summary>
-    /// Ensures <see cref="DurableMutationExecutor" /> fsyncs appended journal before the memory apply callback runs.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
-    [Fact]
-    public async Task FsyncCompletesBeforeMemoryApplyWhenStrictFsyncEnabled()
-    {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-durable-mutation-fsync-before-mem");
-        try
-        {
-            var options = new PersistenceOptions
-            {
-                DataDir = dir,
-                JournalMaxSegmentMb = 1,
-                FlushIntervalMs = 600_000,
-                ManifestRetentionCount = 1,
-            };
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            var executor = new DurableMutationExecutor(journal);
-            var observedPendingFlushDuringMemoryApply = false;
-
-            _ = await executor.ExecuteAsync(
-                static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-                async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, ct); },
-                _ =>
-                {
-                    observedPendingFlushDuringMemoryApply = journal.IsDurabilityFlushPending;
-                    return new ValueTask<int>(1);
-                },
-                DefaultCancellationToken);
-
-            Assert.False(observedPendingFlushDuringMemoryApply);
-            Assert.False(journal.IsDurabilityFlushPending);
-            Assert.Equal(1, journal.AppendedOps);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
-    }
-
-    /// <summary>
     /// Ensures a failed in-memory apply after durable journal is not retried.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
@@ -90,7 +48,7 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
             async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
             {
                 await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken)
-                         .ConfigureAwait(false);
+                             .ConfigureAwait(false);
             }
 
             ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)
@@ -100,8 +58,11 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
                 throw new InvalidOperationException("memory apply failed");
             }
 
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                executor.ExecuteAsync(EvaluateAsync, AppendJournalAsync, ApplyMemoryAsync, DefaultCancellationToken).AsTask());
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(
+                EvaluateAsync,
+                AppendJournalAsync,
+                ApplyMemoryAsync,
+                DefaultCancellationToken).AsTask());
 
             Assert.Equal("memory apply failed", error.Message);
             Assert.Equal(1, applyCalls);

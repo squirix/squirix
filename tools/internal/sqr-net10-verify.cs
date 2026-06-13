@@ -11,10 +11,11 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-net10-verify — verify that all project TFMs are net10.0.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]");
+    var output = Console.Out;
+    output.WriteLine("sqr-net10-verify — verify that all project TFMs are net10.0.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]");
     return 0;
 }
 
@@ -49,7 +50,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("squirix .NET baseline verified: all project TargetFramework entries are net10.0.");
+Console.Out.WriteLine("squirix .NET baseline verified: all project TargetFramework entries are net10.0.");
 return 0;
 
 string ResolveDefaultRepoRoot()

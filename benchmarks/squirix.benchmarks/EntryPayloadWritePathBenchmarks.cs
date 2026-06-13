@@ -9,6 +9,10 @@ namespace Squirix.Benchmarks;
 /// <summary>
 /// Payload sizes used to compare serialization overhead across typical and near-limit entries.
 /// </summary>
+[SuppressMessage(
+    "Maintainability",
+    "CA1515:Consider making public types internal",
+    Justification = "Benchmark parameter enum is consumed by the benchmark class and BenchmarkDotNet.")]
 public enum EntryPayloadProfile
 {
     /// <summary>A 256-byte string payload.</summary>
@@ -30,6 +34,7 @@ public enum EntryPayloadProfile
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class EntryPayloadWritePathBenchmarks
 {
@@ -41,24 +46,6 @@ public class EntryPayloadWritePathBenchmarks
     [Params(EntryPayloadProfile.Small256B, EntryPayloadProfile.Medium64KiB, EntryPayloadProfile.Large1MiB, EntryPayloadProfile.NearLimitDiscriminated)]
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public EntryPayloadProfile Profile { get; set; }
-
-    /// <summary>
-    /// Builds the entry under test for the selected payload profile.
-    /// </summary>
-    [GlobalSetup]
-    public void SetupEntry()
-    {
-        var value = Profile switch
-        {
-            EntryPayloadProfile.Small256B => new string('x', 256),
-            EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
-            EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
-            EntryPayloadProfile.NearLimitDiscriminated => EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue(),
-            _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
-        };
-
-        _entry = new ServerCacheEntry { Value = value, Version = 1 };
-    }
 
     /// <summary>
     /// Baseline: journal path serializes discriminated entry JSON once before append.
@@ -80,4 +67,22 @@ public class EntryPayloadWritePathBenchmarks
     /// <returns>Serialized byte length after validation.</returns>
     [Benchmark(Description = "reuse payload (1x serialize + length check)")]
     public int SerializeOnceThenLengthCheck() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheck(_entry);
+
+    /// <summary>
+    /// Builds the entry under test for the selected payload profile.
+    /// </summary>
+    [GlobalSetup]
+    public void SetupEntry()
+    {
+        var value = Profile switch
+        {
+            EntryPayloadProfile.Small256B => new string('x', 256),
+            EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
+            EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
+            EntryPayloadProfile.NearLimitDiscriminated => EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue(),
+            _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
+        };
+
+        _entry = new ServerCacheEntry { Value = value, Version = 1 };
+    }
 }

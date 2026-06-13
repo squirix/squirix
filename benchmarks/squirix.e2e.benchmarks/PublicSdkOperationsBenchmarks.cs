@@ -13,6 +13,7 @@ namespace Squirix.E2EBenchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class PublicSdkOperationsBenchmarks
 {
@@ -23,8 +24,8 @@ public class PublicSdkOperationsBenchmarks
     private const int WriteBatch = 256;
 
     private readonly Consumer _consumer = new();
-    private readonly string[] _expiringKeys = new string[KeyCount];
     private readonly string[] _existingKeys = new string[KeyCount];
+    private readonly string[] _expiringKeys = new string[KeyCount];
     private readonly string[] _missingKeys = new string[KeyCount];
     private BenchmarkClientLease? _client;
     private int _getOrAddMissingOffset;
@@ -34,58 +35,17 @@ public class PublicSdkOperationsBenchmarks
     private int _writeOffset;
 
     /// <summary>
-    /// Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.
+    /// Stops benchmark dependencies.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
-    [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadExistingValueBatched()
+    /// <returns>A <see cref="Task" /> that completes when cleanup is finished.</returns>
+    [GlobalCleanup]
+    public async Task CleanupAsync()
     {
-        var cache = _squirix!;
-        for (var i = 0; i < ReadBatch; i++)
-        {
-            var result = await cache.GetValueAsync(_existingKeys[i], CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result.Value ?? string.Empty);
-        }
-    }
+        if (_client is not null)
+            await _client.DisposeAsync().ConfigureAwait(false);
 
-    /// <summary>
-    /// Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
-    [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadMissingValueBatched()
-    {
-        var cache = _squirix!;
-        for (var i = 0; i < ReadBatch; i++)
-        {
-            var result = await cache.GetValueAsync(_missingKeys[i], CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result.Found);
-        }
-    }
-
-    /// <summary>
-    /// Writes new unique keys through the public <c>SetAsync</c> API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
-    [Benchmark(OperationsPerInvoke = WriteBatch)]
-    public async Task WriteNewValueBatched()
-    {
-        var cache = _squirix!;
-        var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
-        for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync($"write:{offset + i:D10}", $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Overwrites existing keys through the public <c>SetAsync</c> API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
-    [Benchmark(OperationsPerInvoke = WriteBatch)]
-    public async Task OverwriteExistingValueBatched()
-    {
-        var cache = _squirix!;
-        for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync(_existingKeys[i], $"overwrite:{Environment.TickCount64}:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        if (_node is not null)
+            await _node.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>
@@ -120,18 +80,6 @@ public class PublicSdkOperationsBenchmarks
     }
 
     /// <summary>
-    /// Reads live values that carry expiration metadata.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
-    [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadLiveExpiringValueBatched()
-    {
-        var cache = _squirix!;
-        for (var i = 0; i < ReadBatch; i++)
-            _consumer.Consume((await cache.GetValueAsync(_expiringKeys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
-    }
-
-    /// <summary>
     /// Runs a deterministic 90 percent read / 10 percent write public SDK workload.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the mixed batch is finished.</returns>
@@ -155,6 +103,60 @@ public class PublicSdkOperationsBenchmarks
     }
 
     /// <summary>
+    /// Overwrites existing keys through the public <c>SetAsync</c> API.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
+    [Benchmark(OperationsPerInvoke = WriteBatch)]
+    public async Task OverwriteExistingValueBatched()
+    {
+        var cache = _squirix!;
+        for (var i = 0; i < WriteBatch; i++)
+            await cache.SetAsync(_existingKeys[i], $"overwrite:{Environment.TickCount64}:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    [Benchmark(OperationsPerInvoke = ReadBatch)]
+    public async Task ReadExistingValueBatched()
+    {
+        var cache = _squirix!;
+        for (var i = 0; i < ReadBatch; i++)
+        {
+            var result = await cache.GetValueAsync(_existingKeys[i], CancellationToken.None).ConfigureAwait(false);
+            _consumer.Consume(result.Value ?? string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Reads live values that carry expiration metadata.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    [Benchmark(OperationsPerInvoke = ReadBatch)]
+    public async Task ReadLiveExpiringValueBatched()
+    {
+        var cache = _squirix!;
+        for (var i = 0; i < ReadBatch; i++)
+            _consumer.Consume((await cache.GetValueAsync(_expiringKeys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    [Benchmark(OperationsPerInvoke = ReadBatch)]
+    public async Task ReadMissingValueBatched()
+    {
+        var cache = _squirix!;
+        for (var i = 0; i < ReadBatch; i++)
+        {
+            var result = await cache.GetValueAsync(_missingKeys[i], CancellationToken.None).ConfigureAwait(false);
+            _consumer.Consume(result.Found);
+        }
+    }
+
+    /// <summary>
     /// Starts benchmark dependencies and seeds baseline keys.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when setup is finished.</returns>
@@ -172,20 +174,20 @@ public class PublicSdkOperationsBenchmarks
     }
 
     /// <summary>
-    /// Stops benchmark dependencies.
+    /// Writes new unique keys through the public <c>SetAsync</c> API.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when cleanup is finished.</returns>
-    [GlobalCleanup]
-    public async Task CleanupAsync()
+    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
+    [Benchmark(OperationsPerInvoke = WriteBatch)]
+    public async Task WriteNewValueBatched()
     {
-        if (_client is not null)
-            await _client.DisposeAsync().ConfigureAwait(false);
-
-        if (_node is not null)
-            await _node.DisposeAsync().ConfigureAwait(false);
+        var cache = _squirix!;
+        var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
+        for (var i = 0; i < WriteBatch; i++)
+            await cache.SetAsync($"write:{offset + i:D10}", $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) => throw new InvalidOperationException($"Factory must not be called for existing key '{key}'.");
+    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException($"Factory must not be called for existing key '{key}'.");
 
     private static Task<string?> CreateValueAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>($"created:{key}");
 
@@ -196,11 +198,7 @@ public class PublicSdkOperationsBenchmarks
         for (var i = 0; i < KeyCount; i++)
         {
             await cache.SetAsync(_existingKeys[i], $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await cache.SetAsync(
-                _expiringKeys[i],
-                $"expiring:{i:D5}",
-                new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) },
-                CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_expiringKeys[i], $"expiring:{i:D5}", new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, CancellationToken.None).ConfigureAwait(false);
         }
     }
 

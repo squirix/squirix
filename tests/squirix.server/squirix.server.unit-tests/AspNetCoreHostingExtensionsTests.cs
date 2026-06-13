@@ -19,6 +19,106 @@ namespace Squirix.Server.UnitTests;
 public sealed class AspNetCoreHostingExtensionsTests
 {
     /// <summary>
+    /// Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.
+    /// </summary>
+    /// <returns>A task that completes when the custom host has started and stopped.</returns>
+    [Fact]
+    public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
+    {
+        using var allocator = new PortAllocator(26000, 26999);
+        var port = allocator.Allocate();
+        var url = $"https://localhost:{port}";
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+
+        _ = builder.AddSquirixServer(
+            options =>
+            {
+                options.NodeId = "aspnet-test";
+                options.Url = new Uri(url);
+            },
+            loadDiscoveredSettings: false);
+
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+
+        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
+
+        await app.StartAsync(TestContext.Current.CancellationToken);
+        await app.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Ensures a configured data directory keeps the server's default strict fsync persistence mode.
+    /// </summary>
+    [Fact]
+    public void DataDirectoryOverridePreservesStrictFsyncDefault()
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
+        using var allocator = new PortAllocator(25000, 25999);
+        var port = allocator.Allocate();
+
+        _ = builder.AddSquirixServer(
+            options =>
+            {
+                options.Url = new Uri($"https://localhost:{port}");
+                options.UsePersistence(dataDir);
+            },
+            loadDiscoveredSettings: false);
+
+        using var app = builder.Build();
+        var persistence = app.Services.GetRequiredService<PersistenceOptions>();
+
+        Assert.Equal(dataDir, persistence.DataDir);
+
+        if (Directory.Exists(dataDir))
+            Directory.Delete(dataDir, true);
+    }
+
+    /// <summary>
+    /// Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.
+    /// </summary>
+    [Fact]
+    public void PackageExtensionCanDecorateBasicCachePipeline()
+    {
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var callbackCount = 0;
+        using var allocator = new PortAllocator(28000, 28999);
+        var port = allocator.Allocate();
+
+        _ = builder.AddSquirixServer(
+            options => options.Url = new Uri($"https://localhost:{port}"),
+            loadDiscoveredSettings: false,
+            configureExtensions: extensions =>
+            {
+                extensions.DecorateCachePipeline = (_, pipeline) =>
+                {
+                    callbackCount++;
+                    return pipeline;
+                };
+            });
+
+        using (var app = builder.Build())
+            _ = app.Services.GetRequiredService<ICacheRuntime>();
+
+        Assert.Equal(1, callbackCount);
+    }
+
+    /// <summary>
     /// Ensures optional package extensions can register services and map endpoints through the public hosting API.
     /// </summary>
     [Fact]
@@ -74,107 +174,6 @@ public sealed class AspNetCoreHostingExtensionsTests
         _ = app.MapSquirixServer();
 
         Assert.False(authEnabled);
-    }
-
-    /// <summary>
-    /// Ensures a configured data directory keeps the server's default strict fsync persistence mode.
-    /// </summary>
-    [Fact]
-    public void DataDirectoryOverridePreservesStrictFsyncDefault()
-    {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
-        using var allocator = new PortAllocator(25000, 25999);
-        var port = allocator.Allocate();
-
-        _ = builder.AddSquirixServer(
-            options =>
-            {
-                options.Url = new Uri($"https://localhost:{port}");
-                options.UsePersistence(dataDir);
-            },
-            loadDiscoveredSettings: false);
-
-        using var app = builder.Build();
-        var persistence = app.Services.GetRequiredService<PersistenceOptions>();
-
-        Assert.Equal(dataDir, persistence.DataDir);
-        Assert.True(PersistenceOptions.StrictFsync);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
-    }
-
-    /// <summary>
-    /// Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.
-    /// </summary>
-    [Fact]
-    public void PackageExtensionCanDecorateBasicCachePipeline()
-    {
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var callbackCount = 0;
-        using var allocator = new PortAllocator(28000, 28999);
-        var port = allocator.Allocate();
-
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
-            loadDiscoveredSettings: false,
-            configureExtensions: extensions =>
-            {
-                extensions.DecorateCachePipeline = (_, pipeline) =>
-                {
-                    callbackCount++;
-                    return pipeline;
-                };
-            });
-
-        using (var app = builder.Build())
-            _ = app.Services.GetRequiredService<ICacheRuntime>();
-
-        Assert.Equal(1, callbackCount);
-    }
-
-    /// <summary>
-    /// Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.
-    /// </summary>
-    /// <returns>A task that completes when the custom host has started and stopped.</returns>
-    [Fact]
-    public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
-    {
-        using var allocator = new PortAllocator(26000, 26999);
-        var port = allocator.Allocate();
-        var url = $"https://localhost:{port}";
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-
-        _ = builder.AddSquirixServer(
-            options =>
-            {
-                options.NodeId = "aspnet-test";
-                options.Url = new Uri(url);
-            },
-            loadDiscoveredSettings: false);
-
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-
-        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
-
-        await app.StartAsync(TestContext.Current.CancellationToken);
-        await app.StopAsync(TestContext.Current.CancellationToken);
     }
 
     private sealed class ExtensionMarker;

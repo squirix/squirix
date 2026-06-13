@@ -28,15 +28,9 @@ public static class SquirixServerConfiguration
         ArgumentNullException.ThrowIfNull(options);
 
         if (url is not null)
-            options.Url = new Uri(url, UriKind.Absolute);
-        if (persist)
-            options.UsePersistence();
-        if (dataDirectory is not null)
-            options.DataDirectory = dataDirectory;
-
-        ApplyRuntimeDefaults(options);
-        AlignLocalPeerWithNodeUrl(options);
-        ClusterTopologyValidator.Validate(options);
+            ApplyCommandLineOverrides(options, new Uri(url, UriKind.Absolute), dataDirectory, persist);
+        else
+            ApplyCommandLineOverrides(options, (Uri?)null, dataDirectory, persist);
     }
 
     /// <summary>
@@ -62,9 +56,14 @@ public static class SquirixServerConfiguration
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
         target.DataDirectory = source.DataDirectory;
-        target.Peers.Clear();
-        foreach (var peer in source.Peers)
-            target.Peers.Add(new SquirixServerPeerOptions { NodeId = peer.NodeId, Url = peer.Url });
+        var peers = new SquirixServerPeerOptions[source.Peers.Count];
+        for (var i = 0; i < peers.Length; i++)
+        {
+            var peer = source.Peers[i];
+            peers[i] = new SquirixServerPeerOptions { NodeId = peer.NodeId, Url = peer.Url };
+        }
+
+        target.Peers = peers;
     }
 
     /// <summary>
@@ -100,6 +99,8 @@ public static class SquirixServerConfiguration
     /// <returns><see langword="true" /> when the port appears available on loopback.</returns>
     public static bool IsListenPortAvailable(Uri url)
     {
+        ArgumentNullException.ThrowIfNull(url);
+
         if (!url.IsAbsoluteUri || url.Port <= 0)
             return false;
 
@@ -291,6 +292,29 @@ public static class SquirixServerConfiguration
 
             return;
         }
+    }
+
+    /// <summary>
+    /// Applies command-line overrides used by the standalone server host.
+    /// </summary>
+    /// <param name="options">Server options to update.</param>
+    /// <param name="url">Optional URL override.</param>
+    /// <param name="dataDirectory">Optional data directory override.</param>
+    /// <param name="persist">When <see langword="true" />, enables WAL/snapshot persistence.</param>
+    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? url, string? dataDirectory, bool persist = false)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (url is not null)
+            options.Url = url;
+        if (persist)
+            options.UsePersistence();
+        if (dataDirectory is not null)
+            options.DataDirectory = dataDirectory;
+
+        ApplyRuntimeDefaults(options);
+        AlignLocalPeerWithNodeUrl(options);
+        ClusterTopologyValidator.Validate(options);
     }
 
     private static int NextFreePort()

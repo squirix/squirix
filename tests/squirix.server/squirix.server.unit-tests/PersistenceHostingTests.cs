@@ -15,6 +15,18 @@ namespace Squirix.Server.UnitTests;
 public sealed class PersistenceHostingTests
 {
     /// <summary>
+    /// Ensures data directory without persistence is rejected.
+    /// </summary>
+    [Fact]
+    public void DataDirectoryWithoutPersistenceIsRejected()
+    {
+        var options = new SquirixServerOptions { DataDirectory = "/tmp/data" };
+
+        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
+        Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the default host does not register persistence services.
     /// </summary>
     [Fact]
@@ -28,9 +40,7 @@ public sealed class PersistenceHostingTests
                 EnvironmentName = "Development",
             });
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
-            loadDiscoveredSettings: false);
+        _ = builder.AddSquirixServer(options => options.Url = new Uri($"https://localhost:{port}"), loadDiscoveredSettings: false);
 
         using var app = builder.Build();
         Assert.Null(app.Services.GetService<PersistenceOptions>());
@@ -62,21 +72,8 @@ public sealed class PersistenceHostingTests
         using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         Assert.Equal(dataDir, persistence.DataDir);
-        Assert.True(PersistenceOptions.StrictFsync);
 
         if (Directory.Exists(dataDir))
             Directory.Delete(dataDir, true);
-    }
-
-    /// <summary>
-    /// Ensures data directory without persistence is rejected.
-    /// </summary>
-    [Fact]
-    public void DataDirectoryWithoutPersistenceIsRejected()
-    {
-        var options = new SquirixServerOptions { DataDirectory = "/tmp/data" };
-
-        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
-        Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Squirix.Server.Node.Observability.Metrics;
 using Xunit;
@@ -28,8 +29,8 @@ public sealed class PrometheusMetricsScraperTests
 
         var body = scraper.Scrape();
 
-        Assert.Contains("squirix_ops_total{operation=\"get\",result=\"ok\"} 5", body);
-        Assert.DoesNotContain("cache=", body);
+        Assert.Contains("squirix_ops_total{operation=\"get\",result=\"ok\"} 5", body, StringComparison.InvariantCulture);
+        Assert.DoesNotContain("cache=", body, StringComparison.InvariantCulture);
     }
 
     /// <summary>
@@ -50,7 +51,7 @@ public sealed class PrometheusMetricsScraperTests
 
         var body = scraper.Scrape();
 
-        Assert.Contains("squirix_serializer_failures_total{impl=\"json\",op=\"serialize\"} 1", body);
-        Assert.DoesNotContain("exception_type=", body);
+        Assert.Contains("squirix_serializer_failures_total{impl=\"json\",op=\"serialize\"} 1", body, StringComparison.InvariantCulture);
+        Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);
     }
 }

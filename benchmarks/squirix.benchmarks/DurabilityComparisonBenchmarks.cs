@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,7 @@ namespace Squirix.Benchmarks;
 /// </summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
+[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class DurabilityComparisonBenchmarks
 {
@@ -28,25 +30,14 @@ public class DurabilityComparisonBenchmarks
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public BenchmarkDurabilityMode DurabilityMode { get; set; }
 
-    private ICache<object?> SharedCache => (_cacheSession ?? throw new System.InvalidOperationException("Shared cache session was not opened.")).Cache;
+    private ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
 
     /// <summary>
     /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the add finishes.</returns>
     [Benchmark]
-    public Task AddNewKey() => SharedCache.AddAsync(System.Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
-
-    /// <summary>
-    /// Measures batched inserts of new keys.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task InsertNewKeyBatched()
-    {
-        for (var i = 0; i < Batch; i++)
-            await SharedCache.AddAsync(System.Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-    }
+    public Task AddNewKey() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
     /// <summary>
     /// Measures batched reads of an existing key.
@@ -82,5 +73,16 @@ public class DurabilityComparisonBenchmarks
         _node = BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).GetAwaiter().GetResult();
         _cacheSession = BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).GetAwaiter().GetResult();
         SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Measures batched inserts of new keys.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public async Task InsertNewKeyBatched()
+    {
+        for (var i = 0; i < Batch; i++)
+            await SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 }

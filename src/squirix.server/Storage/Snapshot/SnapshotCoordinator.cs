@@ -127,7 +127,7 @@ internal sealed class SnapshotCoordinator<T>
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", (long)seqAtFlush);
 
         var items = new List<(CacheKey Key, object Json)>();
-        await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken))
+        await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
             if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
                 continue;

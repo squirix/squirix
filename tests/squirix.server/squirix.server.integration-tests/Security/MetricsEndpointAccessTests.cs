@@ -58,7 +58,7 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
-        var response = await HttpClient.GetAsync($"https://127.0.0.1:{mainPort}/metrics", DefaultCancellationToken);
+        var response = await HttpClient.GetAsync(new Uri($"https://127.0.0.1:{mainPort}/metrics"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
@@ -83,6 +83,9 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    private static Task<HttpResponseMessage> GetMetricsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
+        NonLoopbackIpHttpClient.GetAsync(new Uri($"https://{localIp}:{port}/metrics"), cancellationToken);
+
     private static string? TryGetLocalNonLoopbackIpv4()
     {
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -104,7 +107,4 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 
         return null;
     }
-
-    private static Task<HttpResponseMessage> GetMetricsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
-        NonLoopbackIpHttpClient.GetAsync($"https://{localIp}:{port}/metrics", cancellationToken);
 }

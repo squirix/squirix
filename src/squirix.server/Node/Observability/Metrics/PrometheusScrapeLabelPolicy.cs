@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
@@ -13,6 +14,30 @@ internal static class PrometheusScrapeLabelPolicy
         "cache",
         "exception_type",
     };
+
+    /// <summary>
+    /// Builds a Prometheus label set string from sorted tags.
+    /// </summary>
+    /// <param name="tags">Sorted tag list.</param>
+    /// <returns>Prometheus label set without outer braces.</returns>
+    internal static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    {
+        if (tags.Length == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < tags.Length; i++)
+        {
+            if (i > 0)
+                _ = sb.Append(',');
+            _ = sb.Append(tags[i].Key);
+            _ = sb.Append("=\"");
+            _ = sb.Append(Escape(tags[i].Value?.ToString() ?? string.Empty));
+            _ = sb.Append('"');
+        }
+
+        return sb.ToString();
+    }
 
     /// <summary>
     /// Returns tags with identifying labels removed for public HTTP export.
@@ -38,29 +63,7 @@ internal static class PrometheusScrapeLabelPolicy
         return [.. filtered];
     }
 
-    /// <summary>
-    /// Builds a Prometheus label set string from sorted tags.
-    /// </summary>
-    /// <param name="tags">Sorted tag list.</param>
-    /// <returns>Prometheus label set without outer braces.</returns>
-    internal static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
-    {
-        if (tags.Length == 0)
-            return string.Empty;
-
-        var sb = new System.Text.StringBuilder();
-        for (var i = 0; i < tags.Length; i++)
-        {
-            if (i > 0)
-                _ = sb.Append(',');
-            _ = sb.Append(tags[i].Key);
-            _ = sb.Append("=\"");
-            _ = sb.Append(Escape(tags[i].Value?.ToString() ?? string.Empty));
-            _ = sb.Append('"');
-        }
-
-        return sb.ToString();
-    }
-
-    private static string Escape(string s) => s.Replace("\\", @"\\").Replace("\n", "\\n").Replace("\"", "\\\"");
+    private static string Escape(string s) => s
+                                             .Replace("\\", @"\\", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)
+                                             .Replace("\"", "\\\"", StringComparison.Ordinal);
 }
