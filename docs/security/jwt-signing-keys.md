@@ -47,6 +47,23 @@ Symmetric `SQUIRIX_JWT_SIGNING_KEY` is appropriate for:
 
 Docker and getting-started examples ship **test-only** signing keys. Do not reuse them outside local machines.
 
+## Generate a per-environment symmetric key
+
+When you configure symmetric JWT auth (`SQUIRIX_JWT_SIGNING_KEY`), generate a **unique** secret for each environment.
+The Docker dev fixture `dev-squirix-docker-jwt-key!!!!!!` is public in this repository.
+
+```powershell
+# At least 32 random bytes (example)
+openssl rand -base64 48
+```
+
+Store production values in a secret manager. Set the same key on every validating node and every token issuer
+(clients, scrapers, CI). Pair with environment-specific `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE`.
+
+Cluster mTLS material is separate — generate per-environment node certificates as described in
+[inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl)
+and [containerization.md](../containerization.md#generate-per-environment-secrets).
+
 ## Rotating symmetric keys
 
 Squirix validates tokens against the **single** configured symmetric key at process startup. There is no overlap window

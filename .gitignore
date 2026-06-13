@@ -29,6 +29,7 @@ project.fragment.lock.json
 artifacts/
 docker/nuget-packages/*.nupkg
 docker/nuget-packages/*.snupkg
+docker/.env
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
