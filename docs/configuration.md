@@ -359,13 +359,28 @@ bundled development PFX; see [containerization.md](containerization.md#https-in-
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
 
-Security notes:
+## Security notes
 
-- Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require** JWT settings at
-  startup; the process refuses to start without them. Loopback binds (`localhost`, `127.0.0.1`) allow unauthenticated
-  cache access unless auth is explicitly configured.
-- JWT bearer authentication is enforced server-side for gRPC cache endpoints when auth is
-  enabled. Missing or invalid credentials are rejected.
+### Loopback trust model
+
+When the primary listen URL host is loopback (`localhost`, `127.0.0.1`, or another `IPAddress.IsLoopback` address),
+Squirix allows **unauthenticated** access to gRPC cache routes unless you configure `SQUIRIX_JWT_*`. `/metrics` scrapes
+from loopback clients stay anonymous even when JWT is enabled; remote clients still need a bearer token (see
+[diagnostics.md](diagnostics.md#metrics-route)).
+
+This trusts **every local process on the machine**, not just your application. It is appropriate for local development,
+benchmarks, and in-process tests. It is **not** a substitute for JWT/OIDC on shared hosts, containers published to the
+host network, or any interface reachable by other machines.
+
+Implementation: `SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri` skips the auth requirement only
+for loopback bind hosts. Non-loopback URLs (`0.0.0.0`, Docker DNS names, public interfaces) **require** JWT settings at
+startup; the process refuses to start without them.
+
+### External authentication
+
+- Non-loopback listen URLs **require** JWT settings at startup as described above. When auth is configured, loopback
+  gRPC and remote clients must present valid JWT bearer tokens for cache routes (missing or invalid credentials are
+  rejected).
 - Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
 - When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
   inter-node mTLS is required at startup. Inter-node gRPC is served on the dedicated internal HTTPS listener
