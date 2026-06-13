@@ -49,7 +49,7 @@ public sealed class PortAllocator : IDisposable
         _start = startPort;
         _endInclusive = endPortInclusive;
         _rangeSize = _endInclusive - _start + 1;
-        _next = _start - 1;
+        _next = _start + (CreateProcessOffset() % _rangeSize) - 1;
     }
 
     /// <summary>
@@ -138,6 +138,18 @@ public sealed class PortAllocator : IDisposable
         catch (SocketException)
         {
             return false;
+        }
+    }
+
+    private static int CreateProcessOffset()
+    {
+        unchecked
+        {
+            var hash = Environment.ProcessId;
+            foreach (var ch in AppContext.BaseDirectory)
+                hash = (hash * 31) + ch;
+
+            return hash & int.MaxValue;
         }
     }
 

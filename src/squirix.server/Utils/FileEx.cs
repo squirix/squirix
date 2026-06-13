@@ -23,6 +23,24 @@ internal static class FileEx
     /// </remarks>
     public static bool TryDeleteFile(string? path) => string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || TryDeleteExistingFile(path);
 
+    /// <summary>
+    /// Publishes a temp file as the final durable file, replacing an existing destination when present.
+    /// </summary>
+    /// <param name="tempPath">Path to the fully written temp file.</param>
+    /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
+    /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>
+    /// <param name="ignoreMetadataErrors">
+    /// When <see langword="true" />, metadata differences between source and destination are ignored during
+    /// <see cref="File.Replace(string, string, string?, bool)" />.
+    /// </param>
+    public static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    {
+        if (File.Exists(finalPath))
+            File.Replace(tempPath, finalPath, backupPath, ignoreMetadataErrors);
+        else
+            File.Move(tempPath, finalPath);
+    }
+
     internal static string? FindFile(string[] paths)
     {
         var cwd = Directory.GetCurrentDirectory();

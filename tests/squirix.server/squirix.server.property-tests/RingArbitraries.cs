@@ -10,7 +10,7 @@ namespace Squirix.Server.PropertyTests;
 /// Provides FsCheck arbitraries/generators used by the property tests.
 /// Generates distinct ASCII-safe node ids and sane vnode counts.
 /// </summary>
-public static class RingArbitraries
+internal static class RingArbitraries
 {
     /// <summary>
     /// Distinct node identifiers like "node-123"; array length in [1, 12].

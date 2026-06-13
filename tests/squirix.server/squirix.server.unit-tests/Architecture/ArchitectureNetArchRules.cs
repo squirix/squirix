@@ -8,7 +8,7 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>
 /// NetArchTest composition helpers used across architecture tests.
 /// </summary>
-public static class ArchitectureNetArchRules
+internal static class ArchitectureNetArchRules
 {
     /// <summary>
     /// Evaluates whether every type matched by <paramref name="matchingTypes" /> resides in one of the given exact namespaces (disjunction).

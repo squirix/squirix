@@ -7,14 +7,10 @@ namespace Squirix.Server.Node.Observability;
 /// </summary>
 internal static class StorageRetentionMetrics
 {
-    public static readonly Counter2Labels DeleteFailuresTotal;
-
-    private static readonly Counter<long> DeleteFailuresTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total");
-
-    static StorageRetentionMetrics()
-    {
-        DeleteFailuresTotal = new Counter2Labels(DeleteFailuresTotalCtr, "artifact", "outcome");
-    }
+    public static readonly Counter2Labels DeleteFailuresTotal = new(
+        MeterRegistry.Meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"),
+        "artifact",
+        "outcome");
 
     internal readonly struct Counter2Labels
     {

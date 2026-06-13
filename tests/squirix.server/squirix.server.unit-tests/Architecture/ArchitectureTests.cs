@@ -76,7 +76,7 @@ public sealed class ArchitectureTests
     public void FilterTypesShouldLiveInAdaptersRestNamespace()
     {
         var result = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Filter"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Filter", StringComparison.InvariantCulture),
             [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
 
         ArchitectureAssertions.AssertArchitecture(result);
@@ -88,7 +88,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Handler").Should()
+        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Handler", StringComparison.InvariantCulture).Should()
                           .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
@@ -114,7 +114,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Metrics").And().AreNotInterfaces().Should()
+        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Metrics", StringComparison.InvariantCulture).And().AreNotInterfaces().Should()
                           .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
@@ -163,7 +163,7 @@ public sealed class ArchitectureTests
     public void OptionsTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Options"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Options", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServerOptionsTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
@@ -380,6 +380,24 @@ public sealed class ArchitectureTests
     }
 
     /// <summary>
+    /// Ensures the server project generates the basic KV and expiration transport contract from shared source.
+    /// </summary>
+    [Fact]
+    public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
+    {
+        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
+                                                                                    .SingleOrDefault(static element => string.Equals(
+                                                                                         element.Attribute("Include")?.Value,
+                                                                                         @"..\shared\transport\grpc\Protos\SquirixCache.proto",
+                                                                                         StringComparison.Ordinal));
+
+        Assert.NotNull(serverProtobuf);
+        Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
+        Assert.Equal(@"..\shared\transport\grpc\Protos", serverProtobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
+    }
+
+    /// <summary>
     /// Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.
     /// </summary>
     [Fact]
@@ -435,7 +453,7 @@ public sealed class ArchitectureTests
     public void ServiceTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Service"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Service", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServiceTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
@@ -485,28 +503,9 @@ public sealed class ArchitectureTests
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         var offenders = Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Select(static path => (Path: path, Text: File.ReadAllText(path)))
                                  .Where(static pair => !pair.Text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
-                                 .Select(static pair => Path.GetFileName(pair.Path))
-                                 .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+                                 .Select(static pair => Path.GetFileName(pair.Path)).OrderBy(static path => path, StringComparer.Ordinal).ToArray();
 
         Assert.Empty(offenders);
-    }
-
-    /// <summary>
-    /// Ensures the server project generates the basic KV and expiration transport contract from shared source.
-    /// </summary>
-    [Fact]
-    public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
-    {
-        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
-                                                                                    .SingleOrDefault(static element => string.Equals(
-                                                                                         element.Attribute("Include")?.Value,
-                                                                                         @"..\shared\transport\grpc\Protos\SquirixCache.proto",
-                                                                                         StringComparison.Ordinal));
-
-        Assert.NotNull(serverProtobuf);
-        Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", serverProtobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
     }
 
     /// <summary>
@@ -540,7 +539,8 @@ public sealed class ArchitectureTests
     public void ValidatorTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator").And().DoNotHaveNameEndingWith("Invalidator"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
+                 .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
             [.. ArchitectureAllowlists.ValidatorTypeNamespaces.Where(static ns => ns is not "Squirix" and not "Squirix.Core")]);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);

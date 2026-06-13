@@ -21,7 +21,6 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         var tracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
         {
-            StrictFsync = true,
             GroupCommitEnabled = false,
         };
 
@@ -46,7 +45,6 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
-        Assert.Null(activity.GetTagItem("journal.strict_fsync"));
         Assert.Null(activity.GetTagItem("journal.group_commit"));
     }
 

@@ -26,7 +26,7 @@ internal static class RingHelpers
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count), "Count must be non-negative.");
 
-        var rng = new Random(seed);
+        var rng = new DeterministicRandom(seed);
         for (var i = 0; i < count; i++)
             yield return $"key-{rng.NextInt64()}";
     }
@@ -48,7 +48,7 @@ internal static class RingHelpers
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        var rng = new Random(seed);
+        var rng = new DeterministicRandom(seed);
         var arr = (T[])source.Clone();
 
         for (var i = arr.Length - 1; i > 0; i--)
@@ -58,5 +58,34 @@ internal static class RingHelpers
         }
 
         return arr;
+    }
+
+    private struct DeterministicRandom
+    {
+        private ulong _state;
+
+        public DeterministicRandom(int seed)
+        {
+            _state = unchecked((uint)seed) + 0x9E3779B97F4A7C15UL;
+        }
+
+        public int Next(int exclusiveUpperBound)
+        {
+            if (exclusiveUpperBound <= 0)
+                throw new ArgumentOutOfRangeException(nameof(exclusiveUpperBound), "Upper bound must be positive.");
+
+            return (int)(NextUInt64() % (uint)exclusiveUpperBound);
+        }
+
+        public long NextInt64() => unchecked((long)NextUInt64());
+
+        private ulong NextUInt64()
+        {
+            _state += 0x9E3779B97F4A7C15UL;
+            var value = _state;
+            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
+            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
+            return value ^ (value >> 31);
+        }
     }
 }

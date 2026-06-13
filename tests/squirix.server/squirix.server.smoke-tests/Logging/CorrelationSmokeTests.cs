@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -26,8 +27,8 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     [Fact]
     public async Task TraceContextFlowsFromGrpcToGrpcAcrossNodes()
     {
-        var urlA = GetNextHttpUrl();
-        var urlB = GetNextHttpUrl();
+        var urlA = GetNextHttpAddress();
+        var urlB = GetNextHttpAddress();
 
         var peers = BuildClusterPeers(("A", urlA), ("B", urlB));
 
@@ -49,7 +50,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var traceparent = activity.Id;
         var tracestate = activity.TraceStateString;
 
-        using var channel = CreateGrpcChannel(nodeA.Address);
+        using var channel = CreateGrpcChannel(new Uri(nodeA.Address, UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { TraceParentHeader, traceparent! } };
         if (!string.IsNullOrEmpty(tracestate))

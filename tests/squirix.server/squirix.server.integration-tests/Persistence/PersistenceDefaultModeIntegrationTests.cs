@@ -12,29 +12,13 @@ namespace Squirix.Server.IntegrationTests.Persistence;
 public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
 {
     /// <summary>
-    /// Ensures default startup does not create WAL, manifest, or snapshot files.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [Fact]
-    public async Task DefaultStartupDoesNotCreatePersistenceFiles()
-    {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = "node_ephemeral", Url = url } };
-
-        await using var node = await StartNodeAsync(url, peers);
-        Assert.False(node.PersistenceEnabled);
-        Assert.True(string.IsNullOrWhiteSpace(node.DataDir));
-        Assert.Null(node.Services.GetService(typeof(PersistenceOptions)));
-    }
-
-    /// <summary>
     /// Ensures cache operations work in the default ephemeral mode.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
     public async Task DefaultModeSupportsCacheOperations()
     {
-        var url = GetNextHttpUrl();
+        var url = GetNextHttpAddress();
         var peers = new[] { new Peer { NodeId = "node_ephemeral_ops", Url = url } };
 
         await using var node = await StartNodeAsync(url, peers);
@@ -43,5 +27,21 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         await cache.SetAsync(CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
         var value = await cache.GetValueAsync(CacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
         Assert.Equal("value", value);
+    }
+
+    /// <summary>
+    /// Ensures default startup does not create WAL, manifest, or snapshot files.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    [Fact]
+    public async Task DefaultStartupDoesNotCreatePersistenceFiles()
+    {
+        var url = GetNextHttpAddress();
+        var peers = new[] { new Peer { NodeId = "node_ephemeral", Url = url } };
+
+        await using var node = await StartNodeAsync(url, peers);
+        Assert.False(node.PersistenceEnabled);
+        Assert.True(string.IsNullOrWhiteSpace(node.DataDir));
+        Assert.Null(node.Services.GetService(typeof(PersistenceOptions)));
     }
 }

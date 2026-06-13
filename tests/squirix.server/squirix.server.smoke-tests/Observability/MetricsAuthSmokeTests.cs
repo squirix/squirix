@@ -18,7 +18,6 @@ namespace Squirix.Server.SmokeTests.Observability;
 public sealed class MetricsAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
-
     private static readonly SocketsHttpHandler RemoteMetricsHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
     private static readonly HttpClient RemoteMetricsClient = new(RemoteMetricsHandler, false);
 
@@ -43,7 +42,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        var loopbackAnonymous = await HttpClient.GetAsync($"{loopbackUrl}/metrics", DefaultCancellationToken);
+        var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/metrics"), DefaultCancellationToken);
         Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopbackAnonymous.StatusCode} {loopbackAnonymous.ReasonPhrase}");
 
         using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/metrics"))
@@ -55,7 +54,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {(int)loopbackWithJwt.StatusCode} {loopbackWithJwt.ReasonPhrase}");
         }
 
-        var remoteAnonymous = await RemoteMetricsClient.GetAsync($"https://{localIp}:{new Uri(bindUrl).Port}/metrics", DefaultCancellationToken);
+        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port}/metrics"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
 
         using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/metrics"))

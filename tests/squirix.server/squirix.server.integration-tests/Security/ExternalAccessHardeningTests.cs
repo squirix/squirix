@@ -16,6 +16,22 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class ExternalAccessHardeningTests : IntegrationTestBase
 {
     /// <summary>
+    /// Verifies health is served on the primary HTTPS listener.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
+    {
+        var url = GetNextHttpAddress();
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+
+        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions());
+
+        var response = await HttpClient.GetAsync(new Uri($"{url}/health"), DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    /// <summary>
     /// Verifies non-loopback primary listeners start when JWT authentication is configured.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
@@ -28,32 +44,13 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
 
-        using var channel = CreateGrpcChannel($"https://127.0.0.1:{mainPort}");
+        using var channel = CreateGrpcChannel(new Uri($"https://127.0.0.1:{mainPort}", UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
         });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies health is served on the primary HTTPS listener.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
-    {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
-
-        await using var node = await StartNodeAsync(
-            url,
-            peers,
-            security: new TestNodeSecurityOptions());
-
-        var response = await HttpClient.GetAsync($"{url}/health", DefaultCancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     /// <summary>

@@ -12,6 +12,4 @@ internal readonly struct JournalOperationTraceContext
     public string? Namespace { get; init; }
 
     public int? PayloadBytes { get; init; }
-
-    public bool? StrictFsync { get; init; }
 }

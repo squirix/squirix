@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using JetBrains.Annotations;
 using Xunit;
 
 namespace Squirix.IntegrationTests;
@@ -9,6 +11,7 @@ namespace Squirix.IntegrationTests;
 /// Provides helpers for starting nodes, building entries,
 /// and creating test-scoped persistence directories.
 /// </summary>
+[SuppressMessage("Design", "CA1515", Justification = "xUnit test classes are public, so their shared base class must be at least as visible.")]
 public abstract class IntegrationTestBase : IDisposable
 {
     /// <summary>
@@ -20,5 +23,18 @@ public abstract class IntegrationTestBase : IDisposable
     /// <summary>
     /// Cleans up sockets handler, HTTP client, and cancellation tokens.
     /// </summary>
-    public virtual void Dispose() => GC.SuppressFinalize(this);
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Releases managed resources for derived classes.
+    /// </summary>
+    /// <param name="disposing">Whether managed resources should be released.</param>
+    [PublicAPI]
+    protected virtual void Dispose(bool disposing)
+    {
+    }
 }

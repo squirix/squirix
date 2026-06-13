@@ -1,17 +1,18 @@
 #:property PublishAot=false
 using System.Diagnostics;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-tools-verify.cs --");
-    Console.WriteLine();
-    Console.WriteLine("Exit codes: 0 ok, 1 failed tool execution");
+    output.WriteLine("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.");
+    output.WriteLine();
+    output.WriteLine("Usage:");
+    output.WriteLine("  dotnet run --file tools/internal/sqr-tools-verify.cs --");
+    output.WriteLine();
+    output.WriteLine("Exit codes: 0 ok, 1 failed tool execution");
     return 0;
 }
 
@@ -39,7 +40,7 @@ if (files.Length == 0)
 foreach (var file in files)
 {
     var name = Path.GetFileName(file);
-    Console.WriteLine($"---- {name} --help ----");
+    output.WriteLine($"---- {name} --help ----");
     using var proc = Process.Start(new ProcessStartInfo
     {
         FileName = "dotnet",
@@ -53,5 +54,5 @@ foreach (var file in files)
         return proc?.ExitCode ?? 1;
 }
 
-Console.WriteLine("OK: all file-based tools responded to --help.");
+output.WriteLine("OK: all file-based tools responded to --help.");
 return 0;

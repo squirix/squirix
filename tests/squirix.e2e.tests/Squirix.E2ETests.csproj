@@ -7,7 +7,6 @@
         <UseAppHost>true</UseAppHost>
         <RootNamespace>Squirix.E2ETests</RootNamespace>
         <AssemblyName>Squirix.E2ETests</AssemblyName>
-        <NoWarn>$(NoWarn);xUnit2002</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

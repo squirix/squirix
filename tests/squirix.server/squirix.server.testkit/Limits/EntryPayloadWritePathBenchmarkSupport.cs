@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Limits;
 using Squirix.Server.Storage.Journaling;
 
@@ -15,6 +16,8 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <returns>The serialized byte length.</returns>
     public static int DiscriminatedSerializeOnce(CacheEntry<string> entry)
     {
+        ArgumentNullException.ThrowIfNull(entry);
+
         var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags);
         return payload.Length;
     }
@@ -26,6 +29,8 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <returns>The combined serialized byte length from both passes.</returns>
     public static int DiscriminatedSerializeTwice(CacheEntry<string> entry)
     {
+        ArgumentNullException.ThrowIfNull(entry);
+
         var guardBytes = EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
         var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags);
         return guardBytes + payload.Length;
@@ -38,6 +43,8 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <returns>The serialized byte length after validation.</returns>
     public static int SerializeOnceThenLengthCheck(CacheEntry<string> entry)
     {
+        ArgumentNullException.ThrowIfNull(entry);
+
         var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags);
         EntryPayloadSizeGuard.EnsureDiscriminatedJsonWithinLimit(payload);
         return payload.Length;

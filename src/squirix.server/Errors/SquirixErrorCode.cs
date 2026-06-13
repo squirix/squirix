@@ -3,7 +3,7 @@ namespace Squirix.Server.Errors;
 /// <summary>
 /// Defines stable squirix error codes used by protocol adapters and structured error payloads.
 /// </summary>
-internal enum SquirixErrorCode
+public enum SquirixErrorCode
 {
     /// <summary>
     /// Cache name validation failed.
