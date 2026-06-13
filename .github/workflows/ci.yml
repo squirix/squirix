@@ -40,8 +40,6 @@ jobs:
                           - 'examples/**'
                           - 'benchmarks/**'
                           - 'samples/**'
-                          - 'docker/**'
-                          - '.github/**'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'
                           - 'global.json'
@@ -50,7 +48,6 @@ jobs:
                           - 'squirix.slnx'
                           - 'squirix.slnx.DotSettings'
                           - 'coverlet.runsettings'
-                          - '.dockerignore'
                           - 'clean-bin-obj.bat'
                           - 'clean-bin-obj.sh'
                         docs:
@@ -63,6 +60,7 @@ jobs:
                           - 'docker/Dockerfile'
                           - 'docker/Dockerfile.release'
                           - 'docker/**'
+                          - '.dockerignore'
                           - 'src/squirix/**'
                           - 'src/shared/**'
                           - 'src/squirix.server/**'
@@ -758,6 +756,7 @@ jobs:
             always() && (
               needs.changes.outputs.docs == 'true' ||
               needs.changes.outputs.code == 'true' ||
+              needs.changes.outputs.docker == 'true' ||
               github.event_name == 'schedule' ||
               github.event_name == 'workflow_dispatch'
             )

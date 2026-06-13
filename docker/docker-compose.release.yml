@@ -1,3 +1,7 @@
+# Release-image compose for LOCAL verification of packed squirix-server tool images.
+# Secrets are NOT baked in — set them explicitly (copy .env.example to .env for local dev only).
+# Do not deploy unchanged to production. See docs/containerization.md#security.
+
 services:
   node-a:
     build:
@@ -8,12 +12,12 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-a-release
     environment:
-      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
-      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
-      - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
+      - SQUIRIX_JWT_ISSUER=${SQUIRIX_JWT_ISSUER:?Set SQUIRIX_JWT_ISSUER — see docker/.env.example}
+      - SQUIRIX_JWT_AUDIENCE=${SQUIRIX_JWT_AUDIENCE:?Set SQUIRIX_JWT_AUDIENCE — see docker/.env.example}
       - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
       - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-A.pfx
-      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=${SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD:?Set SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD — see docker/.env.example}
       - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:
@@ -33,12 +37,12 @@ services:
         LOCAL_PACKAGES: "true"
     container_name: squirix-node-b-release
     environment:
-      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
-      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
-      - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_JWT_SIGNING_KEY=${SQUIRIX_JWT_SIGNING_KEY:?Set SQUIRIX_JWT_SIGNING_KEY — see docker/.env.example}
+      - SQUIRIX_JWT_ISSUER=${SQUIRIX_JWT_ISSUER:?Set SQUIRIX_JWT_ISSUER — see docker/.env.example}
+      - SQUIRIX_JWT_AUDIENCE=${SQUIRIX_JWT_AUDIENCE:?Set SQUIRIX_JWT_AUDIENCE — see docker/.env.example}
       - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
       - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-B.pfx
-      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=${SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD:?Set SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD — see docker/.env.example}
       - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
     command: ["run", "--persist", "--data-dir", "/data"]
     ports:

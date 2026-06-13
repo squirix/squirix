@@ -1,3 +1,7 @@
+# LOCAL DEVELOPMENT ONLY — not a production deployment template.
+# Hard-coded JWT and mTLS secrets below are public test fixtures. Anyone who knows them can mint valid JWTs.
+# For production, use OIDC/JWKS or per-environment secrets — see docs/containerization.md#security.
+
 services:
   node-a:
     build:

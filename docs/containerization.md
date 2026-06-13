@@ -8,7 +8,8 @@ Contents:
 - `docker/Dockerfile.release`: installs `squirix-server` from the `squirix.server.tool` NuGet package
 - `Squirix.Server.Host`: standalone server executable that starts a node and waits
 - `docker/docker-compose.yml`: two-node example (sources image)
-- `docker/docker-compose.release.yml`: two-node example (release image, local package drop)
+- `docker/docker-compose.release.yml`: two-node example (release image, local package drop; secrets via `.env`)
+- `docker/.env.example`: template for release compose (copy to `.env` for local testing only)
 - `docker/node-a/Squirix.settings.json`
 - `docker/node-b/Squirix.settings.json`
 
@@ -43,22 +44,36 @@ docker build -f docker/Dockerfile.release -t squirix-server:local `
   --build-arg SQUIRIX_VERSION=0.1.0-preview.4 .
 ```
 
-Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`):
+Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not
+hard-coded** — copy `docker/.env.example` to `docker/.env` (local dev only) before `up`:
 
 ```powershell
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
 cd docker
+Copy-Item .env.example .env
 docker compose -f docker-compose.release.yml build
 ```
 
 ## Run
+
+> **Development only.** Compose files and `docker run` snippets below use **public test JWT and mTLS secrets**.
+> They are fine on a local machine; copying them unchanged into staging or production lets anyone who knows the
+> fixtures mint valid tokens. See [Security](#security) and [Generate per-environment secrets](#generate-per-environment-secrets).
 
 Two-node cluster (sets sample JWT env vars for both nodes; containers run with `Production` hosting environment):
 
 ```powershell
 cd docker
 docker compose up -d
+```
+
+Release-image two-node cluster (requires `docker/.env` — copy from `.env.example` for local testing):
+
+```powershell
+cd docker
+Copy-Item .env.example .env
+docker compose -f docker-compose.release.yml up -d
 ```
 
 For a single local development node (ephemeral, in-memory):
@@ -156,13 +171,47 @@ Trust only the PEM cluster CA configured at `SQUIRIX_CLUSTER_MTLS_CA_PATH` and e
 
 ## Security
 
+> **Do not deploy Docker examples unchanged to production.** `docker-compose.yml` and single-container `docker run`
+> snippets embed predictable JWT signing keys and reference **development-only** mTLS material baked into images at
+> `/mtls/`. Anyone with repository access can forge JWTs against those keys.
+
 - Non-loopback listen URLs require JWT settings at startup. The compose examples use a fixed dev signing key for local
   testing only — see [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
+- `docker-compose.release.yml` does **not** ship default secrets; `docker compose up` fails until you set
+  `SQUIRIX_JWT_*` and `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD` (for local verification, copy
+  [docker/.env.example](../docker/.env.example) to `docker/.env` — never commit `.env`).
 - Multi-node clusters require cluster mTLS material in addition to JWT. See
   [security/inter-node-mtls.md](security/inter-node-mtls.md).
+- For production, prefer **OIDC/JWKS** (`SQUIRIX_JWT_AUTHORITY`) over symmetric `SQUIRIX_JWT_SIGNING_KEY`, mount your
+  own cluster CA and node certificates, and store secrets in a secret manager — not in compose files or images.
 - `/health` stays anonymous. `/metrics` follows the same auth rules as cache routes for remote clients;
   host → published port counts as remote inside the container. See [configuration.md](configuration.md) and
   [diagnostics.md](diagnostics.md).
+
+## Generate per-environment secrets
+
+Use **distinct** JWT and mTLS material per environment (dev, staging, production). Never reuse the Docker dev fixtures.
+
+### Symmetric JWT signing key
+
+Generate a long random secret (at least 32 bytes). Example with OpenSSL:
+
+```powershell
+openssl rand -base64 48
+```
+
+Set the same value on every Squirix node (`SQUIRIX_JWT_SIGNING_KEY`) and on every client or scraper that mints bearer
+tokens. Also set `SQUIRIX_JWT_ISSUER` and `SQUIRIX_JWT_AUDIENCE` to match your environment. Details:
+[security/jwt-signing-keys.md](security/jwt-signing-keys.md).
+
+### Cluster mTLS certificates
+
+Generate a private cluster CA and per-node PKCS#12 files with OpenSSL. Each certificate `CN` must match that node's
+`Cluster.NodeId`. Full walkthrough:
+[security/inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl](security/inter-node-mtls.md#generate-a-local-test-ca-and-node-certificates-openssl).
+
+Mount the CA and node PFX (or PEM pair) into containers or hosts and point `SQUIRIX_CLUSTER_MTLS_*` at those paths.
+Use a strong, unique PFX password per environment.
 
 ## Persistence
 
