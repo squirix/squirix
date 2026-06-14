@@ -81,7 +81,7 @@ public sealed class JournalJsonCodecMetricsTests : ServerUnitTestBase
             Put = new Put(),
         };
 
-        _ = Assert.Throws<NullReferenceException>(() => RecordCodec.Serialize(env));
+        _ = Assert.Throws<InvalidOperationException>(() => RecordCodec.Serialize(env));
 
         Assert.True(sink.HasEvent("squirix_journal_json_ops_total", ("op", "encode"), ("result", "error")));
         Assert.True(sink.HasEvent("squirix_journal_json_op_duration_seconds", ("op", "encode")));

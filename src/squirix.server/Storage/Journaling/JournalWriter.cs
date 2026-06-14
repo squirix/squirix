@@ -206,7 +206,10 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         try
         {
+#pragma warning disable VSTHRD003
+            // The flush loop task is owned by this writer and is awaited during disposal.
             await _flushLoopTask.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
         }
         catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
         {

@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core.Interceptors;
+using Grpc.Core;
 using Squirix.Internal.Cluster.Bootstrap;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -30,13 +30,13 @@ internal static class RemoteClientSessionFactory
             };
         }
 
-        var interceptor = BuildInterceptorChain(options);
+        var callCredentials = BuildCallCredentials(options);
 
         ClientPool? clients = null;
         try
         {
 #pragma warning disable CA2000
-            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), handler, interceptor);
+            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), handler, callCredentials: callCredentials);
 #pragma warning restore CA2000
             var primaryNodeId = await clients.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var bootstrapNodeIds = new string[clients.BootstrapNodeIds.Count];
@@ -55,19 +55,13 @@ internal static class RemoteClientSessionFactory
         }
     }
 
-    private static Interceptor? BuildInterceptorChain(SquirixOptions options)
+    private static CallCredentials? BuildCallCredentials(SquirixOptions options)
     {
-        var interceptors = new List<Interceptor>();
-
-        if (options.BearerTokenProvider is not null)
-            interceptors.Add(new BearerTokenInterceptor(options.BearerTokenProvider));
-
-        return interceptors.Count switch
+        return options.BearerTokenProvider is null ? null : CallCredentials.FromInterceptor(async (context, metadata) =>
         {
-            0 => null,
-            1 => interceptors[0],
-            _ => new CompositeInterceptor(interceptors),
-        };
+            var token = await options.BearerTokenProvider(context.CancellationToken).ConfigureAwait(false);
+            metadata.Add("authorization", $"Bearer {token}");
+        });
     }
 
     private static string[] NormalizeEndpoints(IEnumerable<string> endpoints)

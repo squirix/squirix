@@ -24,32 +24,8 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         var factoryCalls = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = clientCache.GetOrAddWithFactoryAsync(
-            "orders",
-            "k",
-            async (key, cancellationToken) =>
-            {
-                _ = key;
-                _ = cancellationToken;
-                _ = Interlocked.Increment(ref factoryCalls);
-                await gate.Task.ConfigureAwait(false);
-                return "created";
-            },
-            null,
-            DefaultCancellationToken);
-        var second = clientCache.GetOrAddWithFactoryAsync(
-            "orders",
-            "k",
-            async (key, cancellationToken) =>
-            {
-                _ = key;
-                _ = cancellationToken;
-                _ = Interlocked.Increment(ref factoryCalls);
-                await gate.Task.ConfigureAwait(false);
-                return "created";
-            },
-            null,
-            DefaultCancellationToken);
+        var first = RunGetOrAddAsync();
+        var second = RunGetOrAddAsync();
         await Task.Delay(50, DefaultCancellationToken);
         gate.SetResult();
         var results = await Task.WhenAll(first.AsTask(), second.AsTask());
@@ -59,6 +35,25 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         {
             Assert.True(result.Found);
             Assert.Equal("created", result.Value);
+        }
+
+        return;
+
+        ValueTask<CacheValueResult<string>> RunGetOrAddAsync()
+        {
+            return clientCache.GetOrAddWithFactoryAsync(
+            "orders",
+            "k",
+            async (key, cancellationToken) =>
+            {
+                _ = key;
+                _ = cancellationToken;
+                _ = Interlocked.Increment(ref factoryCalls);
+                await gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return "created";
+            },
+            null,
+            DefaultCancellationToken);
         }
     }
 

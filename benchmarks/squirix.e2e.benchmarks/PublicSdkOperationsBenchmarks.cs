@@ -53,7 +53,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task GetOrAddExistingValueBatched()
+    public async Task GetOrAddExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < ReadBatch; i++)
@@ -68,7 +68,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is populated.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
-    public async Task GetOrAddMissingValueBatched()
+    public async Task GetOrAddMissingValueBatchedAsync()
     {
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _getOrAddMissingOffset, WriteBatch);
@@ -84,7 +84,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the mixed batch is finished.</returns>
     [Benchmark(OperationsPerInvoke = MixedBatch)]
-    public async Task MixedReadWriteBatched()
+    public async Task MixedReadWriteBatchedAsync()
     {
         var cache = _squirix!;
         var writeOffset = Interlocked.Add(ref _mixedWriteOffset, MixedBatch / 10);
@@ -107,7 +107,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
-    public async Task OverwriteExistingValueBatched()
+    public async Task OverwriteExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < WriteBatch; i++)
@@ -119,7 +119,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadExistingValueBatched()
+    public async Task ReadExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < ReadBatch; i++)
@@ -134,7 +134,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadLiveExpiringValueBatched()
+    public async Task ReadLiveExpiringValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < ReadBatch; i++)
@@ -146,7 +146,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
-    public async Task ReadMissingValueBatched()
+    public async Task ReadMissingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < ReadBatch; i++)
@@ -178,7 +178,7 @@ public class PublicSdkOperationsBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
-    public async Task WriteNewValueBatched()
+    public async Task WriteNewValueBatchedAsync()
     {
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _writeOffset, WriteBatch);

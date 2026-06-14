@@ -40,12 +40,13 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         using var canceledCts = new CancellationTokenSource();
 
-        var canceled = AsSingleUseTask(groupCommit.AwaitCommitAsync(canceledCts.Token));
+        var canceled = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(canceledCts.Token));
         await canceledCts.CancelAsync();
 
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await canceled.ConfigureAwait(false));
+        await WaitUntilCompletedAsync(canceled);
+        Assert.True(canceled.IsCanceled);
 
-        await AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken)).WaitAsync(TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await WaitUntilCompletedAsync(AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken)));
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -65,11 +66,13 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var flushFailure = new InvalidOperationException("flush failed");
         var groupCommit = new JournalDurabilityGroupCommit(_ => throw flushFailure, options);
 
-        var first = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var second = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
-        var firstFailure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await first.ConfigureAwait(false));
-        var secondFailure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await second.ConfigureAwait(false));
+        await WaitUntilCompletedAsync(first);
+        await WaitUntilCompletedAsync(second);
+        var firstFailure = Assert.IsType<InvalidOperationException>(first.Exception?.InnerException);
+        var secondFailure = Assert.IsType<InvalidOperationException>(second.Exception?.InnerException);
 
         Assert.Same(flushFailure, firstFailure);
         Assert.Same(flushFailure, secondFailure);
@@ -100,14 +103,15 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         using var firstCts = new CancellationTokenSource();
 
-        var first = AsSingleUseTask(groupCommit.AwaitCommitAsync(firstCts.Token));
-        var second = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
         await firstCts.CancelAsync();
 
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await first.ConfigureAwait(false));
+        await WaitUntilCompletedAsync(first);
+        Assert.True(first.IsCanceled);
 
-        await second.WaitAsync(TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await WaitUntilCompletedAsync(second);
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -186,8 +190,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
             await journal.AppendPutAsync(CacheKey.Default("k2"), DiscriminatedEntryJsonWriter.BuildEntryJson("v2", null, null, 1, null), null, DefaultCancellationToken);
 
-            var firstCommit = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-            var secondCommit = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
             await Task.WhenAll(firstCommit, secondCommit);
 
             Assert.Equal(1, flushProbe.FlushCount);
@@ -199,7 +203,16 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         }
     }
 
-    private static Task AsSingleUseTask(ValueTask valueTask) => valueTask.AsTask();
+    private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
+
+    private static async Task WaitUntilCompletedAsync(Task task)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken).ConfigureAwait(false);
+
+        Assert.True(task.IsCompleted);
+    }
 
     private sealed class AtomicCounter
     {

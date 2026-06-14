@@ -89,7 +89,10 @@ internal sealed class RecoveryService<T> : IHostedService
         if (_replayTask is null)
             return;
 
+#pragma warning disable VSTHRD003
+        // The replay task is owned by this hosted service and is awaited during shutdown.
         await _replayTask.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
     }
 
     private static InvalidOperationException CreateJournalDecodeFailure(ulong sequence, string operation, string key) => new(

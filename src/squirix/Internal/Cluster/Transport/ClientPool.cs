@@ -32,6 +32,7 @@ internal sealed class ClientPool : IClientPool
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
+        CallCredentials? callCredentials = null,
         BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
@@ -44,6 +45,7 @@ internal sealed class ClientPool : IClientPool
             GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
+                Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixClientGrpcLimits.MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixClientGrpcLimits.MaxSendMessageSizeBytes,

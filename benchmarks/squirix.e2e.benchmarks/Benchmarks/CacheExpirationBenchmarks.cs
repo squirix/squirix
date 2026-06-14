@@ -24,7 +24,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
-    public async Task GetExpirationShouldReturnExpiringEntry()
+    public async Task GetExpirationShouldReturnExpiringEntryAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetExpirationAsync(NextExpiringHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -36,7 +36,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
-    public async Task GetExpirationShouldReturnNonExpiringEntry()
+    public async Task GetExpirationShouldReturnNonExpiringEntryAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetExpirationAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -48,7 +48,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = DestructiveExpirationBatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
-    public async Task RemoveExpirationShouldClearExpiration()
+    public async Task RemoveExpirationShouldClearExpirationAsync()
     {
         for (var i = 0; i < DestructiveExpirationBatchSize; i++)
             Consumer.Consume(await Adapter.RemoveExpirationAsync(Keyspace.ExpiringHitKey(i), CancellationToken.None).ConfigureAwait(false));
@@ -57,12 +57,13 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <summary>
     /// Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.
     /// </summary>
-    [IterationSetup(Target = nameof(RemoveExpirationShouldClearExpiration))]
-    public void SeedRemoveExpirationIteration()
+    /// <returns>A task that completes when the batch has finished.</returns>
+    [IterationSetup(Target = nameof(RemoveExpirationShouldClearExpirationAsync))]
+    public async Task SeedRemoveExpirationIterationAsync()
     {
         var offset = Interlocked.Add(ref _removeExpirationOffset, DestructiveExpirationBatchSize);
         for (var i = 0; i < DestructiveExpirationBatchSize; i++)
-            Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).GetAwaiter().GetResult();
+            await Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -71,7 +72,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
-    public async Task TouchShouldUpdateAbsoluteExpiration()
+    public async Task TouchShouldUpdateAbsoluteExpirationAsync()
     {
         var expiresAt = DateTimeOffset.UtcNow.AddHours(1);
         for (var i = 0; i < BatchSize; i++)
@@ -84,7 +85,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
-    public async Task TouchShouldUpdateRelativeExpiration()
+    public async Task TouchShouldUpdateRelativeExpirationAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.TouchRelativeAsync(NextHitKey(), LongExpiration, CancellationToken.None).ConfigureAwait(false));

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Infrastructure;
 
@@ -15,15 +16,18 @@ public class ClientConnectBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Measures client bootstrap and teardown against a node started in global setup.
     /// </summary>
+    /// <returns>A task that completes after the client is disposed.</returns>
     [Benchmark]
     [InvocationCount(1)]
-    public void ConnectAndDispose() => ConnectAndDisposeClient();
+    public async Task ConnectAndDisposeAsync() => await ConnectAndDisposeClientAsync().ConfigureAwait(false);
 
     /// <summary>Starts the benchmark node.</summary>
+    /// <returns>A task that completes after the node is started.</returns>
     [GlobalSetup]
-    public void SetupBenchmark() => StartNode();
+    public async Task SetupBenchmarkAsync() => await StartNodeAsync().ConfigureAwait(false);
 
     /// <summary>Stops the benchmark node.</summary>
+    /// <returns>A task that completes after the node is stopped.</returns>
     [GlobalCleanup]
-    public void TeardownBenchmark() => StopNode();
+    public async Task TeardownBenchmarkAsync() => await StopNodeAsync().ConfigureAwait(false);
 }

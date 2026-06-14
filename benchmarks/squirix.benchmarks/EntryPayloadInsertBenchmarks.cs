@@ -25,11 +25,12 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Stops the shared cache session and benchmark node.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are disposed.</returns>
     [GlobalCleanup]
-    public void Cleanup()
+    public async Task CleanupAsync()
     {
-        StopSharedCache();
-        StopNode();
+        await StopSharedCacheAsync().ConfigureAwait(false);
+        await StopNodeAsync().ConfigureAwait(false);
     }
 
     /// <summary>
@@ -37,7 +38,7 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     /// </summary>
     /// <returns>A task that completes when the batch finishes.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize, Description = "SetAsync near-limit payload")]
-    public async Task InsertNearLimitPayloadBatched()
+    public async Task InsertNearLimitPayloadBatchedAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), _largeValue, cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -48,7 +49,7 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     /// </summary>
     /// <returns>A task that completes when the batch finishes.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize, Description = "SetAsync small payload")]
-    public async Task InsertSmallPayloadBatched()
+    public async Task InsertSmallPayloadBatchedAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), _smallValue, cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -57,11 +58,12 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Starts the node and prepares payload strings.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are ready.</returns>
     [GlobalSetup]
-    public void Setup()
+    public async Task SetupAsync()
     {
-        StartNode();
-        StartSharedCache("bench-entry-payload");
+        await StartNodeAsync().ConfigureAwait(false);
+        await StartSharedCacheAsync("bench-entry-payload").ConfigureAwait(false);
         _smallValue = new string('x', 256);
         _largeValue = EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue();
     }

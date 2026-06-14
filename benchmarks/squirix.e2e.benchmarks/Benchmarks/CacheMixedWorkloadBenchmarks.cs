@@ -19,7 +19,7 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "hot-keys", "read")]
-    public async Task HotKeyReadMostlyShouldExecute()
+    public async Task HotKeyReadMostlyShouldExecuteAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {
@@ -36,7 +36,7 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "read", "write")]
-    public async Task ReadHeavy95To5ShouldExecute()
+    public async Task ReadHeavy95To5ShouldExecuteAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {
@@ -53,7 +53,7 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "read", "write", "mutation")]
-    public async Task ReadMostly80To15To5ShouldExecute()
+    public async Task ReadMostly80To15To5ShouldExecuteAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {
@@ -78,7 +78,7 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "remote-owner", "read")]
-    public async Task RemoteOwnerReadMostlyShouldExecute()
+    public async Task RemoteOwnerReadMostlyShouldExecuteAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {
@@ -95,7 +95,7 @@ public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mixed", "uniform-keys", "read")]
-    public async Task UniformTwoNodeReadMostlyShouldExecute()
+    public async Task UniformTwoNodeReadMostlyShouldExecuteAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {

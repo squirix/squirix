@@ -28,7 +28,7 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "--nodes", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length)
-            return await Usage("missing value for --nodes").ConfigureAwait(false);
+            return await UsageAsync("missing value for --nodes").ConfigureAwait(false);
 
         nodesCsv = argv[argIndex + 1];
         argIndex += 2;
@@ -38,7 +38,7 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "--sample-size", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out sampleSize) || sampleSize <= 0)
-            return await Usage("invalid --sample-size value").ConfigureAwait(false);
+            return await UsageAsync("invalid --sample-size value").ConfigureAwait(false);
 
         argIndex += 2;
         continue;
@@ -47,7 +47,7 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "--virtual-nodes", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out virtualNodes) || virtualNodes <= 0)
-            return await Usage("invalid --virtual-nodes value").ConfigureAwait(false);
+            return await UsageAsync("invalid --virtual-nodes value").ConfigureAwait(false);
 
         argIndex += 2;
         continue;
@@ -56,24 +56,24 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "--cache", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length)
-            return await Usage("missing value for --cache").ConfigureAwait(false);
+            return await UsageAsync("missing value for --cache").ConfigureAwait(false);
 
         cacheName = argv[argIndex + 1];
         argIndex += 2;
         continue;
     }
 
-    return await Usage($"unknown argument '{a}'").ConfigureAwait(false);
+    return await UsageAsync($"unknown argument '{a}'").ConfigureAwait(false);
 }
 
 if (string.IsNullOrWhiteSpace(nodesCsv))
-    return await Usage("--nodes is required").ConfigureAwait(false);
+    return await UsageAsync("--nodes is required").ConfigureAwait(false);
 
 try
 {
     var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
     if (nodes.Length == 0)
-        return await Usage("--nodes must contain at least one node id").ConfigureAwait(false);
+        return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -113,7 +113,7 @@ catch (ArgumentException ex)
     return 3;
 }
 
-static async Task<int> Usage(string message)
+static async Task<int> UsageAsync(string message)
 {
     await Console.Out.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
     return 2;

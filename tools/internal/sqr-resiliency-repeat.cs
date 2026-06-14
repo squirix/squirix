@@ -35,7 +35,7 @@ while (argIndex < argv.Length)
         || string.Equals(a, "--iterations", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out iterations) || iterations < 1)
-            return await Fail("Iterations must be positive.").ConfigureAwait(false);
+            return await FailAsync("Iterations must be positive.").ConfigureAwait(false);
 
         argIndex += 2;
         continue;
@@ -45,7 +45,7 @@ while (argIndex < argv.Length)
         || string.Equals(a, "--configuration", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length)
-            return await Fail("missing value for -Configuration").ConfigureAwait(false);
+            return await FailAsync("missing value for -Configuration").ConfigureAwait(false);
 
         configuration = argv[argIndex + 1];
         argIndex += 2;
@@ -60,7 +60,7 @@ while (argIndex < argv.Length)
         continue;
     }
 
-    return await Fail($"unknown argument '{a}'").ConfigureAwait(false);
+    return await FailAsync($"unknown argument '{a}'").ConfigureAwait(false);
 }
 
 var repoRoot = ResolveRepoRoot();
@@ -83,9 +83,9 @@ for (var iteration = 1; iteration <= iterations; iteration++)
         if (noBuild)
             list.Add("--no-build");
 
-        var code = await RunDotnet(repoRoot, list).ConfigureAwait(false);
+        var code = await RunDotnetAsync(repoRoot, list).ConfigureAwait(false);
         if (code != 0)
-            return await Fail($"Failed: {run.Label} on iteration {iteration}.", code).ConfigureAwait(false);
+            return await FailAsync($"Failed: {run.Label} on iteration {iteration}.", code).ConfigureAwait(false);
     }
 }
 
@@ -111,7 +111,7 @@ static string ResolveRepoRoot()
     return Environment.CurrentDirectory;
 }
 
-static async Task<int> RunDotnet(string repoRoot, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> args)
 {
     using var proc = Process.Start(new ProcessStartInfo
     {
@@ -131,7 +131,7 @@ static string QuoteIfNeeded(string value)
     return value.Contains(' ', StringComparison.Ordinal) ? $"\"{value}\"" : value;
 }
 
-static async Task<int> Fail(string message, int code = 1)
+static async Task<int> FailAsync(string message, int code = 1)
 {
     await Console.Error.WriteLineAsync(message).ConfigureAwait(false);
     return code;

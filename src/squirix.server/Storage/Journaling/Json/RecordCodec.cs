@@ -24,7 +24,7 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
             return env;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {
             RecordErrorMetrics("decode", sw);
             throw;
@@ -42,7 +42,7 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
             return bytes;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {
             RecordErrorMetrics("encode", sw);
             throw;
@@ -118,14 +118,15 @@ internal static class RecordCodec
             case JournalEnvelope.OpOneofCase.Put:
             {
                 var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
+                var item = put.Item ?? throw new InvalidOperationException("journal envelope Put is missing item.");
                 dto.Put = new PutOp
                 {
                     OperationId = put.OperationId,
                     Item = new ItemPair
                     {
-                        Key = put.Item.Key,
-                        Namespace = string.IsNullOrEmpty(put.Item.Namespace) ? null : put.Item.Namespace,
-                        EntryJsonUtf8 = put.Item.EntryJson.ToByteArray(),
+                        Key = item.Key,
+                        Namespace = string.IsNullOrEmpty(item.Namespace) ? null : item.Namespace,
+                        EntryJsonUtf8 = item.EntryJson.ToByteArray(),
                     },
                 };
                 break;

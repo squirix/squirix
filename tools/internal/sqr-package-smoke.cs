@@ -39,11 +39,11 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Combine(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
-var corePackCode = await RunDotnet(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
+var corePackCode = await RunDotnetAsync(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
 if (corePackCode != 0)
     return corePackCode;
 
-var serverPackCode = await RunDotnet(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
+var serverPackCode = await RunDotnetAsync(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
 if (serverPackCode != 0)
     return serverPackCode;
 
@@ -74,7 +74,7 @@ try
         var json = BuildSettingsJson(url);
         await File.WriteAllTextAsync(settingsPath, json).ConfigureAwait(false);
 
-        var exitCode = await RunDotnet(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"]).ConfigureAwait(false);
+        var exitCode = await RunDotnetAsync(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"]).ConfigureAwait(false);
         if (exitCode == 0 || attempt == maxAttempts)
             return exitCode;
     }
@@ -161,7 +161,7 @@ static bool HasServerPackage(string directory)
     return Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).Any();
 }
 
-static async Task<int> RunDotnet(string workingDirectory, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
 {
     var startInfo = new ProcessStartInfo
     {

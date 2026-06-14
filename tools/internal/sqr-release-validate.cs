@@ -22,18 +22,19 @@ var packageProjects = new[]
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
+if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     await output.WriteLineAsync("sqr-release-validate — validate release readiness and package artifacts.").ConfigureAwait(false);
     await output.WriteLineAsync().ConfigureAwait(false);
     await output.WriteLineAsync("Usage:").ConfigureAwait(false);
-    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]").ConfigureAwait(false);
+    await output.WriteLineAsync(
+                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
+                .ConfigureAwait(false);
     return 0;
 }
 
-var options = await ParseOptions(argv).ConfigureAwait(false);
+var options = await ParseOptionsAsync(argv).ConfigureAwait(false);
 if (!options.IsValid)
     return 1;
 
@@ -45,7 +46,7 @@ var smokePackageOutputPath = Path.Combine(repoRootResolved, "artifacts", "packag
 
 try
 {
-    await Step("Prepare artifacts directory").ConfigureAwait(false);
+    await StepAsync("Prepare artifacts directory").ConfigureAwait(false);
     if (!artifactsPath.StartsWith(repoRootResolved, StringComparison.OrdinalIgnoreCase) || string.Equals(artifactsPath, repoRootResolved, StringComparison.OrdinalIgnoreCase))
         throw new InvalidOperationException($"ArtifactsDirectory must resolve to a child directory inside the repository: {options.ArtifactsDirectory}");
 
@@ -53,7 +54,7 @@ try
         Directory.Delete(artifactsPath, true);
     _ = Directory.CreateDirectory(packageOutputPath);
 
-    await Step("Validate required docs").ConfigureAwait(false);
+    await StepAsync("Validate required docs").ConfigureAwait(false);
     foreach (var relativePath in requiredDocs)
     {
         var path = Path.Combine(repoRootResolved, relativePath);
@@ -61,49 +62,72 @@ try
             throw new FileNotFoundException($"Required file is missing: {path}");
     }
 
-    await Step("Restore").ConfigureAwait(false);
-    await RunDotnetOrThrow(repoRootResolved, ["restore", "squirix.slnx"]).ConfigureAwait(false);
+    await StepAsync("Restore").ConfigureAwait(false);
+    await RunDotnetOrThrowAsync(repoRootResolved, ["restore", "squirix.slnx"]).ConfigureAwait(false);
 
     if (!options.SkipFormat)
     {
-        await Step("Verify formatting").ConfigureAwait(false);
-        await RunDotnetOrThrow(repoRootResolved, ["format", "squirix.slnx", "--verify-no-changes", "--no-restore"]).ConfigureAwait(false);
+        await StepAsync("Verify formatting").ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(repoRootResolved, ["format", "squirix.slnx", "--verify-no-changes", "--no-restore"]).ConfigureAwait(false);
     }
 
-    await Step("Build solution").ConfigureAwait(false);
-    await RunDotnetOrThrow(repoRootResolved, ["build", "squirix.slnx", "--configuration", options.Configuration, "--no-restore"]).ConfigureAwait(false);
+    await StepAsync("Build solution").ConfigureAwait(false);
+    await RunDotnetOrThrowAsync(repoRootResolved, ["build", "squirix.slnx", "--configuration", options.Configuration, "--no-restore"]).ConfigureAwait(false);
 
-    await Step("Validate file-based tools").ConfigureAwait(false);
-    await RunDotnetOrThrow(repoRootResolved, ["run", "--file", "tools/internal/sqr-tools-verify.cs", "--"]).ConfigureAwait(false);
+    await StepAsync("Validate file-based tools").ConfigureAwait(false);
+    await RunDotnetOrThrowAsync(repoRootResolved, ["run", "--file", "tools/internal/sqr-tools-verify.cs", "--"]).ConfigureAwait(false);
 
-    await Step("Validate file-based examples").ConfigureAwait(false);
-    await RunDotnetOrThrow(repoRootResolved, ["run", "--file", "tools/internal/sqr-examples-verify.cs", "--"]).ConfigureAwait(false);
+    await StepAsync("Validate file-based examples").ConfigureAwait(false);
+    await RunDotnetOrThrowAsync(repoRootResolved, ["run", "--file", "tools/internal/sqr-examples-verify.cs", "--"]).ConfigureAwait(false);
 
     if (!options.SkipTests)
     {
-        await Step("Run unit tests").ConfigureAwait(false);
-        await RunDotnetOrThrow(repoRootResolved, ["test", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"]).ConfigureAwait(false);
-        await RunDotnetOrThrow(repoRootResolved, ["test", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"]).ConfigureAwait(false);
+        await StepAsync("Run unit tests").ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(
+                repoRootResolved,
+                ["test", "tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"])
+           .ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(
+            repoRootResolved,
+            [
+                "test", "tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "normal",
+            ]).ConfigureAwait(false);
 
-        await Step("Run smoke tests").ConfigureAwait(false);
-        await RunDotnetOrThrow(repoRootResolved, ["test", "tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"]).ConfigureAwait(false);
+        await StepAsync("Run smoke tests").ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(
+            repoRootResolved,
+            [
+                "test", "tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
+                "normal",
+            ]).ConfigureAwait(false);
 
         if (options.IncludePropertyTests)
         {
-            await Step("Run property tests").ConfigureAwait(false);
-            await RunDotnetOrThrow(repoRootResolved, ["test", "tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"]).ConfigureAwait(false);
+            await StepAsync("Run property tests").ConfigureAwait(false);
+            await RunDotnetOrThrowAsync(
+                repoRootResolved,
+                [
+                    "test", "tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj", "--configuration", options.Configuration, "--no-build",
+                    "--verbosity", "normal",
+                ]).ConfigureAwait(false);
         }
 
         if (options.IncludeIntegrationTests)
         {
-            await Step("Run integration tests").ConfigureAwait(false);
-            await RunDotnetOrThrow(repoRootResolved, ["test", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity", "normal"]).ConfigureAwait(false);
+            await StepAsync("Run integration tests").ConfigureAwait(false);
+            await RunDotnetOrThrowAsync(
+                repoRootResolved,
+                [
+                    "test", "tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "--configuration", options.Configuration, "--no-build",
+                    "--verbosity", "normal",
+                ]).ConfigureAwait(false);
         }
 
         if (options.IncludeStressChecks)
         {
-            await Step("Run selected resiliency stress checks").ConfigureAwait(false);
-            var code = await RunDotnet(
+            await StepAsync("Run selected resiliency stress checks").ConfigureAwait(false);
+            var code = await RunDotnetAsync(
                 repoRootResolved,
                 [
                     "run",
@@ -121,29 +145,27 @@ try
         }
     }
 
-    await Step("Pack packages").ConfigureAwait(false);
+    await StepAsync("Pack packages").ConfigureAwait(false);
     foreach (var project in packageProjects)
-        await RunDotnetOrThrow(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
-    await Step("Validate package artifacts").ConfigureAwait(false);
-    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly)
-        .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
-        .ToArray();
+    await StepAsync("Validate package artifacts").ConfigureAwait(false);
+    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly).OrderBy(static path => path, StringComparer.OrdinalIgnoreCase).ToArray();
     if (packages.Length < packageProjects.Length)
         throw new InvalidOperationException($"Expected at least {packageProjects.Length} .nupkg files in {packageOutputPath}.");
 
     foreach (var package in packages)
         ValidatePackageMetadata(package);
 
-    await Step("Prepare external package smoke source").ConfigureAwait(false);
+    await StepAsync("Prepare external package smoke source").ConfigureAwait(false);
     if (Directory.Exists(smokePackageOutputPath))
         Directory.Delete(smokePackageOutputPath, true);
     _ = Directory.CreateDirectory(smokePackageOutputPath);
     foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.*nupkg", SearchOption.TopDirectoryOnly))
         File.Copy(package, Path.Combine(smokePackageOutputPath, Path.GetFileName(package)));
 
-    await Step("Build external package smoke against packed artifacts").ConfigureAwait(false);
-    await RunDotnetOrThrow(
+    await StepAsync("Build external package smoke against packed artifacts").ConfigureAwait(false);
+    await RunDotnetOrThrowAsync(
         repoRootResolved,
         [
             "build",
@@ -153,8 +175,8 @@ try
             "/p:SmokeUsePackages=true",
         ]).ConfigureAwait(false);
 
-    await Step("Run external package smoke against packed artifacts").ConfigureAwait(false);
-    var smokeRunCode = await RunDotnet(
+    await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
+    var smokeRunCode = await RunDotnetAsync(
         Path.Combine(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
     if (smokeRunCode != 0)
@@ -162,8 +184,9 @@ try
 
     if (options.IncludeBenchmarks)
     {
-        await Step("Build benchmarks").ConfigureAwait(false);
-        await RunDotnetOrThrow(repoRootResolved, ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"]).ConfigureAwait(false);
+        await StepAsync("Build benchmarks").ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(repoRootResolved, ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"])
+           .ConfigureAwait(false);
     }
 
     await output.WriteLineAsync($"Release validation completed. Artifacts: {packageOutputPath}").ConfigureAwait(false);
@@ -185,7 +208,7 @@ catch (UnauthorizedAccessException ex)
     return 1;
 }
 
-async Task<ReleaseOptions> ParseOptions(string[] args)
+async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
 {
     var parsed = new ReleaseOptions();
     var argIndex = 0;
@@ -237,7 +260,7 @@ async Task<ReleaseOptions> ParseOptions(string[] args)
         if (string.Equals(a, "-Configuration", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--configuration", StringComparison.OrdinalIgnoreCase))
         {
             if (argIndex + 1 >= args.Length)
-                return await ReleaseOptions.Invalid("missing value for -Configuration").ConfigureAwait(false);
+                return await ReleaseOptions.InvalidAsync("missing value for -Configuration").ConfigureAwait(false);
 
             parsed.Configuration = args[argIndex + 1];
             argIndex += 2;
@@ -247,24 +270,20 @@ async Task<ReleaseOptions> ParseOptions(string[] args)
         if (string.Equals(a, "-ArtifactsDirectory", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--artifacts-directory", StringComparison.OrdinalIgnoreCase))
         {
             if (argIndex + 1 >= args.Length)
-                return await ReleaseOptions.Invalid("missing value for -ArtifactsDirectory").ConfigureAwait(false);
+                return await ReleaseOptions.InvalidAsync("missing value for -ArtifactsDirectory").ConfigureAwait(false);
 
             parsed.ArtifactsDirectory = args[argIndex + 1];
             argIndex += 2;
             continue;
         }
 
-        if (string.Equals(a, "-PackageVersion", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--package-version", StringComparison.OrdinalIgnoreCase))
-        {
-            if (argIndex + 1 >= args.Length)
-                return await ReleaseOptions.Invalid("missing value for -PackageVersion").ConfigureAwait(false);
+        if (!string.Equals(a, "-PackageVersion", StringComparison.OrdinalIgnoreCase) && !string.Equals(a, "--package-version", StringComparison.OrdinalIgnoreCase))
+            return await ReleaseOptions.InvalidAsync($"unknown argument '{a}'").ConfigureAwait(false);
+        if (argIndex + 1 >= args.Length)
+            return await ReleaseOptions.InvalidAsync("missing value for -PackageVersion").ConfigureAwait(false);
 
-            parsed.PackageVersion = args[argIndex + 1];
-            argIndex += 2;
-            continue;
-        }
-
-        return await ReleaseOptions.Invalid($"unknown argument '{a}'").ConfigureAwait(false);
+        parsed.PackageVersion = args[argIndex + 1];
+        argIndex += 2;
     }
 
     return parsed;
@@ -273,42 +292,42 @@ async Task<ReleaseOptions> ParseOptions(string[] args)
 string ResolveRepoRoot()
 {
     var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
-    if (!string.IsNullOrWhiteSpace(entryDir))
+    if (string.IsNullOrWhiteSpace(entryDir))
+        return Environment.CurrentDirectory;
+    var dir = new DirectoryInfo(entryDir);
+    while (dir is not null)
     {
-        var dir = new DirectoryInfo(entryDir);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "squirix.slnx")))
-                return dir.FullName;
+        if (File.Exists(Path.Combine(dir.FullName, "squirix.slnx")))
+            return dir.FullName;
 
-            dir = dir.Parent;
-        }
+        dir = dir.Parent;
     }
 
     return Environment.CurrentDirectory;
 }
 
-static async Task Step(string name)
+static async Task StepAsync(string name)
 {
     await Console.Out.WriteLineAsync($"==> {name}").ConfigureAwait(false);
 }
 
-async Task RunDotnetOrThrow(string workingDirectory, IReadOnlyList<string> args)
+async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    var code = await RunDotnet(workingDirectory, args).ConfigureAwait(false);
+    var code = await RunDotnetAsync(workingDirectory, args).ConfigureAwait(false);
     if (code != 0)
         throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code}.");
 }
 
-static async Task<int> RunDotnet(string workingDirectory, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    using var proc = Process.Start(new ProcessStartInfo
-    {
-        FileName = "dotnet",
-        WorkingDirectory = workingDirectory,
-        UseShellExecute = false,
-        Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
-    });
+    using var proc = Process.Start(
+        new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
+        });
     if (proc is not null)
         await proc.WaitForExitAsync().ConfigureAwait(false);
 
@@ -333,12 +352,10 @@ static IReadOnlyList<string> NewPackArguments(string projectPath, string configu
         packageOutputPath,
         "/p:ContinuousIntegrationBuild=true",
     };
-    if (!string.IsNullOrWhiteSpace(packageVersion))
-    {
-        args.Add($"/p:SquirixPackageVersion={packageVersion}");
-        args.Add($"/p:PackageVersion={packageVersion}");
-    }
-
+    if (string.IsNullOrWhiteSpace(packageVersion))
+        return args;
+    args.Add($"/p:SquirixPackageVersion={packageVersion}");
+    args.Add($"/p:PackageVersion={packageVersion}");
     return args;
 }
 
@@ -390,7 +407,7 @@ internal sealed class ReleaseOptions
 
     public bool IncludeStressChecks { get; set; }
 
-    public bool IsValid { get; private set; } = true;
+    public bool IsValid { get; private init; } = true;
 
     public string PackageVersion { get; set; } = string.Empty;
 
@@ -398,7 +415,7 @@ internal sealed class ReleaseOptions
 
     public bool SkipTests { get; set; }
 
-    public static async Task<ReleaseOptions> Invalid(string message)
+    public static async Task<ReleaseOptions> InvalidAsync(string message)
     {
         await Console.Error.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
         return new ReleaseOptions { IsValid = false };

@@ -27,20 +27,20 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "--root", StringComparison.OrdinalIgnoreCase))
     {
         if (argIndex + 1 >= argv.Length)
-            return await FailUsage("missing value for --root").ConfigureAwait(false);
+            return await FailUsageAsync("missing value for --root").ConfigureAwait(false);
 
         root = argv[argIndex + 1];
         argIndex += 2;
     }
     else
     {
-        return await FailUsage($"unknown argument '{a}'").ConfigureAwait(false);
+        return await FailUsageAsync($"unknown argument '{a}'").ConfigureAwait(false);
     }
 }
 
 var resolvedRoot = Path.GetFullPath(root);
 if (!Directory.Exists(resolvedRoot))
-    return await FailUsage($"root path does not exist: {resolvedRoot}").ConfigureAwait(false);
+    return await FailUsageAsync($"root path does not exist: {resolvedRoot}").ConfigureAwait(false);
 
 var failures = new List<string>();
 foreach (var file in EnumerateProjectFiles(resolvedRoot))
@@ -148,7 +148,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
     }
 }
 
-static async Task<int> FailUsage(string message)
+static async Task<int> FailUsageAsync(string message)
 {
     await Console.Error.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
     return 1;

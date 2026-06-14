@@ -22,17 +22,17 @@ public sealed class KeyedSingleFlightTests
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = RunFailing();
-        var second = RunFailing();
+        var first = RunFailingAsync();
+        var second = RunFailingAsync();
         await Task.Delay(30, TestContext.Current.CancellationToken);
         gate.SetResult();
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await first);
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await second);
+        await AssertInvalidOperationAsync(first);
+        await AssertInvalidOperationAsync(second);
         Assert.Equal(1, executions);
         return;
 
-        Task<int> RunFailing()
+        Task<int> RunFailingAsync()
         {
             return flights.RunAsync<int>(
                 "k",
@@ -43,6 +43,14 @@ public sealed class KeyedSingleFlightTests
                     throw new InvalidOperationException("factory failed");
                 },
                 TestContext.Current.CancellationToken);
+        }
+
+        static async Task AssertInvalidOperationAsync(Task<int> task)
+        {
+#pragma warning disable VSTHRD003
+            // The test intentionally captures concurrent single-flight tasks before releasing the factory gate.
+            _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await task.ConfigureAwait(false));
+#pragma warning restore VSTHRD003
         }
     }
 
@@ -57,8 +65,8 @@ public sealed class KeyedSingleFlightTests
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = RunOnce();
-        var second = RunOnce();
+        var first = RunOnceAsync();
+        var second = RunOnceAsync();
         await Task.Delay(30, TestContext.Current.CancellationToken);
         gate.SetResult();
 
@@ -67,7 +75,7 @@ public sealed class KeyedSingleFlightTests
         Assert.Equal(7, await second);
         return;
 
-        Task<int> RunOnce()
+        Task<int> RunOnceAsync()
         {
             return flights.RunAsync(
                 "k",

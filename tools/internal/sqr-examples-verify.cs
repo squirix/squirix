@@ -50,13 +50,13 @@ foreach (var file in files)
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
     await output.WriteLineAsync($"---- {relativePath} --help ----").ConfigureAwait(false);
-    if (await RunDotnet(repoRoot, ["run", "--file", relativePath, "--", "--help"]).ConfigureAwait(false) != 0)
+    if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", "--help"]).ConfigureAwait(false) != 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
         await output.WriteLineAsync($"---- {relativePath} {string.Join(' ', smokeArgs)} ----").ConfigureAwait(false);
-        if (await RunDotnet(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]).ConfigureAwait(false) != 0)
+        if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]).ConfigureAwait(false) != 0)
             return 1;
     }
 }
@@ -73,7 +73,7 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
     };
 }
 
-static async Task<int> RunDotnet(string workingDirectory, string[] args)
+static async Task<int> RunDotnetAsync(string workingDirectory, string[] args)
 {
     var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg));
     using var proc = Process.Start(new ProcessStartInfo

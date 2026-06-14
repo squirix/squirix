@@ -19,7 +19,7 @@ public class CacheGetOrAddBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("get-or-add", "write")]
-    public async Task GetOrAddShouldCreateMissingValue()
+    public async Task GetOrAddShouldCreateMissingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetOrAddMissAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -31,7 +31,7 @@ public class CacheGetOrAddBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("get-or-add", "read")]
-    public async Task GetOrAddShouldReturnExistingValue()
+    public async Task GetOrAddShouldReturnExistingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetOrAddHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
