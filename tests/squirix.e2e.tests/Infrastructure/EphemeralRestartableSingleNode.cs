@@ -1,6 +1,4 @@
 using System;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
@@ -21,7 +19,7 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 
     public static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
     {
-        var node = new EphemeralRestartableSingleNode(GetNextHttpUrl());
+        var node = new EphemeralRestartableSingleNode(ListenPortPool.NextHttpUrl());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
@@ -39,15 +37,6 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     }
 
     public async ValueTask DisposeAsync() => await StopNodeAsync();
-
-    private static int AllocatePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
-    private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {

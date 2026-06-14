@@ -52,7 +52,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         var nodeIds = topology == BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
         var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
-            addresses[nodeId] = E2EBenchmarkPortAllocator.NextHttpUrl();
+            addresses[nodeId] = ListenPortPool.NextHttpUrl();
 
         var peers = new (string NodeId, string Address)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)

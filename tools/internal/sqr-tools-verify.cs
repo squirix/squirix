@@ -3,9 +3,8 @@ using System.Diagnostics;
 
 var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
-if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
-    || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
+if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
     await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.").ConfigureAwait(false);
     await output.WriteLineAsync().ConfigureAwait(false);
@@ -17,19 +16,15 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
 }
 
 var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
-var toolsDir = !string.IsNullOrWhiteSpace(entryDir)
-    ? Directory.GetParent(entryDir)?.FullName
-    : Path.Combine(Environment.CurrentDirectory, "tools");
+var toolsDir = !string.IsNullOrWhiteSpace(entryDir) ? Directory.GetParent(entryDir)?.FullName : Path.Combine(Environment.CurrentDirectory, "tools");
 if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
 {
     await Console.Error.WriteLineAsync("ERROR: tools directory not found.").ConfigureAwait(false);
     return 1;
 }
 
-var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly)
-    .Select(Path.GetFullPath)
-    .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
-    .ToArray();
+var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+                     .ToArray();
 
 if (files.Length == 0)
 {

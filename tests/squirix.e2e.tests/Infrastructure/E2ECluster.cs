@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
 using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;
@@ -15,8 +14,6 @@ namespace Squirix.E2ETests.Infrastructure;
 /// </summary>
 internal sealed class E2ECluster : IAsyncDisposable
 {
-    private static readonly PortAllocator PrimaryPortPool = CreatePrimaryPortAllocator();
-
     private readonly List<E2EClientHandle> _clients = [];
     private readonly MtlsTestContext? _mtls;
     private readonly Dictionary<string, E2ENode> _nodes;
@@ -93,15 +90,6 @@ internal sealed class E2ECluster : IAsyncDisposable
         return target;
     }
 
-    private static PortAllocator CreatePrimaryPortAllocator()
-    {
-        var processId = Environment.ProcessId % 200;
-        var start = 40000 + (processId * 20);
-        return new PortAllocator(start, start + 199);
-    }
-
-    private static string GetNextHttpUrl() => $"https://127.0.0.1:{PrimaryPortPool.Allocate()}";
-
     private static async ValueTask<E2ECluster> StartAsync(
         string[] nodeIds,
         E2ETwoNodeStartOptions? startOptions,
@@ -112,7 +100,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         startOptions ??= new E2ETwoNodeStartOptions();
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
-            urls[nodeIds[i]] = GetNextHttpUrl();
+            urls[nodeIds[i]] = ListenPortPool.NextHttpUrl();
 
         var topology = new (string NodeId, string Address)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)

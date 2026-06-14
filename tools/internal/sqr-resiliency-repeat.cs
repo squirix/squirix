@@ -1,6 +1,7 @@
 #:property PublishAot=false
 #:property NoWarn=SA1649;S3903
 using System.Diagnostics;
+using System.Globalization;
 
 var runs = new[]
 {
@@ -34,7 +35,7 @@ while (argIndex < argv.Length)
     if (string.Equals(a, "-Iterations", StringComparison.OrdinalIgnoreCase)
         || string.Equals(a, "--iterations", StringComparison.OrdinalIgnoreCase))
     {
-        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out iterations) || iterations < 1)
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out iterations) || iterations < 1)
             return await FailAsync("Iterations must be positive.").ConfigureAwait(false);
 
         argIndex += 2;

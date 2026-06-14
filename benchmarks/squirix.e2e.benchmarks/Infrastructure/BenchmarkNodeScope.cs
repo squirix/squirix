@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
@@ -49,19 +47,10 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
     internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Endpoint, cancellationToken);
 
-    private static int AllocatePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
-    }
-
     private static Task<BenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{scopeId}";
-        var address = $"https://127.0.0.1:{AllocatePort()}";
+        var address = ListenPortPool.NextHttpUrl();
         return StartAsync(nodeId, address, [(nodeId, address)], durabilityMode, cancellationToken, true);
     }
 

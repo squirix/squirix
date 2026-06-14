@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.AspNetCore;
@@ -28,7 +26,7 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
     {
         var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
-        var node = new E2ERestartableSingleNode(root, GetNextHttpUrl());
+        var node = new E2ERestartableSingleNode(root, ListenPortPool.NextHttpUrl());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
@@ -46,15 +44,6 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
     }
 
     public async ValueTask DisposeAsync() => await StopNodeAsync();
-
-    private static int AllocatePort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
-    private static string GetNextHttpUrl() => $"https://127.0.0.1:{AllocatePort()}";
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {
