@@ -49,7 +49,7 @@ internal sealed class E2ECluster : IAsyncDisposable
     public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
         var url = _nodes[nodeId].Address;
-        var client = await E2ETestConnect.ConnectAsync(url, cancellationToken).ConfigureAwait(false);
+        var client = await E2ETestConnect.ConnectAsync(url, cancellationToken);
         var handle = new E2EClientHandle(client);
         _clients.Add(handle);
         return handle;
@@ -67,7 +67,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         if (!_nodes.Remove(nodeId, out var node))
             throw new InvalidOperationException($"Node '{nodeId}' is not running.");
 
-        await node.DisposeAsync().ConfigureAwait(false);
+        await node.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -76,10 +76,10 @@ internal sealed class E2ECluster : IAsyncDisposable
             return;
 
         for (var i = _clients.Count - 1; i >= 0; i--)
-            await _clients[i].DisposeAsync().ConfigureAwait(false);
+            await _clients[i].DisposeAsync();
 
         foreach (var node in _nodes.Values)
-            await node.DisposeAsync().ConfigureAwait(false);
+            await node.DisposeAsync();
 
         _mtls?.Dispose();
     }
@@ -132,7 +132,7 @@ internal sealed class E2ECluster : IAsyncDisposable
                     Mtls = mtls,
                     MtlsProfile = startOptions.GetProfile(nodeId),
                 };
-                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken).ConfigureAwait(false));
+                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken));
             }
 
             return new E2ECluster(nodes, mtls);
@@ -140,7 +140,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         catch (InvalidOperationException)
         {
             foreach (var node in nodes.Values)
-                await node.DisposeAsync().ConfigureAwait(false);
+                await node.DisposeAsync();
 
             mtls?.Dispose();
             throw;
@@ -148,7 +148,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         catch (IOException)
         {
             foreach (var node in nodes.Values)
-                await node.DisposeAsync().ConfigureAwait(false);
+                await node.DisposeAsync();
 
             mtls?.Dispose();
             throw;

@@ -197,9 +197,10 @@ public sealed class ArchitectureTests
                                        .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
                                        .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
 
-        var projectOffenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(static path => !IsGeneratedOutputPath(path))
-                                        .Where(static path => LoadProjectByAbsolutePath(path).Descendants().Any(static element =>
-                                             element.Name.LocalName == "ImplicitUsings" && element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase)))
+        var projectOffenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(static path => !IsGeneratedOutputPath(path)).Where(static path =>
+                                             LoadProjectByAbsolutePath(path).Descendants().Any(static element =>
+                                                 string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase) &&
+                                                 element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase)))
                                         .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
                                         .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
 
@@ -340,7 +341,7 @@ public sealed class ArchitectureTests
         var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
 
         Assert.Equal("net10.0", ReadProperty(project, "TargetFramework"));
-        Assert.DoesNotContain(project.Descendants(), static element => element.Name.LocalName == "OutputType");
+        Assert.DoesNotContain(project.Descendants(), static element => string.Equals(element.Name.LocalName, "OutputType", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "AssemblyName"));
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "RootNamespace"));
         Assert.Equal(ServerArchitectureNamespaces.PackageId, ReadProperty(project, "PackageId"));
@@ -358,8 +359,11 @@ public sealed class ArchitectureTests
     [Fact]
     public void ServerProjectShouldGenerateJournalEnvelopeTransportContract()
     {
-        var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
-                                                                              .SingleOrDefault(static element => string.Equals(
+        var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants()
+                                                                              .Where(static element => string.Equals(
+                                                                                   element.Name.LocalName,
+                                                                                   "Protobuf",
+                                                                                   StringComparison.OrdinalIgnoreCase)).SingleOrDefault(static element => string.Equals(
                                                                                    element.Attribute("Include")?.Value,
                                                                                    @"Storage\Journaling\Protos\JournalEnvelope.proto",
                                                                                    StringComparison.Ordinal));
@@ -385,8 +389,11 @@ public sealed class ArchitectureTests
     [Fact]
     public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
-                                                                                    .SingleOrDefault(static element => string.Equals(
+        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants()
+                                                                                    .Where(static element => string.Equals(
+                                                                                         element.Name.LocalName,
+                                                                                         "Protobuf",
+                                                                                         StringComparison.OrdinalIgnoreCase)).SingleOrDefault(static element => string.Equals(
                                                                                          element.Attribute("Include")?.Value,
                                                                                          @"..\shared\transport\grpc\Protos\SquirixCache.proto",
                                                                                          StringComparison.Ordinal));
@@ -565,8 +572,8 @@ public sealed class ArchitectureTests
 
     private static string[] ReadIncludes(XDocument project, string itemName) =>
     [
-        .. project.Descendants().Where(element => element.Name.LocalName == itemName).Select(static element => element.Attribute("Include")?.Value)
-                  .Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
+        .. project.Descendants().Where(element => string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                  .Select(static element => element.Attribute("Include")?.Value).Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
     ];
 
     private static string[] ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
@@ -575,7 +582,7 @@ public sealed class ArchitectureTests
 
     private static string ReadProperty(XDocument project, string propertyName)
     {
-        var value = project.Descendants().FirstOrDefault(element => element.Name.LocalName == propertyName)?.Value.Trim();
+        var value = project.Descendants().FirstOrDefault(element => string.Equals(element.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase))?.Value.Trim();
         Assert.False(string.IsNullOrWhiteSpace(value), $"Expected MSBuild property '{propertyName}'.");
         return value;
     }

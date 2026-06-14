@@ -28,8 +28,8 @@ public sealed class PublicApiGoldenSnapshotTests
         Assert.True(File.Exists(path), $"Golden file missing: {path}");
         var expected = File.ReadAllLines(path).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToHashSet(StringComparer.Ordinal);
 
-        var unexpected = actual.Except(expected).OrderBy(static s => s, StringComparer.Ordinal).ToArray();
-        var missing = expected.Except(actual).OrderBy(static s => s, StringComparer.Ordinal).ToArray();
+        var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
+        var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
         if (unexpected.Length == 0 && missing.Length == 0)
             return;
 

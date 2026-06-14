@@ -21,11 +21,11 @@ namespace Squirix.Server.Cluster.Transport;
 /// </summary>
 internal sealed class ClientPool : IClientPool
 {
-    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
+    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
-    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
+    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private int _disposed;
     private volatile bool _draining;
 

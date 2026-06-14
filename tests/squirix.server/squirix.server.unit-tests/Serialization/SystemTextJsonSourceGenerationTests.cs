@@ -156,7 +156,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
     public void KeepsReflectionFallbackForUnknownApplicationTypes()
     {
         var serializer = new SystemTextJsonSerializer();
-        var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int> { ["value"] = 42 });
+        var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 });
 
         var roundTrip = serializer.Deserialize<Dictionary<string, int>>(payload);
 
@@ -290,7 +290,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
     public void SerializeToElementKeepsReflectionFallbackForUnknownApplicationTypes()
     {
         var serializer = new SystemTextJsonSerializer();
-        var payload = new Dictionary<string, int> { ["value"] = 42 };
+        var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };
 
         var element = serializer.SerializeToElement(payload);
         var roundTrip = serializer.Deserialize<Dictionary<string, int>>(element);

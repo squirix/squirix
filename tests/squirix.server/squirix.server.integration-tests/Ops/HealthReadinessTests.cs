@@ -45,42 +45,40 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         await using var node = await StartNodeAsync(url, peers, usePersistence: true);
         var cache = GetCache(node);
 
-        // Cause some journal activity
         await cache.SetAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
-        var resp = await HttpClient.GetAsync(new Uri(node.Address + "/health/ready/details"), DefaultCancellationToken);
-        _ = resp.EnsureSuccessStatusCode();
+        var json = await FetchReadyDetailsAsync(node.Address);
 
-        var json = await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
+        AssertJournalReadiness(json);
+        AssertSnapshotReadiness(json);
+        AssertCompactionReadiness(json);
+        AssertClientPoolReadiness(json);
+        AssertCoordinationReadiness(json);
+        AssertMemoryPressureReadiness(json);
+    }
 
-        Assert.True(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp));
-        Assert.True(journalBacklogProp.ValueKind is JsonValueKind.Number);
-        Assert.True(journalBacklogProp.GetInt64() >= 1); // after one insert and no snapshot, backlog should be >= 1
-
-        Assert.True(json.TryGetProperty("snapshotInFlight", out var snpFlight));
-        Assert.True(snpFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
-
-        Assert.True(json.TryGetProperty("snapshotAgeSeconds", out var snpAge));
-
-        // May be null if no snapshot exists yet
-        Assert.True(snpAge.ValueKind is JsonValueKind.Null or JsonValueKind.Number);
-
-        Assert.True(json.TryGetProperty("compaction", out var compaction));
-        Assert.Equal(JsonValueKind.Object, compaction.ValueKind);
-        Assert.True(compaction.TryGetProperty("state", out var stateProp));
-        Assert.Equal(JsonValueKind.String, stateProp.ValueKind);
-
-        // lastRunUtc may be null (default DateTime) or a string depending on serializer; we only check presence
-        Assert.True(compaction.TryGetProperty("inFlight", out var compInFlight));
-        Assert.True(compInFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
-
+    private static void AssertClientPoolReadiness(JsonElement json)
+    {
         Assert.True(json.TryGetProperty("clientPool", out var pool));
         Assert.Equal(JsonValueKind.Object, pool.ValueKind);
         Assert.True(pool.TryGetProperty("configured", out var configured));
         Assert.True(configured.ValueKind is JsonValueKind.True or JsonValueKind.False);
         Assert.True(pool.TryGetProperty("peers", out var peersCount));
         Assert.True(peersCount.GetInt32() >= 1);
+    }
 
+    private static void AssertCompactionReadiness(JsonElement json)
+    {
+        Assert.True(json.TryGetProperty("compaction", out var compaction));
+        Assert.Equal(JsonValueKind.Object, compaction.ValueKind);
+        Assert.True(compaction.TryGetProperty("state", out var stateProp));
+        Assert.Equal(JsonValueKind.String, stateProp.ValueKind);
+        Assert.True(compaction.TryGetProperty("inFlight", out var compInFlight));
+        Assert.True(compInFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
+    }
+
+    private static void AssertCoordinationReadiness(JsonElement json)
+    {
         Assert.True(json.TryGetProperty("coordination", out var coordination));
         Assert.Equal(JsonValueKind.Object, coordination.ValueKind);
         Assert.True(coordination.TryGetProperty("leases", out var leases));
@@ -89,7 +87,17 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         Assert.True(coordination.TryGetProperty("watches", out var watches));
         Assert.False(watches.GetProperty("configured").GetBoolean());
         Assert.Equal(0, watches.GetProperty("active").GetInt32());
+    }
 
+    private static void AssertJournalReadiness(JsonElement json)
+    {
+        Assert.True(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp));
+        Assert.True(journalBacklogProp.ValueKind is JsonValueKind.Number);
+        Assert.True(journalBacklogProp.GetInt64() >= 1);
+    }
+
+    private static void AssertMemoryPressureReadiness(JsonElement json)
+    {
         Assert.True(json.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.Equal(JsonValueKind.Object, memoryPressure.ValueKind);
         Assert.True(memoryPressure.TryGetProperty("state", out var memState));
@@ -105,5 +113,21 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         Assert.Equal(JsonValueKind.Number, memRej.ValueKind);
         Assert.True(memoryPressure.TryGetProperty("writeRejectionActive", out var memWra));
         Assert.True(memWra.GetBoolean());
+    }
+
+    private static void AssertSnapshotReadiness(JsonElement json)
+    {
+        Assert.True(json.TryGetProperty("snapshotInFlight", out var snpFlight));
+        Assert.True(snpFlight.ValueKind is JsonValueKind.True or JsonValueKind.False);
+
+        Assert.True(json.TryGetProperty("snapshotAgeSeconds", out var snpAge));
+        Assert.True(snpAge.ValueKind is JsonValueKind.Null or JsonValueKind.Number);
+    }
+
+    private async Task<JsonElement> FetchReadyDetailsAsync(string address)
+    {
+        var resp = await HttpClient.GetAsync(new Uri(address + "/health/ready/details"), DefaultCancellationToken);
+        _ = resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
     }
 }

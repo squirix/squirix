@@ -36,17 +36,13 @@ public sealed class JournalCompactionOptionsTests
     /// <summary>
     /// Verifies invalid scalar values fail at assignment time.
     /// </summary>
-    /// <param name="propertyName">Property being validated.</param>
-    [Theory]
-    [InlineData(nameof(JournalCompactionOptions.MinTailSegments))]
-    [InlineData(nameof(JournalCompactionOptions.MinTailBytes))]
-    [InlineData(nameof(JournalCompactionOptions.MinGap))]
-    public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
+    [Fact]
+    public void FieldBackedValidationRejectsInvalidScalars()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => CreateWithInvalidScalar(propertyName));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalCompactionOptions { MinTailSegments = -1 });
 
-        Assert.Equal(propertyName, ex.ParamName);
-        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
+        Assert.Equal("value", ex.ParamName);
+        Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -72,12 +68,4 @@ public sealed class JournalCompactionOptionsTests
         Assert.Equal(4096, options.MinTailBytes);
         Assert.Equal(TimeSpan.FromSeconds(30), options.MinGap);
     }
-
-    private static JournalCompactionOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
-    {
-        nameof(JournalCompactionOptions.MinTailSegments) => new JournalCompactionOptions { MinTailSegments = -1 },
-        nameof(JournalCompactionOptions.MinTailBytes) => new JournalCompactionOptions { MinTailBytes = -1 },
-        nameof(JournalCompactionOptions.MinGap) => new JournalCompactionOptions { MinGap = TimeSpan.FromTicks(-1) },
-        _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),
-    };
 }

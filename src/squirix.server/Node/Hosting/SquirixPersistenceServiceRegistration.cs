@@ -30,7 +30,6 @@ internal static class SquirixPersistenceServiceRegistration
             sp.GetRequiredService<IJournalOperationTracer>()));
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalWriter>());
         _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
-        _ = services.AddSingleton<JournalReader>();
 
         _ = services.AddSingleton<ISnapshotWriter>(static sp => new SnapshotWriter(sp.GetRequiredService<PersistenceOptions>().DataDir));
         _ = services.AddSingleton<SnapshotReader>();

@@ -87,10 +87,9 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         {
             if (!warmUpClient)
                 return new BenchmarkNodeScope(host, dataDir, host.Address);
+
             var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
-            await using (unused.ConfigureAwait(false))
-            {
-            }
+            await unused.DisposeAsync().ConfigureAwait(false);
 
             return new BenchmarkNodeScope(host, dataDir, host.Address);
         }

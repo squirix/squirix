@@ -84,7 +84,8 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         {
             var writer = new SnapshotWriter(dir);
             var items = FailingItems();
-            _ = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
+            Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
         }
         finally
@@ -126,7 +127,12 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         return doc.RootElement.Clone();
     }
 
-    private static IEnumerable<(CacheKey Key, object Entry)> FailingItems()
+    /// <summary>
+    /// Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.
+    /// </summary>
+    private static IEnumerable<(CacheKey Key, object Entry)> FailingItems() => EnumerateThenFail();
+
+    private static IEnumerable<(CacheKey Key, object Entry)> EnumerateThenFail()
     {
         yield return (new CacheKey("default", "a"), 1);
         throw new InvalidOperationException("simulated serialization failure");

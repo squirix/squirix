@@ -20,9 +20,13 @@ internal static class CacheOperationContractClassifier
     /// </remarks>
     public static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
     {
-        return CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail) ? CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch :
-            CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail) ? CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent :
-            CacheOperationFailedPreconditionKind.None;
+        if (CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail))
+            return CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch;
+
+        if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
+            return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
+
+        return CacheOperationFailedPreconditionKind.None;
     }
 
     /// <summary>

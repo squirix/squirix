@@ -22,23 +22,23 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     public static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
     {
         var node = new EphemeralRestartableSingleNode(GetNextHttpUrl());
-        await node.StartNodeAsync(cancellationToken).ConfigureAwait(false);
+        await node.StartNodeAsync(cancellationToken);
         return node;
     }
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= new E2EClientHandle(await E2ETestConnect.ConnectAsync(Address, cancellationToken).ConfigureAwait(false));
-        return await _client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
+        _client ??= new E2EClientHandle(await E2ETestConnect.ConnectAsync(Address, cancellationToken));
+        return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 
     public async ValueTask RestartAsync(CancellationToken cancellationToken)
     {
-        await StopNodeAsync().ConfigureAwait(false);
-        await StartNodeAsync(cancellationToken).ConfigureAwait(false);
+        await StopNodeAsync();
+        await StartNodeAsync(cancellationToken);
     }
 
-    public async ValueTask DisposeAsync() => await StopNodeAsync().ConfigureAwait(false);
+    public async ValueTask DisposeAsync() => await StopNodeAsync();
 
     private static int AllocatePort()
     {
@@ -52,20 +52,20 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {
         var topology = new[] { ("nodeA", Address) };
-        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Address, topology, cancellationToken).ConfigureAwait(false);
+        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Address, topology, cancellationToken);
     }
 
     private async ValueTask StopNodeAsync()
     {
         if (_client is not null)
         {
-            await _client.DisposeAsync().ConfigureAwait(false);
+            await _client.DisposeAsync();
             _client = null;
         }
 
         if (_host is not null)
         {
-            await _host.DisposeAsync().ConfigureAwait(false);
+            await _host.DisposeAsync();
             _host = null;
         }
     }

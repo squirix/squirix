@@ -19,7 +19,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task AddShouldStoreMissingValue()
+    public async Task AddShouldStoreMissingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             await Adapter.AddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false);
@@ -31,7 +31,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write", "exception-path")]
-    public async Task AddShouldThrowForExistingValue()
+    public async Task AddShouldThrowForExistingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.AddConflictAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -43,7 +43,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
-    public async Task GetEntryShouldReturnHit()
+    public async Task GetEntryShouldReturnHitAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetEntryHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -55,7 +55,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
-    public async Task GetValueShouldReturnHit()
+    public async Task GetValueShouldReturnHitAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -67,7 +67,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
-    public async Task GetValueShouldReturnMiss()
+    public async Task GetValueShouldReturnMissAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetValueMissAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
@@ -79,7 +79,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
-    public async Task RemoveShouldDeleteExistingValue()
+    public async Task RemoveShouldDeleteExistingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
         {
@@ -95,7 +95,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
-    public async Task RemoveShouldReturnFalseForMissingValue()
+    public async Task RemoveShouldReturnFalseForMissingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.RemoveAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
@@ -107,7 +107,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task SetShouldStoreValue()
+    public async Task SetShouldStoreValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
@@ -119,7 +119,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task TryAddShouldAddMissingValue()
+    public async Task TryAddShouldAddMissingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.TryAddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -131,7 +131,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task TryAddShouldReturnFalseForExistingValue()
+    public async Task TryAddShouldReturnFalseForExistingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(!await Adapter.TryAddAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -143,7 +143,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
-    public async Task UpdateShouldModifyExistingValue()
+    public async Task UpdateShouldModifyExistingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.UpdateAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
@@ -155,7 +155,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
-    public async Task UpdateShouldReturnFalseForMissingValue()
+    public async Task UpdateShouldReturnFalseForMissingValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(!await Adapter.UpdateAsync(NextMissKey(), i, CancellationToken.None).ConfigureAwait(false));

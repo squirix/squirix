@@ -86,7 +86,7 @@ public sealed class ConsistentHashRingTests
         {
             var key = $"route-key:{i}";
             var routeKey = $"{canonicalCacheName.Length}:{canonicalCacheName}{'\x1F'}{key}";
-            if (ring.GetOwner(key) == ring.GetOwner(routeKey))
+            if (string.Equals(ring.GetOwner(key), ring.GetOwner(routeKey), StringComparison.OrdinalIgnoreCase))
                 continue;
 
             foundDifferentOwner = true;
@@ -120,7 +120,7 @@ public sealed class ConsistentHashRingTests
         var nodes = new[] { "A", "B", "C" };
         var ring = new ConsistentHashRing(nodes);
 
-        var counts = nodes.ToDictionary(static n => n, static _ => 0);
+        var counts = nodes.ToDictionary(static n => n, static _ => 0, StringComparer.OrdinalIgnoreCase);
         const int keys = 20_000;
 
         for (var i = 0; i < keys; i++)
@@ -150,7 +150,7 @@ public sealed class ConsistentHashRingTests
         for (var i = 0; i < keys; i++)
         {
             var k = $"k:{i}";
-            if (ring1.GetOwner(k) != ring2.GetOwner(k))
+            if (!string.Equals(ring1.GetOwner(k), ring2.GetOwner(k), StringComparison.OrdinalIgnoreCase))
                 moved++;
         }
 

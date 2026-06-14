@@ -29,13 +29,13 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyCompletedValueTaskBatched()
+    public async Task BootstrapAndCallPolicyCompletedValueTaskBatchedAsync()
     {
         var failover = _failover!;
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
         {
-            var result = await failover.ExecuteAsync((_, ct) => policy.ExecuteAsync(static token => CompletedValueTask(token), ct), CancellationToken.None).ConfigureAwait(false);
+            var result = await failover.ExecuteAsync((_, ct) => policy.ExecuteAsync(static token => CompletedValueTaskAsync(token), ct), CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result);
         }
     }
@@ -45,14 +45,14 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatched()
+    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatchedAsync()
     {
         var failover = _failover!;
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
         {
             var result = await failover.ExecuteAsync(
-                static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTask(token), 0, ct),
+                static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTaskAsync(token), 0, ct),
                 policy,
                 CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result);
@@ -64,11 +64,11 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapFailoverCompletedValueTaskBatched()
+    public async Task BootstrapFailoverCompletedValueTaskBatchedAsync()
     {
         var failover = _failover!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await failover.ExecuteAsync(static (_, ct) => CompletedValueTask(ct), CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await failover.ExecuteAsync(static (_, ct) => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -76,11 +76,11 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task CallPolicyCompletedValueTaskBatched()
+    public async Task CallPolicyCompletedValueTaskBatchedAsync()
     {
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
-            _consumer.Consume(await policy.ExecuteAsync(static ct => CompletedValueTask(ct), CancellationToken.None).ConfigureAwait(false));
+            _consumer.Consume(await policy.ExecuteAsync(static ct => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static ValueTask<int> CompletedValueTask(CancellationToken cancellationToken)
+    private static ValueTask<int> CompletedValueTaskAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return new ValueTask<int>(42);

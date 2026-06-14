@@ -7,12 +7,12 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    output.WriteLine("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.");
-    output.WriteLine();
-    output.WriteLine("Usage:");
-    output.WriteLine("  dotnet run --file tools/internal/sqr-tools-verify.cs --");
-    output.WriteLine();
-    output.WriteLine("Exit codes: 0 ok, 1 failed tool execution");
+    await output.WriteLineAsync("sqr-tools-verify — runs --help for every tools/sqr-*.cs file.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-tools-verify.cs --").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed tool execution").ConfigureAwait(false);
     return 0;
 }
 
@@ -22,7 +22,7 @@ var toolsDir = !string.IsNullOrWhiteSpace(entryDir)
     : Path.Combine(Environment.CurrentDirectory, "tools");
 if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
 {
-    Console.Error.WriteLine("ERROR: tools directory not found.");
+    await Console.Error.WriteLineAsync("ERROR: tools directory not found.").ConfigureAwait(false);
     return 1;
 }
 
@@ -33,14 +33,14 @@ var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirec
 
 if (files.Length == 0)
 {
-    Console.Error.WriteLine("ERROR: no tools/sqr-*.cs files found.");
+    await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
     return 1;
 }
 
 foreach (var file in files)
 {
     var name = Path.GetFileName(file);
-    output.WriteLine($"---- {name} --help ----");
+    await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
     using var proc = Process.Start(new ProcessStartInfo
     {
         FileName = "dotnet",
@@ -49,10 +49,12 @@ foreach (var file in files)
         UseShellExecute = false,
     });
 
-    proc?.WaitForExit();
+    if (proc is not null)
+        await proc.WaitForExitAsync().ConfigureAwait(false);
+
     if (proc is null || proc.ExitCode != 0)
         return proc?.ExitCode ?? 1;
 }
 
-output.WriteLine("OK: all file-based tools responded to --help.");
+await output.WriteLineAsync("OK: all file-based tools responded to --help.").ConfigureAwait(false);
 return 0;

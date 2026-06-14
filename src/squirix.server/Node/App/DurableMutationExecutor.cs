@@ -41,6 +41,27 @@ internal sealed class DurableMutationExecutor
             : await ExecuteMonolithicAsync(precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }
 
+    private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TResult>(
+        DurableMutationPlan<TResult> plan,
+        GroupCommitExecutionState state,
+        Func<CancellationToken, ValueTask<TResult>> applyMemory,
+        CancellationToken cancellationToken)
+    {
+        if (!plan.ShouldApply)
+            return plan.SkipResult!;
+
+        try
+        {
+            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(applyMemory, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (state.PendingMemoryApply)
+                _journal.CompletePendingMemoryApply();
+        }
+    }
+
     private async ValueTask<TResult> ExecuteGroupCommitAsync<TResult>(
         string conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
@@ -48,100 +69,17 @@ internal sealed class DurableMutationExecutor
         Func<CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken)
     {
-        var admitted = false;
-        var pendingMemoryApply = false;
+        var state = new GroupCommitExecutionState();
         try
         {
-            var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                async ct =>
-                {
-                    if (!_inFlight.TryAdd(conflictKey, 0))
-                        throw new InvalidOperationException($"Key already exists: {conflictKey}");
+            var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(ct => PrepareGroupCommitPlanAsync(conflictKey, state, precondition, appendJournal, ct), cancellationToken)
+                                     .ConfigureAwait(false);
 
-                    admitted = true;
-                    try
-                    {
-                        var decision = await precondition(ct).ConfigureAwait(false);
-                        if (!decision.ShouldApply)
-                        {
-                            _ = _inFlight.TryRemove(conflictKey, out _);
-                            admitted = false;
-                            return DurableMutationPlan<TResult>.Skip(decision.Result);
-                        }
-
-                        _journal.BeginPendingMemoryApply();
-                        pendingMemoryApply = true;
-                        await appendJournal(ct).ConfigureAwait(false);
-                        return DurableMutationPlan<TResult>.Apply();
-                    }
-                    catch (IOException)
-                    {
-                        if (pendingMemoryApply)
-                            _journal.CompletePendingMemoryApply();
-
-                        if (!admitted)
-                            throw;
-
-                        _ = _inFlight.TryRemove(conflictKey, out _);
-                        admitted = false;
-                        throw;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        if (pendingMemoryApply)
-                            _journal.CompletePendingMemoryApply();
-
-                        if (!admitted)
-                            throw;
-
-                        _ = _inFlight.TryRemove(conflictKey, out _);
-                        admitted = false;
-                        throw;
-                    }
-                    catch (InvalidDataException)
-                    {
-                        if (pendingMemoryApply)
-                            _journal.CompletePendingMemoryApply();
-
-                        if (!admitted)
-                            throw;
-
-                        _ = _inFlight.TryRemove(conflictKey, out _);
-                        admitted = false;
-                        throw;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        if (pendingMemoryApply)
-                            _journal.CompletePendingMemoryApply();
-
-                        if (!admitted)
-                            throw;
-
-                        _ = _inFlight.TryRemove(conflictKey, out _);
-                        admitted = false;
-                        throw;
-                    }
-                },
-                cancellationToken).ConfigureAwait(false);
-
-            if (!plan.ShouldApply)
-                return plan.SkipResult!;
-
-            try
-            {
-                await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(applyMemory, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                if (pendingMemoryApply)
-                    _journal.CompletePendingMemoryApply();
-            }
+            return await ApplyGroupCommitPlanAsync(plan, state, applyMemory, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            if (admitted)
+            if (state.Admitted)
                 _ = _inFlight.TryRemove(conflictKey, out _);
         }
     }
@@ -162,4 +100,56 @@ internal sealed class DurableMutationExecutor
             return await applyMemory(ct).ConfigureAwait(false);
         },
         cancellationToken).ConfigureAwait(false);
+
+    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanAsync<TResult>(
+        string conflictKey,
+        GroupCommitExecutionState state,
+        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<CancellationToken, ValueTask> appendJournal,
+        CancellationToken cancellationToken)
+    {
+        if (!_inFlight.TryAdd(conflictKey, 0))
+            throw new InvalidOperationException($"Key already exists: {conflictKey}");
+
+        state.Admitted = true;
+        try
+        {
+            var decision = await precondition(cancellationToken).ConfigureAwait(false);
+            if (!decision.ShouldApply)
+            {
+                _ = _inFlight.TryRemove(conflictKey, out _);
+                state.Admitted = false;
+                return DurableMutationPlan<TResult>.Skip(decision.Result);
+            }
+
+            _journal.BeginPendingMemoryApply();
+            state.PendingMemoryApply = true;
+            await appendJournal(cancellationToken).ConfigureAwait(false);
+            return DurableMutationPlan<TResult>.Apply();
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
+        {
+            RollbackGroupCommitBarrierState(conflictKey, state);
+            throw;
+        }
+    }
+
+    private void RollbackGroupCommitBarrierState(string conflictKey, GroupCommitExecutionState state)
+    {
+        if (state.PendingMemoryApply)
+            _journal.CompletePendingMemoryApply();
+
+        if (!state.Admitted)
+            return;
+
+        _ = _inFlight.TryRemove(conflictKey, out _);
+        state.Admitted = false;
+    }
+
+    private sealed class GroupCommitExecutionState
+    {
+        public bool Admitted { get; set; }
+
+        public bool PendingMemoryApply { get; set; }
+    }
 }

@@ -45,9 +45,6 @@ public sealed class MtlsKestrelHandshakeTests
         Assert.True(sslStream.RemoteCertificate is not null);
     }
 
-    private static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
-        X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
-
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
     {
         private WebApplication? _application;
@@ -114,6 +111,11 @@ public sealed class MtlsKestrelHandshakeTests
             ClientCertificate.Dispose();
             TrustAnchor.Dispose();
         }
+
+        private static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) => X509CertificateLoader.LoadPkcs12(
+            certificate.Export(X509ContentType.Pfx),
+            null,
+            X509KeyStorageFlags.Exportable);
 
         private void ConfigureHttps(HttpsConnectionAdapterOptions https)
         {

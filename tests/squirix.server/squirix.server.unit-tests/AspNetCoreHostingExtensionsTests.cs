@@ -129,7 +129,7 @@ public sealed class AspNetCoreHostingExtensionsTests
             {
                 EnvironmentName = "Development",
             });
-        var marker = new ExtensionMarker();
+        var marker = new ExtensionMarker("extension-test");
         using var allocator = new PortAllocator(27000, 27999);
         var port = allocator.Allocate();
 
@@ -145,7 +145,9 @@ public sealed class AspNetCoreHostingExtensionsTests
         using var app = builder.Build();
         _ = app.MapSquirixServer();
 
-        Assert.Same(marker, app.Services.GetRequiredService<ExtensionMarker>());
+        var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
+        Assert.Same(marker, registeredMarker);
+        Assert.Equal(marker.Name, registeredMarker.Name);
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
     }
@@ -176,5 +178,5 @@ public sealed class AspNetCoreHostingExtensionsTests
         Assert.False(authEnabled);
     }
 
-    private sealed class ExtensionMarker;
+    private sealed record ExtensionMarker(string Name);
 }

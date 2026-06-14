@@ -83,7 +83,7 @@ internal static class DomainTransportErrorMapper
         if (ex.StatusCode != StatusCode.InvalidArgument)
             return;
 
-        throw new ArgumentException(ex.Status.Detail, ex);
+        throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
     }
 
     private static void ThrowIfPayloadTooLargeContract(RpcException ex)

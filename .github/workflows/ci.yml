@@ -296,7 +296,6 @@ jobs:
                 run: |
                     set -o pipefail
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      -p:UseAppHost=false \
                       --filter "FullyQualifiedName~AuthSmokeTests" 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
@@ -305,7 +304,6 @@ jobs:
                     set -o pipefail
                     mkdir -p coverage/smoke
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      -p:UseAppHost=false \
                       --logger "trx;LogFileName=smoke.trx" \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
                       --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee test-output-smoke.log
@@ -362,7 +360,7 @@ jobs:
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e ]
+                suite: [ testkit, unit, client-integration, server-unit, server-property, server-integration, e2e ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -403,6 +401,7 @@ jobs:
                 shell: bash
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
+                    chmod +x tests/squirix/squirix.testkit/bin/Release/${{ matrix.framework }}/Squirix.TestKit || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
 
@@ -416,6 +415,9 @@ jobs:
                     set -o pipefail
                     FILTER_ARGS=()
                     case "${{ matrix.suite }}" in
+                      testkit)
+                        PROJECT="tests/squirix/squirix.testkit/Squirix.TestKit.csproj"
+                        ;;
                       unit)
                         PROJECT="tests/squirix/squirix.unit-tests/Squirix.UnitTests.csproj"
                         ;;
@@ -445,14 +447,12 @@ jobs:
                     if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" \
                         --results-directory "${{ github.workspace }}/coverage/${{ matrix.suite }}" \
                         --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     else
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     fi
@@ -540,7 +540,9 @@ jobs:
                 shell: bash
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix/squirix.testkit/bin/Release/net10.0/Squirix.TestKit || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
 
             -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
                 shell: bash
@@ -550,7 +552,7 @@ jobs:
                     test_projects=()
                     while IFS= read -r -d '' f; do
                       test_projects+=("$f")
-                    done < <(git ls-files -z '*Tests.csproj' '*E2E.csproj')
+                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj' 'tests/squirix/squirix.testkit/Squirix.TestKit.csproj')
 
                     if [ ${#test_projects[@]} -eq 0 ]; then
                       echo "No test projects found (*.Tests.csproj)." >&2
@@ -575,6 +577,15 @@ jobs:
                         echo "No tests discovered in $proj" >&2
                         exit 1
                       fi
+
+                      count="$(echo "$output" | sed -n '/The following Tests are available:/,$p' | tail -n +2 | grep -E '^[[:space:]]+[^[:space:]]' | wc -l | tr -d '[:space:]')"
+                      if [ "${count:-0}" -le 0 ]; then
+                        echo "$output"
+                        echo "No test names were listed for $proj" >&2
+                        exit 1
+                      fi
+
+                      echo "Discovered $count tests in $proj"
                     done
 
     coverage:

@@ -80,7 +80,8 @@ public sealed class SerializerMetricsTests
     {
         var arg = call.Arguments[0];
         var argType = arg?.GetType() ?? typeof(object);
-        var genericDef = typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance).Single(m => m.Name == methodName && m.IsGenericMethodDefinition);
+        var genericDef = typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                                                         .Single(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase) && m.IsGenericMethodDefinition);
         var gm = genericDef.MakeGenericMethod(argType);
         return gm.Invoke(inner, [arg]);
     }

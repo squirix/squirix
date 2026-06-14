@@ -23,8 +23,8 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests
         Assert.True(File.Exists(path), $"Golden file missing: {path}");
 
         var expected = File.ReadAllLines(path).Select(static line => line.Trim()).Where(static line => line.Length > 0).ToHashSet(StringComparer.Ordinal);
-        var unexpected = actual.Except(expected).OrderBy(static route => route, StringComparer.Ordinal).ToArray();
-        var missing = expected.Except(actual).OrderBy(static route => route, StringComparer.Ordinal).ToArray();
+        var unexpected = actual.Except(expected, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var missing = expected.Except(actual, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (unexpected.Length == 0 && missing.Length == 0)
             return;
 

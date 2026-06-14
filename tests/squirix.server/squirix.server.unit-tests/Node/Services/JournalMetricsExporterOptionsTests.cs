@@ -34,7 +34,7 @@ public sealed class JournalMetricsExporterOptionsTests
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
 
-        Assert.Equal(nameof(JournalMetricsExporterOptions.Interval), ex.ParamName);
+        Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);
         Assert.Contains(TimeSpan.Zero.ToString(), ex.Message, StringComparison.Ordinal);
     }

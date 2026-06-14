@@ -44,7 +44,7 @@ public sealed class PortAllocator : IDisposable
         if (endPortInclusive is <= 0 or > 65535)
             throw new ArgumentOutOfRangeException(nameof(endPortInclusive));
         if (endPortInclusive < startPort)
-            throw new ArgumentException("endPortInclusive must be >= startPort");
+            throw new ArgumentException("endPortInclusive must be >= startPort", nameof(endPortInclusive));
 
         _start = startPort;
         _endInclusive = endPortInclusive;

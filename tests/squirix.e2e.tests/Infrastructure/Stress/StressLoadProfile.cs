@@ -1,10 +1,12 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Squirix.E2ETests.Infrastructure.Stress;
 
 /// <summary>
 /// Immutable description of a stress workload: writer count, per-writer operation count, and a hard time budget.
 /// </summary>
+[StructLayout(LayoutKind.Auto)]
 internal readonly struct StressLoadProfile
 {
     public StressLoadProfile(int writers, TimeSpan budget)

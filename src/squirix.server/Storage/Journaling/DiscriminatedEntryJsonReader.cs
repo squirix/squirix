@@ -127,99 +127,128 @@ internal static class DiscriminatedEntryJsonReader
         }
     }
 
+    private static bool TryReadBoolDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner)
+            return false;
+
+        if (inner.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return false;
+
+        result = inner.GetBoolean();
+        return true;
+    }
+
+    private static bool TryReadBytesDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner || inner.ValueKind != JsonValueKind.String)
+            return false;
+
+        try
+        {
+            result = Convert.FromBase64String(inner.GetString() ?? string.Empty);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadDecimalDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner || inner.ValueKind != JsonValueKind.String)
+            return false;
+
+        if (!decimal.TryParse(inner.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var m))
+            return false;
+
+        result = m;
+        return true;
+    }
+
     private static bool TryReadDiscriminated(string? tag, bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
 
-        switch (tag)
+        return tag switch
         {
-            case TagNull:
-                return true;
+            TagNull => true,
+            TagBool => TryReadBoolDiscriminant(hasInner, inner, out result),
+            TagString => TryReadStringDiscriminant(hasInner, inner, out result),
+            TagBytes => TryReadBytesDiscriminant(hasInner, inner, out result),
+            TagInt32 => TryReadInt32Discriminant(hasInner, inner, out result),
+            TagInt64 => TryReadInt64Discriminant(hasInner, inner, out result),
+            TagDecimal => TryReadDecimalDiscriminant(hasInner, inner, out result),
+            TagDouble => TryReadDoubleDiscriminant(hasInner, inner, out result),
+            TagJson => TryReadJsonDiscriminant(hasInner, inner, out result),
+            _ => false,
+        };
+    }
 
-            case TagBool:
-                if (!hasInner)
-                    return false;
+    private static bool TryReadDoubleDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+            return false;
 
-                if (inner.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-                    return false;
+        if (!inner.TryGetDouble(out var d))
+            return false;
 
-                result = inner.GetBoolean();
-                return true;
+        result = d;
+        return true;
+    }
 
-            case TagString:
-                if (!hasInner)
-                    return false;
+    private static bool TryReadInt32Discriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+            return false;
 
-                result = inner.ValueKind == JsonValueKind.String ? inner.GetString() : inner.ToString();
-                return true;
+        if (!inner.TryGetInt32(out var i))
+            return false;
 
-            case TagBytes:
-                if (!hasInner || inner.ValueKind != JsonValueKind.String)
-                    return false;
+        result = i;
+        return true;
+    }
 
-                try
-                {
-                    result = Convert.FromBase64String(inner.GetString() ?? string.Empty);
-                    return true;
-                }
-                catch (FormatException)
-                {
-                    return false;
-                }
-                catch (ArgumentException)
-                {
-                    return false;
-                }
+    private static bool TryReadInt64Discriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+            return false;
 
-            case TagInt32:
-                if (!hasInner || inner.ValueKind != JsonValueKind.Number)
-                    return false;
+        if (!inner.TryGetInt64(out var l))
+            return false;
 
-                if (!inner.TryGetInt32(out var i))
-                    return false;
+        result = l;
+        return true;
+    }
 
-                result = i;
-                return true;
+    private static bool TryReadJsonDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner)
+            return false;
 
-            case TagInt64:
-                if (!hasInner || inner.ValueKind != JsonValueKind.Number)
-                    return false;
+        result = StoredJsonPayload.FromElement(inner);
+        return true;
+    }
 
-                if (!inner.TryGetInt64(out var l))
-                    return false;
+    private static bool TryReadStringDiscriminant(bool hasInner, JsonElement inner, out object? result)
+    {
+        result = null;
+        if (!hasInner)
+            return false;
 
-                result = l;
-                return true;
-
-            case TagDecimal:
-                if (!hasInner || inner.ValueKind != JsonValueKind.String)
-                    return false;
-
-                if (!decimal.TryParse(inner.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var m))
-                    return false;
-
-                result = m;
-                return true;
-
-            case TagDouble:
-                if (!hasInner || inner.ValueKind != JsonValueKind.Number)
-                    return false;
-
-                if (!inner.TryGetDouble(out var d))
-                    return false;
-
-                result = d;
-                return true;
-
-            case TagJson:
-                if (!hasInner)
-                    return false;
-
-                result = StoredJsonPayload.FromElement(inner);
-                return true;
-
-            default:
-                return false;
-        }
+        result = inner.ValueKind == JsonValueKind.String ? inner.GetString() : inner.ToString();
+        return true;
     }
 }

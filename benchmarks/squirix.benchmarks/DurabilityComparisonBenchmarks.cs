@@ -37,14 +37,14 @@ public class DurabilityComparisonBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the add finishes.</returns>
     [Benchmark]
-    public Task AddNewKey() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
+    public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
     /// <summary>
     /// Measures batched reads of an existing key.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task GetExistingBatched()
+    public async Task GetExistingBatchedAsync()
     {
         for (var i = 0; i < Batch; i++)
             _ = await SharedCache.GetValueAsync(ExistingKey, CancellationToken.None).ConfigureAwait(false);
@@ -53,26 +53,30 @@ public class DurabilityComparisonBenchmarks
     /// <summary>
     /// Stops the benchmark node and shared cache session.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are disposed.</returns>
     [GlobalCleanup]
-    public void GlobalCleanup()
+    public async Task GlobalCleanupAsync()
     {
-        _cacheSession?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        if (_cacheSession is not null)
+            await _cacheSession.DisposeAsync().ConfigureAwait(false);
         _cacheSession = null;
-        _node?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        if (_node is not null)
+            await _node.DisposeAsync().ConfigureAwait(false);
         _node = null;
     }
 
     /// <summary>
     /// Starts the benchmark node and opens a shared cache session.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are ready.</returns>
     [GlobalSetup]
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to fields disposed in GlobalCleanup.")]
-    public void GlobalSetup()
+    public async Task GlobalSetupAsync()
     {
         BenchmarkRuntime.EnsureInitialized();
-        _node = BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).GetAwaiter().GetResult();
-        _cacheSession = BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).GetAwaiter().GetResult();
-        SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).GetAwaiter().GetResult();
+        _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
+        _cacheSession = await BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).ConfigureAwait(false);
+        await SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -80,7 +84,7 @@ public class DurabilityComparisonBenchmarks
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch finishes.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task InsertNewKeyBatched()
+    public async Task InsertNewKeyBatchedAsync()
     {
         for (var i = 0; i < Batch; i++)
             await SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);

@@ -26,29 +26,30 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the add finishes.</returns>
     [Benchmark]
-    public Task AddNewKey() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
+    public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
     /// <summary>
     /// Measures existence checks against a deliberately missing key across many iterations.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when all lookups finish.</returns>
     [Benchmark(OperationsPerInvoke = CheapBatch)]
-    public async Task ContainsMissingBatched()
+    public async Task ContainsMissingBatchedAsync()
     {
         for (var i = 0; i < CheapBatch; i++)
             _ = await SharedCache.GetValueAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Ensure "missing" key is absent for negative-path benchmarks.</summary>
-    [IterationSetup(Targets = [nameof(ContainsMissingBatched), nameof(RemoveMissingBatched)])]
-    public void EnsureMissingAbsent() => _ = SharedCache.RemoveAsync(MissingKey, CancellationToken.None).GetAwaiter().GetResult();
+    /// <returns>A task that completes after the missing key is removed.</returns>
+    [IterationSetup(Targets = [nameof(ContainsMissingBatchedAsync), nameof(RemoveMissingBatchedAsync)])]
+    public async Task EnsureMissingAbsentAsync() => _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
 
     /// <summary>
     /// Measures repeated reads against a pre-seeded key.
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when repeated reads finish.</returns>
     [Benchmark]
-    public async Task GetExistingValue()
+    public async Task GetExistingValueAsync()
     {
         for (var i = 0; i < LightBatch; i++)
             _ = await SharedCache.GetValueAsync(ExistingKey, CancellationToken.None).ConfigureAwait(false);
@@ -59,7 +60,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when all inserts finish.</returns>
     [Benchmark(OperationsPerInvoke = LightBatch)]
-    public async Task InsertNewKeyBatched()
+    public async Task InsertNewKeyBatchedAsync()
     {
         for (var i = 0; i < LightBatch; i++)
             await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -70,7 +71,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when all remove attempts finish.</returns>
     [Benchmark(OperationsPerInvoke = CheapBatch)]
-    public async Task RemoveMissingBatched()
+    public async Task RemoveMissingBatchedAsync()
     {
         for (var i = 0; i < CheapBatch; i++)
             _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
@@ -79,22 +80,24 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Opens the node, client, cache session, and seeds baseline keys.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are ready.</returns>
     [GlobalSetup]
-    public void StartCacheSession()
+    public async Task StartCacheSessionAsync()
     {
-        StartNode();
-        StartSharedCache("bench");
-        SharedCache.SetAsync(ExistingKey, "value", cancellationToken: CancellationToken.None).GetAwaiter().GetResult();
-        _ = SharedCache.RemoveAsync(MissingKey, CancellationToken.None).GetAwaiter().GetResult();
+        await StartNodeAsync().ConfigureAwait(false);
+        await StartSharedCacheAsync("bench").ConfigureAwait(false);
+        await SharedCache.SetAsync(ExistingKey, "value", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Disposes the cache session and stops the benchmark node.
     /// </summary>
+    /// <returns>A task that completes after benchmark resources are disposed.</returns>
     [GlobalCleanup]
-    public void StopCacheSession()
+    public async Task StopCacheSessionAsync()
     {
-        StopSharedCache();
-        StopNode();
+        await StopSharedCacheAsync().ConfigureAwait(false);
+        await StopNodeAsync().ConfigureAwait(false);
     }
 }

@@ -10,7 +10,7 @@ namespace Squirix.Server.TestKit.XUnit;
 /// </summary>
 public sealed class XUnitLoggerProvider : ILoggerProvider
 {
-    private readonly ConcurrentDictionary<string, ILogger> _loggers = new();
+    private readonly ConcurrentDictionary<string, ILogger> _loggers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ITestOutputHelper _output;
 
     /// <summary>

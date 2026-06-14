@@ -21,7 +21,7 @@ public sealed class CustomSerializerConfigurationTests
     {
         var custom = new CallTrackingSerializer();
         var options = new SquirixOptions();
-        ConfigureLikeConnectAsync(options, custom);
+        ConfigureLikeConnect(options, custom);
 
         Assert.Same(custom, options.Serializer);
         _ = SerializationProvider.Create(options.Serializer);
@@ -118,7 +118,7 @@ public sealed class CustomSerializerConfigurationTests
         Assert.True(property.SetMethod.IsPublic);
     }
 
-    private static void ConfigureLikeConnectAsync(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
+    private static void ConfigureLikeConnect(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
 
     private sealed class CallTrackingSerializer : ISquirixSerializer
     {

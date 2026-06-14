@@ -24,7 +24,7 @@ public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
-    public async Task GetValueShouldReturnHit()
+    public async Task GetValueShouldReturnHitAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
@@ -36,7 +36,7 @@ public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
-    public async Task SetShouldStoreValue()
+    public async Task SetShouldStoreValueAsync()
     {
         for (var i = 0; i < BatchSize; i++)
             await Adapter.SetAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false);

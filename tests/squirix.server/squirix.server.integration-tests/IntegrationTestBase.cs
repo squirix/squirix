@@ -18,7 +18,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
-using Squirix.Server.Core;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
@@ -44,7 +43,7 @@ namespace Squirix.Server.IntegrationTests;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class IntegrationTestBase : IDisposable
 {
-    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
+    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly PortAllocator PortPool = CreatePortAllocator();
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
@@ -199,9 +198,6 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="backpressureOptions">
     /// Optional backpressure options for inbound admission control.
     /// </param>
-    /// <param name="runtimeOptions">
-    /// Optional cache runtime options such as strict type binding policy.
-    /// </param>
     /// <param name="memoryPressureOptions">
     /// Optional memory pressure options; when <c>null</c>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
@@ -237,7 +233,6 @@ public abstract class IntegrationTestBase : IDisposable
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
-        CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         [CallerMemberName] string? testName = null)
@@ -284,7 +279,6 @@ public abstract class IntegrationTestBase : IDisposable
             persistenceOptionsOverride,
             resolvedPeerHandlerFactory,
             backpressureOptions,
-            runtimeOptions,
             memoryPressureOptions,
             security?.ToServerOptions(),
             null,

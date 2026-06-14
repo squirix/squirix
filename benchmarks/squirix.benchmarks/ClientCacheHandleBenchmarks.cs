@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Infrastructure;
 
@@ -15,15 +16,18 @@ public class ClientCacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Measures cache handle acquisition after connect.
     /// </summary>
+    /// <returns>A task that completes after the cache handle is acquired.</returns>
     [Benchmark]
     [InvocationCount(1)]
-    public void GetCacheHandle() => GetCacheHandleAndDispose("bench-handle");
+    public async Task GetCacheHandleAsync() => await GetCacheHandleAndDisposeAsync("bench-handle").ConfigureAwait(false);
 
     /// <summary>Starts the benchmark node.</summary>
+    /// <returns>A task that completes after the node is started.</returns>
     [GlobalSetup]
-    public void SetupBenchmark() => StartNode();
+    public async Task SetupBenchmarkAsync() => await StartNodeAsync().ConfigureAwait(false);
 
     /// <summary>Stops the benchmark node.</summary>
+    /// <returns>A task that completes after the node is stopped.</returns>
     [GlobalCleanup]
-    public void TeardownBenchmark() => StopNode();
+    public async Task TeardownBenchmarkAsync() => await StopNodeAsync().ConfigureAwait(false);
 }

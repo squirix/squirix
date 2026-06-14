@@ -109,7 +109,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
         cancellationToken);
 
-    private static async ValueTask RunWithLease(Func<ValueTask> action, BackpressureLease lease)
+    private static async ValueTask RunWithLeaseAsync(Func<ValueTask> action, BackpressureLease lease)
     {
         var task = action();
         using (lease)
@@ -118,99 +118,46 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private static ValueTask<TResult> RunWithLease<TResult>(Func<ValueTask<TResult>> action, BackpressureLease lease)
-    {
-        var task = action();
-        if (!task.IsCompletedSuccessfully)
-            return RunWithLeaseAwaited(lease, task);
-
-        using (lease)
-        {
-            return ValueTask.FromResult(task.Result);
-        }
-    }
-
-    private static async ValueTask<TResult> RunWithLeaseAwaited<TResult>(BackpressureLease lease, ValueTask<TResult> task)
+    private static async ValueTask<TResult> RunWithLeaseAsync<TResult>(Func<ValueTask<TResult>> action, BackpressureLease lease)
     {
         using (lease)
         {
-            return await task.ConfigureAwait(false);
+            return await action().ConfigureAwait(false);
         }
     }
 
-    private static async ValueTask WithBackpressureAwaited(ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> acquireTask, Func<ValueTask> action)
+    private async ValueTask<CacheValueResult<T>> RunWithLeaseForTryGetAsync(string cacheName, string key, BackpressureLease lease, CancellationToken cancellationToken)
     {
-        var (decision, lease) = await acquireTask.ConfigureAwait(false);
-        if (!decision.IsAccepted)
-            throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown");
-
-        await RunWithLease(action, lease).ConfigureAwait(false);
-    }
-
-    private static async ValueTask<TResult> WithBackpressureAwaited<TResult>(
-        ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> acquireTask,
-        Func<ValueTask<TResult>> action)
-    {
-        var (decision, lease) = await acquireTask.ConfigureAwait(false);
-        if (!decision.IsAccepted)
-            throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown");
-
-        return await RunWithLease(action, lease).ConfigureAwait(false);
-    }
-
-    private ValueTask<CacheValueResult<T>> RunWithLeaseForTryGet(string cacheName, string key, BackpressureLease lease, CancellationToken cancellationToken)
-    {
-        var task = _inner.TryGetValueAsync(cacheName, key, cancellationToken);
-        if (!task.IsCompletedSuccessfully)
-            return RunWithLeaseAwaited(lease, task);
-
         using (lease)
         {
-            return ValueTask.FromResult(task.Result);
+            return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private ValueTask WithBackpressureAsync(string operation, Func<ValueTask> action, CancellationToken cancellationToken)
+    private async ValueTask WithBackpressureAsync(string operation, Func<ValueTask> action, CancellationToken cancellationToken)
     {
-        var acquireTask = _gate.AcquireAsync(Transport, operation, ClientId, cancellationToken);
-        if (!acquireTask.IsCompletedSuccessfully)
-            return WithBackpressureAwaited(acquireTask, action);
-
-        var (decision, lease) = acquireTask.Result;
-        return !decision.IsAccepted ? throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown") : RunWithLease(action, lease);
-    }
-
-    private ValueTask<TResult> WithBackpressureAsync<TResult>(string operation, Func<ValueTask<TResult>> action, CancellationToken cancellationToken)
-    {
-        var acquireTask = _gate.AcquireAsync(Transport, operation, ClientId, cancellationToken);
-        if (!acquireTask.IsCompletedSuccessfully)
-            return WithBackpressureAwaited(acquireTask, action);
-
-        var (decision, lease) = acquireTask.Result;
-        return !decision.IsAccepted ? throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown") : RunWithLease(action, lease);
-    }
-
-    private ValueTask<CacheValueResult<T>> WithBackpressureReadAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var acquireTask = _gate.AcquireAsync(Transport, CacheOperationNames.TryGet, ClientId, cancellationToken);
-        if (!acquireTask.IsCompletedSuccessfully)
-            return WithBackpressureTryGetAwaited(acquireTask, cacheName, key, cancellationToken);
-
-        var (decision, lease) = acquireTask.Result;
-        return !decision.IsAccepted ? throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown")
-            : RunWithLeaseForTryGet(cacheName, key, lease, cancellationToken);
-    }
-
-    private async ValueTask<CacheValueResult<T>> WithBackpressureTryGetAwaited(
-        ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> acquireTask,
-        string cacheName,
-        string key,
-        CancellationToken cancellationToken)
-    {
-        var (decision, lease) = await acquireTask.ConfigureAwait(false);
+        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, ClientId, cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
-        return await RunWithLeaseForTryGet(cacheName, key, lease, cancellationToken).ConfigureAwait(false);
+        await RunWithLeaseAsync(action, lease).ConfigureAwait(false);
+    }
+
+    private async ValueTask<TResult> WithBackpressureAsync<TResult>(string operation, Func<ValueTask<TResult>> action, CancellationToken cancellationToken)
+    {
+        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, ClientId, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAccepted)
+            throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown");
+
+        return await RunWithLeaseAsync(action, lease).ConfigureAwait(false);
+    }
+
+    private async ValueTask<CacheValueResult<T>> WithBackpressureReadAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var (decision, lease) = await _gate.AcquireAsync(Transport, CacheOperationNames.TryGet, ClientId, cancellationToken).ConfigureAwait(false);
+        if (!decision.IsAccepted)
+            throw CacheOperationContract.TooManyRequests(decision.RejectReason ?? "unknown");
+
+        return await RunWithLeaseForTryGetAsync(cacheName, key, lease, cancellationToken).ConfigureAwait(false);
     }
 }

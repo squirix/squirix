@@ -76,7 +76,11 @@ internal sealed class MtlsTestBundle : IDisposable
         using var nodeKey = RSA.Create(2048);
         var nodeRequest = new CertificateRequest($"CN={nodeId}", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         nodeRequest.AddClusterNodeExtensions();
-        var nodePublic = nodeRequest.Create(_ca, _ca.NotBefore, _ca.NotAfter, Guid.NewGuid().ToByteArray());
+        var nodePublic = nodeRequest.Create(
+            _ca,
+            new DateTimeOffset(_ca.NotBefore.ToUniversalTime()),
+            new DateTimeOffset(_ca.NotAfter.ToUniversalTime()),
+            Guid.NewGuid().ToByteArray());
         return nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
     }
 

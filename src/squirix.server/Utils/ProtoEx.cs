@@ -117,8 +117,10 @@ internal static class ProtoEx
     {
         if (typeof(T) != typeof(object))
         {
-            return s.Fields.Count == 1 && s.Fields.TryGetValue("value", out var onlyWrapped)
-                ? TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped) : DeserializeFromProtoValue<T>(Value.ForStruct(s));
+            if (s.Fields.Count != 1 || !s.Fields.TryGetValue("value", out var onlyWrapped))
+                return DeserializeFromProtoValue<T>(Value.ForStruct(s));
+
+            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
         }
 
         if (s.Fields.Count == 1 && s.Fields.TryGetValue("value", out var only))
@@ -180,7 +182,8 @@ internal static class ProtoEx
             case Value.KindOneofCase.NumberValue:
             {
                 var d = v.NumberValue;
-                return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? (int)d : double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? (long)d : d;
+                var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? (long)d : d;
+                return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? (int)d : d2;
             }
 
             case Value.KindOneofCase.NullValue:
@@ -372,9 +375,11 @@ internal static class ProtoEx
                 break;
 
             case Value.KindOneofCase.None:
-            default:
                 w.WriteNullValue();
                 break;
+
+            default:
+                throw new InvalidOperationException($"Unsupported protobuf value kind: {v.KindCase}.");
         }
     }
 }

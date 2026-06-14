@@ -48,8 +48,8 @@ public static class MtlsTestCertificates
         ArgumentNullException.ThrowIfNull(issuer);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
 
-        var effectiveNotBefore = notBefore ?? issuer.NotBefore;
-        var effectiveNotAfter = notAfter ?? issuer.NotAfter;
+        var effectiveNotBefore = notBefore ?? new DateTimeOffset(issuer.NotBefore.ToUniversalTime());
+        var effectiveNotAfter = notAfter ?? new DateTimeOffset(issuer.NotAfter.ToUniversalTime());
 
         using var peerKey = RSA.Create(2048);
         var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);

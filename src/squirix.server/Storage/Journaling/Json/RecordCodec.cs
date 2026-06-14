@@ -24,7 +24,7 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("decode", sw.Elapsed.TotalSeconds);
             return env;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {
             RecordErrorMetrics("decode", sw);
             throw;
@@ -42,7 +42,7 @@ internal static class RecordCodec
             JournalJsonCodecMetrics.RecordDuration("encode", sw.Elapsed.TotalSeconds);
             return bytes;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or NullReferenceException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
         {
             RecordErrorMetrics("encode", sw);
             throw;
@@ -97,6 +97,28 @@ internal static class RecordCodec
         return env;
     }
 
+    private static void PopulateDtoOperation(RecordEnvelope dto, JournalEnvelope env)
+    {
+        switch (env.OpCase)
+        {
+            case JournalEnvelope.OpOneofCase.Put:
+                dto.Put = ToPutOp(env.Put);
+                break;
+            case JournalEnvelope.OpOneofCase.Remove:
+                dto.Remove = ToRemoveOp(env.Remove);
+                break;
+            case JournalEnvelope.OpOneofCase.RemoveExpiration:
+                dto.RemoveExpiration = ToRemoveExpirationOp(env.RemoveExpiration);
+                break;
+            case JournalEnvelope.OpOneofCase.TouchExpiration:
+                dto.TouchExpiration = ToTouchExpirationOp(env.TouchExpiration);
+                break;
+            case JournalEnvelope.OpOneofCase.None:
+            default:
+                break;
+        }
+    }
+
     private static void RecordErrorMetrics(string operation, Stopwatch sw)
     {
         JournalJsonCodecMetrics.AddOp(operation, "error");
@@ -113,64 +135,66 @@ internal static class RecordCodec
             UnixMs = env.UnixMs,
         };
 
-        switch (env.OpCase)
-        {
-            case JournalEnvelope.OpOneofCase.Put:
-            {
-                var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
-                dto.Put = new PutOp
-                {
-                    OperationId = put.OperationId,
-                    Item = new ItemPair
-                    {
-                        Key = put.Item.Key,
-                        Namespace = string.IsNullOrEmpty(put.Item.Namespace) ? null : put.Item.Namespace,
-                        EntryJsonUtf8 = put.Item.EntryJson.ToByteArray(),
-                    },
-                };
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.Remove:
-            {
-                var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
-                dto.Remove = new RemoveOp
-                {
-                    Key = remove.Key,
-                    Namespace = string.IsNullOrEmpty(remove.Namespace) ? null : remove.Namespace,
-                };
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.RemoveExpiration:
-            {
-                var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
-                dto.RemoveExpiration = new RemoveExpirationOp
-                {
-                    Key = removeExpiration.Key,
-                    Namespace = string.IsNullOrEmpty(removeExpiration.Namespace) ? null : removeExpiration.Namespace,
-                };
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.TouchExpiration:
-            {
-                var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
-                dto.TouchExpiration = new TouchExpirationOp
-                {
-                    Key = touchExpiration.Key,
-                    Namespace = string.IsNullOrEmpty(touchExpiration.Namespace) ? null : touchExpiration.Namespace,
-                    ExpiresUnixMs = touchExpiration.ExpiresUnixMs,
-                };
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.None:
-            default:
-                break;
-        }
-
+        PopulateDtoOperation(dto, env);
         return dto;
+    }
+
+    private static PutOp ToPutOp(Put? put)
+    {
+        if (put is null)
+            throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
+
+        if (put.Item is null)
+            throw new InvalidOperationException("journal envelope Put is missing item.");
+
+        var item = put.Item;
+        return new PutOp
+        {
+            OperationId = put.OperationId,
+            Item = new ItemPair
+            {
+                Key = item.Key,
+                Namespace = string.IsNullOrEmpty(item.Namespace) ? null : item.Namespace,
+                EntryJsonUtf8 = item.EntryJson.ToByteArray(),
+            },
+        };
+    }
+
+    private static RemoveExpirationOp ToRemoveExpirationOp(RemoveExpiration? removeExpiration)
+    {
+        if (removeExpiration is null)
+            throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
+
+        return new RemoveExpirationOp
+        {
+            Key = removeExpiration.Key,
+            Namespace = string.IsNullOrEmpty(removeExpiration.Namespace) ? null : removeExpiration.Namespace,
+        };
+    }
+
+    private static RemoveOp ToRemoveOp(Remove? remove)
+    {
+        if (remove is null)
+            throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
+
+        return new RemoveOp
+        {
+            Key = remove.Key,
+            Namespace = string.IsNullOrEmpty(remove.Namespace) ? null : remove.Namespace,
+        };
+    }
+
+    private static TouchExpirationOp ToTouchExpirationOp(TouchExpiration? touchExpiration)
+    {
+        if (touchExpiration is null)
+            throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
+
+        return new TouchExpirationOp
+        {
+            Key = touchExpiration.Key,
+            Namespace = string.IsNullOrEmpty(touchExpiration.Namespace) ? null : touchExpiration.Namespace,
+            ExpiresUnixMs = touchExpiration.ExpiresUnixMs,
+        };
     }
 
     private static void ValidateDto(RecordEnvelope dto)

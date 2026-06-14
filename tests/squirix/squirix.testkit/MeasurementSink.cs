@@ -23,7 +23,7 @@ public sealed class MeasurementSink : IDisposable
     {
         _listener.InstrumentPublished = (instrument, listener) =>
         {
-            if (instrument.Meter.Name == name)
+            if (string.Equals(instrument.Meter.Name, name, StringComparison.OrdinalIgnoreCase))
                 listener.EnableMeasurementEvents(instrument);
         };
 
@@ -39,8 +39,8 @@ public sealed class MeasurementSink : IDisposable
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
     /// <param name="expectedTags">Expected tag key/value pairs that must be present on the measurement.</param>
     /// <returns><c>true</c> if a matching event was captured; otherwise, <c>false</c>.</returns>
-    public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags) =>
-        _events.Any(e => e.InstrumentName == instrumentName && HasTags(e.Tags, expectedTags));
+    public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags) => _events.Any(e =>
+        string.Equals(e.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(e.Tags, expectedTags));
 
     /// <summary>
     /// Disposes the underlying <see cref="MeterListener" /> and releases resources.
@@ -59,8 +59,11 @@ public sealed class MeasurementSink : IDisposable
     {
         foreach (var (k, v) in expected)
         {
-            if (!tags.Any(t => t.Key == k && (t.Value?.ToString() ?? string.Empty) == v))
+            if (!tags.Any(t => string.Equals(t.Key, k, StringComparison.OrdinalIgnoreCase) &&
+                               string.Equals(t.Value?.ToString() ?? string.Empty, v, StringComparison.OrdinalIgnoreCase)))
+            {
                 return false;
+            }
         }
 
         return true;

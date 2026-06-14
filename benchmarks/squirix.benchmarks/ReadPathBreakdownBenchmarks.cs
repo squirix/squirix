@@ -70,7 +70,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "ClientPool + CallPolicy GetValue, no public facade")]
-    public async Task SquirixClientPoolPolicyReadBatched()
+    public async Task SquirixClientPoolPolicyReadBatchedAsync()
     {
         var pool = _clientPool!;
         for (var i = 0; i < ReadBatch; i++)
@@ -99,7 +99,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
-    public async Task SquirixGrpcTransportFoundOnlyBatched()
+    public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
     {
         var cache = _rawGrpc!;
         for (var i = 0; i < ReadBatch; i++)
@@ -111,7 +111,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
-    public async Task SquirixGrpcTransportFoundOnlyReusedRequestBatched()
+    public async Task SquirixGrpcTransportFoundOnlyReusedRequestBatchedAsync()
     {
         var cache = _rawGrpc!;
         var request = _reusedRequest!;
@@ -127,7 +127,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC transport + server pipeline, no SDK")]
-    public async Task SquirixGrpcTransportReadBatched()
+    public async Task SquirixGrpcTransportReadBatchedAsync()
     {
         var cache = _rawGrpc!;
         for (var i = 0; i < ReadBatch; i++)
@@ -139,7 +139,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Public SDK GetValue, same node as raw gRPC")]
-    public async Task SquirixPublicSdkReadBatched()
+    public async Task SquirixPublicSdkReadBatchedAsync()
     {
         var cache = _publicSdk!;
         for (var i = 0; i < ReadBatch; i++)
@@ -151,7 +151,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     /// </summary>
     /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(Baseline = true, OperationsPerInvoke = ReadBatch, Description = "Server decorator pipeline only, no network")]
-    public async Task SquirixServerPipelineReadBatched()
+    public async Task SquirixServerPipelineReadBatchedAsync()
     {
         var cache = _serverPipeline!;
         for (var i = 0; i < ReadBatch; i++)

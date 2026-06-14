@@ -19,5 +19,5 @@ public interface ISquirixClient : IAsyncDisposable
     /// <param name="cacheName">Cache name.</param>
     /// <param name="cancellationToken">Cancellation token that may be used by implementations during lazy/startup operations.</param>
     /// <returns>A non-owning <see cref="ICache{T}" /> facade; repeated calls for the same name share the same logical cache.</returns>
-    ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken);
+    ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken = default);
 }

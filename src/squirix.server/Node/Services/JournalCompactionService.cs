@@ -88,77 +88,15 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             if (replayFromSegment <= 0 || !TailLargeEnough(replayFromSegment, out var segments, out var bytes))
                 return AttemptResult.Skipped;
 
-            using var activity = ActivitySourceHolder.StartInternal("journal.compact");
-            _ = activity?.SetTag("compaction.snapshot_index", snapshotIndex);
-            _ = activity?.SetTag("compaction.replay_from_journal_segment", replayFromSegment);
-            _ = activity?.SetTag("compaction.tail_segments", segments);
-            _ = activity?.SetTag("compaction.tail_bytes", bytes);
-
-            ChangeState(CompactionState.Running);
-            LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
-
-            var sw = Stopwatch.StartNew();
-            var resultLabel = "failure";
-            try
-            {
-                await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, ct)), cancellationToken)
-                                         .ConfigureAwait(false);
-                resultLabel = "success";
-            }
-            finally
-            {
-                sw.Stop();
-                try
-                {
-                    CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
-                }
-                catch (InvalidOperationException)
-                {
-                    // Metrics emission is best-effort and must not fail compaction flow.
-                }
-
-                _ = activity?.SetTag("compaction.result", resultLabel);
-                _ = activity?.SetTag("compaction.duration_ms", (long)sw.Elapsed.TotalMilliseconds);
-            }
-
-            LastRunUtc = DateTime.UtcNow;
-            _consecutiveFailures = 0;
-            LogManager.CompactionDone(_log, LastRunUtc);
-            ChangeState(CompactionState.Waiting);
-            return AttemptResult.Succeeded;
+            return await RunCompactionAsync(snapshotIndex, replayFromSegment, segments, bytes, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            // Treat cancellation as skipped to avoid backoff escalation
             return AttemptResult.Skipped;
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
         {
-            _consecutiveFailures++;
-            ChangeState(CompactionState.Failed);
-            LogManager.CompactionFailed(_log);
-            return AttemptResult.Failed;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            _consecutiveFailures++;
-            ChangeState(CompactionState.Failed);
-            LogManager.CompactionFailed(_log);
-            return AttemptResult.Failed;
-        }
-        catch (InvalidOperationException)
-        {
-            _consecutiveFailures++;
-            ChangeState(CompactionState.Failed);
-            LogManager.CompactionFailed(_log);
-            return AttemptResult.Failed;
-        }
-        catch (InvalidDataException)
-        {
-            _consecutiveFailures++;
-            ChangeState(CompactionState.Failed);
-            LogManager.CompactionFailed(_log);
-            return AttemptResult.Failed;
+            return RecordCompactionFailure();
         }
         finally
         {
@@ -166,7 +104,57 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(Manifest.SnapshotRef sr) => _ = MaybeCompactAsync(sr, CancellationToken.None);
+    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, CancellationToken.None);
+
+    private AttemptResult RecordCompactionFailure()
+    {
+        _consecutiveFailures++;
+        ChangeState(CompactionState.Failed);
+        LogManager.CompactionFailed(_log);
+        return AttemptResult.Failed;
+    }
+
+    private async Task<AttemptResult> RunCompactionAsync(int snapshotIndex, int replayFromSegment, int segments, long bytes, CancellationToken cancellationToken)
+    {
+        using var activity = ActivitySourceHolder.StartInternal("journal.compact");
+        _ = activity?.SetTag("compaction.snapshot_index", snapshotIndex);
+        _ = activity?.SetTag("compaction.replay_from_journal_segment", replayFromSegment);
+        _ = activity?.SetTag("compaction.tail_segments", segments);
+        _ = activity?.SetTag("compaction.tail_bytes", bytes);
+
+        ChangeState(CompactionState.Running);
+        LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
+
+        var sw = Stopwatch.StartNew();
+        var resultLabel = "failure";
+        try
+        {
+            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, ct)), cancellationToken)
+                                     .ConfigureAwait(false);
+            resultLabel = "success";
+        }
+        finally
+        {
+            sw.Stop();
+            try
+            {
+                CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
+            }
+            catch (InvalidOperationException)
+            {
+                // Metrics emission is best-effort and must not fail compaction flow.
+            }
+
+            _ = activity?.SetTag("compaction.result", resultLabel);
+            _ = activity?.SetTag("compaction.duration_ms", (long)sw.Elapsed.TotalMilliseconds);
+        }
+
+        LastRunUtc = DateTime.UtcNow;
+        _consecutiveFailures = 0;
+        LogManager.CompactionDone(_log, LastRunUtc);
+        ChangeState(CompactionState.Waiting);
+        return AttemptResult.Succeeded;
+    }
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {

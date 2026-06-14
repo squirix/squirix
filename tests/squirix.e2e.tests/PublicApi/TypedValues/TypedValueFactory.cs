@@ -24,7 +24,7 @@ internal static class TypedValueFactory
         id,
         $"Customer {id}",
         $"{id}@example.test",
-        new TypedCustomerAddress(),
+        CreateAddress("Singapore", "Marina Boulevard 10", "018983", "SG"),
         ["customer", "buyer"],
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -48,7 +48,7 @@ internal static class TypedValueFactory
     public static TypedCustomerProfile CreateProfileWithUnicodeText(string id) => CreateProfile(id) with
     {
         DisplayName = "Customer 東京",
-        Address = new TypedCustomerAddress(),
+        Address = CreateAddress("東京", "千代田 1-1", "100-0001", "JP"),
         Metadata = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["note"] = "Привет",
@@ -72,7 +72,7 @@ internal static class TypedValueFactory
         id,
         $"Updated Customer {id}",
         null,
-        new TypedCustomerAddress(),
+        CreateAddress("Berlin", "Unter den Linden 77", "10117", "DE"),
         ["buyer", "reviewer"],
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -82,4 +82,15 @@ internal static class TypedValueFactory
         },
         BaseInstant.AddMinutes(30),
         TypedCustomerStatus.Suspended);
+
+    private static TypedCustomerAddress CreateAddress(string city, string street, string postalCode, string country) => new(
+        city,
+        street,
+        postalCode,
+        country,
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["kind"] = "billing",
+            ["verified"] = "true",
+        });
 }

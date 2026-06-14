@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Squirix.TestKit.IO;
@@ -76,64 +76,18 @@ public static class DirectoryKit
 
         ValidateNoInvalidChars(path);
 
-        // Prepare a base directory (if provided)
-        string? baseFull = null;
-        if (!string.IsNullOrWhiteSpace(baseDir))
-        {
-            ValidateNoInvalidChars(baseDir);
-            baseFull = Path.GetFullPath(baseDir);
-
-            // Optionally: ensure the base is not a symlink if symlinks are forbidden
-            if (forbidSymlinks)
-            {
-                var baseInfo = new DirectoryInfo(baseFull);
-                if (baseInfo.Exists && IsSymlink(baseInfo))
-                    throw new IOException($"Base directory is a symlink/junction: '{baseFull}'.");
-            }
-
-            if (!Directory.Exists(baseFull))
-                _ = Directory.CreateDirectory(baseFull);
-        }
-
-        // Build absolute path
+        var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
         var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? Environment.CurrentDirectory, path));
 
-        // Ensure the target is under baseDir (if baseDir set)
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
 
-        // Validate path segments (reserved names etc.)
         ValidateSegments(full);
 
-        // Check the parent chain for symlinks (optional)
         if (forbidSymlinks)
             EnsureNoSymlinksInChain(full, baseFull);
 
-        // Create or clean
-        if (File.Exists(full))
-            throw new IOException($"A file already exists at '{full}'.");
-
-        if (!Directory.Exists(full))
-        {
-            _ = Directory.CreateDirectory(full);
-
-            // Ensure the created target is not a symlink
-            if (!forbidSymlinks)
-                return;
-
-            var di = new DirectoryInfo(full);
-            if (IsSymlink(di))
-                throw new IOException($"Created directory resolved to a symlink/junction: '{full}'.");
-        }
-        else if (ensureEmpty)
-        {
-            // Extra safety: do not allow cleaning the root or drive root
-            var root = Path.GetPathRoot(full) ?? string.Empty;
-            if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-                throw new IOException("Refusing to clean a filesystem root.");
-
-            CleanDirectoryContents(full, forbidSymlinks);
-        }
+        CreateOrCleanTargetDirectory(full, ensureEmpty, forbidSymlinks);
     }
 
     /// <summary>
@@ -279,6 +233,32 @@ public static class DirectoryKit
         }
     }
 
+    private static void CreateOrCleanTargetDirectory(string full, bool ensureEmpty, bool forbidSymlinks)
+    {
+        if (File.Exists(full))
+            throw new IOException($"A file already exists at '{full}'.");
+
+        if (!Directory.Exists(full))
+        {
+            _ = Directory.CreateDirectory(full);
+
+            if (!forbidSymlinks)
+                return;
+
+            var di = new DirectoryInfo(full);
+            if (IsSymlink(di))
+                throw new IOException($"Created directory resolved to a symlink/junction: '{full}'.");
+        }
+        else if (ensureEmpty)
+        {
+            var root = Path.GetPathRoot(full) ?? string.Empty;
+            if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Refusing to clean a filesystem root.");
+
+            CleanDirectoryContents(full, forbidSymlinks);
+        }
+    }
+
     private static void EnsureNoSymlinksInChain(string full, string? baseFull)
     {
         // Walk from base (if provided) or drive root towards the target, checking each existing segment.
@@ -306,7 +286,7 @@ public static class DirectoryKit
     {
         // Use case-insensitive comparison on Windows and macOS (default FS often case-insensitive),
         // strict case-sensitive on Linux.
-        var ignoreCase = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+        var ignoreCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var baseWithSep = baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : baseFull + Path.DirectorySeparatorChar;
         return candidateFull.Equals(baseFull, comparison) || candidateFull.StartsWith(baseWithSep, comparison);
@@ -363,7 +343,28 @@ public static class DirectoryKit
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), out var num) && num is >= 0 and <= 9;
+        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+    }
+
+    private static string? PrepareBaseFullPath(string? baseDir, bool forbidSymlinks)
+    {
+        if (string.IsNullOrWhiteSpace(baseDir))
+            return null;
+
+        ValidateNoInvalidChars(baseDir);
+        var baseFull = Path.GetFullPath(baseDir);
+
+        if (forbidSymlinks)
+        {
+            var baseInfo = new DirectoryInfo(baseFull);
+            if (baseInfo.Exists && IsSymlink(baseInfo))
+                throw new IOException($"Base directory is a symlink/junction: '{baseFull}'.");
+        }
+
+        if (!Directory.Exists(baseFull))
+            _ = Directory.CreateDirectory(baseFull);
+
+        return baseFull;
     }
 
     private static void TryMakeWritable(string file)
@@ -404,21 +405,21 @@ public static class DirectoryKit
         {
             var seg = rawSeg.Trim();
             if (seg.Length == 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.");
+                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
             // Windows-only constraints
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
 
                 if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
             }
 
             // File-name level invalid chars (cross-platform)
             if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.");
+                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
         }
     }
 }
