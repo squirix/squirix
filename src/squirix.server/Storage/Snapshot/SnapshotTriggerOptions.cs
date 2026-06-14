@@ -64,7 +64,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGrowthThrottleBytes), value, "JournalGrowthThrottleBytes cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGrowthThrottleBytes cannot be negative.");
 
             field = value;
         }
@@ -81,7 +81,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < 0 || double.IsNaN(value) || double.IsInfinity(value))
-                throw new ArgumentOutOfRangeException(nameof(LatencySloMilliseconds), value, "LatencySloMilliseconds must be a finite non-negative value.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LatencySloMilliseconds must be a finite non-negative value.");
 
             field = value;
         }
@@ -97,7 +97,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(LatencyThrottleDuration), value, "LatencyThrottleDuration cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "LatencyThrottleDuration cannot be negative.");
 
             field = value;
         }
@@ -113,7 +113,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(MinGapBetweenSnapshots), value, "MinGapBetweenSnapshots cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "MinGapBetweenSnapshots cannot be negative.");
 
             field = value;
         }
@@ -129,7 +129,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotEveryNBytes), value, "SnapshotEveryNBytes cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNBytes cannot be negative.");
 
             field = value;
         }
@@ -145,7 +145,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotEveryNOps), value, "SnapshotEveryNOps cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotEveryNOps cannot be negative.");
 
             field = value;
         }
@@ -161,7 +161,7 @@ internal sealed class SnapshotTriggerOptions
         init
         {
             if (value <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotInterval), value, "SnapshotInterval must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotInterval must be greater than zero.");
 
             field = value;
         }

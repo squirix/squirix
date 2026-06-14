@@ -209,7 +209,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
 
         Assert.True(task.IsCompleted);
     }
@@ -238,7 +238,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         public async ValueTask FlushAsync(CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _flushCount);
-            await _journal.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await _journal.FlushAsync(cancellationToken);
         }
     }
 }

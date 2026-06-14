@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Squirix.TestKit.IO;
 using Xunit;
@@ -43,7 +42,7 @@ public sealed class FileKitTests : IAsyncLifetime
     [Fact]
     public void ExistsThrowsForReservedWindowsName()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
             return;
 
         var path = PathKit.Combine(_dir, "con.txt");
@@ -67,7 +66,7 @@ public sealed class FileKitTests : IAsyncLifetime
     [Fact]
     public void ExistsThrowsForZeroNumberedReservedWindowsDeviceNames()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
             return;
 
         _ = Assert.Throws<ArgumentException>(() => FileKit.Exists(PathKit.Combine(_dir, "COM0.txt")));

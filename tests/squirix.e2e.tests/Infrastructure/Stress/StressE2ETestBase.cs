@@ -17,7 +17,7 @@ public abstract class StressE2ETestBase : E2ETestBase
     {
         var clients = new List<E2EClientHandle>(count);
         for (var i = 0; i < count; i++)
-            clients.Add(await cluster.ConnectClientAsync(nodeId, cancellationToken).ConfigureAwait(false));
+            clients.Add(await cluster.ConnectClientAsync(nodeId, cancellationToken));
 
         return clients;
     }
@@ -42,6 +42,6 @@ public abstract class StressE2ETestBase : E2ETestBase
         for (var w = 0; w < writers; w++)
             tasks[w] = writerBody(w);
 
-        await Task.WhenAll(tasks).WaitAsync(budget).ConfigureAwait(false);
+        await Task.WhenAll(tasks).WaitAsync(budget);
     }
 }

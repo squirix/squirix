@@ -133,7 +133,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         using var listener = new MeterListener();
         listener.InstrumentPublished = static (instrument, meterListener) =>
         {
-            if (instrument.Meter.Name != MeterName)
+            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
                 return;
 
             if (IsBackpressureGauge(instrument.Name))
@@ -187,7 +187,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         using var listener = new MeterListener();
         listener.InstrumentPublished = static (instrument, meterListener) =>
         {
-            if (instrument.Meter.Name != MeterName)
+            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
                 return;
 
             if (IsBackpressureGauge(instrument.Name))
@@ -347,68 +347,6 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     }
 
     /// <summary>
-    /// Verifies a queued acquire completes after a held lease is released.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task QueuedAcquireCompletesAfterLeaseRelease()
-    {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                RejectThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromMilliseconds(500),
-            });
-
-        var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", DefaultCancellationToken)).Lease;
-        var queuedTask = gate.AcquireAsync("grpc", "insert", "grpc:client-b", DefaultCancellationToken).AsTask();
-
-        Assert.False(queuedTask.IsCompleted);
-        first.Dispose();
-
-        var (decision, secondLease) = await queuedTask;
-        using (secondLease)
-        {
-            Assert.True(decision.IsAccepted);
-        }
-    }
-
-    /// <summary>
-    /// Verifies queued admission observes caller cancellation and records queue cancellation metrics.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
-    [Fact]
-    public async Task QueuedAcquireObservesCallerCancellation()
-    {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
-            {
-                MaxInFlight = 1,
-                MaxQueue = 1,
-                SlowdownThreshold = 1,
-                RejectThreshold = 1,
-                MaxSlowdownDelay = TimeSpan.Zero,
-                MaxQueueWait = TimeSpan.FromSeconds(2),
-            });
-
-        using var heldLease = (await gate.AcquireAsync("rest", "remove", "rest:client-a", DefaultCancellationToken)).Lease;
-        using var cts = new CancellationTokenSource();
-        var queuedTask = gate.AcquireAsync("rest", "remove", "rest:client-b", cts.Token).AsTask();
-
-        Assert.False(queuedTask.IsCompleted);
-        await cts.CancelAsync();
-
-        await WaitUntilCanceledAsync(queuedTask);
-        Assert.True(queuedTask.IsCanceled);
-        Assert.True(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove")));
-    }
-
-    /// <summary>
     /// Verifies requests are rejected once the hard threshold is reached while another request is queued.
     /// </summary>
     /// <returns>A task representing the asynchronous unit test.</returns>
@@ -476,6 +414,68 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     }
 
     /// <summary>
+    /// Verifies a queued acquire completes after a held lease is released.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task QueuedAcquireCompletesAfterLeaseRelease()
+    {
+        using var gate = new BackpressureGate(
+            new BackpressureOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                RejectThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromMilliseconds(500),
+            });
+
+        var first = (await gate.AcquireAsync("grpc", "insert", "grpc:client-a", DefaultCancellationToken)).Lease;
+        var queuedTask = gate.AcquireAsync("grpc", "insert", "grpc:client-b", DefaultCancellationToken).AsTask();
+
+        Assert.False(queuedTask.IsCompleted);
+        first.Dispose();
+
+        var (decision, secondLease) = await queuedTask;
+        using (secondLease)
+        {
+            Assert.True(decision.IsAccepted);
+        }
+    }
+
+    /// <summary>
+    /// Verifies queued admission observes caller cancellation and records queue cancellation metrics.
+    /// </summary>
+    /// <returns>A task representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task QueuedAcquireObservesCallerCancellation()
+    {
+        using var sink = new MeasurementSink(MeterName);
+        using var gate = new BackpressureGate(
+            new BackpressureOptions
+            {
+                MaxInFlight = 1,
+                MaxQueue = 1,
+                SlowdownThreshold = 1,
+                RejectThreshold = 1,
+                MaxSlowdownDelay = TimeSpan.Zero,
+                MaxQueueWait = TimeSpan.FromSeconds(2),
+            });
+
+        using var heldLease = (await gate.AcquireAsync("rest", "remove", "rest:client-a", DefaultCancellationToken)).Lease;
+        using var cts = new CancellationTokenSource();
+        var queuedTask = gate.AcquireAsync("rest", "remove", "rest:client-b", cts.Token).AsTask();
+
+        Assert.False(queuedTask.IsCompleted);
+        await cts.CancelAsync();
+
+        await WaitUntilCanceledAsync(queuedTask);
+        Assert.True(queuedTask.IsCanceled);
+        Assert.True(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove")));
+    }
+
+    /// <summary>
     /// Verifies the slowdown counter is emitted when load crosses the soft threshold.
     /// </summary>
     /// <returns>A task representing the asynchronous unit test.</returns>
@@ -516,7 +516,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
-        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex}", cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex}", cancellationToken);
         if (!decision.IsAccepted)
             return;
 
@@ -532,15 +532,6 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             _ = Interlocked.Decrement(ref current[0]);
             lease.Dispose();
         }
-    }
-
-    private static async Task WaitUntilCanceledAsync(Task task)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken).ConfigureAwait(false);
-
-        Assert.True(task.IsCanceled);
     }
 
     private static void UpdateMax(ref int target, int candidate)
@@ -570,11 +561,20 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             if (HasAtLeast(inFlight, 1) && HasAtLeast(queueDepth, 1) && HasAtLeast(trackedClients, 2))
                 return;
 
-            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
         }
 
         Assert.Contains(inFlight, static x => x >= 1);
         Assert.Contains(queueDepth, static x => x >= 1);
         Assert.Contains(trackedClients, static x => x >= 2);
+    }
+
+    private static async Task WaitUntilCanceledAsync(Task task)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (!task.IsCompleted && DateTime.UtcNow < deadline)
+            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+
+        Assert.True(task.IsCanceled);
     }
 }

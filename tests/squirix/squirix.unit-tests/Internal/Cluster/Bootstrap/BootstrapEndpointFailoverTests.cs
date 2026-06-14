@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Bootstrap;
@@ -24,7 +25,8 @@ public sealed class BootstrapEndpointFailoverTests : UnitTestBase
             (nodeId, _) =>
             {
                 calls++;
-                return nodeId == "endpoint-0" ? throw new RpcException(new Status(StatusCode.Unavailable, "down")) : new ValueTask<int>(42);
+                return string.Equals(nodeId, "endpoint-0", StringComparison.OrdinalIgnoreCase) ? throw new RpcException(new Status(StatusCode.Unavailable, "down"))
+                    : new ValueTask<int>(42);
             },
             DefaultCancellationToken);
 

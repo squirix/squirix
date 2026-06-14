@@ -64,113 +64,15 @@ internal static class StorageMaintenanceTool
         var journalSegments = CollectJournalSegments(dataDir);
         var journalSegmentIndices = GetJournalSegmentIndices(journalSegments);
 
-        var currentPointerPath = PathEx.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
-        var currentPointerExists = File.Exists(currentPointerPath);
-        string? currentPointerTarget = null;
-        if (currentPointerExists)
-        {
-            try
-            {
-                currentPointerTarget = File.ReadAllText(currentPointerPath).Trim();
-                if (string.IsNullOrWhiteSpace(currentPointerTarget))
-                    issues.Add("CURRENT pointer is empty.");
-            }
-            catch (IOException ex)
-            {
-                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
-            }
-            catch (SecurityException ex)
-            {
-                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
-            }
-            catch (NotSupportedException ex)
-            {
-                issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
-            }
-        }
-        else
-        {
-            issues.Add("CURRENT pointer is missing.");
-        }
+        ReadCurrentPointer(dataDir, issues, out var currentPointerExists, out var currentPointerTarget);
 
         var manifestStore = new ManifestStore(new PersistenceOptions { DataDir = dataDir });
-        Manifest manifest;
-        try
-        {
-            manifest = manifestStore.ReadCurrentOrDefault();
-        }
-        catch (IOException ex)
-        {
-            manifest = new Manifest();
-            issues.Add($"Failed to read manifest: {ex.Message}");
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            manifest = new Manifest();
-            issues.Add($"Failed to read manifest: {ex.Message}");
-        }
-        catch (InvalidDataException ex)
-        {
-            manifest = new Manifest();
-            issues.Add($"Failed to read manifest: {ex.Message}");
-        }
-        catch (JsonException ex)
-        {
-            manifest = new Manifest();
-            issues.Add($"Failed to read manifest: {ex.Message}");
-        }
+        var manifest = ReadManifestOrDefault(manifestStore, issues);
 
         var manifestReadable = currentPointerExists && !string.IsNullOrWhiteSpace(currentPointerTarget);
-        if (!manifestReadable && journalSegmentIndices.Length == 0 && snapshotIndices.Length == 0)
-            issues.Add("No journal segments or snapshots were found.");
+        AppendStorageValidationIssues(dataDir, issues, manifest, manifestReadable, currentPointerTarget, journalSegmentIndices, snapshotIndices);
 
-        if (!string.IsNullOrWhiteSpace(currentPointerTarget))
-        {
-            var currentManifestPath = PathEx.Combine(dataDir, currentPointerTarget);
-            if (!File.Exists(currentManifestPath))
-                issues.Add($"CURRENT pointer target is missing: {currentPointerTarget}");
-        }
-
-        if (manifest.LastSnapshot is not null && !string.IsNullOrWhiteSpace(manifest.LastSnapshot.Path) && !File.Exists(manifest.LastSnapshot.Path))
-            issues.Add($"Manifest snapshot path is missing: {manifest.LastSnapshot.Path}");
-
-        if (journalSegmentIndices.Length <= 1)
-            return BuildReport();
-
-        for (var i = 1; i < journalSegmentIndices.Length; i++)
-        {
-            if (journalSegmentIndices[i] == journalSegmentIndices[i - 1] + 1)
-                continue;
-
-            issues.Add($"journal segments are discontinuous between {journalSegmentIndices[i - 1]} and {journalSegmentIndices[i]}.");
-            break;
-        }
-
-        return BuildReport();
-
-        StorageMaintenanceReport BuildReport()
-        {
-            return new StorageMaintenanceReport
-            {
-                DataDir = dataDir,
-                ManifestReadable = manifestReadable,
-                CurrentPointerExists = currentPointerExists,
-                CurrentPointerTarget = currentPointerTarget,
-                CurrentJournal = manifest.CurrentJournal,
-                NextSequence = manifest.NextSequence,
-                SnapshotIndices = GetSnapshotIndices(snapshotIndices),
-                JournalSegments = journalSegmentIndices,
-                LastSnapshotIndex = manifest.LastSnapshot?.Index,
-                LastSnapshotPath = manifest.LastSnapshot?.Path,
-                LastAppliedSequence = manifest.LastSnapshot?.LastAppliedSequence,
-                ReplayFromJournalSegment = manifest.LastSnapshot?.ReplayFromJournalSegment,
-                Issues = issues,
-            };
-        }
+        return BuildMaintenanceReport(dataDir, issues, manifest, manifestReadable, currentPointerExists, currentPointerTarget, snapshotIndices, journalSegmentIndices);
     }
 
     /// <summary>
@@ -204,6 +106,69 @@ internal static class StorageMaintenanceTool
                 Action = "repair",
                 Report = Inspect(dataDir),
             });
+    }
+
+    private static void AppendStorageValidationIssues(
+        string dataDir,
+        List<string> issues,
+        Manifest manifest,
+        bool manifestReadable,
+        string? currentPointerTarget,
+        int[] journalSegmentIndices,
+        IndexedStorageFile[] snapshotIndices)
+    {
+        if (!manifestReadable && journalSegmentIndices.Length == 0 && snapshotIndices.Length == 0)
+            issues.Add("No journal segments or snapshots were found.");
+
+        if (!string.IsNullOrWhiteSpace(currentPointerTarget))
+        {
+            var currentManifestPath = PathEx.Combine(dataDir, currentPointerTarget);
+            if (!File.Exists(currentManifestPath))
+                issues.Add($"CURRENT pointer target is missing: {currentPointerTarget}");
+        }
+
+        if (manifest.LastSnapshot is not null && !string.IsNullOrWhiteSpace(manifest.LastSnapshot.Path) && !File.Exists(manifest.LastSnapshot.Path))
+            issues.Add($"Manifest snapshot path is missing: {manifest.LastSnapshot.Path}");
+
+        if (journalSegmentIndices.Length <= 1)
+            return;
+
+        for (var i = 1; i < journalSegmentIndices.Length; i++)
+        {
+            if (journalSegmentIndices[i] == journalSegmentIndices[i - 1] + 1)
+                continue;
+
+            issues.Add($"journal segments are discontinuous between {journalSegmentIndices[i - 1]} and {journalSegmentIndices[i]}.");
+            break;
+        }
+    }
+
+    private static StorageMaintenanceReport BuildMaintenanceReport(
+        string dataDir,
+        List<string> issues,
+        Manifest manifest,
+        bool manifestReadable,
+        bool currentPointerExists,
+        string? currentPointerTarget,
+        IndexedStorageFile[] snapshotIndices,
+        int[] journalSegmentIndices)
+    {
+        return new StorageMaintenanceReport
+        {
+            DataDir = dataDir,
+            ManifestReadable = manifestReadable,
+            CurrentPointerExists = currentPointerExists,
+            CurrentPointerTarget = currentPointerTarget,
+            CurrentJournal = manifest.CurrentJournal,
+            NextSequence = manifest.NextSequence,
+            SnapshotIndices = GetSnapshotIndices(snapshotIndices),
+            JournalSegments = journalSegmentIndices,
+            LastSnapshotIndex = manifest.LastSnapshot?.Index,
+            LastSnapshotPath = manifest.LastSnapshot?.Path,
+            LastAppliedSequence = manifest.LastSnapshot?.LastAppliedSequence,
+            ReplayFromJournalSegment = manifest.LastSnapshot?.ReplayFromJournalSegment,
+            Issues = issues,
+        };
     }
 
     private static Manifest BuildRepairedManifest(string dataDir, StorageMaintenanceReport existing, int latestJournalSegment, ulong nextSequence)
@@ -335,6 +300,68 @@ internal static class StorageMaintenanceTool
             indices[i] = snapshotFiles[i].Index;
 
         return indices;
+    }
+
+    private static void ReadCurrentPointer(string dataDir, List<string> issues, out bool currentPointerExists, out string? currentPointerTarget)
+    {
+        var currentPointerPath = PathEx.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
+        currentPointerExists = File.Exists(currentPointerPath);
+        currentPointerTarget = null;
+
+        if (!currentPointerExists)
+        {
+            issues.Add("CURRENT pointer is missing.");
+            return;
+        }
+
+        try
+        {
+            currentPointerTarget = File.ReadAllText(currentPointerPath).Trim();
+            if (string.IsNullOrWhiteSpace(currentPointerTarget))
+                issues.Add("CURRENT pointer is empty.");
+        }
+        catch (IOException ex)
+        {
+            issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+        }
+        catch (SecurityException ex)
+        {
+            issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+        }
+        catch (NotSupportedException ex)
+        {
+            issues.Add($"Failed to read CURRENT pointer: {ex.Message}");
+        }
+    }
+
+    private static Manifest ReadManifestOrDefault(ManifestStore manifestStore, List<string> issues)
+    {
+        try
+        {
+            return manifestStore.ReadCurrentOrDefault();
+        }
+        catch (IOException ex)
+        {
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (InvalidDataException ex)
+        {
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            issues.Add($"Failed to read manifest: {ex.Message}");
+        }
+
+        return new Manifest();
     }
 
     private static bool TryGetLatestSnapshotFile(string[] snapshotFiles, out IndexedStorageFile snapshotFile)

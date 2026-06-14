@@ -19,7 +19,7 @@ internal sealed class JournalCompactionOptions
         init
         {
             if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(MinGap), value, "MinGap cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "MinGap cannot be negative.");
 
             field = value;
         }
@@ -31,7 +31,7 @@ internal sealed class JournalCompactionOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(MinTailBytes), value, "MinTailBytes cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "MinTailBytes cannot be negative.");
 
             field = value;
         }
@@ -43,7 +43,7 @@ internal sealed class JournalCompactionOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(MinTailSegments), value, "MinTailSegments cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "MinTailSegments cannot be negative.");
 
             field = value;
         }

@@ -40,10 +40,10 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
         Assert.True(hasOps || match, $"Expected ops or journal insert counters in metrics output. Body snippet:\n{body[..Math.Min(body.Length, 2000)]}");
     }
 
-    [GeneratedRegex("""^squirix_journal_appends_total\{.*op="insert".*\} \d+""", RegexOptions.Multiline)]
+    [GeneratedRegex("""^squirix_journal_appends_total\{[^}]*op="insert"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
     private static partial Regex AppendsTotalRegex();
 
-    [GeneratedRegex("""^squirix_ops_total\{.*operation="set".*\} \d+""", RegexOptions.Multiline)]
+    [GeneratedRegex("""^squirix_ops_total\{[^}]*operation="set"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
     private static partial Regex OpsTotalRegex();
 
     private async Task<string> GetWithRetryAsync(string metricsUrl, TimeSpan delay, int attempts)

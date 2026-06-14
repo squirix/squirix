@@ -44,7 +44,7 @@ public abstract class SmokeTestBase : IDisposable
     private const int PortRangeSize = 200;
     private static readonly int PortRangeStart = CalculatePortRangeStart();
     private static readonly PortAllocator PortPool = new(PortRangeStart, PortRangeStart + PortRangeSize - 1);
-    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
+    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
 

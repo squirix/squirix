@@ -30,8 +30,95 @@ internal static class JournalCompactor
         var oldManifest = manifestStore.ReadCurrentOrDefault();
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
+        var (state, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, cancellationToken).ConfigureAwait(false);
 
-        // 1) Build in-memory state from snapshot (if present in manifest).
+        var newFirstIdx = GetNextJournalSegmentIndex(CollectJournalSegments(options.DataDir));
+        var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
+        _ = FileEx.TryDeleteFile(tmpPath);
+        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
+        FinalizeCompaction(options, manifestStore, oldManifest, newFirstIdx, lastSeq);
+    }
+
+    private static void Apply(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    {
+        switch (env.OpCase)
+        {
+            case JournalEnvelope.OpOneofCase.Put:
+                ApplyPut(env, state);
+                break;
+            case JournalEnvelope.OpOneofCase.Remove:
+                ApplyRemove(env, state);
+                break;
+            case JournalEnvelope.OpOneofCase.RemoveExpiration:
+                ApplyRemoveExpiration(env, state);
+                break;
+            case JournalEnvelope.OpOneofCase.TouchExpiration:
+                ApplyTouchExpiration(env, state);
+                break;
+            case JournalEnvelope.OpOneofCase.None:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(env));
+        }
+    }
+
+    private static void ApplyPut(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    {
+        var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
+        var key = new CacheKey(put.Item.Namespace, put.Item.Key);
+
+        if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<object?>(put.Item.EntryJson.Memory, out var entry))
+            throw CreateCompactionDecodeFailure("put", key.Key);
+
+        if (IsExpired(entry))
+            _ = state.Remove(key);
+        else
+            state[key] = entry;
+    }
+
+    private static void ApplyRemove(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    {
+        var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
+        _ = state.Remove(new CacheKey(remove.Namespace, remove.Key));
+    }
+
+    private static void ApplyRemoveExpiration(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    {
+        var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
+        var key = new CacheKey(removeExpiration.Namespace, removeExpiration.Key);
+        if (!state.TryGetValue(key, out var entry))
+            return;
+
+        state[key] = new CacheEntry<object?>
+        {
+            Value = entry.Value,
+            Tags = entry.Tags,
+            Version = entry.Version,
+        };
+    }
+
+    private static void ApplyTouchExpiration(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    {
+        var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
+        var key = new CacheKey(touchExpiration.Namespace, touchExpiration.Key);
+        if (!state.TryGetValue(key, out var entry))
+            return;
+
+        state[key] = new CacheEntry<object?>
+        {
+            Value = entry.Value,
+            ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime,
+            Tags = entry.Tags,
+            Version = entry.Version,
+        };
+    }
+
+    private static async Task<(Dictionary<CacheKey, CacheEntry<object?>> State, ulong LastSeq)> BuildCompactionStateAsync(
+        PersistenceOptions options,
+        Manifest.SnapshotRef? snapshotRef,
+        int replayFromSegment,
+        CancellationToken cancellationToken)
+    {
         var state = new Dictionary<CacheKey, CacheEntry<object?>>();
         if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
         {
@@ -40,7 +127,6 @@ internal static class JournalCompactor
                 state[key] = entry;
         }
 
-        // 2) Replay journal tail on top of snapshot from manifest replay boundary, not snapshot ordinal.
         ulong lastSeq = 0;
         var fromSeg = Math.Max(1, replayFromSegment);
         foreach (var env in JournalReader.ReadAll(options.DataDir, fromSeg, cancellationToken))
@@ -49,29 +135,31 @@ internal static class JournalCompactor
             Apply(env, state);
         }
 
-        // 3) Create compacted journal at a fresh index to isolate from stale topology during cleanup windows.
-        var existingSegments = CollectJournalSegments(options.DataDir);
-        var newFirstIdx = GetNextJournalSegmentIndex(existingSegments);
-        var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
-        _ = FileEx.TryDeleteFile(tmpPath);
-        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
+        return (state, lastSeq);
+    }
 
-        // 4) Install the compacted journal before deleting any old segments.
+    private static JournalSegment[] CollectJournalSegments(string dataDir)
+    {
+        var result = new List<JournalSegment>();
+        foreach (var segment in JournalReader.EnumerateSegments(dataDir, 1))
+            result.Add(segment);
+
+        return [.. result];
+    }
+
+    private static InvalidOperationException CreateCompactionDecodeFailure(string operation, string key) =>
+        new($"journal compaction failed: undecodable entry payload for operation '{operation}' on key '{key}'.");
+
+    private static void FinalizeCompaction(PersistenceOptions options, ManifestStore manifestStore, Manifest oldManifest, int newFirstIdx, ulong lastSeq)
+    {
+        // Install the compacted journal before deleting any old segments.
         // Crash safety relies on each intermediate state remaining recoverable.
-        // Before publish, recovery uses the old manifest and old journal topology.
-        // Before the manifest update, both old journals and the compacted segment can coexist safely.
-        // Before cleanup, recovery follows the compacted journal topology and ignores stale leftovers.
-        // During cleanup, any remaining old journal files are harmless because the manifest already points to
-        // the compacted journal segment with LastSnapshot = null.
         var finalJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}{StorageFileExtensions.Journal}");
         var backupJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.bak");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
         _ = FileEx.TryDeleteFile(backupJournalPath);
         FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
 
-        // 5) Update manifest.
-        // Safe post-state invariant after successful compaction:
-        // - journal-only recovery from compacted journal segment N.jsqx.
-        // - No snapshot metadata that can point recovery to a pre-compaction journal topology.
         var newManifest = new Manifest
         {
             Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
@@ -81,7 +169,6 @@ internal static class JournalCompactor
         };
         manifestStore.Write(newManifest);
 
-        // 6) Remove old journal segments only after the replacement and manifest update are durable.
         foreach (var segment in CollectJournalSegments(options.DataDir))
         {
             if (segment.Index == newFirstIdx)
@@ -93,11 +180,24 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static async Task WriteCompactedJournalAsync(
-        string tmpPath,
-        Dictionary<CacheKey, CacheEntry<object?>> state,
-        ulong lastSeq,
-        CancellationToken cancellationToken)
+    private static int GetNextJournalSegmentIndex(JournalSegment[] segments)
+    {
+        if (segments.Length == 0)
+            return 1;
+
+        var max = segments[0].Index;
+        for (var i = 1; i < segments.Length; i++)
+        {
+            if (segments[i].Index > max)
+                max = segments[i].Index;
+        }
+
+        return max + 1;
+    }
+
+    private static bool IsExpired(CacheEntry<object?> e) => e.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
+
+    private static async Task WriteCompactedJournalAsync(string tmpPath, Dictionary<CacheKey, CacheEntry<object?>> state, ulong lastSeq, CancellationToken cancellationToken)
     {
         var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         await using (fs.ConfigureAwait(false))
@@ -138,103 +238,4 @@ internal static class JournalCompactor
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
-
-    private static void Apply(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
-    {
-        switch (env.OpCase)
-        {
-            case JournalEnvelope.OpOneofCase.Put:
-            {
-                var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
-                var key = new CacheKey(put.Item.Namespace, put.Item.Key);
-
-                if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<object?>(put.Item.EntryJson.Memory, out var entry))
-                    throw CreateCompactionDecodeFailure("put", key.Key);
-
-                if (IsExpired(entry))
-                    _ = state.Remove(key); // expired PUT -> no-op in final state
-                else
-                    state[key] = entry;
-
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.Remove:
-            {
-                var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
-                _ = state.Remove(new CacheKey(remove.Namespace, remove.Key));
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.RemoveExpiration:
-            {
-                var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
-                var key = new CacheKey(removeExpiration.Namespace, removeExpiration.Key);
-                if (state.TryGetValue(key, out var entry))
-                {
-                    state[key] = new CacheEntry<object?>
-                    {
-                        Value = entry.Value,
-                        Tags = entry.Tags,
-                        Version = entry.Version,
-                    };
-                }
-
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.TouchExpiration:
-            {
-                var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
-                var key = new CacheKey(touchExpiration.Namespace, touchExpiration.Key);
-                if (state.TryGetValue(key, out var entry))
-                {
-                    state[key] = new CacheEntry<object?>
-                    {
-                        Value = entry.Value,
-                        ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime,
-                        Tags = entry.Tags,
-                        Version = entry.Version,
-                    };
-                }
-
-                break;
-            }
-
-            case JournalEnvelope.OpOneofCase.None:
-                break;
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(env));
-        }
-    }
-
-    private static JournalSegment[] CollectJournalSegments(string dataDir)
-    {
-        var result = new List<JournalSegment>();
-        foreach (var segment in JournalReader.EnumerateSegments(dataDir, 1))
-            result.Add(segment);
-
-        return [.. result];
-    }
-
-    private static InvalidOperationException CreateCompactionDecodeFailure(string operation, string key) =>
-        new($"journal compaction failed: undecodable entry payload for operation '{operation}' on key '{key}'.");
-
-    private static int GetNextJournalSegmentIndex(JournalSegment[] segments)
-    {
-        if (segments.Length == 0)
-            return 1;
-
-        var max = segments[0].Index;
-        for (var i = 1; i < segments.Length; i++)
-        {
-            if (segments[i].Index > max)
-                max = segments[i].Index;
-        }
-
-        return max + 1;
-    }
-
-    private static bool IsExpired(CacheEntry<object?> e) => e.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
 }

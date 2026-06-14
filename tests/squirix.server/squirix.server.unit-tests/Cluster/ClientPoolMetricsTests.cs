@@ -26,7 +26,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     {
         var peers = BuildPeers(4);
         var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await using (pool.ConfigureAwait(false))
+        await using (pool)
         {
             Assert.Equal(4, pool.ActiveClientCount);
             Assert.Equal(4, pool.NodeIds.Count);

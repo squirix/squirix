@@ -27,8 +27,28 @@ public sealed class KeyedSingleFlightTests
         await Task.Delay(30, TestContext.Current.CancellationToken);
         gate.SetResult();
 
-        await AssertInvalidOperationAsync(first);
-        await AssertInvalidOperationAsync(second);
+        InvalidOperationException? firstException = null;
+        try
+        {
+            _ = await first;
+        }
+        catch (InvalidOperationException ex)
+        {
+            firstException = ex;
+        }
+
+        InvalidOperationException? secondException = null;
+        try
+        {
+            _ = await second;
+        }
+        catch (InvalidOperationException ex)
+        {
+            secondException = ex;
+        }
+
+        Assert.NotNull(firstException);
+        Assert.NotNull(secondException);
         Assert.Equal(1, executions);
         return;
 
@@ -39,18 +59,10 @@ public sealed class KeyedSingleFlightTests
                 async ct =>
                 {
                     _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+                    await gate.Task.WaitAsync(ct);
                     throw new InvalidOperationException("factory failed");
                 },
                 TestContext.Current.CancellationToken);
-        }
-
-        static async Task AssertInvalidOperationAsync(Task<int> task)
-        {
-#pragma warning disable VSTHRD003
-            // The test intentionally captures concurrent single-flight tasks before releasing the factory gate.
-            _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await task.ConfigureAwait(false));
-#pragma warning restore VSTHRD003
         }
     }
 
@@ -82,7 +94,7 @@ public sealed class KeyedSingleFlightTests
                 async ct =>
                 {
                     _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+                    await gate.Task.WaitAsync(ct);
                     return 7;
                 },
                 TestContext.Current.CancellationToken);

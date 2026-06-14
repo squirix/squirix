@@ -42,18 +42,18 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         ValueTask<CacheValueResult<string>> RunGetOrAddAsync()
         {
             return clientCache.GetOrAddWithFactoryAsync(
-            "orders",
-            "k",
-            async (key, cancellationToken) =>
-            {
-                _ = key;
-                _ = cancellationToken;
-                _ = Interlocked.Increment(ref factoryCalls);
-                await gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                return "created";
-            },
-            null,
-            DefaultCancellationToken);
+                "orders",
+                "k",
+                async (key, cancellationToken) =>
+                {
+                    _ = key;
+                    _ = cancellationToken;
+                    _ = Interlocked.Increment(ref factoryCalls);
+                    await gate.Task.WaitAsync(cancellationToken);
+                    return "created";
+                },
+                null,
+                DefaultCancellationToken);
         }
     }
 

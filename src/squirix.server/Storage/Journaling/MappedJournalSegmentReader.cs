@@ -102,7 +102,9 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
 
             try
             {
-                ArgumentNullException.ThrowIfNull(buffer);
+                if (buffer is null)
+                    throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset}.");
+
                 Current = RecordCodec.Deserialize(buffer.AsSpan(0, payloadLength));
                 _offset = read.NextFrameOffset;
                 return true;

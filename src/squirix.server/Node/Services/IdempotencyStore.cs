@@ -51,7 +51,9 @@ internal sealed class IdempotencyStore : IDisposable
         var restored = new List<KeyValuePair<string, StoredOperation>>();
         foreach (var record in records)
         {
-            ArgumentNullException.ThrowIfNull(record);
+            if (record is null)
+                throw new ArgumentException("Idempotency record must not be null.", nameof(records));
+
             restored.Add(
                 new KeyValuePair<string, StoredOperation>(record.OperationId, new StoredOperation(record.Fingerprint, FromPersistedOutcome(record.Outcome), record.CreatedUtc)));
         }

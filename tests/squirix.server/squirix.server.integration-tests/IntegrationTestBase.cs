@@ -43,7 +43,7 @@ namespace Squirix.Server.IntegrationTests;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class IntegrationTestBase : IDisposable
 {
-    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
+    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
     private static readonly PortAllocator PortPool = CreatePortAllocator();
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;

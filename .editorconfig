@@ -202,6 +202,10 @@ resharper_csharp_place_type_constraints_on_same_line = false
 resharper_csharp_place_constructor_initializer_on_same_line = false
 resharper_place_constructor_initializer_on_same_line = false
 
+# Meziantou.Analyzer Rules
+# Allow member access expressions (e.g. request.Definition) where the root is a parameter
+MA0015.consider_member_access_as_parameter = true
+
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none
 

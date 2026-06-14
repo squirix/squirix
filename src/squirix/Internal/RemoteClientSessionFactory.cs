@@ -73,7 +73,9 @@ internal static class RemoteClientSessionFactory
 
         foreach (var endpoint in endpoints)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+            if (string.IsNullOrWhiteSpace(endpoint))
+                throw new ArgumentException("Endpoint must be a non-empty string.", nameof(endpoints));
+
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Scheme) || string.IsNullOrWhiteSpace(uri.Host))
                 throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 

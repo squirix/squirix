@@ -64,7 +64,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
             new TestServerCallContext(),
             (request, _, _) =>
             {
-                invoked = request == "request";
+                invoked = string.Equals(request, "request", StringComparison.Ordinal);
                 return Task.CompletedTask;
             });
 

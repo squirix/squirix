@@ -36,7 +36,7 @@ public sealed class FrameCodecCorruptionDiagnosticsTests
         ms.Position = 0;
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(async () =>
-            _ = await FrameCodec.ReadFrameStrictAsync<object>(ms, static _ => new object(), CancellationToken.None).ConfigureAwait(false));
+            _ = await FrameCodec.ReadFrameStrictAsync<object>(ms, static _ => new object(), CancellationToken.None));
 
         Assert.Contains("CRC mismatch", ex.Message, StringComparison.Ordinal);
         Assert.Contains(wrongCrcHex, ex.Message, StringComparison.Ordinal);

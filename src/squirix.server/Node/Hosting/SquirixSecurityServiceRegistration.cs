@@ -13,61 +13,60 @@ internal static class SquirixSecurityServiceRegistration
 
     public static bool AddSquirixSecurityServices(this IServiceCollection services, SecurityOptions? securityOptionsOverride = null)
     {
-        var (jwtAuthority, jwtAudience, jwtIssuer, jwtAllowHttpMetadata, signingKeyBytes, jwtEnabled) = ResolveSecurityConfiguration(securityOptionsOverride);
+        var configuration = ResolveSecurityConfiguration(securityOptionsOverride);
+        ValidateSecurityConfiguration(configuration);
 
-        if (!string.IsNullOrWhiteSpace(jwtIssuer) && signingKeyBytes is null && string.IsNullOrWhiteSpace(jwtAuthority))
-            throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
-
-        if (!string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtAudience))
-            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
-
-        if (!jwtEnabled)
+        if (!configuration.JwtEnabled)
             return false;
 
-        if (string.IsNullOrWhiteSpace(jwtAuthority) && signingKeyBytes is null)
-            throw new InvalidOperationException("JWT authentication requires SQUIRIX_JWT_AUTHORITY or SQUIRIX_JWT_SIGNING_KEY.");
+        RegisterJwtAuthentication(services, configuration);
+        return true;
+    }
 
-        if (string.IsNullOrWhiteSpace(jwtAuthority) && string.IsNullOrWhiteSpace(jwtIssuer))
-            throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
+    private static TokenValidationParameters CreateTokenValidationParameters(ResolvedSecurityConfiguration configuration)
+    {
+        var parameters = new TokenValidationParameters
+        {
+            ValidateAudience = !string.IsNullOrWhiteSpace(configuration.JwtAudience),
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ClockSkew = TimeSpan.FromMinutes(2),
+            ValidateIssuer = true,
+        };
 
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority))
+        {
+            if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer))
+                parameters.ValidIssuer = configuration.JwtIssuer;
+        }
+        else
+        {
+            parameters.ValidIssuer = configuration.JwtIssuer;
+        }
+
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
+            parameters.ValidAudience = configuration.JwtAudience;
+
+        if (configuration.SigningKeyBytes is not null)
+            parameters.IssuerSigningKey = new SymmetricSecurityKey(configuration.SigningKeyBytes);
+
+        return parameters;
+    }
+
+    private static void RegisterJwtAuthentication(IServiceCollection services, ResolvedSecurityConfiguration configuration)
+    {
         _ = services.AddAuthentication().AddJwtBearer(
             JwtBearerDefaults.AuthenticationScheme,
             o =>
             {
-                var hasAuthority = !string.IsNullOrWhiteSpace(jwtAuthority);
-                o.Authority = hasAuthority ? jwtAuthority : null;
-                o.RequireHttpsMetadata = hasAuthority && !jwtAllowHttpMetadata;
+                var hasAuthority = !string.IsNullOrWhiteSpace(configuration.JwtAuthority);
+                o.Authority = hasAuthority ? configuration.JwtAuthority : null;
+                o.RequireHttpsMetadata = hasAuthority && !configuration.JwtAllowHttpMetadata;
 
-                if (!string.IsNullOrWhiteSpace(jwtAudience))
-                    o.Audience = jwtAudience;
+                if (!string.IsNullOrWhiteSpace(configuration.JwtAudience))
+                    o.Audience = configuration.JwtAudience;
 
-                var parameters = new TokenValidationParameters
-                {
-                    ValidateAudience = !string.IsNullOrWhiteSpace(jwtAudience),
-                    ValidateLifetime = true,
-                    ValidateIssuerSigningKey = true,
-                    ClockSkew = TimeSpan.FromMinutes(2),
-                };
-
-                if (!string.IsNullOrWhiteSpace(jwtAuthority))
-                {
-                    parameters.ValidateIssuer = true;
-                    if (!string.IsNullOrWhiteSpace(jwtIssuer))
-                        parameters.ValidIssuer = jwtIssuer;
-                }
-                else
-                {
-                    parameters.ValidateIssuer = true;
-                    parameters.ValidIssuer = jwtIssuer;
-                }
-
-                if (!string.IsNullOrWhiteSpace(jwtAudience))
-                    parameters.ValidAudience = jwtAudience;
-
-                if (signingKeyBytes is not null)
-                    parameters.IssuerSigningKey = new SymmetricSecurityKey(signingKeyBytes);
-
-                o.TokenValidationParameters = parameters;
+                o.TokenValidationParameters = CreateTokenValidationParameters(configuration);
             });
 
         _ = services.AddAuthorizationBuilder().AddPolicy(
@@ -77,8 +76,6 @@ internal static class SquirixSecurityServiceRegistration
                 _ = p.RequireAuthenticatedUser();
                 _ = p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
             });
-
-        return true;
     }
 
     private static ResolvedSecurityConfiguration ResolveFromEnvironment()
@@ -122,6 +119,24 @@ internal static class SquirixSecurityServiceRegistration
         {
             return Encoding.UTF8.GetBytes(value);
         }
+    }
+
+    private static void ValidateSecurityConfiguration(ResolvedSecurityConfiguration configuration)
+    {
+        if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes is null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))
+            throw new InvalidOperationException("SQUIRIX_JWT_ISSUER requires SQUIRIX_JWT_SIGNING_KEY when no authority is configured.");
+
+        if (!string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtAudience))
+            throw new InvalidOperationException("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE.");
+
+        if (!configuration.JwtEnabled)
+            return;
+
+        if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && configuration.SigningKeyBytes is null)
+            throw new InvalidOperationException("JWT authentication requires SQUIRIX_JWT_AUTHORITY or SQUIRIX_JWT_SIGNING_KEY.");
+
+        if (string.IsNullOrWhiteSpace(configuration.JwtAuthority) && string.IsNullOrWhiteSpace(configuration.JwtIssuer))
+            throw new InvalidOperationException("SQUIRIX_JWT_ISSUER must be provided when using SQUIRIX_JWT_SIGNING_KEY without SQUIRIX_JWT_AUTHORITY.");
     }
 
     private readonly record struct ResolvedSecurityConfiguration(

@@ -104,7 +104,7 @@ public sealed class GrpcTransportEndpointsTests
     public void ValidatePeerServerCertificateRejectsExpiredCertificate()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        var notBefore = bundle.Ca.NotBefore;
+        var notBefore = new DateTimeOffset(bundle.Ca.NotBefore.ToUniversalTime());
         var notAfter = notBefore.AddHours(1);
         using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
 

@@ -83,43 +83,6 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>
-    /// Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
-    {
-        var urlA = GetNextHttpAddress();
-        var urlB = GetNextHttpAddress();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
-
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
-
-        var interNodeUrl = peers.First(static peer => peer.NodeId == "node-b").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
-
-        using var channel = GrpcChannel.ForAddress(
-            interNodeUrl,
-            new GrpcChannelOptions
-            {
-                HttpHandler = CreateClusterCaTrustingHandlerWithoutClientCertificate("node-b", peers),
-                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
-
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "internal-no-cert" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
-
-        Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable, $"Expected unauthenticated or unavailable, got {ex.StatusCode}.");
-    }
-
-    /// <summary>
     /// Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
@@ -155,6 +118,44 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         Assert.True(getResponse.Found);
         Assert.Equal(value, ProtoEx.CacheValueFromGrpcValue<object?>(getResponse.Value, null, null).Value);
+    }
+
+    /// <summary>
+    /// Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
+    {
+        var urlA = GetNextHttpAddress();
+        var urlB = GetNextHttpAddress();
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var interNodeUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+                           throw new InvalidOperationException("Expected inter-node URL for node-b.");
+
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUrl,
+            new GrpcChannelOptions
+            {
+                HttpHandler = CreateClusterCaTrustingHandlerWithoutClientCertificate("node-b", peers),
+                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
+                new GetValueRequest { CacheName = "default", Key = "internal-no-cert" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
+
+        Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable, $"Expected unauthenticated or unavailable, got {ex.StatusCode}.");
     }
 
     /// <summary>

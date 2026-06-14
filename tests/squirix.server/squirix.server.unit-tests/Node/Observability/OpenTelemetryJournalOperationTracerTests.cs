@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
@@ -63,7 +64,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = static source => source.Name == ActivitySourceHolder.SourceName,
+            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
             Sample = static (ref _) => ActivitySamplingResult.AllData,
         };
         ActivitySource.AddActivityListener(listener);

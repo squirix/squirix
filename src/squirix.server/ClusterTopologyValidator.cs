@@ -155,7 +155,7 @@ internal static class ClusterTopologyValidator
 
     private static void ValidateUrl(List<string> failures, Uri? value, string name)
     {
-        if (value is null || !value.IsAbsoluteUri || value.Scheme != Uri.UriSchemeHttps)
+        if (value is null || !value.IsAbsoluteUri || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             failures.Add($"{name} must be an absolute https URI.");
             return;
@@ -165,7 +165,10 @@ internal static class ClusterTopologyValidator
             failures.Add($"{name} cannot exceed {MaxUrlLength} characters.");
         if (string.IsNullOrWhiteSpace(value.Host))
             failures.Add($"{name} must include a host.");
-        if (!string.IsNullOrEmpty(value.UserInfo) || value.AbsolutePath != "/" || !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
+        if (!string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) ||
+            !string.IsNullOrEmpty(value.Fragment))
+        {
             failures.Add($"{name} must be an origin URI without credentials, path, query, or fragment.");
+        }
     }
 }

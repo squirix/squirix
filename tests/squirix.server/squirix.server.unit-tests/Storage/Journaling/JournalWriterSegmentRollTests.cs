@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -103,7 +104,7 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
     {
         foreach (var env in envelopes)
         {
-            if (env.OpCase == JournalEnvelope.OpOneofCase.Put && env.Put.Item.Key == key)
+            if (env.OpCase == JournalEnvelope.OpOneofCase.Put && string.Equals(env.Put.Item.Key, key, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 

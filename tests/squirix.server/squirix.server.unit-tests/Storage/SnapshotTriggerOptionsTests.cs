@@ -57,7 +57,7 @@ public sealed class SnapshotTriggerOptionsTests
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() => CreateWithInvalidScalar(propertyName));
 
-        Assert.Equal(propertyName, ex.ParamName);
+        Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }
 

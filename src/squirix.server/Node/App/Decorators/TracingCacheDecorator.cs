@@ -111,7 +111,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private static void RecordResult(Activity? activity, string result)
     {
         _ = activity?.SetTag("cache.result", result);
-        if (result != CacheOperationResults.Ok)
+        if (!string.Equals(result, CacheOperationResults.Ok, StringComparison.OrdinalIgnoreCase))
             _ = activity?.SetStatus(ActivityStatusCode.Error);
     }
 

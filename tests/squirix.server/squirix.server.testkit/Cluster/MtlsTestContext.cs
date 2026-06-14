@@ -164,7 +164,7 @@ public sealed class MtlsTestContext : IDisposable
         MtlsCertificateMaterial material)
     {
         var clusterCa = _bundle!.GetClusterCertificateAuthority();
-        var notBefore = clusterCa.NotBefore.AddHours(1);
+        var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
         return CreateMaterialStartup(nodeId, internalListenPort, expiredCertificate, material.TrustAnchor!);

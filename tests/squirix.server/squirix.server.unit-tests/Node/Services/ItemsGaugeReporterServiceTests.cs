@@ -56,21 +56,27 @@ public sealed class ItemsGaugeReporterServiceTests
     {
         var listener = new MeterListener
         {
-            InstrumentPublished = static (instrument, l) =>
+            InstrumentPublished = static (instrument, meterListener) =>
             {
-                if (instrument.Meter.Name == "Squirix" && instrument.Name == "squirix_items_total")
-                    l.EnableMeasurementEvents(instrument);
+                if (IsItemsTotal(instrument))
+                    meterListener.EnableMeasurementEvents(instrument);
             },
         };
 
         listener.SetMeasurementEventCallback<long>((instrument, measurement, _, _) =>
         {
-            if (instrument.Name == "squirix_items_total")
+            if (IsItemsTotal(instrument))
                 sink.Values.Add(measurement);
         });
 
         listener.Start();
         return listener;
+
+        static bool IsItemsTotal(Instrument instrument)
+        {
+            return string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(instrument.Name, "squirix_items_total", StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private sealed class MeasurementSink : IDisposable

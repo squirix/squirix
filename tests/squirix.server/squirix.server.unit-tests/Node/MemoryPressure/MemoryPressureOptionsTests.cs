@@ -55,8 +55,8 @@ public sealed class MemoryPressureOptionsTests
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new MemoryPressureOptions { CriticalPressureThresholdPercent = 101 });
 
-        Assert.Equal(nameof(MemoryPressureOptions.CriticalPressureThresholdPercent), ex.ParamName);
-        Assert.Contains("CriticalPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("value", ex.ParamName);
+        Assert.Contains(nameof(MemoryPressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
         Assert.Contains("101", ex.Message, StringComparison.Ordinal);
     }
 
@@ -68,8 +68,8 @@ public sealed class MemoryPressureOptionsTests
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new MemoryPressureOptions { HighPressureThresholdPercent = 0 });
 
-        Assert.Equal(nameof(MemoryPressureOptions.HighPressureThresholdPercent), ex.ParamName);
-        Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("value", ex.ParamName);
+        Assert.Contains(nameof(MemoryPressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
         Assert.Contains("0", ex.Message, StringComparison.Ordinal);
     }
 
@@ -85,8 +85,8 @@ public sealed class MemoryPressureOptionsTests
     {
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new MemoryPressureOptions { MaxEstimatedCacheBytes = maxBytes });
 
-        Assert.Equal(nameof(MemoryPressureOptions.MaxEstimatedCacheBytes), ex.ParamName);
-        Assert.Contains("MaxEstimatedCacheBytes", ex.Message, StringComparison.Ordinal);
+        Assert.Equal("value", ex.ParamName);
+        Assert.Contains(nameof(MemoryPressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
         Assert.Contains(maxBytes.ToString(CultureInfo.InvariantCulture), ex.Message, StringComparison.Ordinal);
     }
 

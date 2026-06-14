@@ -12,7 +12,7 @@ if (!string.IsNullOrWhiteSpace(requestedWorkingDirectory))
     Directory.SetCurrentDirectory(requestedWorkingDirectory);
 
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-await RunCommandAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token).ConfigureAwait(false);
+await RunCommandAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
 return;
 
 static async ValueTask RunCommandAsync(string[] args, CancellationToken cancellationToken)
@@ -26,14 +26,14 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
             if (args.Length != 4)
                 throw new ArgumentException("Usage: embedded-write-int <cacheName> <key> <value>");
 
-            await using (var unused = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false))
-            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken).ConfigureAwait(false))
+            await using (var unused = await SquirixServer.StartAsync(cancellationToken))
+            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken))
             {
-                var cache = await client.GetCacheAsync<int>(args[1], cancellationToken).ConfigureAwait(false);
+                var cache = await client.GetCacheAsync<int>(args[1], cancellationToken);
                 var value = int.Parse(args[3], CultureInfo.InvariantCulture);
-                await cache.SetAsync(args[2], value, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await cache.SetAsync(args[2], value, cancellationToken: cancellationToken);
 
-                var persisted = await cache.GetValueAsync(args[2], cancellationToken).ConfigureAwait(false);
+                var persisted = await cache.GetValueAsync(args[2], cancellationToken);
                 if (!persisted.Found || persisted.Value != value)
                 {
                     throw new InvalidOperationException(
@@ -47,12 +47,12 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
             if (args.Length != 4)
                 throw new ArgumentException("Usage: embedded-read-int <cacheName> <key> <expectedValue>");
 
-            await using (var unused = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false))
-            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken).ConfigureAwait(false))
+            await using (var unused = await SquirixServer.StartAsync(cancellationToken))
+            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken))
             {
-                var cache = await client.GetCacheAsync<int>(args[1], cancellationToken).ConfigureAwait(false);
+                var cache = await client.GetCacheAsync<int>(args[1], cancellationToken);
                 var expectedValue = int.Parse(args[3], CultureInfo.InvariantCulture);
-                var read = await cache.GetValueAsync(args[2], cancellationToken).ConfigureAwait(false);
+                var read = await cache.GetValueAsync(args[2], cancellationToken);
                 if (!read.Found)
                     throw new InvalidOperationException($"Expected key '{args[2]}' to exist after restart, but it was missing.");
 
@@ -69,11 +69,11 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
             if (args.Length != 2)
                 throw new ArgumentException("Usage: default-type-binding-allows-mixed-facades <cacheName>");
 
-            await using (var unused = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false))
-            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken).ConfigureAwait(false))
+            await using (var unused = await SquirixServer.StartAsync(cancellationToken))
+            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken))
             {
-                _ = await client.GetCacheAsync<int>(args[1], cancellationToken).ConfigureAwait(false);
-                _ = await client.GetCacheAsync<long>(args[1], cancellationToken).ConfigureAwait(false);
+                _ = await client.GetCacheAsync<int>(args[1], cancellationToken);
+                _ = await client.GetCacheAsync<long>(args[1], cancellationToken);
             }
 
             return;
@@ -82,16 +82,16 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
             if (args.Length != 2)
                 throw new ArgumentException("Usage: relaxed-mixed-read-fails <cacheName>");
 
-            await using (var unused = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false))
-            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken).ConfigureAwait(false))
+            await using (var unused = await SquirixServer.StartAsync(cancellationToken))
+            await using (var client = await SquirixClient.ConnectAsync(LoadConfiguredEndpoint(), cancellationToken))
             {
-                var writer = await client.GetCacheAsync<string>(args[1], cancellationToken).ConfigureAwait(false);
-                var reader = await client.GetCacheAsync<long>(args[1], cancellationToken).ConfigureAwait(false);
-                await writer.SetAsync("k", "forty-two", cancellationToken: cancellationToken).ConfigureAwait(false);
+                var writer = await client.GetCacheAsync<string>(args[1], cancellationToken);
+                var reader = await client.GetCacheAsync<long>(args[1], cancellationToken);
+                await writer.SetAsync("k", "forty-two", cancellationToken: cancellationToken);
 
                 try
                 {
-                    _ = await reader.GetValueAsync("k", cancellationToken).ConfigureAwait(false);
+                    _ = await reader.GetValueAsync("k", cancellationToken);
                     throw new InvalidOperationException("Expected incompatible read failure.");
                 }
                 catch (InvalidOperationException ex) when (ex.Message.Contains("System.String", StringComparison.Ordinal)

@@ -1,7 +1,7 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -89,7 +89,7 @@ public static class FileKit
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), out var num) && num is >= 0 and <= 9;
+        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static string ValidateAndGetFullPath(string? path)
@@ -125,19 +125,19 @@ public static class FileKit
         {
             var seg = rawSeg.Trim();
             if (seg.Length == 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.");
+                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
 
                 if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
             }
 
             if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.");
+                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
         }
     }
 }

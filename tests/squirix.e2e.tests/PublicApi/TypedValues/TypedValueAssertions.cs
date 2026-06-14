@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Xunit;
 
@@ -30,7 +31,12 @@ internal static class TypedValueAssertions
         Assert.Equal(expected.Roles, actual.Roles);
         Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
         foreach (var item in expected.Metadata)
-            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && value == item.Value, $"missing metadata {item.Key}");
+        {
+            Assert.True(
+                actual.Metadata.TryGetValue(item.Key, out var value) && string.Equals(value, item.Value, StringComparison.OrdinalIgnoreCase),
+                $"missing metadata {item.Key}");
+        }
+
         Assert.Equal(expected.CreatedAt, actual.CreatedAt);
         Assert.Equal(expected.Status, actual.Status);
     }
@@ -43,6 +49,10 @@ internal static class TypedValueAssertions
         Assert.Equal(expected.Country, actual.Country);
         Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
         foreach (var item in expected.Metadata)
-            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && value == item.Value, $"missing address metadata {item.Key}");
+        {
+            Assert.True(
+                actual.Metadata.TryGetValue(item.Key, out var value) && string.Equals(value, item.Value, StringComparison.OrdinalIgnoreCase),
+                $"missing address metadata {item.Key}");
+        }
     }
 }

@@ -57,7 +57,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         _flushLoopTask = FlushLoopAsync(_bgCts.Token);
     }
 
-    public event Action? OnAppended;
+    public event EventHandler? OnAppended;
 
     public long AppendedBytes => Interlocked.Read(ref _bytes);
 
@@ -204,75 +204,9 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         _groupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalWriter)));
 
-        try
-        {
-#pragma warning disable VSTHRD003
-            // The flush loop task is owned by this writer and is awaited during disposal.
-            await _flushLoopTask.ConfigureAwait(false);
-#pragma warning restore VSTHRD003
-        }
-        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
-        {
-            // Expected cooperative shutdown.
-        }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
-        {
-            // The timer may be disposed while the loop is waiting for the next tick.
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
-
-        try
-        {
-            await _ioGate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                Flush();
-            }
-            finally
-            {
-                _ = _ioGate.Release();
-            }
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
-
-        try
-        {
-            await DisposeStreamAsync().ConfigureAwait(false);
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
+        await AwaitFlushLoopDuringDisposeAsync(failures).ConfigureAwait(false);
+        await FlushDuringDisposeAsync(failures).ConfigureAwait(false);
+        await DisposeStreamDuringDisposeAsync(failures).ConfigureAwait(false);
 
         _bgCts.Dispose();
         _ioGate.Dispose();
@@ -375,12 +309,15 @@ internal sealed class JournalWriter : IJournalCoordinator
         var validLength = (long)JournalFraming.FileHeaderSize;
         while (true)
         {
+            var frameOffset = validLength;
             var read = JournalFrameReader.ReadNext(stream, validLength, out var rentedBuffer, out _);
             if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
                 return validLength;
 
             validLength = read.NextFrameOffset;
-            ArgumentNullException.ThrowIfNull(rentedBuffer);
+            if (rentedBuffer is null)
+                throw new InvalidDataException($"journal segment missing payload buffer at offset {frameOffset}.");
+
             ArrayPool<byte>.Shared.Return(rentedBuffer);
         }
     }
@@ -576,7 +513,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         _ = Interlocked.Add(ref _bytes, frameLen);
         _ = Interlocked.Increment(ref _ops);
-        OnAppended?.Invoke();
+        OnAppended?.Invoke(this, EventArgs.Empty);
         return frameLen;
     }
 
@@ -595,6 +532,38 @@ internal sealed class JournalWriter : IJournalCoordinator
         return AppendAsync(journalEnvelope, cancellationToken);
     }
 
+    private async ValueTask AwaitFlushLoopDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+#pragma warning disable VSTHRD003
+
+            // The flush loop task is owned by this writer and is awaited during disposal.
+            await _flushLoopTask.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        }
+        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
+        {
+            // Expected cooperative shutdown.
+        }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+        {
+            // The timer may be disposed while the loop is waiting for the next tick.
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
+    }
+
     private async ValueTask DisposeStreamAsync()
     {
         FileStream? stream;
@@ -606,6 +575,26 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         if (stream is not null)
             await stream.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private async ValueTask DisposeStreamDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+            await DisposeStreamAsync().ConfigureAwait(false);
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
     }
 
     private async ValueTask EnsureSegmentCapacityForFrameAsync(int frameLen, CancellationToken cancellationToken)
@@ -655,6 +644,34 @@ internal sealed class JournalWriter : IJournalCoordinator
         var stream = GetOrCreateStream();
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         _dirty = false;
+    }
+
+    private async ValueTask FlushDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+            await _ioGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                Flush();
+            }
+            finally
+            {
+                _ = _ioGate.Release();
+            }
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
     }
 
     private async Task FlushLoopAsync(CancellationToken cancellationToken)

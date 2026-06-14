@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Squirix.TestKit.IO;
 using Xunit;
@@ -21,7 +21,7 @@ public sealed class DirectoryKitTests : IAsyncLifetime
     [Fact]
     public void CreateTempDirectoryThrowsForZeroNumberedReservedWindowsDeviceNames()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!OperatingSystem.IsWindows())
             return;
 
         _ = Assert.Throws<ArgumentException>(static () => DirectoryKit.CreateTempDirectory("COM0"));
@@ -46,7 +46,7 @@ public sealed class DirectoryKitTests : IAsyncLifetime
             static (filePath, values) =>
             {
                 var name = Path.GetFileNameWithoutExtension(filePath);
-                if (name.Length == 11 && name.StartsWith("item-", StringComparison.Ordinal) && int.TryParse(name.AsSpan(5, 6), out var idx))
+                if (name.Length == 11 && name.StartsWith("item-", StringComparison.Ordinal) && int.TryParse(name.AsSpan(5, 6), CultureInfo.InvariantCulture, out var idx))
                     values.Add(idx);
             });
 

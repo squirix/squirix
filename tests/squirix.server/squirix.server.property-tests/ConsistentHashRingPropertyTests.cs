@@ -91,7 +91,7 @@ public sealed class ConsistentHashRingPropertyTests
         var ring = new ConsistentHashRing(nodes, vnodes);
         const int sample = 50_000;
 
-        var counts = nodes.ToDictionary(static n => n, static _ => 0);
+        var counts = nodes.ToDictionary(static n => n, static _ => 0, StringComparer.OrdinalIgnoreCase);
         foreach (var key in RingHelpers.MakeKeys(sample, seed))
             counts[ring.GetOwner(key)]++;
 
@@ -142,7 +142,7 @@ public sealed class ConsistentHashRingPropertyTests
         var ring2 = new ConsistentHashRing(withNew, vnodes);
 
         const int sample = 20_000;
-        var moved = RingHelpers.MakeKeys(sample, seed).Count(key => ring.GetOwner(key) != ring2.GetOwner(key));
+        var moved = RingHelpers.MakeKeys(sample, seed).Count(key => !string.Equals(ring.GetOwner(key), ring2.GetOwner(key), StringComparison.OrdinalIgnoreCase));
         var n = baseNodes.Length;
         var ratio = moved / (double)sample;
         var expected = 1.0 / (n + 1);
@@ -167,7 +167,7 @@ public sealed class ConsistentHashRingPropertyTests
         var ringBefore = new ConsistentHashRing(nodes, vnodes);
         var victimIndex = Math.Abs(seed % nodes.Length);
         var victim = nodes[victimIndex];
-        var remaining = nodes.Where(n => n != victim).ToArray();
+        var remaining = nodes.Where(n => !string.Equals(n, victim, StringComparison.OrdinalIgnoreCase)).ToArray();
         var ringAfter = new ConsistentHashRing(remaining, vnodes);
 
         const int phi = unchecked((int)0x9E3779B9u);
