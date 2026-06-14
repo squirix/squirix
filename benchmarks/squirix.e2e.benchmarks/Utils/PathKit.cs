@@ -8,6 +8,8 @@ namespace Squirix.E2EBenchmarks.Utils;
 
 internal static class PathKit
 {
+    private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
     /// <summary>
     /// Combines path segments into a single path, optionally sanitizing each segment first.
     /// </summary>
@@ -93,10 +95,9 @@ internal static class PathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
-        var invalid = Path.GetInvalidFileNameChars();
         var sb = new StringBuilder(s.Length);
         foreach (var ch in s)
-            _ = sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
+            _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch);
         return sb.ToString();
     }
 }

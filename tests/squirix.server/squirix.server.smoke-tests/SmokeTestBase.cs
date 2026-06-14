@@ -18,7 +18,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
-using Squirix.Server.Core;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
@@ -123,7 +122,6 @@ public abstract class SmokeTestBase : IDisposable
     /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
     /// </param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
-    /// <param name="runtimeOptions">Optional cache runtime options such as strict type binding policy.</param>
     /// <param name="memoryPressureOptions">Optional memory pressure options; when <c>null</c>, defaults merged from settings and environment are used.</param>
     /// <param name="testName">
     /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
@@ -148,7 +146,6 @@ public abstract class SmokeTestBase : IDisposable
         string? extraScope = null,
         TestNodeSecurityOptions? security = null,
         BackpressureOptions? backpressureOptions = null,
-        CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default)
@@ -193,7 +190,6 @@ public abstract class SmokeTestBase : IDisposable
             persistenceOptionsOverride,
             null,
             backpressureOptions,
-            runtimeOptions,
             memoryPressureOptions,
             (security ?? UnauthenticatedSecurity).ToServerOptions(),
             null,

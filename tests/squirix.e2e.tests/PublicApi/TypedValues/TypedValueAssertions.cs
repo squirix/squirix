@@ -26,12 +26,23 @@ internal static class TypedValueAssertions
         Assert.Equal(expected.Id, actual.Id);
         Assert.Equal(expected.DisplayName, actual.DisplayName);
         Assert.Equal(expected.Email, actual.Email);
-        Assert.Equal(expected.Address, actual.Address);
+        AssertAddressEquals(expected.Address, actual.Address);
         Assert.Equal(expected.Roles, actual.Roles);
         Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
         foreach (var item in expected.Metadata)
             Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && value == item.Value, $"missing metadata {item.Key}");
         Assert.Equal(expected.CreatedAt, actual.CreatedAt);
         Assert.Equal(expected.Status, actual.Status);
+    }
+
+    private static void AssertAddressEquals(TypedCustomerAddress expected, TypedCustomerAddress actual)
+    {
+        Assert.Equal(expected.City, actual.City);
+        Assert.Equal(expected.Street, actual.Street);
+        Assert.Equal(expected.PostalCode, actual.PostalCode);
+        Assert.Equal(expected.Country, actual.Country);
+        Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
+        foreach (var item in expected.Metadata)
+            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && value == item.Value, $"missing address metadata {item.Key}");
     }
 }

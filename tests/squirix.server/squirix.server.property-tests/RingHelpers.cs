@@ -26,9 +26,7 @@ internal static class RingHelpers
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count), "Count must be non-negative.");
 
-        var rng = new DeterministicRandom(seed);
-        for (var i = 0; i < count; i++)
-            yield return $"key-{rng.NextInt64()}";
+        return MakeKeysIterator(count, seed);
     }
 
     /// <summary>
@@ -58,6 +56,13 @@ internal static class RingHelpers
         }
 
         return arr;
+    }
+
+    private static IEnumerable<string> MakeKeysIterator(int count, int seed)
+    {
+        var rng = new DeterministicRandom(seed);
+        for (var i = 0; i < count; i++)
+            yield return $"key-{rng.NextInt64()}";
     }
 
     private struct DeterministicRandom

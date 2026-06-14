@@ -67,7 +67,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
             CompactionState.Running => "Running",
             CompactionState.BackingOff => "BackingOff",
             CompactionState.Failed => "Failed",
-            _ => throw new ArgumentOutOfRangeException(nameof(_compaction.State), _compaction.State, "Unsupported compaction state."),
+            _ => throw new InvalidOperationException($"Unsupported compaction state: {_compaction.State}."),
         };
         var compaction = new HealthCompactionSnapshot(compactionState, _compaction.LastRunUtc, _compaction.IsInFlight);
         var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
@@ -80,7 +80,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
             MemoryPressureState.Normal => "normal",
             MemoryPressureState.High => "high",
             MemoryPressureState.Critical => "critical",
-            _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported memory pressure state."),
+            _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
         };
 
         var memoryPressure = new HealthMemoryPressureSnapshot(

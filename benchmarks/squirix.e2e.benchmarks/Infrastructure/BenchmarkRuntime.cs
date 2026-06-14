@@ -11,5 +11,6 @@ internal static class BenchmarkRuntime
 
     internal static void EnsureInitialized()
     {
+        // Reserved for process-wide benchmark runtime initialization.
     }
 }

@@ -41,7 +41,7 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
             MemoryPressureState.Normal => "normal",
             MemoryPressureState.High => "high",
             MemoryPressureState.Critical => "critical",
-            _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported memory pressure state."),
+            _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
         };
 
         var memoryPressure = new HealthMemoryPressureSnapshot(

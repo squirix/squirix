@@ -7,7 +7,7 @@ using Squirix.Server.Storage.JournalProto;
 
 namespace Squirix.Server.Storage.Journaling;
 
-internal sealed class JournalReader
+internal static class JournalReader
 {
     public static IEnumerable<JournalSegment> EnumerateSegments(string dataDir, int fromSegment)
     {

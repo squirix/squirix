@@ -13,7 +13,9 @@ internal static class RpcDeadlineContext
     {
         var existing = Normalize(existingDeadlineUtc);
         var current = CurrentDeadlineUtc;
-        return existing is null ? current : current is null ? existing : existing <= current ? existing : current;
+        var deadline = existing <= current ? existing : current;
+        var time = current is null ? existing : deadline;
+        return existing is null ? current : time;
     }
 
     public static TimeSpan? GetRemainingBudget(DateTime nowUtc)
@@ -31,8 +33,10 @@ internal static class RpcDeadlineContext
 
     private static DateTime? Normalize(DateTime? deadlineUtc)
     {
-        return deadlineUtc is null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue ? null :
-            deadlineUtc.Value.Kind == DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
+        if (deadlineUtc is null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
+            return null;
+
+        return deadlineUtc.Value.Kind == DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
     }
 
     private sealed class Scope : IDisposable

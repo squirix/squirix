@@ -17,7 +17,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixRuntimeServiceRegistration
 {
-    public static IServiceCollection AddSquirixRuntimeServices(this IServiceCollection services, CacheRuntimeOptions? runtimeOptions)
+    public static IServiceCollection AddSquirixRuntimeServices(this IServiceCollection services)
     {
         _ = services.AddSingleton<RemoteInvocationContextService>();
         _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextService>());
@@ -43,7 +43,6 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
 
-        _ = services.AddSingleton(runtimeOptions ?? new CacheRuntimeOptions());
         _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
         _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
         _ = services.AddSingleton<IGrpcCacheOperations<object?>, GrpcCacheOperations<object?>>();

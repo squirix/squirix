@@ -70,6 +70,12 @@ dotnet_diagnostic.IDE0290.severity = none
 # Enforce formatting, including single-line expression members when they fit the line width
 dotnet_diagnostic.IDE0055.severity = error
 
+# SonarAnalyzer
+# Loops should be simplified with LINQ - intentionally disabled; this codebase prefers explicit loops.
+dotnet_diagnostic.S3267.severity = none
+# Method overloads should be grouped together - conflicts with Rider/ReSharper file layout for object overrides.
+dotnet_diagnostic.S4136.severity = none
+
 # Performance
 # Mark members as static
 dotnet_diagnostic.CA1822.severity = warning
@@ -121,9 +127,12 @@ resharper_braces_for_ifelse = not_required_for_both
 resharper_braces_redundant = false
 resharper_loop_can_be_converted_to_query_highlighting = none
 resharper_loop_can_be_partly_converted_to_query_highlighting = none
+resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none
 resharper_foreach_can_be_partly_converted_to_query_using_another_get_enumerator_highlighting = none
 resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
+resharper_convert_if_statement_to_return_statement_highlighting = none
+resharper_convert_if_statement_to_switch_statement_highlighting = none
 resharper_lambda_expression_can_be_made_static_highlighting = warning
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning

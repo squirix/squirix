@@ -1,6 +1,6 @@
 # Server mode
 
-squirix servers run as a standalone `squirix-server` process or embedded in a custom ASP.NET Core host. Application
+Squirix servers run as a standalone `squirix-server` process or embedded in a custom ASP.NET Core host. Application
 data access always goes through the `Squirix` client SDK, even when client and server share a process.
 
 For install, Docker, and first connection steps, see [getting started](getting-started.md). For package roles, see

@@ -31,8 +31,8 @@ public sealed class FrameCodecCorruptionDiagnosticsTests
         var header = new byte[8];
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0, 4), (uint)payload.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4, 4), wrongCrc);
-        ms.Write(header);
-        ms.Write(payload);
+        await ms.WriteAsync(header, CancellationToken.None);
+        await ms.WriteAsync(payload, CancellationToken.None);
         ms.Position = 0;
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(async () =>

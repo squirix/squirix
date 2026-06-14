@@ -7,12 +7,12 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    output.WriteLine("sqr-examples-verify — compile and smoke-run file-based examples.");
-    output.WriteLine();
-    output.WriteLine("Usage:");
-    output.WriteLine("  dotnet run --file tools/internal/sqr-examples-verify.cs --");
-    output.WriteLine();
-    output.WriteLine("Exit codes: 0 ok, 1 failed example execution");
+    await output.WriteLineAsync("sqr-examples-verify — compile and smoke-run file-based examples.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-examples-verify.cs --").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 1 failed example execution").ConfigureAwait(false);
     return 0;
 }
 
@@ -22,14 +22,14 @@ var repoRoot = !string.IsNullOrWhiteSpace(entryDir)
     : Environment.CurrentDirectory;
 if (string.IsNullOrWhiteSpace(repoRoot) || !Directory.Exists(repoRoot))
 {
-    Console.Error.WriteLine("ERROR: repository root not found.");
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
     return 1;
 }
 
 var examplesDir = Path.Combine(repoRoot, "examples");
 if (!Directory.Exists(examplesDir))
 {
-    Console.Error.WriteLine("ERROR: examples directory not found.");
+    await Console.Error.WriteLineAsync("ERROR: examples directory not found.").ConfigureAwait(false);
     return 1;
 }
 
@@ -40,7 +40,7 @@ var files = Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.TopDirect
 
 if (files.Length == 0)
 {
-    Console.Error.WriteLine("ERROR: no examples/*.cs files found.");
+    await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.").ConfigureAwait(false);
     return 1;
 }
 
@@ -49,19 +49,19 @@ foreach (var file in files)
     var name = Path.GetFileName(file);
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
-    output.WriteLine($"---- {relativePath} --help ----");
-    if (RunDotnet(repoRoot, ["run", "--file", relativePath, "--", "--help"]) != 0)
+    await output.WriteLineAsync($"---- {relativePath} --help ----").ConfigureAwait(false);
+    if (await RunDotnet(repoRoot, ["run", "--file", relativePath, "--", "--help"]).ConfigureAwait(false) != 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
-        output.WriteLine($"---- {relativePath} {string.Join(' ', smokeArgs)} ----");
-        if (RunDotnet(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]) != 0)
+        await output.WriteLineAsync($"---- {relativePath} {string.Join(' ', smokeArgs)} ----").ConfigureAwait(false);
+        if (await RunDotnet(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]).ConfigureAwait(false) != 0)
             return 1;
     }
 }
 
-output.WriteLine("OK: all file-based examples compiled and smoke-run successfully.");
+await output.WriteLineAsync("OK: all file-based examples compiled and smoke-run successfully.").ConfigureAwait(false);
 return 0;
 
 static IEnumerable<string[]> GetSmokeArgs(string fileName)
@@ -73,7 +73,7 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
     };
 }
 
-static int RunDotnet(string workingDirectory, string[] args)
+static async Task<int> RunDotnet(string workingDirectory, string[] args)
 {
     var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg));
     using var proc = Process.Start(new ProcessStartInfo
@@ -84,6 +84,8 @@ static int RunDotnet(string workingDirectory, string[] args)
         UseShellExecute = false,
     });
 
-    proc?.WaitForExit();
+    if (proc is not null)
+        await proc.WaitForExitAsync().ConfigureAwait(false);
+
     return proc?.ExitCode ?? 1;
 }

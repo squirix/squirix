@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Core;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
@@ -30,7 +29,6 @@ internal static class SquirixNodeHost
         PersistenceOptions? persistenceOptionsOverride = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
-        CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         SecurityOptions? securityOptionsOverride = null,
         Action<SquirixServerExtensionOptions>? configureExtensions = null,
@@ -57,7 +55,6 @@ internal static class SquirixNodeHost
             persistenceOptionsOverride,
             peerHandlerFactory,
             backpressureOptions,
-            runtimeOptions,
             memoryPressureOptions,
             securityOptionsOverride,
             extensions,

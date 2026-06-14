@@ -28,8 +28,8 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
-        Assert.Equal(true, activity.GetTagItem("journal.strict_fsync"));
-        Assert.Equal(false, activity.GetTagItem("journal.group_commit"));
+        Assert.True(Assert.IsType<bool>(activity.GetTagItem("journal.strict_fsync")));
+        Assert.False(Assert.IsType<bool>(activity.GetTagItem("journal.group_commit")));
     }
 
     /// <summary>

@@ -210,6 +210,7 @@ internal static class StorageMaintenanceTool
     {
         if (existing is { ManifestReadable: true, CurrentPointerExists: true })
         {
+            var creationTimeUtc = File.Exists(existing.LastSnapshotPath) ? File.GetCreationTimeUtc(existing.LastSnapshotPath) : DateTime.UtcNow;
             return new Manifest
             {
                 CurrentJournal = latestJournalSegment,
@@ -218,7 +219,7 @@ internal static class StorageMaintenanceTool
                 {
                     Index = existing.LastSnapshotIndex.Value,
                     Path = existing.LastSnapshotPath,
-                    CreatedUtc = File.Exists(existing.LastSnapshotPath) ? File.GetCreationTimeUtc(existing.LastSnapshotPath) : DateTime.UtcNow,
+                    CreatedUtc = creationTimeUtc,
                     LastAppliedSequence = existing.LastAppliedSequence.GetValueOrDefault(),
                     ReplayFromJournalSegment = existing.ReplayFromJournalSegment.GetValueOrDefault(1),
                 },

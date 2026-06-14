@@ -17,18 +17,22 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
     private const int OperationDeadlineExceededOrdinal = (int)CancellationScenarioKind.OperationDeadlineExceeded;
 
     /// <summary>
-    /// Caller cancellation wins over operation deadline and per-attempt signals in classification precedence.
+    /// Structured cancellation classification follows caller, operation deadline, then per-attempt precedence.
     /// </summary>
+    /// <param name="caseName">Human-readable scenario name for failed theory output.</param>
     /// <param name="callerCanceled">Simulated caller token canceled state.</param>
     /// <param name="operationEffectiveCanceled">Simulated operation effective token canceled state.</param>
     /// <param name="perAttemptScopeCanceled">Simulated per-attempt composite token canceled state.</param>
     /// <param name="expectedOrdinal">Expected <see cref="CancellationScenarioKind" /> ordinal.</param>
     [Theory]
-    [InlineData(true, true, true, CallerCanceledOrdinal)]
-    [InlineData(true, true, false, CallerCanceledOrdinal)]
-    [InlineData(true, false, true, CallerCanceledOrdinal)]
-    [InlineData(true, false, false, CallerCanceledOrdinal)]
-    public void ClassifyFromLinkedTokenStateCallerCanceledWinsOverDeadlineAndAttempt(
+    [InlineData("caller-over-all", true, true, true, CallerCanceledOrdinal)]
+    [InlineData("caller-over-deadline", true, true, false, CallerCanceledOrdinal)]
+    [InlineData("caller-over-attempt", true, false, true, CallerCanceledOrdinal)]
+    [InlineData("caller-only", true, false, false, CallerCanceledOrdinal)]
+    [InlineData("deadline-over-attempt", false, true, true, OperationDeadlineExceededOrdinal)]
+    [InlineData("deadline-only", false, true, false, OperationDeadlineExceededOrdinal)]
+    public void ClassifyFromLinkedTokenStateUsesDocumentedPrecedence(
+        string caseName,
         bool callerCanceled,
         bool operationEffectiveCanceled,
         bool perAttemptScopeCanceled,
@@ -36,28 +40,7 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
     {
         var expected = (CancellationScenarioKind)expectedOrdinal;
         var actual = OperationCancellationClassifier.ClassifyFromLinkedTokenState(callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled);
-        Assert.Equal(expected, actual);
-    }
-
-    /// <summary>
-    /// Operation deadline is classified when the caller is not canceled.
-    /// </summary>
-    /// <param name="callerCanceled">Simulated caller token canceled state.</param>
-    /// <param name="operationEffectiveCanceled">Simulated operation effective token canceled state.</param>
-    /// <param name="perAttemptScopeCanceled">Simulated per-attempt composite token canceled state.</param>
-    /// <param name="expectedOrdinal">Expected <see cref="CancellationScenarioKind" /> ordinal.</param>
-    [Theory]
-    [InlineData(false, true, true, OperationDeadlineExceededOrdinal)]
-    [InlineData(false, true, false, OperationDeadlineExceededOrdinal)]
-    public void ClassifyFromLinkedTokenStateOperationDeadlinePrecedesPerAttemptWhenBothSet(
-        bool callerCanceled,
-        bool operationEffectiveCanceled,
-        bool perAttemptScopeCanceled,
-        int expectedOrdinal)
-    {
-        var expected = (CancellationScenarioKind)expectedOrdinal;
-        var actual = OperationCancellationClassifier.ClassifyFromLinkedTokenState(callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled);
-        Assert.Equal(expected, actual);
+        Assert.True(actual == expected, $"{caseName}: expected {expected}, got {actual}.");
     }
 
     /// <summary>

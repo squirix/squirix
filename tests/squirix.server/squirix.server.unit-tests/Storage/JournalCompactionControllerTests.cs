@@ -22,6 +22,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
+    [SuppressMessage("Major Code Smell", "S2699:Tests should include assertions", Justification = "This lifecycle test asserts that the second Dispose call does not throw.")]
     [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
     public async Task DisposeIsIdempotent()
     {

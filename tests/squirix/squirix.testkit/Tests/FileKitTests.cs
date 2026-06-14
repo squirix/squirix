@@ -56,7 +56,7 @@ public sealed class FileKitTests : IAsyncLifetime
     [Fact]
     public void ExistsThrowsForWildcardPath()
     {
-        var path = PathKit.Combine(_dir, "*.json");
+        var path = PathKit.Combine(false, _dir, "*.json");
 
         _ = Assert.Throws<ArgumentException>(() => FileKit.Exists(path));
     }
@@ -103,7 +103,7 @@ public sealed class FileKitTests : IAsyncLifetime
     {
         var path = PathKit.Combine(_dir, "data-async.txt");
 
-        await FileKit.WriteAllTextAsync(path, "hello").ConfigureAwait(false);
+        await FileKit.WriteAllTextAsync(path, "hello", TestContext.Current.CancellationToken);
 
         Assert.True(FileKit.Exists(path));
         Assert.Equal(5, FileKit.GetLength(path));

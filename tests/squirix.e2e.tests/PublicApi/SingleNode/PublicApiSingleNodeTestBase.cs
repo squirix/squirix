@@ -65,6 +65,6 @@ public abstract class PublicApiSingleNodeTestBase : E2ETestBase
             await _cluster.DisposeAsync();
         }
 
-        public ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken) => _client.GetCacheAsync<T>(cacheName, cancellationToken);
+        public ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken = default) => _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 }

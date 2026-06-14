@@ -40,12 +40,12 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         using var canceledCts = new CancellationTokenSource();
 
-        var canceled = groupCommit.AwaitCommitAsync(canceledCts.Token).AsTask();
+        var canceled = AsSingleUseTask(groupCommit.AwaitCommitAsync(canceledCts.Token));
         await canceledCts.CancelAsync();
 
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await canceled.ConfigureAwait(false));
 
-        await groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken)).WaitAsync(TimeSpan.FromSeconds(5), DefaultCancellationToken);
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -65,8 +65,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var flushFailure = new InvalidOperationException("flush failed");
         var groupCommit = new JournalDurabilityGroupCommit(_ => throw flushFailure, options);
 
-        var first = groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask();
-        var second = groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask();
+        var first = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var second = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
         var firstFailure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await first.ConfigureAwait(false));
         var secondFailure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await second.ConfigureAwait(false));
@@ -100,8 +100,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         using var firstCts = new CancellationTokenSource();
 
-        var first = groupCommit.AwaitCommitAsync(firstCts.Token).AsTask();
-        var second = groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask();
+        var first = AsSingleUseTask(groupCommit.AwaitCommitAsync(firstCts.Token));
+        var second = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
         await firstCts.CancelAsync();
 
@@ -186,7 +186,9 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
             await journal.AppendPutAsync(CacheKey.Default("k2"), DiscriminatedEntryJsonWriter.BuildEntryJson("v2", null, null, 1, null), null, DefaultCancellationToken);
 
-            await Task.WhenAll(groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask(), groupCommit.AwaitCommitAsync(DefaultCancellationToken).AsTask());
+            var firstCommit = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            var secondCommit = AsSingleUseTask(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            await Task.WhenAll(firstCommit, secondCommit);
 
             Assert.Equal(1, flushProbe.FlushCount);
             Assert.False(journal.IsDurabilityFlushPending);
@@ -196,6 +198,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             DirectoryKit.TryDeleteDirectory(dir);
         }
     }
+
+    private static Task AsSingleUseTask(ValueTask valueTask) => valueTask.AsTask();
 
     private sealed class AtomicCounter
     {

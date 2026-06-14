@@ -8,12 +8,12 @@ if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", S
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
 {
-    output.WriteLine("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.");
-    output.WriteLine();
-    output.WriteLine("Usage:");
-    output.WriteLine("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]");
-    output.WriteLine();
-    output.WriteLine("Exit codes: 0 ok, 2 usage, 3 internal");
+    await output.WriteLineAsync("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 2 usage, 3 internal").ConfigureAwait(false);
     return 0;
 }
 
@@ -21,54 +21,59 @@ string? nodesCsv = null;
 var cacheName = "default";
 var sampleSize = 10000;
 var virtualNodes = 128;
-for (var i = 0; i < argv.Length; i++)
+var argIndex = 0;
+while (argIndex < argv.Length)
 {
-    var a = argv[i];
+    var a = argv[argIndex];
     if (string.Equals(a, "--nodes", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return Usage("missing value for --nodes");
+        if (argIndex + 1 >= argv.Length)
+            return await Usage("missing value for --nodes").ConfigureAwait(false);
 
-        nodesCsv = argv[++i];
+        nodesCsv = argv[argIndex + 1];
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--sample-size", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length || !int.TryParse(argv[++i], out sampleSize) || sampleSize <= 0)
-            return Usage("invalid --sample-size value");
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out sampleSize) || sampleSize <= 0)
+            return await Usage("invalid --sample-size value").ConfigureAwait(false);
 
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--virtual-nodes", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length || !int.TryParse(argv[++i], out virtualNodes) || virtualNodes <= 0)
-            return Usage("invalid --virtual-nodes value");
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out virtualNodes) || virtualNodes <= 0)
+            return await Usage("invalid --virtual-nodes value").ConfigureAwait(false);
 
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--cache", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return Usage("missing value for --cache");
+        if (argIndex + 1 >= argv.Length)
+            return await Usage("missing value for --cache").ConfigureAwait(false);
 
-        cacheName = argv[++i];
+        cacheName = argv[argIndex + 1];
+        argIndex += 2;
         continue;
     }
 
-    return Usage($"unknown argument '{a}'");
+    return await Usage($"unknown argument '{a}'").ConfigureAwait(false);
 }
 
 if (string.IsNullOrWhiteSpace(nodesCsv))
-    return Usage("--nodes is required");
+    return await Usage("--nodes is required").ConfigureAwait(false);
 
 try
 {
     var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
     if (nodes.Length == 0)
-        return Usage("--nodes must contain at least one node id");
+        return await Usage("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -82,34 +87,34 @@ try
         distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
     }
 
-    output.WriteLine("OK: ring distribution computed");
-    output.WriteLine($"cache: {cacheName}");
-    output.WriteLine($"virtualNodes: {virtualNodes}");
-    output.WriteLine($"sampleSize: {sampleSize}");
+    await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
+    await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
+    await output.WriteLineAsync($"virtualNodes: {virtualNodes}").ConfigureAwait(false);
+    await output.WriteLineAsync($"sampleSize: {sampleSize}").ConfigureAwait(false);
     foreach (var item in distribution.OrderBy(static x => x.Key, StringComparer.Ordinal))
     {
         var share = Math.Round((double)item.Value / sampleSize, 6);
-        output.WriteLine($"node.{item.Key}.count: {item.Value}");
-        output.WriteLine($"node.{item.Key}.share: {share}");
+        await output.WriteLineAsync($"node.{item.Key}.count: {item.Value}").ConfigureAwait(false);
+        await output.WriteLineAsync($"node.{item.Key}.share: {share}").ConfigureAwait(false);
     }
 
     return 0;
 }
 catch (InvalidOperationException ex)
 {
-    output.WriteLine("ERROR: unexpected internal failure");
-    output.WriteLine(ex.Message);
+    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
     return 3;
 }
 catch (ArgumentException ex)
 {
-    output.WriteLine("ERROR: unexpected internal failure");
-    output.WriteLine(ex.Message);
+    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
     return 3;
 }
 
-static int Usage(string message)
+static async Task<int> Usage(string message)
 {
-    Console.Out.WriteLine($"ERROR: {message}");
+    await Console.Out.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
     return 2;
 }

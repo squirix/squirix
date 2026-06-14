@@ -20,9 +20,9 @@ internal sealed class CallPolicy : ICallPolicy
     private readonly SemaphoreSlim _semaphore;
     private readonly TimeSpan _timeoutPerAttempt;
     private int _activeOperations;
-    private bool _disposed;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
+    private bool _disposed;
     private volatile bool _draining;
     private bool _semaphoreDisposed;
 
@@ -162,7 +162,7 @@ internal sealed class CallPolicy : ICallPolicy
                     }
                 }
 
-                // If the outer token was cancelled, throw the standard OCE tied to that token.
+                // If the outer token was canceled, throw the standard OCE tied to that token.
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!hasDeadlineBudget || OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
                 {
@@ -295,9 +295,16 @@ internal sealed class CallPolicy : ICallPolicy
             attemptCts.CancelAfter(perAttempt);
     }
 
-    private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining) => remaining is null ? _timeoutPerAttempt :
-        remaining <= TimeSpan.Zero ? TimeSpan.Zero :
-        remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+    private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+    {
+        if (remaining is null)
+            return _timeoutPerAttempt;
+
+        if (remaining <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+    }
 
     private void ReleaseActiveOperation()
     {

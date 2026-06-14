@@ -227,7 +227,10 @@ internal sealed class ManifestStore
             throw new InvalidDataException($"Manifest current pointer is empty: {_currentPath}");
 
         var fromCurrent = TryParseIndex(name);
-        return fromCurrent <= 0 ? throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}") : fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
+        if (fromCurrent <= 0)
+            throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
+
+        return fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
     }
 
     private int ScanMaxManifestIndexOnDisk()

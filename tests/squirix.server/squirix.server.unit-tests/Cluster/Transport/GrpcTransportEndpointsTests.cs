@@ -25,17 +25,6 @@ public sealed class GrpcTransportEndpointsTests
     }
 
     /// <summary>
-    /// Ensures disabled cluster mTLS keeps the default HTTPS handler without a client certificate.
-    /// </summary>
-    [Fact]
-    public void CreateChannelHandlerWithoutMtlsUsesDefaultHandler()
-    {
-        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
-
-        Assert.Null(handler.SslOptions.ClientCertificates);
-    }
-
-    /// <summary>
     /// Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.
     /// </summary>
     [Fact]

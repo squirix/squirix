@@ -54,8 +54,54 @@ internal static class JournalCompactor
         var newFirstIdx = GetNextJournalSegmentIndex(existingSegments);
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
+        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
+
+        // 4) Install the compacted journal before deleting any old segments.
+        // Crash safety relies on each intermediate state remaining recoverable.
+        // Before publish, recovery uses the old manifest and old journal topology.
+        // Before the manifest update, both old journals and the compacted segment can coexist safely.
+        // Before cleanup, recovery follows the compacted journal topology and ignores stale leftovers.
+        // During cleanup, any remaining old journal files are harmless because the manifest already points to
+        // the compacted journal segment with LastSnapshot = null.
+        var finalJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}{StorageFileExtensions.Journal}");
+        var backupJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.bak");
+        _ = FileEx.TryDeleteFile(backupJournalPath);
+        FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
+
+        // 5) Update manifest.
+        // Safe post-state invariant after successful compaction:
+        // - journal-only recovery from compacted journal segment N.jsqx.
+        // - No snapshot metadata that can point recovery to a pre-compaction journal topology.
+        var newManifest = new Manifest
         {
-            using var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
+            CurrentJournal = newFirstIdx,
+            NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
+            LastSnapshot = null,
+        };
+        manifestStore.Write(newManifest);
+
+        // 6) Remove old journal segments only after the replacement and manifest update are durable.
+        foreach (var segment in CollectJournalSegments(options.DataDir))
+        {
+            if (segment.Index == newFirstIdx)
+                continue;
+
+            _ = FileEx.TryDeleteFile(segment.Path);
+        }
+
+        _ = FileEx.TryDeleteFile(backupJournalPath);
+    }
+
+    private static async Task WriteCompactedJournalAsync(
+        string tmpPath,
+        Dictionary<CacheKey, CacheEntry<object?>> state,
+        ulong lastSeq,
+        CancellationToken cancellationToken)
+    {
+        var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        await using (fs.ConfigureAwait(false))
+        {
             JournalFraming.WriteFileHeader(fs);
             var seq = lastSeq == 0UL ? 1UL : lastSeq + 1UL;
 
@@ -91,44 +137,6 @@ internal static class JournalCompactor
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        // 4) Install the compacted journal before deleting any old segments.
-        // Allowed intermediate states under crash:
-        // - Before this step: old topology only (recoverable via old manifest + old journal).
-        // - After this step, before manifest update: compacted journal segment N may exist, but old manifest
-        //   can still point to old topology; both are safe because old journal files are still present.
-        // - After manifest update, before cleanup: recovery follows journal-only topology from compacted journal segment N;
-        //   old journal/snapshot files are ignored as stale leftovers.
-        // - During cleanup: any subset of old journal files may remain; recovery remains deterministic
-        //   because manifest already points to compacted journal segment N with LastSnapshot = null.
-        var finalJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}{StorageFileExtensions.Journal}");
-        var backupJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx:000000}.bak");
-        _ = FileEx.TryDeleteFile(backupJournalPath);
-        FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
-
-        // 5) Update manifest.
-        // Safe post-state invariant after successful compaction:
-        // - journal-only recovery from compacted journal segment N.jsqx.
-        // - No snapshot metadata that can point recovery to a pre-compaction journal topology.
-        var newManifest = new Manifest
-        {
-            Format = oldManifest.Format == 0 ? 1 : oldManifest.Format,
-            CurrentJournal = newFirstIdx,
-            NextSequence = lastSeq == 0UL ? 1UL : lastSeq + 1UL,
-            LastSnapshot = null,
-        };
-        manifestStore.Write(newManifest);
-
-        // 6) Remove old journal segments only after the replacement and manifest update are durable.
-        foreach (var segment in CollectJournalSegments(options.DataDir))
-        {
-            if (segment.Index == newFirstIdx)
-                continue;
-
-            _ = FileEx.TryDeleteFile(segment.Path);
-        }
-
-        _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
     private static void Apply(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)

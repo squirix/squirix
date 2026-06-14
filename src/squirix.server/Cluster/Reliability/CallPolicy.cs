@@ -292,9 +292,16 @@ internal sealed class CallPolicy : ICallPolicy
             attemptCts.CancelAfter(perAttempt);
     }
 
-    private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining) => remaining is null ? _timeoutPerAttempt :
-        remaining <= TimeSpan.Zero ? TimeSpan.Zero :
-        remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+    private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+    {
+        if (remaining is null)
+            return _timeoutPerAttempt;
+
+        if (remaining <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+    }
 
     private void ReleaseActiveOperation()
     {

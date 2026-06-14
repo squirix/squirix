@@ -16,7 +16,7 @@ internal sealed class KeyedSingleFlight
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var task = (Task<TResult>)_inFlight.GetOrAdd(key, _ => ExecuteAndCleanupAsync(key, action, cancellationToken));
+        var task = (Task<TResult>)_inFlight.GetOrAdd(key, inFlightKey => ExecuteAndCleanupAsync(inFlightKey, action, cancellationToken));
 
         return new ValueTask<TResult>(task);
     }
