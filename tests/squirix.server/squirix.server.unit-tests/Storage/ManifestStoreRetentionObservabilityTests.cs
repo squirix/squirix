@@ -178,7 +178,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     {
         private readonly StorageFileOperations _inner = new();
 
-        public void PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
+        public bool PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
 
         public bool TryDelete(string path) => !string.Equals(path, retainedPath, StringComparison.OrdinalIgnoreCase) && _inner.TryDelete(path);
     }
