@@ -145,7 +145,7 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
     {
         private readonly StorageFileOperations _inner = new();
 
-        public void PublishSnapshot(string tempPath, string finalPath) => throw new IOException("simulated snapshot publish failure");
+        public bool PublishSnapshot(string tempPath, string finalPath) => throw new IOException("simulated snapshot publish failure");
 
         public bool TryDelete(string path) => _inner.TryDelete(path);
     }
