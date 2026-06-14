@@ -1,5 +1,6 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property PublishAot=false
+using System.Globalization;
 using Squirix.Server.Cluster;
 
 var output = Console.Out;
@@ -37,7 +38,7 @@ while (argIndex < argv.Length)
 
     if (string.Equals(a, "--sample-size", StringComparison.OrdinalIgnoreCase))
     {
-        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out sampleSize) || sampleSize <= 0)
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out sampleSize) || sampleSize <= 0)
             return await UsageAsync("invalid --sample-size value").ConfigureAwait(false);
 
         argIndex += 2;
@@ -46,7 +47,7 @@ while (argIndex < argv.Length)
 
     if (string.Equals(a, "--virtual-nodes", StringComparison.OrdinalIgnoreCase))
     {
-        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], out virtualNodes) || virtualNodes <= 0)
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out virtualNodes) || virtualNodes <= 0)
             return await UsageAsync("invalid --virtual-nodes value").ConfigureAwait(false);
 
         argIndex += 2;
