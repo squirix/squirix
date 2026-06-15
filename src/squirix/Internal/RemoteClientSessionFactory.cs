@@ -30,28 +30,28 @@ internal static class RemoteClientSessionFactory
             };
         }
 
-        var callCredentials = BuildCallCredentials(options);
+        var credentials = BuildCallCredentials(options);
 
-        ClientPool? clients = null;
+        ClientPool? pool = null;
         try
         {
 #pragma warning disable CA2000
-            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), handler, callCredentials: callCredentials);
+            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
 #pragma warning restore CA2000
-            var primaryNodeId = await clients.WarmUpAsync(cancellationToken).ConfigureAwait(false);
-            var bootstrapNodeIds = new string[clients.BootstrapNodeIds.Count];
-            for (var i = 0; i < clients.BootstrapNodeIds.Count; i++)
-                bootstrapNodeIds[i] = clients.BootstrapNodeIds[i];
+            var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
+            var nodeIds = new string[pool.BootstrapNodeIds.Count];
+            for (var i = 0; i < pool.BootstrapNodeIds.Count; i++)
+                nodeIds[i] = pool.BootstrapNodeIds[i];
 
-            var failover = new BootstrapEndpointFailover(bootstrapNodeIds, primaryNodeId);
-            var connected = clients;
-            clients = null;
+            var failover = new BootstrapEndpointFailover(nodeIds, primaryNodeId);
+            var connected = pool;
+            pool = null;
             return new RemoteClientSession(connected, failover, SerializationProvider.Create(options.Serializer));
         }
         finally
         {
-            if (clients is not null)
-                await clients.DisposeAsync().ConfigureAwait(false);
+            if (pool is not null)
+                await pool.DisposeAsync().ConfigureAwait(false);
         }
     }
 
