@@ -117,6 +117,26 @@ public static class DirectoryKit
     }
 
     /// <summary>
+    /// Creates a new unique directory under <paramref name="baseDirectory" /> and returns its absolute path.
+    /// </summary>
+    /// <param name="baseDirectory">Directory that constrains the created path.</param>
+    /// <param name="innerDirectory">Subfolder under <paramref name="baseDirectory" />.</param>
+    /// <param name="hint">Optional trace segment, usually the calling member name.</param>
+    /// <returns>The absolute path to the created directory.</returns>
+    public static string CreateDirectoryUnder(string baseDirectory, string innerDirectory, [CallerMemberName] string? hint = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(innerDirectory);
+
+        var path = PathKit.Combine(baseDirectory, innerDirectory, Guid.NewGuid().ToString("N"));
+        if (!string.IsNullOrEmpty(hint))
+            path = PathKit.Combine(path, hint);
+
+        CreateDirectory(path, baseDirectory);
+        return path;
+    }
+
+    /// <summary>
     /// Best-effort recursive delete of a directory.
     /// </summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>

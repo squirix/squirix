@@ -19,41 +19,7 @@ public static class FileKit
     /// Thrown when <paramref name="path" /> is empty/whitespace, contains invalid characters or wildcards,
     /// has empty segments, uses Windows-reserved names, ends with dot/space on Windows, or does not include a file name.
     /// </exception>
-    public static bool Exists(string? path)
-    {
-        var full = ValidateAndGetFullPath(path);
-        return File.Exists(full);
-    }
-
-    /// <summary>
-    /// Attempts to delete a file at the given <paramref name="path" /> and suppresses all exceptions.
-    /// </summary>
-    /// <param name="path">
-    /// Absolute or relative path to the file to delete. If <see langword="null" /> or empty,
-    /// the method returns without performing any action.
-    /// </param>
-    /// <remarks>
-    /// This is a best-effort cleanup helper that intentionally ignores any errors
-    /// (e.g., <see cref="IOException" />, <see cref="UnauthorizedAccessException" />).
-    /// Prefer this in test teardown code where failures during cleanup should not fail the test.
-    /// For strict deletion semantics, use <see cref="File.Delete(string)" /> directly.
-    /// </remarks>
-    public static void TryDelete(string? path)
-    {
-        try
-        {
-            if (!string.IsNullOrEmpty(path))
-                File.Delete(path);
-        }
-        catch (IOException)
-        {
-            /* ignore */
-        }
-        catch (UnauthorizedAccessException)
-        {
-            /* ignore */
-        }
-    }
+    public static bool Exists(string? path) => File.Exists(ValidateAndGetFullPath(path));
 
     /// <summary>
     /// Writes the specified text to a file after validating the file path and ensuring the parent directory exists.

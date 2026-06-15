@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
