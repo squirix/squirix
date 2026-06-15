@@ -8,6 +8,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.Rest.RestJsonSerializerContext;
