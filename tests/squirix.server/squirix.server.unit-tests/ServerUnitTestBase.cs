@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using JetBrains.Annotations;
 using Squirix.Server.TestKit.IO;
 using Xunit;
 
@@ -33,6 +34,7 @@ public abstract class ServerUnitTestBase : IDisposable
     /// Disposes managed resources owned by the unit test base.
     /// </summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
+    [UsedImplicitly]
     protected virtual void Dispose(bool disposing)
     {
     }

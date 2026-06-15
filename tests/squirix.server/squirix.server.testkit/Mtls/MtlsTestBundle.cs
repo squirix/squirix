@@ -13,14 +13,14 @@ namespace Squirix.Server.TestKit.Mtls;
 internal sealed class MtlsTestBundle : IDisposable
 {
     private readonly X509Certificate2 _ca;
-    private readonly string _rootDirectory;
+    private readonly TempDirectory _rootDirectory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MtlsTestBundle" /> class.
     /// </summary>
     public MtlsTestBundle()
     {
-        _rootDirectory = DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-cluster");
+        _rootDirectory = new TempDirectory("squirix-cluster-mtls-cluster");
         _ca = CreateCertificateAuthority();
         FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
     }
@@ -46,7 +46,7 @@ internal sealed class MtlsTestBundle : IDisposable
     public void Dispose()
     {
         _ca.Dispose();
-        DirectoryKit.TryDeleteDirectory(_rootDirectory);
+        _rootDirectory.Dispose();
     }
 
     internal (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(string nodeId, int internalListenPort, X509Certificate2 nodeCertificate)

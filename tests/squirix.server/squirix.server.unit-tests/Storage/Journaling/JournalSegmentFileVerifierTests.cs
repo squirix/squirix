@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -17,9 +18,9 @@ namespace Squirix.Server.UnitTests.Storage.Journaling;
 /// <summary>
 /// Verifies read-only journal segment validation outcomes for complete and corrupted segment files.
 /// </summary>
-public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase
+public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase, IAsyncLifetime
 {
-    private readonly string _dir = DirectoryKit.CreateTempDirectory("squirix-journal-verifier");
+    private TempDirectory _dir = null!;
 
     /// <summary>
     /// Verifies cancellation is surfaced before further frame processing.
@@ -277,12 +278,17 @@ public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase
     }
 
     /// <inheritdoc />
-    protected override void Dispose(bool disposing)
+    public ValueTask DisposeAsync()
     {
-        if (disposing)
-            DirectoryKit.TryDeleteDirectory(_dir);
+        _dir.Dispose();
+        return ValueTask.CompletedTask;
+    }
 
-        base.Dispose(disposing);
+    /// <inheritdoc />
+    public ValueTask InitializeAsync()
+    {
+        _dir = new TempDirectory("squirix-journal-verifier");
+        return ValueTask.CompletedTask;
     }
 
     private static void AssertVerifierDoesNotMutate(string path)

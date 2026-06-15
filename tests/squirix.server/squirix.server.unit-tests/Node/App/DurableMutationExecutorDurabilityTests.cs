@@ -22,54 +22,45 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
     [Fact]
     public async Task MemoryApplyFailureAfterJournalIsNotRetried()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-durable-mutation-no-retry");
-        try
+        using var dir = new TempDirectory("squirix-durable-mutation-no-retry");
+        var options = new PersistenceOptions
         {
-            var options = new PersistenceOptions
-            {
-                DataDir = dir,
-                JournalMaxSegmentMb = 1,
-                FlushIntervalMs = 5,
-                ManifestRetentionCount = 1,
-            };
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 5,
+            ManifestRetentionCount = 1,
+        };
 
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
 
-            var executor = new DurableMutationExecutor(journal);
-            var applyCalls = 0;
+        var executor = new DurableMutationExecutor(journal);
+        var applyCalls = 0;
 
-            static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)
-            {
-                _ = cancellationToken;
-                return new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply());
-            }
-
-            async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
-            {
-                await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
-            }
-
-            ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)
-            {
-                _ = cancellationToken;
-                applyCalls++;
-                throw new InvalidOperationException("memory apply failed");
-            }
-
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(
-                EvaluateAsync,
-                AppendJournalAsync,
-                ApplyMemoryAsync,
-                DefaultCancellationToken).AsTask());
-
-            Assert.Equal("memory apply failed", error.Message);
-            Assert.Equal(1, applyCalls);
-            Assert.Equal(1, journal.AppendedOps);
+        static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            return new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply());
         }
-        finally
+
+        async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
         {
-            DirectoryKit.TryDeleteDirectory(dir);
+            await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
+        }
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            executor.ExecuteAsync(EvaluateAsync, AppendJournalAsync, ApplyMemoryAsync, DefaultCancellationToken).AsTask());
+
+        Assert.Equal("memory apply failed", error.Message);
+        Assert.Equal(1, applyCalls);
+        Assert.Equal(1, journal.AppendedOps);
+        return;
+
+        ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            applyCalls++;
+            throw new InvalidOperationException("memory apply failed");
         }
     }
 }

@@ -18,32 +18,25 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : ServerUnitT
     [Fact]
     public async Task ExclusiveMaintenanceExecutorDispatchRunsSuppliedAction()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-maint-iface");
-        try
+        using var dir = new TempDirectory("squirix-journal-maint-iface");
+        var persistence = new PersistenceOptions
         {
-            var persistence = new PersistenceOptions
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 100,
+        };
+
+        var manifestStore = new ManifestStore(persistence);
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        var executed = false;
+        await journal.ExecuteMaintenanceExclusiveAsync(
+            _ =>
             {
-                DataDir = dir,
-                JournalMaxSegmentMb = 1,
-                FlushIntervalMs = 100,
-            };
+                executed = true;
+                return ValueTask.CompletedTask;
+            },
+            DefaultCancellationToken);
 
-            var manifestStore = new ManifestStore(persistence);
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            var executed = false;
-            await journal.ExecuteMaintenanceExclusiveAsync(
-                _ =>
-                {
-                    executed = true;
-                    return ValueTask.CompletedTask;
-                },
-                DefaultCancellationToken);
-
-            Assert.True(executed);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(executed);
     }
 }

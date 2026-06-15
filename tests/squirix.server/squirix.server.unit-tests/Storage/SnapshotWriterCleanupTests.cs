@@ -26,21 +26,14 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
     [Fact]
     public async Task WriteAsyncCreatesNewSnapshotWhenFinalFileDoesNotExist()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-snap-writer-create");
-        try
-        {
-            var writer = new SnapshotWriter(dir);
+        using var dir = new TempDirectory("squirix-snap-writer-create");
+        var writer = new SnapshotWriter(dir);
 
-            var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntryJsonElement("first"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntryJsonElement("first"))], DefaultCancellationToken);
 
-            Assert.True(File.Exists(path));
-            Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
-            Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(File.Exists(path));
+        Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
     /// <summary>
@@ -50,26 +43,19 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
     [Fact]
     public async Task WriteAsyncFailedFinalizeKeepsPreviousSnapshot()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-snap-writer-finalize-fail");
-        try
-        {
-            var writer = new SnapshotWriter(dir);
-            var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
+        using var dir = new TempDirectory("squirix-snap-writer-finalize-fail");
+        var writer = new SnapshotWriter(dir);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
 
-            var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
-            _ = await Assert.ThrowsAnyAsync<IOException>(() => failingWriter.WriteAsync(
-                1,
-                [(CacheKey.Default("replacement"), BuildEntryJsonElement("new"))],
-                DefaultCancellationToken));
+        var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
+        _ = await Assert.ThrowsAnyAsync<IOException>(() => failingWriter.WriteAsync(
+            1,
+            [(CacheKey.Default("replacement"), BuildEntryJsonElement("new"))],
+            DefaultCancellationToken));
 
-            Assert.True(File.Exists(path));
-            Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));
-            Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(File.Exists(path));
+        Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
     /// <summary>
@@ -79,19 +65,12 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
     [Fact]
     public async Task WriteAsyncRemovesTmpWhenSerializationFails()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-snap-writer-tmp");
-        try
-        {
-            var writer = new SnapshotWriter(dir);
-            var items = FailingItems();
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
-            Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        using var dir = new TempDirectory("squirix-snap-writer-tmp");
+        var writer = new SnapshotWriter(dir);
+        var items = FailingItems();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
+        Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
     /// <summary>
@@ -101,23 +80,16 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
     [Fact]
     public async Task WriteAsyncReplacesExistingSnapshotWithoutPreDelete()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-snap-writer-replace");
-        try
-        {
-            var writer = new SnapshotWriter(dir);
-            var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
+        using var dir = new TempDirectory("squirix-snap-writer-replace");
+        var writer = new SnapshotWriter(dir);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
 
-            var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), BuildEntryJsonElement("new"))], DefaultCancellationToken);
+        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), BuildEntryJsonElement("new"))], DefaultCancellationToken);
 
-            Assert.Equal(path, rewrittenPath);
-            Assert.True(File.Exists(path));
-            Assert.Equal(["fresh"], await ReadSnapshotKeysAsync(path));
-            Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.Equal(path, rewrittenPath);
+        Assert.True(File.Exists(path));
+        Assert.Equal(["fresh"], await ReadSnapshotKeysAsync(path));
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
     private static JsonElement BuildEntryJsonElement(object? value)

@@ -8,16 +8,18 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 internal sealed class MtlsTestCertificateBundle : IDisposable
 {
     private readonly X509Certificate2 _nodeCertificate;
+    private readonly TempDirectory _rootDirectory;
 
-    internal MtlsTestCertificateBundle(string rootDirectory, X509Certificate2 ca, X509Certificate2 nodeCertificate)
+    internal MtlsTestCertificateBundle(X509Certificate2 ca, X509Certificate2 nodeCertificate)
     {
-        RootDirectory = rootDirectory;
+        _rootDirectory = new TempDirectory("squirix-cluster-mtls-tests");
+        RootDirectory = _rootDirectory.Path;
         Ca = ca;
         _nodeCertificate = nodeCertificate;
-        CaPath = PathKit.Combine(rootDirectory, "cluster-ca.crt");
-        CertPath = PathKit.Combine(rootDirectory, "node.crt");
-        KeyPath = PathKit.Combine(rootDirectory, "node.key");
-        PfxPath = PathKit.Combine(rootDirectory, "node.pfx");
+        CaPath = PathKit.Combine(_rootDirectory, "cluster-ca.crt");
+        CertPath = PathKit.Combine(_rootDirectory, "node.crt");
+        KeyPath = PathKit.Combine(_rootDirectory, "node.key");
+        PfxPath = PathKit.Combine(_rootDirectory, "node.pfx");
 
         FileKit.WriteAllText(CaPath, ca.ExportCertificatePem());
         FileKit.WriteAllText(CertPath, nodeCertificate.ExportCertificatePem());
@@ -41,6 +43,6 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
     {
         _nodeCertificate.Dispose();
         Ca.Dispose();
-        DirectoryKit.TryDeleteDirectory(RootDirectory);
+        _rootDirectory.Dispose();
     }
 }

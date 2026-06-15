@@ -19,22 +19,15 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsRespectsFromSegmentAndSortsAscending()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-enum-from");
-        try
-        {
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{9:000000}{StorageFileExtensions.Journal}"), "x");
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2:000000}{StorageFileExtensions.Journal}"), "x");
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15:000000}{StorageFileExtensions.Journal}"), "x");
+        using var dir = new TempDirectory("squirix-journal-enum-from");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{9:000000}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2:000000}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15:000000}{StorageFileExtensions.Journal}"), "x");
 
-            var segments = JournalReader.EnumerateSegments(dir, 9).ToArray();
-            Assert.Equal(2, segments.Length);
-            Assert.Equal(9, segments[0].Index);
-            Assert.Equal(15, segments[1].Index);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var segments = JournalReader.EnumerateSegments(dir, 9).ToArray();
+        Assert.Equal(2, segments.Length);
+        Assert.Equal(9, segments[0].Index);
+        Assert.Equal(15, segments[1].Index);
     }
 
     /// <summary>
@@ -54,32 +47,14 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsSkipsJournalFilesWithNonNumericIndex()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-enum-filter");
-        try
-        {
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42:000000}{StorageFileExtensions.Journal}"), "x");
+        using var dir = new TempDirectory("squirix-journal-enum-filter");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42:000000}{StorageFileExtensions.Journal}"), "x");
 
-            var segments = JournalReader.EnumerateSegments(dir, 1).ToArray();
+        var segments = JournalReader.EnumerateSegments(dir, 1).ToArray();
 
-            var seg = Assert.Single(segments);
-            Assert.Equal(42, seg.Index);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(dir, true);
-            }
-            catch (IOException)
-            {
-                /* best-effort cleanup */
-            }
-            catch (UnauthorizedAccessException)
-            {
-                /* best-effort cleanup */
-            }
-        }
+        var seg = Assert.Single(segments);
+        Assert.Equal(42, seg.Index);
     }
 
     /// <summary>
@@ -88,34 +63,16 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void SelectNewestSegmentsKeepsOnlyNewestByIndex()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-select");
-        try
+        using var dir = new TempDirectory("squirix-journal-select");
+        for (var i = 1; i <= 40; i++)
         {
-            for (var i = 1; i <= 40; i++)
-            {
-                var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i:000000}{StorageFileExtensions.Journal}");
-                File.WriteAllText(path, "x");
-            }
+            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i:000000}{StorageFileExtensions.Journal}");
+            File.WriteAllText(path, "x");
+        }
 
-            var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
-            Assert.Equal(16, selected.Length);
-            Assert.Equal(40, selected[0].Index);
-            Assert.Equal(25, selected[15].Index);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(dir, true);
-            }
-            catch (IOException)
-            {
-                /* best-effort cleanup */
-            }
-            catch (UnauthorizedAccessException)
-            {
-                /* best-effort cleanup */
-            }
-        }
+        var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
+        Assert.Equal(16, selected.Length);
+        Assert.Equal(40, selected[0].Index);
+        Assert.Equal(25, selected[15].Index);
     }
 }

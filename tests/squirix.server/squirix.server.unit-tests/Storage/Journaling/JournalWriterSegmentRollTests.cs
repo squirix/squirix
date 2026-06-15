@@ -24,34 +24,27 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
     [Fact]
     public async Task BlockedNextManifestFilePreventsOverflowFrameFromBeingAppended()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-roll-manifest-blocked");
-        try
-        {
-            var options = CreateOptions(dir);
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
+        var options = CreateOptions(dir);
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
 
-            var overflowPayload = BuildLargePutPayload();
-            var overflowFrameLen = FrameLength(overflowPayload);
-            await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
+        var overflowPayload = BuildLargePutPayload();
+        var overflowFrameLen = FrameLength(overflowPayload);
+        await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
 
-            var segmentOnePath = SegmentPath(dir, 1);
-            var bytesBefore = new FileInfo(segmentOnePath).Length;
+        var segmentOnePath = SegmentPath(dir, 1);
+        var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-            BlockNextManifestWrite(dir);
-            var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
-            _ = await Assert.ThrowsAnyAsync<IOException>(() => journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken).AsTask());
+        BlockNextManifestWrite(dir);
+        var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
+        _ = await Assert.ThrowsAnyAsync<IOException>(() => journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken).AsTask());
 
-            Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
-            Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));
-            Assert.False(ContainsPutKey(ReadSingleSegment(dir, 1), "overflow-key"));
-            if (File.Exists(SegmentPath(dir, 2)))
-                Assert.False(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
+        Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));
+        Assert.False(ContainsPutKey(ReadSingleSegment(dir, 1), "overflow-key"));
+        if (File.Exists(SegmentPath(dir, 2)))
+            Assert.False(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
     }
 
     /// <summary>
@@ -61,28 +54,21 @@ public sealed class JournalWriterSegmentRollTests : ServerUnitTestBase
     [Fact]
     public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-roll-overflow");
-        try
-        {
-            var options = CreateOptions(dir);
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var dir = new TempDirectory("squirix-journal-roll-overflow");
+        var options = CreateOptions(dir);
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
 
-            var overflowPayload = BuildLargePutPayload();
-            var overflowFrameLen = FrameLength(overflowPayload);
-            await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
+        var overflowPayload = BuildLargePutPayload();
+        var overflowFrameLen = FrameLength(overflowPayload);
+        await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
 
-            await journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-            Assert.Equal(2, manifestStore.ReadCurrentOrDefault().CurrentJournal);
-            Assert.False(ContainsPutKey(ReadSingleSegment(dir, 1), "overflow-key"));
-            Assert.True(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.Equal(2, manifestStore.ReadCurrentOrDefault().CurrentJournal);
+        Assert.False(ContainsPutKey(ReadSingleSegment(dir, 1), "overflow-key"));
+        Assert.True(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
     }
 
     /// <summary>

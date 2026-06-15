@@ -123,41 +123,34 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     [Fact]
     public async Task GroupCommitFsyncCompletesBeforeMemoryApply()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-group-commit-fsync");
-        try
+        using var dir = new TempDirectory("squirix-journal-group-commit-fsync");
+        var options = new PersistenceOptions
         {
-            var options = new PersistenceOptions
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 600_000,
+            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWaitMs = 2,
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        var executor = new DurableMutationExecutor(journal);
+        var observedPendingFlushDuringMemoryApply = false;
+
+        _ = await executor.ExecuteAsync(
+            "default:k",
+            static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+            async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, ct); },
+            _ =>
             {
-                DataDir = dir,
-                JournalMaxSegmentMb = 1,
-                FlushIntervalMs = 600_000,
-                ManifestRetentionCount = 1,
-                JournalGroupCommitMaxWaitMs = 2,
-                JournalGroupCommitMaxBatch = 8,
-            };
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            var executor = new DurableMutationExecutor(journal);
-            var observedPendingFlushDuringMemoryApply = false;
+                observedPendingFlushDuringMemoryApply = journal.IsDurabilityFlushPending;
+                return new ValueTask<int>(1);
+            },
+            DefaultCancellationToken);
 
-            _ = await executor.ExecuteAsync(
-                "default:k",
-                static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-                async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, ct); },
-                _ =>
-                {
-                    observedPendingFlushDuringMemoryApply = journal.IsDurabilityFlushPending;
-                    return new ValueTask<int>(1);
-                },
-                DefaultCancellationToken);
-
-            Assert.False(observedPendingFlushDuringMemoryApply);
-            Assert.False(journal.IsDurabilityFlushPending);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.False(observedPendingFlushDuringMemoryApply);
+        Assert.False(journal.IsDurabilityFlushPending);
     }
 
     /// <summary>
@@ -167,40 +160,33 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     [Fact]
     public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-group-commit-batch");
-        try
+        using var dir = new TempDirectory("squirix-journal-group-commit-batch");
+        var options = new PersistenceOptions
         {
-            var options = new PersistenceOptions
-            {
-                DataDir = dir,
-                JournalMaxSegmentMb = 1,
-                FlushIntervalMs = 600_000,
-                ManifestRetentionCount = 1,
-                JournalGroupCommitMaxWaitMs = 50,
-                JournalGroupCommitMaxBatch = 8,
-            };
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 600_000,
+            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWaitMs = 50,
+            JournalGroupCommitMaxBatch = 8,
+        };
 
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
 
-            var flushProbe = new JournalFlushProbe(journal);
-            var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
+        var flushProbe = new JournalFlushProbe(journal);
+        var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
 
-            await journal.AppendPutAsync(CacheKey.Default("k1"), DiscriminatedEntryJsonWriter.BuildEntryJson("v1", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k1"), DiscriminatedEntryJsonWriter.BuildEntryJson("v1", null, null, 1, null), null, DefaultCancellationToken);
 
-            await journal.AppendPutAsync(CacheKey.Default("k2"), DiscriminatedEntryJsonWriter.BuildEntryJson("v2", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k2"), DiscriminatedEntryJsonWriter.BuildEntryJson("v2", null, null, 1, null), null, DefaultCancellationToken);
 
-            var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-            var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-            await Task.WhenAll(firstCommit, secondCommit);
+        var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        await Task.WhenAll(firstCommit, secondCommit);
 
-            Assert.Equal(1, flushProbe.FlushCount);
-            Assert.False(journal.IsDurabilityFlushPending);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.Equal(1, flushProbe.FlushCount);
+        Assert.False(journal.IsDurabilityFlushPending);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();

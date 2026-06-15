@@ -5,11 +5,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
+using Squirix.E2EBenchmarks.Support.IO;
 using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
-using DirectoryKit = Squirix.E2EBenchmarks.Support.IO.DirectoryKit;
-using PathKit = Squirix.E2EBenchmarks.Support.IO.PathKit;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
@@ -19,11 +18,11 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
     private readonly Dictionary<string, TestNodeHost> _nodes;
-    private readonly string _rootDataDir;
+    private readonly TempDirectory? _rootDataDir;
     private BenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes, string rootDataDir)
+    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes, TempDirectory? rootDataDir)
     {
         _nodes = nodes;
         _rootDataDir = rootDataDir;
@@ -44,8 +43,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         }
         finally
         {
-            if (!string.IsNullOrWhiteSpace(_rootDataDir))
-                DirectoryKit.TryDeleteDirectory(_rootDataDir);
+            _rootDataDir?.Dispose();
         }
     }
 
@@ -62,9 +60,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
         var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
-        var root = usePersistence ? PathKit.Combine(Path.GetTempPath(), "squirix-e2e-benchmarks", $"{Environment.ProcessId:D}", Guid.NewGuid().ToString("N")) : string.Empty;
-        if (usePersistence)
-            _ = Directory.CreateDirectory(root);
+        var root = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
 
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
 
@@ -73,7 +69,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             foreach (var nodeId in nodeIds)
             {
                 nodes[nodeId] = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, PathKit.Combine(root, nodeId), cancellationToken).ConfigureAwait(false)
+                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, PathKit.Combine(root!, nodeId), cancellationToken).ConfigureAwait(false)
                     : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
@@ -83,14 +79,14 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(root);
+            root?.Dispose();
             throw;
         }
         catch (IOException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(root);
+            root?.Dispose();
             throw;
         }
     }

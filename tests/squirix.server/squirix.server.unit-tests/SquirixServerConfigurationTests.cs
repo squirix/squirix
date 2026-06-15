@@ -16,7 +16,7 @@ public sealed class SquirixServerConfigurationTests
     [Fact]
     public void LoadFromFileReadsClusterSection()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-server-config");
+        using var dir = new TempDirectory("squirix-server-config");
         const string json = """
                             {
                               "Squirix": {
@@ -35,16 +35,9 @@ public sealed class SquirixServerConfigurationTests
         var path = PathKit.Combine(dir, "Squirix.settings.json");
         File.WriteAllText(path, json);
 
-        try
-        {
-            var options = SquirixServerConfiguration.LoadFromFile(path);
-            Assert.Equal("node-a", options.NodeId);
-            Assert.Equal("c1", options.ClusterId);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var options = SquirixServerConfiguration.LoadFromFile(path);
+        Assert.Equal("node-a", options.NodeId);
+        Assert.Equal("c1", options.ClusterId);
     }
 
     /// <summary>
@@ -53,7 +46,7 @@ public sealed class SquirixServerConfigurationTests
     [Fact]
     public void TryLoadFromFileReturnsErrorsForInvalidPeers()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-server-config-invalid");
+        using var dir = new TempDirectory("squirix-server-config-invalid");
         const string json = """
                             {
                               "Squirix": {
@@ -70,16 +63,9 @@ public sealed class SquirixServerConfigurationTests
         var path = PathKit.Combine(dir, "invalid.json");
         File.WriteAllText(path, json);
 
-        try
-        {
-            var ok = SquirixServerConfiguration.TryLoadFromFile(path, out _, out var error);
-            Assert.False(ok);
-            Assert.Contains("local NodeId", error, StringComparison.Ordinal);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var ok = SquirixServerConfiguration.TryLoadFromFile(path, out _, out var error);
+        Assert.False(ok);
+        Assert.Contains("local NodeId", error, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -100,7 +86,7 @@ public sealed class SquirixServerConfigurationTests
     [Fact]
     public void TryValidateSettingsFileStrictRejectsInvalidMemoryPressure()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-server-config-strict");
+        using var dir = new TempDirectory("squirix-server-config-strict");
         const string json = """
                             {
                               "Squirix": {
@@ -121,15 +107,8 @@ public sealed class SquirixServerConfigurationTests
         var path = PathKit.Combine(dir, "strict.json");
         File.WriteAllText(path, json);
 
-        try
-        {
-            var ok = SquirixServerConfiguration.TryValidateSettingsFile(path, true, out var error);
-            Assert.False(ok);
-            Assert.Contains("HighPressureThresholdPercent", error, StringComparison.Ordinal);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var ok = SquirixServerConfiguration.TryValidateSettingsFile(path, true, out var error);
+        Assert.False(ok);
+        Assert.Contains("HighPressureThresholdPercent", error, StringComparison.Ordinal);
     }
 }

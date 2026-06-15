@@ -24,30 +24,23 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public void InitializationFailsWhenManifestCurrentJournalIsNewerThanLastAvailableSegment()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-disjoint");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "only", "v")]);
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 3,
-                    NextSequence = 2,
-                    LastSnapshot = null,
-                });
+        using var dir = new TempDirectory("squirix-journal-next-seq-disjoint");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "only", "v")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 3,
+                NextSequence = 2,
+                LastSnapshot = null,
+            });
 
-            var ex = Assert.Throws<InvalidDataException>(() => _ = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()));
+        var ex = Assert.Throws<InvalidDataException>(() => _ = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()));
 
-            Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
-            Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -57,29 +50,22 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task NextSequenceDerivesFromActiveJournalRangeStartingAtManifestCurrentJournal()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-active-range");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "old", "a")]);
-            WriteJournalSegment(dir, 3, [BuildPutEnvelope(5UL, "live", "b"), BuildPutEnvelope(6UL, "live2", "c")]);
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 3,
-                    NextSequence = 5,
-                    LastSnapshot = null,
-                });
+        using var dir = new TempDirectory("squirix-journal-next-seq-active-range");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "old", "a")]);
+        WriteJournalSegment(dir, 3, [BuildPutEnvelope(5UL, "live", "b"), BuildPutEnvelope(6UL, "live2", "c")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 3,
+                NextSequence = 5,
+                LastSnapshot = null,
+            });
 
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(7UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(7UL, journal.NextSequence);
     }
 
     /// <summary>
@@ -89,35 +75,28 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task NextSequenceRespectsSnapshotLastAppliedSequenceBeforeActiveJournalScan()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-snap-watermark");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            WriteJournalSegment(dir, 2, [BuildPutEnvelope(51UL, "k", "v")]);
-            manifestStore.Write(
-                new Manifest
+        using var dir = new TempDirectory("squirix-journal-next-seq-snap-watermark");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        WriteJournalSegment(dir, 2, [BuildPutEnvelope(51UL, "k", "v")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 2,
+                NextSequence = 1,
+                LastSnapshot = new Manifest.SnapshotRef
                 {
-                    Format = 1,
-                    CurrentJournal = 2,
-                    NextSequence = 1,
-                    LastSnapshot = new Manifest.SnapshotRef
-                    {
-                        Index = 0,
-                        CreatedUtc = DateTime.UtcNow,
-                        LastAppliedSequence = 50,
-                        Path = null,
-                        ReplayFromJournalSegment = 1,
-                    },
-                });
+                    Index = 0,
+                    CreatedUtc = DateTime.UtcNow,
+                    LastAppliedSequence = 50,
+                    Path = null,
+                    ReplayFromJournalSegment = 1,
+                },
+            });
 
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(52UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(52UL, journal.NextSequence);
     }
 
     /// <summary>
@@ -127,28 +106,21 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task NextSequenceScanUsesMaxOfFirstAvailableSegmentAndManifestCurrentJournal()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-first-available");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            WriteJournalSegment(dir, 5, [BuildPutEnvelope(20UL, "k", "v")]);
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 3,
-                    NextSequence = 2,
-                    LastSnapshot = null,
-                });
+        using var dir = new TempDirectory("squirix-journal-next-seq-first-available");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        WriteJournalSegment(dir, 5, [BuildPutEnvelope(20UL, "k", "v")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 3,
+                NextSequence = 2,
+                LastSnapshot = null,
+            });
 
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(21UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(21UL, journal.NextSequence);
     }
 
     /// <summary>
@@ -158,36 +130,29 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task NextSequenceStaysMonotonicAcrossManifestSegmentBoundary()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-roll-boundary");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
+        using var dir = new TempDirectory("squirix-journal-next-seq-roll-boundary");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
 
-            WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "s1", "a")]);
-            WriteJournalSegment(dir, 2, [BuildPutEnvelope(2UL, "s2", "b"), BuildPutEnvelope(3UL, "s2b", "c")]);
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 2,
-                    NextSequence = 4,
-                    LastSnapshot = null,
-                });
+        WriteJournalSegment(dir, 1, [BuildPutEnvelope(1UL, "s1", "a")]);
+        WriteJournalSegment(dir, 2, [BuildPutEnvelope(2UL, "s2", "b"), BuildPutEnvelope(3UL, "s2b", "c")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 2,
+                NextSequence = 4,
+                LastSnapshot = null,
+            });
 
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(4UL, journal.NextSequence);
-            Assert.Equal(2, journal.CurrentSegmentIndex);
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(4UL, journal.NextSequence);
+        Assert.Equal(2, journal.CurrentSegmentIndex);
 
-            var payload = DiscriminatedEntryJsonWriter.BuildEntryJson("after", null, null, 1, null);
-            await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-            Assert.Equal(5UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson("after", null, null, 1, null);
+        await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        Assert.Equal(5UL, journal.NextSequence);
     }
 
     /// <summary>
@@ -197,34 +162,27 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task ObsoleteJournalCorruptionBelowManifestCurrentJournalDoesNotAffectNextSequence()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-obsolete-crc");
-        try
-        {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            var obsoletePath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-            WriteSegmentWithFrames(obsoletePath, [BuildPutEnvelope(1UL, "stale", "x")]);
-            var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
-            bytes[^1] ^= 0xFF;
-            await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
+        using var dir = new TempDirectory("squirix-journal-next-seq-obsolete-crc");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        var obsoletePath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
+        WriteSegmentWithFrames(obsoletePath, [BuildPutEnvelope(1UL, "stale", "x")]);
+        var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
+        bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
-            WriteJournalSegment(dir, 2, [BuildPutEnvelope(10UL, "live", "y")]);
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 2,
-                    NextSequence = 10,
-                    LastSnapshot = null,
-                });
+        WriteJournalSegment(dir, 2, [BuildPutEnvelope(10UL, "live", "y")]);
+        manifestStore.Write(
+            new Manifest
+            {
+                Format = 1,
+                CurrentJournal = 2,
+                NextSequence = 10,
+                LastSnapshot = null,
+            });
 
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(11UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(11UL, journal.NextSequence);
     }
 
     /// <summary>
@@ -234,37 +192,30 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task PostCompactionNextSequenceMatchesManifestWithoutObsoleteSegments()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-post-compact");
-        try
+        using var dir = new TempDirectory("squirix-journal-next-seq-post-compact");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+
+        await using (var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()))
         {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-
-            await using (var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()))
-            {
-                var p = DiscriminatedEntryJsonWriter.BuildEntryJson("keep", null, null, 1, null);
-                await journal.AppendPutAsync(CacheKey.Default("keep"), p, null, DefaultCancellationToken);
-                await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-            }
-
-            await JournalCompactor.CompactAsync(persistence, manifestStore, DefaultCancellationToken);
-
-            var manifest = manifestStore.ReadCurrentOrDefault();
-            var maxSeq = 0UL;
-            foreach (var env in JournalReader.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
-            {
-                if (env.Seq > maxSeq)
-                    maxSeq = env.Seq;
-            }
-
-            await using var restartedJournal = new JournalWriter(persistence, manifest, manifestStore, new JournalStartupGate());
-            Assert.Equal(maxSeq + 1, restartedJournal.NextSequence);
-            Assert.Equal(manifest.CurrentJournal, restartedJournal.CurrentSegmentIndex);
+            var p = DiscriminatedEntryJsonWriter.BuildEntryJson("keep", null, null, 1, null);
+            await journal.AppendPutAsync(CacheKey.Default("keep"), p, null, DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
-        finally
+
+        await JournalCompactor.CompactAsync(persistence, manifestStore, DefaultCancellationToken);
+
+        var manifest = manifestStore.ReadCurrentOrDefault();
+        var maxSeq = 0UL;
+        foreach (var env in JournalReader.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
         {
-            DirectoryKit.TryDeleteDirectory(dir);
+            if (env.Seq > maxSeq)
+                maxSeq = env.Seq;
         }
+
+        await using var restartedJournal = new JournalWriter(persistence, manifest, manifestStore, new JournalStartupGate());
+        Assert.Equal(maxSeq + 1, restartedJournal.NextSequence);
+        Assert.Equal(manifest.CurrentJournal, restartedJournal.CurrentSegmentIndex);
     }
 
     /// <summary>
@@ -274,34 +225,27 @@ public sealed class JournalWriterNextSequenceInitializationTests : ServerUnitTes
     [Fact]
     public async Task TruncatedFrameInActiveJournalSegmentBoundsNextSequence()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-next-seq-active-truncate");
-        try
+        using var dir = new TempDirectory("squirix-journal-next-seq-active-truncate");
+        var persistence = NewPersistence(dir);
+        var manifestStore = new ManifestStore(persistence);
+        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}");
+        WriteSegmentWithFrames(path, [BuildPutEnvelope(5UL, "a", "x"), BuildPutEnvelope(6UL, "b", "y")]);
+        await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
         {
-            var persistence = NewPersistence(dir);
-            var manifestStore = new ManifestStore(persistence);
-            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}");
-            WriteSegmentWithFrames(path, [BuildPutEnvelope(5UL, "a", "x"), BuildPutEnvelope(6UL, "b", "y")]);
-            await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+            fs.SetLength(fs.Length - 1);
+        }
+
+        manifestStore.Write(
+            new Manifest
             {
-                fs.SetLength(fs.Length - 1);
-            }
+                Format = 1,
+                CurrentJournal = 2,
+                NextSequence = 5,
+                LastSnapshot = null,
+            });
 
-            manifestStore.Write(
-                new Manifest
-                {
-                    Format = 1,
-                    CurrentJournal = 2,
-                    NextSequence = 5,
-                    LastSnapshot = null,
-                });
-
-            await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-            Assert.Equal(6UL, journal.NextSequence);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        Assert.Equal(6UL, journal.NextSequence);
     }
 
     private static JournalEnvelope BuildPutEnvelope(ulong seq, string key, string value)

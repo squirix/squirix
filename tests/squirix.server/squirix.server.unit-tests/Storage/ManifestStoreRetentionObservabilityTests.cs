@@ -22,44 +22,38 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
-        var dir = DirectoryKit.CreateTempDirectory("journal-retention-delete-failure");
+        using var dir = new TempDirectory("journal-retention-delete-failure");
         var staleJournalSegment = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        try
-        {
-            var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
-            File.WriteAllText(staleJournalSegment, "stale journal");
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
-            File.WriteAllText(currentJournalPath, "current journal");
-            var options = new PersistenceOptions { DataDir = dir };
-            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
-            store.Write(
-                new Manifest
+        var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
+        File.WriteAllText(staleJournalSegment, "stale journal");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
+        File.WriteAllText(currentJournalPath, "current journal");
+        var options = new PersistenceOptions { DataDir = dir };
+        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
+        store.Write(
+            new Manifest
+            {
+                CurrentJournal = 3,
+                LastSnapshot = new Manifest.SnapshotRef
                 {
-                    CurrentJournal = 3,
-                    LastSnapshot = new Manifest.SnapshotRef
-                    {
-                        Index = 1,
-                        Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
-                        CreatedUtc = DateTime.UtcNow,
-                        LastAppliedSequence = 20,
-                        ReplayFromJournalSegment = 3,
-                    },
-                });
+                    Index = 1,
+                    Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
+                    CreatedUtc = DateTime.UtcNow,
+                    LastAppliedSequence = 20,
+                    ReplayFromJournalSegment = 3,
+                },
+            });
 
-            Assert.True(File.Exists(currentJournalPath));
-            Assert.True(File.Exists(staleJournalSegment));
-            Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
-            Assert.True(
-                sink.HasEvent(
-                    "squirix_storage_retention_delete_failures_total",
-                    ("artifact", ManifestRetentionArtifactKind.JournalSegment),
-                    ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
-        }
-        finally
-        {
-            RestoreNormalAttributes(staleJournalSegment);
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(File.Exists(currentJournalPath));
+        Assert.True(File.Exists(staleJournalSegment));
+        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
+        Assert.True(
+            sink.HasEvent(
+                "squirix_storage_retention_delete_failures_total",
+                ("artifact", ManifestRetentionArtifactKind.JournalSegment),
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+
+        RestoreNormalAttributes(staleJournalSegment);
     }
 
     /// <summary>
@@ -69,37 +63,30 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     public void RepeatedRetentionFailuresDegradeReadinessWithoutBreakingWrites()
     {
         var logger = new CollectingLogger();
-        var dir = DirectoryKit.CreateTempDirectory("manifest-retention-readiness");
-        try
+        using var dir = new TempDirectory("manifest-retention-readiness");
+        var options = new PersistenceOptions
         {
-            var options = new PersistenceOptions
-            {
-                DataDir = dir,
-                ManifestRetentionCount = 1,
-                RetentionCleanupDegradedConsecutiveWrites = 2,
-                RetentionCleanupDegradedWindowFailures = 10,
-            };
-            var readiness = new StorageRetentionCleanupReadiness(options);
-            var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            File.WriteAllText(staleManifest, "{}");
-            var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
+            DataDir = dir,
+            ManifestRetentionCount = 1,
+            RetentionCleanupDegradedConsecutiveWrites = 2,
+            RetentionCleanupDegradedWindowFailures = 10,
+        };
+        var readiness = new StorageRetentionCleanupReadiness(options);
+        var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        File.WriteAllText(staleManifest, "{}");
+        var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
 
-            store.Write(new Manifest { CurrentJournal = 1 });
-            Assert.False(readiness.IsDegraded);
-            Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+        store.Write(new Manifest { CurrentJournal = 1 });
+        Assert.False(readiness.IsDegraded);
+        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
-            store.Write(new Manifest { CurrentJournal = 2 });
-            Assert.True(readiness.IsDegraded);
-            Assert.Equal(2, readiness.ConsecutiveWriteFailures);
-        }
-        finally
-        {
-            var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            if (File.Exists(stale))
-                File.SetAttributes(stale, FileAttributes.Normal);
+        store.Write(new Manifest { CurrentJournal = 2 });
+        Assert.True(readiness.IsDegraded);
+        Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        if (File.Exists(stale))
+            File.SetAttributes(stale, FileAttributes.Normal);
     }
 
     /// <summary>
@@ -110,37 +97,30 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
-        var dir = DirectoryKit.CreateTempDirectory("manifest-retention-delete-failure");
-        try
+        using var dir = new TempDirectory("manifest-retention-delete-failure");
+        var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
+        var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
+        store.Write(new Manifest { CurrentJournal = 1 });
+        store.Write(new Manifest { CurrentJournal = 2 });
+
+        Assert.True(File.Exists(staleManifest));
+        store.Write(new Manifest { CurrentJournal = 3 });
+
+        var latest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
+        Assert.True(File.Exists(latest));
+        Assert.True(File.Exists(staleManifest));
+        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
+        Assert.True(
+            sink.HasEvent(
+                "squirix_storage_retention_delete_failures_total",
+                ("artifact", ManifestRetentionArtifactKind.Manifest),
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+
+        var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        if (File.Exists(stale))
         {
-            var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
-            var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
-            store.Write(new Manifest { CurrentJournal = 1 });
-            store.Write(new Manifest { CurrentJournal = 2 });
-
-            Assert.True(File.Exists(staleManifest));
-            store.Write(new Manifest { CurrentJournal = 3 });
-
-            var latest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
-            Assert.True(File.Exists(latest));
-            Assert.True(File.Exists(staleManifest));
-            Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
-            Assert.True(
-                sink.HasEvent(
-                    "squirix_storage_retention_delete_failures_total",
-                    ("artifact", ManifestRetentionArtifactKind.Manifest),
-                    ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
-        }
-        finally
-        {
-            var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            if (File.Exists(stale))
-            {
-                File.SetAttributes(stale, FileAttributes.Normal);
-            }
-
-            DirectoryKit.TryDeleteDirectory(dir);
+            File.SetAttributes(stale, FileAttributes.Normal);
         }
     }
 
@@ -152,47 +132,41 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
-        var dir = DirectoryKit.CreateTempDirectory("snapshot-retention-delete-failure");
+        using var dir = new TempDirectory("snapshot-retention-delete-failure");
         var staleSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}");
-        try
+        var currentSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}");
+        File.WriteAllText(staleSnapshot, "stale snapshot");
+        File.WriteAllText(currentSnapshot, "current snapshot");
+        var options = new PersistenceOptions
         {
-            var currentSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}");
-            File.WriteAllText(staleSnapshot, "stale snapshot");
-            File.WriteAllText(currentSnapshot, "current snapshot");
-            var options = new PersistenceOptions
+            DataDir = dir,
+            SnapshotRetentionCount = 1,
+        };
+        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
+        store.Write(
+            new Manifest
             {
-                DataDir = dir,
-                SnapshotRetentionCount = 1,
-            };
-            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
-            store.Write(
-                new Manifest
+                CurrentJournal = 2,
+                LastSnapshot = new Manifest.SnapshotRef
                 {
-                    CurrentJournal = 2,
-                    LastSnapshot = new Manifest.SnapshotRef
-                    {
-                        Index = 2,
-                        Path = currentSnapshot,
-                        CreatedUtc = DateTime.UtcNow,
-                        LastAppliedSequence = 20,
-                        ReplayFromJournalSegment = 2,
-                    },
-                });
+                    Index = 2,
+                    Path = currentSnapshot,
+                    CreatedUtc = DateTime.UtcNow,
+                    LastAppliedSequence = 20,
+                    ReplayFromJournalSegment = 2,
+                },
+            });
 
-            Assert.True(File.Exists(currentSnapshot));
-            Assert.True(File.Exists(staleSnapshot));
-            Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
-            Assert.True(
-                sink.HasEvent(
-                    "squirix_storage_retention_delete_failures_total",
-                    ("artifact", ManifestRetentionArtifactKind.Snapshot),
-                    ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
-        }
-        finally
-        {
-            RestoreNormalAttributes(staleSnapshot);
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(File.Exists(currentSnapshot));
+        Assert.True(File.Exists(staleSnapshot));
+        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
+        Assert.True(
+            sink.HasEvent(
+                "squirix_storage_retention_delete_failures_total",
+                ("artifact", ManifestRetentionArtifactKind.Snapshot),
+                ("outcome", ManifestRetentionFailureOutcome.DeleteFailed)));
+
+        RestoreNormalAttributes(staleSnapshot);
     }
 
     private static void RestoreNormalAttributes(string path)
