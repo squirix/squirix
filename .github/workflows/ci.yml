@@ -91,6 +91,8 @@ jobs:
                     config: .markdownlint-cli2.jsonc
 
     # dotnet format is slow; run it once on the cheapest runner instead of every matrix cell.
+    # Pull requests: changed solution .cs files only (full solution on global config / project changes).
+    # Push, schedule, and workflow_dispatch: full solution.
     verify-coding-conventions:
         name: Verify Coding Conventions (.editorconfig)
         runs-on: ubuntu-latest
@@ -103,6 +105,8 @@ jobs:
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
+                with:
+                    fetch-depth: 0
 
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
@@ -134,7 +138,8 @@ jobs:
                 run: dotnet run --file ./tools/internal/sqr-examples-verify.cs --
 
             -   name: Verify Coding Conventions (.editorconfig)
-                run: dotnet format squirix.slnx --verify-no-changes --no-restore
+                shell: bash
+                run: bash tools/ci/verify-dotnet-format.sh
 
     docker-build:
         name: Docker Build

@@ -3,6 +3,7 @@ using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;

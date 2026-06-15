@@ -14,14 +14,19 @@ public sealed class TempDirectory : IDisposable
     /// <param name="innerDirectory">Subfolder under the system temp path.</param>
     /// <param name="hint">Optional trace segment, usually the calling test name.</param>
     public TempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
+        : this()
     {
         Path = DirectoryKit.CreateTempDirectory(innerDirectory, hint);
+    }
+
+    private TempDirectory()
+    {
     }
 
     /// <summary>
     /// Gets the absolute path to the created directory.
     /// </summary>
-    private string Path { get; }
+    private string Path { get; init; } = null!;
 
     /// <summary>
     /// Gets the directory path for <paramref name="directory" />.
@@ -42,15 +47,10 @@ public sealed class TempDirectory : IDisposable
     /// <returns>A disposable handle to the created directory.</returns>
     public static TempDirectory CreateUnder(string baseDirectory, string innerDirectory, [CallerMemberName] string? hint = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(baseDirectory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(innerDirectory);
-
-        var path = PathKit.Combine(baseDirectory, innerDirectory, Guid.NewGuid().ToString("N"));
-        if (!string.IsNullOrEmpty(hint))
-            path = PathKit.Combine(path, hint);
-
-        DirectoryKit.CreateDirectory(path, baseDirectory);
-        return new TempDirectory(path);
+        return new TempDirectory
+        {
+            Path = DirectoryKit.CreateDirectoryUnder(baseDirectory, innerDirectory, hint),
+        };
     }
 
     /// <inheritdoc />

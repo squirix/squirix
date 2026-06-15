@@ -7,6 +7,7 @@ using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.Testing;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
