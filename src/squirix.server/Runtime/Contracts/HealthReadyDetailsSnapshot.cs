@@ -15,6 +15,8 @@ internal sealed class HealthReadyDetailsSnapshot
 
     public required HealthMemoryPressureSnapshot MemoryPressure { get; init; }
 
+    public required HealthRetentionCleanupSnapshot RetentionCleanup { get; init; }
+
     public required double? SnapshotAgeSeconds { get; init; }
 
     public required bool SnapshotInFlight { get; init; }
