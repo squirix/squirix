@@ -17,4 +17,5 @@ namespace Squirix.Server.Adapters.Endpoint.Rest;
 [JsonSerializable(typeof(RestDtos.HealthLeaseDetails))]
 [JsonSerializable(typeof(RestDtos.HealthWatchDetails))]
 [JsonSerializable(typeof(RestDtos.HealthMemoryPressureDetails))]
+[JsonSerializable(typeof(RestDtos.HealthRetentionCleanupDetails))]
 internal sealed partial class RestJsonSerializerContext : JsonSerializerContext;

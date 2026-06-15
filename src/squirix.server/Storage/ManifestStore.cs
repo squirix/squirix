@@ -20,15 +20,20 @@ internal sealed class ManifestStore
     private readonly IStorageFileOperations _fileOperations;
     private readonly Lock _lock = new();
     private readonly ILogger<ManifestStore>? _logger;
+    private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private readonly int _retention;
     private readonly int _snapshotRetention;
 
-    public ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger = null)
-        : this(options, logger, new StorageFileOperations())
+    public ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger = null, IRetentionCleanupReadinessStatus? retentionReadiness = null)
+        : this(options, logger, retentionReadiness, new StorageFileOperations())
     {
     }
 
-    internal ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger, IStorageFileOperations fileOperations)
+    internal ManifestStore(
+        PersistenceOptions options,
+        ILogger<ManifestStore>? logger,
+        IRetentionCleanupReadinessStatus? retentionReadiness,
+        IStorageFileOperations fileOperations)
     {
         _dataDir = options.DataDir;
         _logger = logger;
@@ -36,6 +41,7 @@ internal sealed class ManifestStore
         _retention = options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3;
         _snapshotRetention = options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3;
         _fileOperations = fileOperations;
+        _retentionReadiness = retentionReadiness;
     }
 
     /// <summary>
@@ -133,9 +139,11 @@ internal sealed class ManifestStore
             UpdateCurrentAtomically(fileName);
 
             // 3) Retention: keep only the last N manifest files
-            TryCleanupOldManifests();
-            TryCleanupOldSnapshots(manifest.LastSnapshot);
-            TryCleanupObsoleteJournalSegments(manifest);
+            var manifestCleanupFailed = TryCleanupOldManifests();
+            var snapshotCleanupFailed = TryCleanupOldSnapshots(manifest.LastSnapshot);
+            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(manifest);
+            var cleanupFailed = manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
+            _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
         }
     }
 
@@ -250,17 +258,18 @@ internal sealed class ManifestStore
         return max;
     }
 
-    private void TryCleanupObsoleteJournalSegments(Manifest manifest)
+    private bool TryCleanupObsoleteJournalSegments(Manifest manifest)
     {
         try
         {
             var replayFromSegment = manifest.LastSnapshot?.ReplayFromJournalSegment ?? 0;
             if (replayFromSegment <= 1)
-                return;
+                return false;
 
             if (manifest.CurrentJournal < replayFromSegment)
-                return;
+                return false;
 
+            var failed = false;
             foreach (var segment in JournalReader.EnumerateSegments(_dataDir, 1))
             {
                 if (segment.Index >= replayFromSegment)
@@ -269,57 +278,66 @@ internal sealed class ManifestStore
                 if (segment.Index >= manifest.CurrentJournal)
                     continue;
 
-                TryDeleteRetentionArtifact(segment.Path, ManifestRetentionArtifactKind.JournalSegment);
+                failed |= TryDeleteRetentionArtifact(segment.Path, ManifestRetentionArtifactKind.JournalSegment);
             }
+
+            return failed;
         }
         catch (IOException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
+            return true;
         }
         catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
+            return true;
         }
     }
 
-    private void TryCleanupOldManifests()
+    private bool TryCleanupOldManifests()
     {
         try
         {
             var files = Directory.GetFiles(_dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}");
             if (files.Length <= _retention)
-                return;
+                return false;
 
             var ordered = GetIndexedFiles(files, TryParseIndex);
 
             if (ordered.Length <= _retention)
-                return;
+                return false;
 
+            var failed = false;
             for (var i = _retention; i < ordered.Length; i++)
-                TryDeleteRetentionArtifact(ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
+                failed |= TryDeleteRetentionArtifact(ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
+
+            return failed;
         }
         catch (IOException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
+            return true;
         }
         catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
+            return true;
         }
     }
 
-    private void TryCleanupOldSnapshots(Manifest.SnapshotRef? currentSnapshot)
+    private bool TryCleanupOldSnapshots(Manifest.SnapshotRef? currentSnapshot)
     {
         try
         {
             var files = Directory.GetFiles(_dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}");
             if (files.Length <= _snapshotRetention)
-                return;
+                return false;
 
             var ordered = GetIndexedFiles(files, TryParseSnapshotIndex);
 
             if (ordered.Length <= _snapshotRetention)
-                return;
+                return false;
 
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < _snapshotRetention && i < ordered.Length; i++)
@@ -328,31 +346,37 @@ internal sealed class ManifestStore
             if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
                 _ = keep.Add(currentSnapshot.Path);
 
+            var failed = false;
             for (var i = _snapshotRetention; i < ordered.Length; i++)
             {
                 var stale = ordered[i];
                 if (keep.Contains(stale.Path))
                     continue;
 
-                TryDeleteRetentionArtifact(stale.Path, ManifestRetentionArtifactKind.Snapshot);
+                failed |= TryDeleteRetentionArtifact(stale.Path, ManifestRetentionArtifactKind.Snapshot);
             }
+
+            return failed;
         }
         catch (IOException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
+            return true;
         }
         catch (UnauthorizedAccessException ex)
         {
             ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
+            return true;
         }
     }
 
-    private void TryDeleteRetentionArtifact(string path, string artifactKind)
+    private bool TryDeleteRetentionArtifact(string path, string artifactKind)
     {
         if (_fileOperations.TryDelete(path))
-            return;
+            return false;
 
         ReportRetentionDeleteFailure(artifactKind, path);
+        return true;
     }
 
     private void UpdateCurrentAtomically(string newFileName)

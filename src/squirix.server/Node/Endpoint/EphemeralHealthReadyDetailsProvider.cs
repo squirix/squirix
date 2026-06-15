@@ -61,6 +61,7 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
             ClientPool = clientPool,
             Coordination = coordination,
             MemoryPressure = memoryPressure,
+            RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
         };
     }
 }

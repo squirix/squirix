@@ -59,6 +59,11 @@ internal static class HttpEndpointEx
                         snapshot.MemoryPressure.EntryCount,
                         snapshot.MemoryPressure.RejectedWriteCount,
                         snapshot.MemoryPressure.WriteRejectionActive);
+                    var retentionCleanup = new HealthRetentionCleanupDetails(
+                        snapshot.RetentionCleanup.Degraded,
+                        snapshot.RetentionCleanup.ConsecutiveWriteFailures,
+                        snapshot.RetentionCleanup.RecentFailureCount,
+                        snapshot.RetentionCleanup.LastFailureUtc);
 
                     return Results.Json(
                         new HealthReadyDetailsResponse(
@@ -68,7 +73,8 @@ internal static class HttpEndpointEx
                             compaction,
                             clientPool,
                             coordination,
-                            memoryPressure),
+                            memoryPressure,
+                            retentionCleanup),
                         RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
                 });
         }

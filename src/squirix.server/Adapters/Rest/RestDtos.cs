@@ -91,6 +91,25 @@ internal static class RestDtos
         public bool WriteRejectionActive { get; }
     }
 
+    internal sealed class HealthRetentionCleanupDetails
+    {
+        public HealthRetentionCleanupDetails(bool degraded, int consecutiveWriteFailures, int recentFailureCount, DateTime? lastFailureUtc)
+        {
+            Degraded = degraded;
+            ConsecutiveWriteFailures = consecutiveWriteFailures;
+            RecentFailureCount = recentFailureCount;
+            LastFailureUtc = lastFailureUtc;
+        }
+
+        public int ConsecutiveWriteFailures { get; }
+
+        public bool Degraded { get; }
+
+        public DateTime? LastFailureUtc { get; }
+
+        public int RecentFailureCount { get; }
+    }
+
     internal sealed class HealthReadyDetailsResponse
     {
         public HealthReadyDetailsResponse(
@@ -100,7 +119,8 @@ internal static class RestDtos
             HealthCompactionDetails compaction,
             HealthClientPoolDetails clientPool,
             HealthCoordinationDetails coordination,
-            HealthMemoryPressureDetails memoryPressure)
+            HealthMemoryPressureDetails memoryPressure,
+            HealthRetentionCleanupDetails retentionCleanup)
         {
             JournalBacklogOps = journalBacklogOps;
             SnapshotAgeSeconds = snapshotAgeSeconds;
@@ -109,6 +129,7 @@ internal static class RestDtos
             ClientPool = clientPool;
             Coordination = coordination;
             MemoryPressure = memoryPressure;
+            RetentionCleanup = retentionCleanup;
         }
 
         public HealthClientPoolDetails ClientPool { get; }
@@ -121,6 +142,8 @@ internal static class RestDtos
         public long JournalBacklogOps { get; }
 
         public HealthMemoryPressureDetails MemoryPressure { get; }
+
+        public HealthRetentionCleanupDetails RetentionCleanup { get; }
 
         public double? SnapshotAgeSeconds { get; }
 

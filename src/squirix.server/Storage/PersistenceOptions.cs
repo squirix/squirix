@@ -115,4 +115,19 @@ internal sealed record PersistenceOptions
             field = value;
         }
     }
+
+    /// <summary>
+    /// Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.
+    /// </summary>
+    public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
+
+    /// <summary>
+    /// Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.
+    /// </summary>
+    public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
+
+    /// <summary>
+    /// Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.
+    /// </summary>
+    public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
 }

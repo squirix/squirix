@@ -13,10 +13,16 @@ internal static class SquirixPersistenceServiceRegistration
 {
     public static IServiceCollection AddSquirixPersistenceServices(this IServiceCollection services, bool waitForRecovery)
     {
-        _ = services.AddSingleton(static sp => new ManifestStore(sp.GetRequiredService<PersistenceOptions>(), sp.GetRequiredService<ILogger<ManifestStore>>()));
+        _ = services.AddSingleton<StorageRetentionCleanupReadiness>();
+        _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(static sp => sp.GetRequiredService<StorageRetentionCleanupReadiness>());
+        _ = services.AddSingleton(static sp => new ManifestStore(
+            sp.GetRequiredService<PersistenceOptions>(),
+            sp.GetRequiredService<ILogger<ManifestStore>>(),
+            sp.GetRequiredService<IRetentionCleanupReadinessStatus>()));
         _ = services.AddSingleton(static _ => new JournalStartupGate(false));
         _ = services.AddHealthChecks().AddCheck<JournalRecoveryReadinessHealthCheck>("journal_recovery", HealthStatus.Unhealthy, ["ready"])
-                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"]);
+                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"])
+                    .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
         _ = services.AddSingleton(static sp =>
         {

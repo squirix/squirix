@@ -31,7 +31,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
             File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
             File.WriteAllText(currentJournalPath, "current journal");
             var options = new PersistenceOptions { DataDir = dir };
-            var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleJournalSegment));
+            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
             store.Write(
                 new Manifest
                 {
@@ -63,6 +63,46 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
     }
 
     /// <summary>
+    /// Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.
+    /// </summary>
+    [Fact]
+    public void RepeatedRetentionFailuresDegradeReadinessWithoutBreakingWrites()
+    {
+        var logger = new CollectingLogger();
+        var dir = DirectoryKit.CreateTempDirectory("manifest-retention-readiness");
+        try
+        {
+            var options = new PersistenceOptions
+            {
+                DataDir = dir,
+                ManifestRetentionCount = 1,
+                RetentionCleanupDegradedConsecutiveWrites = 2,
+                RetentionCleanupDegradedWindowFailures = 10,
+            };
+            var readiness = new StorageRetentionCleanupReadiness(options);
+            var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            File.WriteAllText(staleManifest, "{}");
+            var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
+
+            store.Write(new Manifest { CurrentJournal = 1 });
+            Assert.False(readiness.IsDegraded);
+            Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+
+            store.Write(new Manifest { CurrentJournal = 2 });
+            Assert.True(readiness.IsDegraded);
+            Assert.Equal(2, readiness.ConsecutiveWriteFailures);
+        }
+        finally
+        {
+            var stale = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+            if (File.Exists(stale))
+                File.SetAttributes(stale, FileAttributes.Normal);
+
+            DirectoryKit.TryDeleteDirectory(dir);
+        }
+    }
+
+    /// <summary>
     /// Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.
     /// </summary>
     [Fact]
@@ -75,7 +115,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         {
             var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
             var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleManifest));
+            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
             store.Write(new Manifest { CurrentJournal = 1 });
             store.Write(new Manifest { CurrentJournal = 2 });
 
@@ -124,7 +164,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
                 DataDir = dir,
                 SnapshotRetentionCount = 1,
             };
-            var store = new ManifestStore(options, logger, new DeleteFailingStorageFileOperations(staleSnapshot));
+            var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
             store.Write(
                 new Manifest
                 {
