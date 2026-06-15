@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Utils;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Benchmarks.Infrastructure;
 
@@ -45,7 +46,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral)
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
-        var address = ListenPortPool.NextHttpUrl();
+        var address = ListenPortPool.ServerBenchmarks.NextHttpUri().AbsoluteUri;
         return StartAsync(nodeId, address, [(nodeId, address)], durabilityMode, cancellationToken, true);
     }
 

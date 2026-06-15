@@ -30,8 +30,7 @@ public sealed class MtlsKestrelHandshakeTests
     public async Task OutboundMtlsHandlerCompletesTlsHandshakeWithInternalListener()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        using var allocator = new PortAllocator(35000, 35999);
-        var internalPort = allocator.Allocate();
+        var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
         await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", TestContext.Current.CancellationToken);
 
         Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor, ["node-a"]));

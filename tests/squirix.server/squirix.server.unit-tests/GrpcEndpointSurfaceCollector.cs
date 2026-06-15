@@ -26,8 +26,7 @@ internal static class GrpcEndpointSurfaceCollector
 
     private static WebApplication BuildProductionHost()
     {
-        using var allocator = new PortAllocator(32000, 32999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {

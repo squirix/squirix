@@ -18,8 +18,8 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task DefaultModeSupportsCacheOperations()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "node_ephemeral_ops", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node_ephemeral_ops", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers);
         var cache = GetCache(node);
@@ -36,8 +36,8 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task DefaultStartupDoesNotCreatePersistenceFiles()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "node_ephemeral", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node_ephemeral", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers);
         Assert.False(node.PersistenceEnabled);

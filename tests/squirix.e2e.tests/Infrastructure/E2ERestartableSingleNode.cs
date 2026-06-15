@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Infrastructure;
 
@@ -26,7 +27,7 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
     {
         var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
-        var node = new E2ERestartableSingleNode(root, ListenPortPool.NextHttpUrl());
+        var node = new E2ERestartableSingleNode(root, ListenPortPool.EndToEndTests.NextHttpAddress());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }

@@ -356,11 +356,11 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ github.event_name == 'schedule' && 8 || 4 }}
+            max-parallel: ${{ github.event_name == 'schedule' && 8 || 7 }}
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e ]
+                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -429,10 +429,14 @@ jobs:
                       server-integration)
                         PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
                         ;;
-                      e2e)
+                      e2e-single-node)
                         PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
                         # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
-                        FILTER_ARGS=(--filter "Suite!=Stress")
+                        FILTER_ARGS=(--filter "(FullyQualifiedName~PublicApi.SingleNode|FullyQualifiedName~PublicApi.Persistence|FullyQualifiedName~PublicApi.Durability)&Suite!=Stress")
+                        ;;
+                      e2e-multi-node)
+                        PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
+                        FILTER_ARGS=(--filter "FullyQualifiedName~PublicApi.MultiNode&Suite!=Stress")
                         ;;
                       *)
                         echo "Unsupported suite: ${{ matrix.suite }}" >&2

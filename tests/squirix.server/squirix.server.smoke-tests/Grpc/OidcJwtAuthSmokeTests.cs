@@ -23,8 +23,8 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcAcceptsValidOidcJwtAndRejectsMissingAuth()
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "node-oidc-auth", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node-oidc-auth", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(
             url,
@@ -33,7 +33,7 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        using var channel = CreateGrpcChannel(new Uri(url, UriKind.Absolute));
+        using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueRequest { CacheName = "default", Key = "oidc-smoke" };
 

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Infrastructure;
 
@@ -19,7 +20,7 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 
     public static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
     {
-        var node = new EphemeralRestartableSingleNode(ListenPortPool.NextHttpUrl());
+        var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpAddress());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }

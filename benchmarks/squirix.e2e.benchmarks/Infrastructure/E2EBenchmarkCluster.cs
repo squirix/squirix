@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 using DirectoryKit = Squirix.E2EBenchmarks.Utils.DirectoryKit;
 using PathKit = Squirix.E2EBenchmarks.Utils.PathKit;
 
@@ -52,7 +53,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         var nodeIds = topology == BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
         var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
-            addresses[nodeId] = ListenPortPool.NextHttpUrl();
+            addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri().AbsoluteUri;
 
         var peers = new (string NodeId, string Address)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)

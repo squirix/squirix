@@ -20,7 +20,10 @@ namespace Squirix.Server.TestKit.Auth;
 /// </summary>
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
-    private static readonly PortAllocator PortPool = new(48000, 48999);
+    private static readonly PortAllocator PortPool = new(
+        HostPortRegions.StartInclusive(HostPortRegion.MockOidcAuthority),
+        HostPortRegions.EndExclusive(HostPortRegion.MockOidcAuthority) - 1);
+
     private readonly WebApplication _app;
     private readonly string _keyId;
 

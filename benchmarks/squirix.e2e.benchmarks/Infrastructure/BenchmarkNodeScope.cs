@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Utils;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Infrastructure;
 
@@ -50,7 +51,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private static Task<BenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{scopeId}";
-        var address = ListenPortPool.NextHttpUrl();
+        var address = ListenPortPool.EndToEndBenchmarks.NextHttpUri().AbsoluteUri;
         return StartAsync(nodeId, address, [(nodeId, address)], durabilityMode, cancellationToken, true);
     }
 

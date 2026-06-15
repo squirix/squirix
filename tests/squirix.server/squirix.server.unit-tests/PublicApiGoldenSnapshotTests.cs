@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using Squirix.Server.TestKit.IO;
-using Squirix.TestKit;
+using Squirix.Server.TestKit.Testing;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;

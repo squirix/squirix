@@ -19,8 +19,8 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedResolvingCacheThrows()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var host = await StartNodeAsync(url, peers);
         await host.DisposeAsync();
         var ex = Record.Exception(() => GetCache(host));
@@ -34,8 +34,8 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var host = await StartNodeAsync(url, peers);
         await host.DisposeAsync();
         var ex = Record.Exception(ResolveRuntime);

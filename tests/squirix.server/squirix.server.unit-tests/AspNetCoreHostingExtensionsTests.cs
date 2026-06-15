@@ -25,8 +25,7 @@ public sealed class AspNetCoreHostingExtensionsTests
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        using var allocator = new PortAllocator(26000, 26999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -65,8 +64,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
-        using var allocator = new PortAllocator(25000, 25999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options =>
@@ -97,8 +95,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var callbackCount = 0;
-        using var allocator = new PortAllocator(28000, 28999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -130,8 +127,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var marker = new ExtensionMarker("extension-test");
-        using var allocator = new PortAllocator(27000, 27999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -164,8 +160,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         bool? authEnabled = null;
-        using var allocator = new PortAllocator(29000, 29999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),

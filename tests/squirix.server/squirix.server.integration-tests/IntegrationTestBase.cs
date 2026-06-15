@@ -44,7 +44,6 @@ namespace Squirix.Server.IntegrationTests;
 public abstract class IntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly PortAllocator PortPool = CreatePortAllocator();
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
@@ -129,7 +128,14 @@ public abstract class IntegrationTestBase : IDisposable
     /// </summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(params (string NodeId, string Url)[] topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
+    internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
+    {
+        var mapped = new (string NodeId, string Url)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            mapped[i] = (topology[i].NodeId, ListenUrls.CanonicalAuthority(topology[i].Url));
+
+        return MtlsTestContext.CreatePeers(ref _mtls, mapped);
+    }
 
     /// <summary>
     /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
@@ -219,8 +225,46 @@ public abstract class IntegrationTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal async ValueTask<TestNodeHost> StartNodeAsync(
+    internal ValueTask<TestNodeHost> StartNodeAsync(
         string url,
+        Peer[] peers,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        new Uri(url, UriKind.Absolute),
+        peers,
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        peerHandlerFactory,
+        backpressureOptions,
+        memoryPressureOptions,
+        security,
+        testName);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal async ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -237,13 +281,14 @@ public abstract class IntegrationTestBase : IDisposable
         TestNodeSecurityOptions? security = null,
         [CallerMemberName] string? testName = null)
     {
-        var selfNodeId = peers.FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase))?.NodeId ??
+        var urlString = ListenUrls.CanonicalAuthority(url);
+        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ??
                          throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = url,
+            Url = urlString,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -257,8 +302,7 @@ public abstract class IntegrationTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
-        var resolvedPeerHandlerFactory = peerHandlerFactory;
+        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, urlString);
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -277,7 +321,7 @@ public abstract class IntegrationTestBase : IDisposable
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            resolvedPeerHandlerFactory,
+            peerHandlerFactory,
             backpressureOptions,
             memoryPressureOptions,
             security?.ToServerOptions(),
@@ -286,14 +330,14 @@ public abstract class IntegrationTestBase : IDisposable
             mtlsMaterial,
             DefaultCancellationToken);
 
-        return new TestNodeHost(application, url, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(application, urlString, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>
     /// Allocates a dedicated port reserved for the lifetime of the test process.
     /// </summary>
     /// <returns>A port number reserved from the shared in-process pool.</returns>
-    protected static int AllocateDedicatedPort() => PortPool.Allocate();
+    protected static int AllocateDedicatedPort() => ListenPortPool.IntegrationTests.AllocatePort();
 
     /// <summary>
     /// Creates a gRPC channel configured for HTTPS against a test node URL.
@@ -310,13 +354,10 @@ public abstract class IntegrationTestBase : IDisposable
         });
 
     /// <summary>
-    /// Allocates a unique HTTP URL for the next node using the shared port pool.
+    /// Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.
     /// </summary>
-    /// <returns>
-    /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
-    /// is a free port reserved from the shared pool.
-    /// </returns>
-    protected static string GetNextHttpAddress() => $"https://127.0.0.1:{PortPool.Allocate()}";
+    /// <returns>A loopback HTTPS listen URI.</returns>
+    protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.NextHttpUri();
 
     /// <summary>
     /// Cleans up managed resources owned by the integration test base.
@@ -343,14 +384,6 @@ public abstract class IntegrationTestBase : IDisposable
             scope = $"{scope}__{tfm}";
 
         return $"{scope}__pid{Environment.ProcessId}";
-    }
-
-    private static PortAllocator CreatePortAllocator()
-    {
-        const int start = 49000;
-        const int rangeSize = 4000;
-        var end = Math.Min(65535, start + rangeSize - 1);
-        return new PortAllocator(start, end);
     }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)

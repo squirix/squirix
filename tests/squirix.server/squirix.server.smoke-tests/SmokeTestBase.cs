@@ -41,9 +41,6 @@ namespace Squirix.Server.SmokeTests;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class SmokeTestBase : IDisposable
 {
-    private const int PortRangeSize = 200;
-    private static readonly int PortRangeStart = CalculatePortRangeStart();
-    private static readonly PortAllocator PortPool = new(PortRangeStart, PortRangeStart + PortRangeSize - 1);
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.Ordinal);
 
     private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
@@ -101,7 +98,14 @@ public abstract class SmokeTestBase : IDisposable
     /// </summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(params (string NodeId, string Url)[] topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
+    internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
+    {
+        var mapped = new (string NodeId, string Url)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            mapped[i] = (topology[i].NodeId, ListenUrls.CanonicalAuthority(topology[i].Url));
+
+        return MtlsTestContext.CreatePeers(ref _mtls, mapped);
+    }
 
     /// <summary>
     /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
@@ -132,8 +136,46 @@ public abstract class SmokeTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal async ValueTask<TestNodeHost> StartNodeAsync(
+    internal ValueTask<TestNodeHost> StartNodeAsync(
         string url,
+        Peer[] peers,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        TestNodeSecurityOptions? security = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        [CallerMemberName] string? testName = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        new Uri(url, UriKind.Absolute),
+        peers,
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        security,
+        backpressureOptions,
+        memoryPressureOptions,
+        testName,
+        cancellationToken);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal async ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -150,13 +192,14 @@ public abstract class SmokeTestBase : IDisposable
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default)
     {
-        var selfNodeId = peers.FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase))?.NodeId ??
+        var urlString = ListenUrls.CanonicalAuthority(url);
+        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ??
                          throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = url,
+            Url = urlString,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -170,7 +213,7 @@ public abstract class SmokeTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
+        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, urlString);
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -197,7 +240,7 @@ public abstract class SmokeTestBase : IDisposable
             mtlsMaterial,
             cancellationToken);
 
-        return new TestNodeHost(app, url, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(app, urlString, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>
@@ -220,18 +263,15 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>A tuple of bind URL and loopback scrape URL sharing the same port.</returns>
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
-        var port = PortPool.Allocate();
+        var port = ListenPortPool.SmokeTests.AllocatePort();
         return ($"https://0.0.0.0:{port}", $"https://127.0.0.1:{port}");
     }
 
     /// <summary>
-    /// Allocates a unique HTTP URL for the next node using the shared port pool.
+    /// Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.
     /// </summary>
-    /// <returns>
-    /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
-    /// is a free port reserved from the shared pool.
-    /// </returns>
-    protected static string GetNextHttpAddress() => $"https://127.0.0.1:{PortPool.Allocate()}";
+    /// <returns>A loopback HTTPS listen URI.</returns>
+    protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.NextHttpUri();
 
     /// <summary>
     /// Disposes managed resources owned by the test base.
@@ -294,14 +334,6 @@ public abstract class SmokeTestBase : IDisposable
         var baseName = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
         var combined = string.IsNullOrWhiteSpace(extra) ? baseName : $"{baseName}__{extra}";
         return $"{combined}__pid{Environment.ProcessId}";
-    }
-
-    private static int CalculatePortRangeStart()
-    {
-        const int port = 40000;
-        var maxBuckets = Math.Max(1, (65535 - port) / PortRangeSize);
-        var salt = Math.Abs(Environment.ProcessId % maxBuckets);
-        return port + (salt * PortRangeSize);
     }
 
     /// <summary>

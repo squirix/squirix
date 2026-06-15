@@ -19,8 +19,8 @@ public sealed class HealthProbeSmokeTests : SmokeTestBase
     public async Task HealthProbesRemainAccessibleWithoutJwtWhenAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "node-health", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node-health", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(
             url,
@@ -29,10 +29,10 @@ public sealed class HealthProbeSmokeTests : SmokeTestBase
             extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
-        var live = await HttpClient.GetAsync(new Uri($"{url}/health/live"), DefaultCancellationToken);
+        var live = await HttpClient.GetAsync(new Uri(url, "/health/live"), DefaultCancellationToken);
         Assert.True(live.IsSuccessStatusCode, $"Expected /health/live success, got {(int)live.StatusCode} {live.ReasonPhrase}");
 
-        var ready = await HttpClient.GetAsync(new Uri($"{url}/health/ready"), DefaultCancellationToken);
+        var ready = await HttpClient.GetAsync(new Uri(url, "/health/ready"), DefaultCancellationToken);
         Assert.True(ready.IsSuccessStatusCode, $"Expected /health/ready success, got {(int)ready.StatusCode} {ready.ReasonPhrase}");
     }
 }

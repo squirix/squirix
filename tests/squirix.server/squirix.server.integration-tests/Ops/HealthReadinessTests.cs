@@ -39,8 +39,8 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     [Fact]
     public async Task ReadyDetailsEndpointReportsReadinessSignals()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "node_health_A", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node_health_A", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers, usePersistence: true);
         var cache = GetCache(node);
@@ -126,7 +126,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
 
     private async Task<JsonElement> FetchReadyDetailsAsync(string address)
     {
-        var resp = await HttpClient.GetAsync(new Uri(address + "/health/ready/details"), DefaultCancellationToken);
+        var resp = await HttpClient.GetAsync(new Uri(new Uri(address, UriKind.Absolute), "/health/ready/details"), DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
     }

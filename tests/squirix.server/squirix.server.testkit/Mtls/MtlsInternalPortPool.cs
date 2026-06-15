@@ -6,7 +6,9 @@ namespace Squirix.Server.TestKit.Mtls;
 
 internal static class MtlsInternalPortPool
 {
-    private static readonly PortAllocator Allocator = new(52000, 55999);
+    private static readonly PortAllocator Allocator = new(
+        HostPortRegions.StartInclusive(HostPortRegion.MtlsInternal),
+        HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1);
 
     /// <summary>
     /// Allocates a dedicated internal listener port that differs from all excluded primary ports.

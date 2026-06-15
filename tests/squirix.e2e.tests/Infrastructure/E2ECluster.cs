@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Infrastructure;
 
@@ -100,7 +101,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         startOptions ??= new E2ETwoNodeStartOptions();
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
-            urls[nodeIds[i]] = ListenPortPool.NextHttpUrl();
+            urls[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpAddress();
 
         var topology = new (string NodeId, string Address)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)
