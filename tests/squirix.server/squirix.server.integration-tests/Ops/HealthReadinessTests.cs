@@ -55,6 +55,19 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         AssertClientPoolReadiness(json);
         AssertCoordinationReadiness(json);
         AssertMemoryPressureReadiness(json);
+        AssertRetentionCleanupReadiness(json);
+    }
+
+    private static void AssertRetentionCleanupReadiness(JsonElement json)
+    {
+        Assert.True(json.TryGetProperty("retentionCleanup", out var retentionCleanup));
+        Assert.Equal(JsonValueKind.Object, retentionCleanup.ValueKind);
+        Assert.True(retentionCleanup.TryGetProperty("degraded", out var degraded));
+        Assert.True(degraded.ValueKind is JsonValueKind.True or JsonValueKind.False);
+        Assert.True(retentionCleanup.TryGetProperty("consecutiveWriteFailures", out var consecutive));
+        Assert.Equal(JsonValueKind.Number, consecutive.ValueKind);
+        Assert.True(retentionCleanup.TryGetProperty("recentFailureCount", out var recent));
+        Assert.Equal(JsonValueKind.Number, recent.ValueKind);
     }
 
     private static void AssertClientPoolReadiness(JsonElement json)

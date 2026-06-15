@@ -21,10 +21,12 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     private readonly IMemoryUsageAccounting _memoryAccounting;
     private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
     private readonly MemoryPressureOptions _memoryPressureOptions;
+    private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
     private readonly SnapshotCoordinator<object?> _snapshot;
 
     public HealthReadyDetailsProvider(
         ManifestStore manifestStore,
+        IRetentionCleanupReadinessStatus retentionCleanup,
         IJournalCoordinator journal,
         SnapshotCoordinator<object?> snapshot,
         IJournalCompactionStatus compaction,
@@ -34,6 +36,7 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
         MemoryPressureOptions memoryPressureOptions)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
+        _retentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
         _compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
@@ -73,23 +76,8 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
         var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
         var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-        var estimatedBytes = _memoryAccounting.EstimatedBytes;
-        var state = _memoryEvaluator.Evaluate(estimatedBytes);
-        var pressureStateName = state switch
-        {
-            MemoryPressureState.Normal => "normal",
-            MemoryPressureState.High => "high",
-            MemoryPressureState.Critical => "critical",
-            _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
-        };
-
-        var memoryPressure = new HealthMemoryPressureSnapshot(
-            pressureStateName,
-            _memoryPressureOptions.MaxEstimatedCacheBytes,
-            estimatedBytes,
-            _memoryAccounting.EntryCount,
-            _memoryAccounting.RejectedWriteCount,
-            true);
+        var memoryPressure = BuildMemoryPressureSnapshot();
+        var retentionCleanup = BuildRetentionCleanupSnapshot();
 
         return new HealthReadyDetailsSnapshot
         {
@@ -100,6 +88,35 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
             ClientPool = clientPool,
             Coordination = coordination,
             MemoryPressure = memoryPressure,
+            RetentionCleanup = retentionCleanup,
         };
     }
+
+    private HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot()
+    {
+        var estimatedBytes = _memoryAccounting.EstimatedBytes;
+        var state = _memoryEvaluator.Evaluate(estimatedBytes);
+        var pressureStateName = state switch
+        {
+            MemoryPressureState.Normal => "normal",
+            MemoryPressureState.High => "high",
+            MemoryPressureState.Critical => "critical",
+            _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
+        };
+
+        return new HealthMemoryPressureSnapshot(
+            pressureStateName,
+            _memoryPressureOptions.MaxEstimatedCacheBytes,
+            estimatedBytes,
+            _memoryAccounting.EntryCount,
+            _memoryAccounting.RejectedWriteCount,
+            true);
+    }
+
+    private HealthRetentionCleanupSnapshot BuildRetentionCleanupSnapshot() =>
+        new(
+            _retentionCleanup.IsDegraded,
+            _retentionCleanup.ConsecutiveWriteFailures,
+            _retentionCleanup.RecentFailureCount,
+            _retentionCleanup.LastFailureUtc);
 }

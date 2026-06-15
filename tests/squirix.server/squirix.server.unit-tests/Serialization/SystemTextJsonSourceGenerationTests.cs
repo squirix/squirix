@@ -253,13 +253,16 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
             new HealthCompactionDetails("idle", null, false),
             new HealthClientPoolDetails(true, 2),
             new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
-            new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false));
+            new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
+            new HealthRetentionCleanupDetails(false, 0, 0, null));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
         Assert.Equal(7, backlog.GetInt64());
         Assert.True(healthElement.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out _));
+        Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
+        Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));
     }
 
