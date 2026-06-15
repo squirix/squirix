@@ -77,11 +77,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return existing;
 
         AdmitReplaceOrInsert(keyValue, null, entry, MemoryPressureAdmissionOperations.TryAdd);
-        var result = await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-        if (result.Found)
+        if (await _inner.TryAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             AccountInsert(keyValue, entry);
 
-        return result;
+        return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
