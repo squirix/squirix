@@ -99,11 +99,13 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<bool> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryGetLive(key, out _))
+        if (!_store.TryRemove(key, out var stored))
             return ValueTask.FromResult(false);
 
-        _ = _store.TryRemove(key, out _);
         _evictionIndex.Untrack(key);
+        if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+            return ValueTask.FromResult(false);
+
         return ValueTask.FromResult(true);
     }
 
@@ -171,23 +173,42 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryGetLive(key, out var stored))
+        if (!_store.TryRemove(key, out var stored))
             return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
 
-        _ = _store.TryRemove(key, out _);
         _evictionIndex.Untrack(key);
+        if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+            return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
+
         return ValueTask.FromResult(new CacheRemoveResult<T>(true, stored.Value));
     }
 
     public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!TryGetLive(key, out var stored))
-            return ValueTask.FromResult(false);
+        while (true)
+        {
+            if (!_store.TryGetValue(key, out var stored))
+                return ValueTask.FromResult(false);
 
-        _store[key] = stored with { Value = value };
-        _evictionIndex.TouchExisting(key);
-        return ValueTask.FromResult(true);
+            if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+            {
+                if (!_store.TryRemove(key, out _))
+                    continue;
+
+                _evictionIndex.Untrack(key);
+                return ValueTask.FromResult(false);
+            }
+
+            if (EqualityComparer<T?>.Default.Equals(stored.Value, value))
+                return ValueTask.FromResult(true);
+
+            var updated = stored with { Value = value };
+            if (!_store.TryUpdate(key, updated, stored))
+                continue;
+            _evictionIndex.TouchExisting(key);
+            return ValueTask.FromResult(true);
+        }
     }
 
     private static CacheEntry<T> ToEntry(StoredEntry stored) => new()

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
@@ -16,6 +18,7 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly IMemoryUsageAccounting _accounting;
+    private readonly ConcurrentDictionary<CacheKey, byte> _concurrentReplaceAccounting = new();
     private readonly ICacheEntrySizeEstimator<T> _estimator;
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -231,8 +234,16 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         };
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
         var updated = await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
-        if (updated)
+        if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value) || !_concurrentReplaceAccounting.TryAdd(keyValue, 0))
+            return updated;
+        try
+        {
             AccountReplaceOrInsert(keyValue, existing, replacement);
+        }
+        finally
+        {
+            _ = _concurrentReplaceAccounting.TryRemove(keyValue, out _);
+        }
 
         return updated;
     }
