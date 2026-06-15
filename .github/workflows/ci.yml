@@ -444,7 +444,7 @@ jobs:
                         ;;
                     esac
 
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+                    if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.suite }}" != "server-property" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
                         "${FILTER_ARGS[@]}" \
@@ -458,7 +458,7 @@ jobs:
                     fi
 
             -   name: Verify Suite Coverage Was Collected
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 shell: bash
                 run: |
                     mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -471,7 +471,7 @@ jobs:
                     fi
 
             -   name: Upload Raw Coverage Files
-                if: always() && matrix.os == 'ubuntu-latest'
+                if: always() && matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}

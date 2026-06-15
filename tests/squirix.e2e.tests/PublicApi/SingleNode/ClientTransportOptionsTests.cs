@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// End-to-end coverage for <see cref="SquirixOptions" /> transport and auth extension points.
 /// </summary>
-public sealed class ClientTransportOptionsTests : E2ETestBase
+public sealed class ClientTransportOptionsTests : TestBase
 {
     /// <summary>
     /// Verifies <see cref="SquirixOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
@@ -18,8 +18,8 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     [Fact]
     public async Task ClientAuthenticatesWithBearerTokenProvider()
     {
-        var credentials = E2EJwtHelper.CreateSymmetricCredentials();
-        var bearerToken = E2EJwtHelper.CreateBearerToken(credentials);
+        var credentials = JwtHelper.CreateSymmetricCredentials();
+        var bearerToken = JwtHelper.CreateBearerToken(credentials);
         var security = new TestNodeSecurityOptions
         {
             JwtSigningKey = credentials.Base64SigningKey,
@@ -27,10 +27,10 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
             JwtAudience = credentials.Audience,
         };
 
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), security, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await E2ETestConnect.ConnectAsync(
+        await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(url);
@@ -50,17 +50,17 @@ public sealed class ClientTransportOptionsTests : E2ETestBase
     [Fact]
     public async Task ClientFailsWhenJwtRequiredButNotConfigured()
     {
-        var credentials = E2EJwtHelper.CreateSymmetricCredentials();
+        var credentials = JwtHelper.CreateSymmetricCredentials();
         var security = new TestNodeSecurityOptions
         {
             JwtSigningKey = credentials.Base64SigningKey,
             JwtIssuer = credentials.Issuer,
             JwtAudience = credentials.Audience,
         };
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientFailsWhenJwtRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ClientFailsWhenJwtRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await E2ETestConnect.ConnectAsync(url, DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(url, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () => await cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));

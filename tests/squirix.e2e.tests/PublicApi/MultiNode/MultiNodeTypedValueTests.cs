@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Infrastructure;
 using Squirix.E2ETests.PublicApi.TypedValues;
 using Xunit;
 
@@ -8,7 +9,7 @@ namespace Squirix.E2ETests.PublicApi.MultiNode;
 /// <summary>
 /// Integration tests for typed custom values routed through a two-node public cache API cluster.
 /// </summary>
-public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
+public sealed class MultiNodeTypedValueTests(TwoNodeFixture fixture) : PublicApiMultiNodeTestBase(fixture)
 {
     /// <summary>
     /// Verifies GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes.
@@ -17,8 +18,8 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
         var expected = TypedValueFactory.CreateProfile(key);
 
         var added = await cluster.CacheA.GetOrAddAsync(
@@ -43,8 +44,8 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var key = FindKeyOwnedBy("orders", "nodeA", "typed-local-record");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "typed-local-record");
         var expected = TypedValueFactory.CreateProfile(key);
 
         await cluster.CacheA.SetAsync(key, expected, cancellationToken: DefaultCancellationToken);
@@ -61,8 +62,8 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
         var expected = TypedValueFactory.CreateProfile(key);
 
         await cluster.CacheA.SetAsync(key, expected, cancellationToken: DefaultCancellationToken);
@@ -79,8 +80,8 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
 
         await cluster.CacheA.SetAsync(key, TypedValueFactory.CreateProfile(key), cancellationToken: DefaultCancellationToken);
 
@@ -95,9 +96,9 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task SetAndGetShouldRoundTripCustomRecordAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var nodeAKey = FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
-        var nodeBKey = FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var nodeAKey = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-record-a");
+        var nodeBKey = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-record-b");
         var nodeAValue = TypedValueFactory.CreateProfile(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedProfile(nodeBKey);
 
@@ -119,9 +120,9 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task SetAndGetShouldRoundTripMutableClassAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedMutableCart>();
-        var nodeAKey = FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
-        var nodeBKey = FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
+        var cluster = await GetNamedCachesAsync<TypedMutableCart>();
+        var nodeAKey = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "typed-mixed-cart-a");
+        var nodeBKey = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-mixed-cart-b");
         var nodeAValue = TypedValueFactory.CreateCart(nodeAKey);
         var nodeBValue = TypedValueFactory.CreateUpdatedCart(nodeBKey);
 
@@ -143,8 +144,8 @@ public sealed class MultiNodeTypedValueTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<TypedCustomerProfile>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
+        var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");
         var updated = TypedValueFactory.CreateUpdatedProfile(key);
 
         await cluster.CacheA.SetAsync(key, TypedValueFactory.CreateProfile(key), new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) }, DefaultCancellationToken);

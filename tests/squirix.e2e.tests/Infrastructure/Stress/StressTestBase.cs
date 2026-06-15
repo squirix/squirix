@@ -11,11 +11,11 @@ namespace Squirix.E2ETests.Infrastructure.Stress;
 /// helpers without widening the PublicApi architecture guard, while still exercising only the public SDK surface.
 /// </summary>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
-public abstract class StressE2ETestBase : E2ETestBase
+public abstract class StressTestBase : TestBase
 {
-    internal static async Task<IReadOnlyList<E2EClientHandle>> ConnectClientsAsync(E2ECluster cluster, int count, string nodeId, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<ISquirixClient>> ConnectClientsAsync(HostedCluster cluster, int count, string nodeId, CancellationToken cancellationToken)
     {
-        var clients = new List<E2EClientHandle>(count);
+        var clients = new List<ISquirixClient>(count);
         for (var i = 0; i < count; i++)
             clients.Add(await cluster.ConnectClientAsync(nodeId, cancellationToken));
 

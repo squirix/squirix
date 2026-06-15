@@ -9,11 +9,11 @@ namespace Squirix.E2ETests.Infrastructure;
 /// <summary>
 /// Key ownership helper mirroring server consistent-hash route behavior.
 /// </summary>
-internal sealed class E2EKeyOwnerHelper
+internal sealed class KeyOwnerHelper
 {
     private readonly (ulong Hash, string Node)[] _ring;
 
-    public E2EKeyOwnerHelper(IEnumerable<string> nodeIds, int virtualNodes = 128)
+    public KeyOwnerHelper(IEnumerable<string> nodeIds, int virtualNodes = 128)
     {
         ArgumentNullException.ThrowIfNull(nodeIds);
         var nodes = new List<string>();

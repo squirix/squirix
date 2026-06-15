@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.PublicApi.Durability;
 /// <summary>
 /// Integration tests for typed custom values restored through durable restart recovery.
 /// </summary>
-public sealed class DurabilityTypedValueTests : E2ETestBase
+public sealed class DurabilityTypedValueTests : TestBase
 {
     /// <summary>
     /// Verifies RestartShouldNotRestoreExpiredCustomRecord.
@@ -18,7 +18,7 @@ public sealed class DurabilityTypedValueTests : E2ETestBase
     [Fact]
     public async Task RestartShouldNotRestoreExpiredCustomRecord()
     {
-        await using var node = await E2ERestartableSingleNode.StartAsync(nameof(RestartShouldNotRestoreExpiredCustomRecord), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldNotRestoreExpiredCustomRecord), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-expired", DefaultCancellationToken);
 
         await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(100) }, DefaultCancellationToken);
@@ -40,7 +40,7 @@ public sealed class DurabilityTypedValueTests : E2ETestBase
     [Fact]
     public async Task RestartShouldRestoreCustomRecordFromWal()
     {
-        await using var node = await E2ERestartableSingleNode.StartAsync(nameof(RestartShouldRestoreCustomRecordFromWal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreCustomRecordFromWal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("wal-record");
 
@@ -61,7 +61,7 @@ public sealed class DurabilityTypedValueTests : E2ETestBase
     [Fact]
     public async Task RestartShouldRestoreMutableClassFromWal()
     {
-        await using var node = await E2ERestartableSingleNode.StartAsync(nameof(RestartShouldRestoreMutableClassFromWal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreMutableClassFromWal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateCart("wal-cart");
 

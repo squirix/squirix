@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Infrastructure;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.SingleNode;
@@ -7,7 +8,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// Integration tests for single-node public CRUD operations.
 /// </summary>
-public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
+public sealed class SingleNodeCrudTests(SingleNodeFixture fixture) : PublicApiSingleNodeTestBase(fixture)
 {
     /// <summary>
     /// Verifies AddAsync(string, T) adds on miss and throws on existing key.
@@ -16,8 +17,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddAsyncEntryAddsOnMissThrowsOnHit()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-async-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-async-entry", DefaultCancellationToken);
 
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
@@ -32,8 +32,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddAsyncEntryPreservesExpirationThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("missing-add-entry-expiration", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("missing-add-entry-expiration", DefaultCancellationToken);
 
         await cache.AddAsync(
             "k",
@@ -55,8 +54,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddAsyncValueAddsOnMissThrowsOnHit()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-async-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-async-value", DefaultCancellationToken);
 
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
@@ -71,8 +69,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddEntryAddsOnMissThrowsOnHit()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-entry", DefaultCancellationToken);
 
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
@@ -87,8 +84,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddValueAddsOnMissThrowsOnHit()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-value", DefaultCancellationToken);
 
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
@@ -103,8 +99,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetEntryAsyncDoesNotRoundTripInternalTagMetadata()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("immutable-output-tags-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("immutable-output-tags-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
@@ -119,8 +114,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetEntryAsyncReturnsEntryOrNull()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("get-entry-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("get-entry-async", DefaultCancellationToken);
 
         Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
 
@@ -140,8 +134,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetEntryReturnsEntryOrNull()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("get-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("get-entry", DefaultCancellationToken);
 
         Assert.False((await cache.GetEntryAsync("missing", DefaultCancellationToken)).Found);
 
@@ -161,8 +154,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetValueAsyncReturnsFlagsAndValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-get-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-get-async", DefaultCancellationToken);
 
         var miss = await cache.GetValueAsync("missing", DefaultCancellationToken);
         Assert.False(miss.Found);
@@ -179,8 +171,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task InsertEntryUpserts()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("insert-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("insert-entry", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         await cache.SetAsync("k1", "v2", cancellationToken: DefaultCancellationToken);
@@ -194,8 +185,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task InsertValueUpserts()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("insert-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("insert-value", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         await cache.SetAsync("k1", "v2", cancellationToken: DefaultCancellationToken);
@@ -209,8 +199,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncDeletesWhenPresent()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-async", DefaultCancellationToken);
 
         Assert.False(await cache.RemoveAsync("missing", DefaultCancellationToken));
 
@@ -226,8 +215,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncReturnsFlagAndValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-remove-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-remove-async", DefaultCancellationToken);
 
         var miss = await cache.RemoveAsync("missing", DefaultCancellationToken);
         Assert.False(miss);
@@ -245,8 +233,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncReturnsRemovedEntryMetadata()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-remove-entry-metadata-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-remove-entry-metadata-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
@@ -267,8 +254,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredEntryNullValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 
@@ -285,8 +271,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredNullValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string?>("try-remove-null-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 
@@ -303,8 +288,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncStoredNullReportsRemoved()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<object?>("try-remove-null-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", null, cancellationToken: DefaultCancellationToken);
 
@@ -321,8 +305,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveDeletesWhenPresent()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove", DefaultCancellationToken);
 
         Assert.False(await cache.RemoveAsync("missing", DefaultCancellationToken));
 
@@ -338,9 +321,8 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RepeatedGetCacheAsyncForSameNameSharesLogicalStorage()
     {
-        await using var client = await ConnectClientAsync();
-        var first = await client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
-        var second = await client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
+        var first = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
+        var second = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
 
         await first.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
@@ -354,8 +336,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAsyncEntryRejectsBothExpiresUtcAndExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("invalid-expiration-both-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", DefaultCancellationToken);
 
         _ = await Assert.ThrowsAnyAsync<ArgumentException>(async () => await cache.SetAsync(
             "k",
@@ -377,8 +358,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAsyncEntryUpserts()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("insert-async-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("insert-async-entry", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         await cache.SetAsync("k1", "v2", cancellationToken: DefaultCancellationToken);
@@ -392,8 +372,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAsyncValueUpserts()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("insert-async-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("insert-async-value", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         await cache.SetAsync("k1", "v2", cancellationToken: DefaultCancellationToken);
@@ -407,8 +386,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncEntryPreservesExpirationThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
 
         var added = await cache.TryAddAsync(
             "k",
@@ -431,8 +409,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncEntryRespectsExistence()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-async-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-async-entry", DefaultCancellationToken);
 
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
         Assert.False(await cache.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
@@ -446,8 +423,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncValueRespectsExistence()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-async-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-async-value", DefaultCancellationToken);
 
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
         Assert.False(await cache.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
@@ -461,8 +437,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddEntryRespectsExistence()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-entry", DefaultCancellationToken);
 
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
         Assert.False(await cache.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
@@ -476,8 +451,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddValueRespectsExistence()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-value", DefaultCancellationToken);
 
         Assert.True(await cache.TryAddAsync("k1", "v1", cancellationToken: DefaultCancellationToken));
         Assert.False(await cache.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
@@ -491,8 +465,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryGetValueReturnsFlagsAndValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-get", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-get", DefaultCancellationToken);
 
         var miss = await cache.GetValueAsync("missing", DefaultCancellationToken);
         Assert.False(miss.Found);
@@ -509,8 +482,7 @@ public sealed class SingleNodeCrudTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryRemoveReturnsFlagAndValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-remove", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-remove", DefaultCancellationToken);
 
         var miss = await cache.RemoveAsync("missing", DefaultCancellationToken);
         Assert.False(miss);

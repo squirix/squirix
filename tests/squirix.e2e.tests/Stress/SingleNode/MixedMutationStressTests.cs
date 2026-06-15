@@ -13,7 +13,7 @@ namespace Squirix.E2ETests.Stress.SingleNode;
 /// Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.
 /// </summary>
 [Trait(StressCategory.TraitName, StressCategory.TraitValue)]
-public sealed class MixedMutationStressTests : StressE2ETestBase
+public sealed class MixedMutationStressTests : StressTestBase
 {
     /// <summary>
     /// Races concurrent TryAdd then Insert over a shared key set and asserts a single add winner per key
@@ -28,7 +28,7 @@ public sealed class MixedMutationStressTests : StressE2ETestBase
         var token = deadline.Token;
 
         var keys = CreateKeySet(StressLoadProfiles.ScaleOperations(50));
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), cancellationToken: token);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);
@@ -71,7 +71,7 @@ public sealed class MixedMutationStressTests : StressE2ETestBase
         return expectedValues;
     }
 
-    private static async Task<ICache<object?>[]> ConnectOrderCachesAsync(E2ECluster cluster, int writers, CancellationToken token)
+    private static async Task<ICache<object?>[]> ConnectOrderCachesAsync(HostedCluster cluster, int writers, CancellationToken token)
     {
         var clients = await ConnectClientsAsync(cluster, writers, "nodeA", token);
         var caches = new ICache<object?>[clients.Count];

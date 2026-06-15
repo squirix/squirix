@@ -11,52 +11,51 @@ using Squirix.Server.TestKit.Networking;
 namespace Squirix.E2ETests.Infrastructure;
 
 /// <summary>
-/// Started cluster fixture for black-box SDK tests.
+/// Lifecycle wrapper for a started Squirix test cluster (single- or multi-node).
 /// </summary>
-internal sealed class E2ECluster : IAsyncDisposable
+internal sealed class HostedCluster : IAsyncDisposable
 {
-    private readonly List<E2EClientHandle> _clients = [];
+    private readonly List<ISquirixClient> _clients = [];
     private readonly MtlsTestContext? _mtls;
-    private readonly Dictionary<string, E2ENode> _nodes;
+    private readonly Dictionary<string, TestNode> _nodes;
     private int _disposed;
 
-    private E2ECluster(Dictionary<string, E2ENode> nodes, MtlsTestContext? mtls)
+    private HostedCluster(Dictionary<string, TestNode> nodes, MtlsTestContext? mtls)
     {
         _nodes = nodes;
         _mtls = mtls;
     }
 
-    public static ValueTask<E2ECluster> StartSingleNodeAsync(
+    public static ValueTask<HostedCluster> StartSingleNodeAsync(
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new E2ETwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
-    public static ValueTask<E2ECluster> StartTwoNodeAsync(
+    public static ValueTask<HostedCluster> StartTwoNodeAsync(
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new E2ETwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
-    public static ValueTask<E2ECluster> StartTwoNodeAsync(
-        E2ETwoNodeStartOptions? options,
+    public static ValueTask<HostedCluster> StartTwoNodeAsync(
+        TwoNodeStartOptions? options,
         string? testName = null,
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], options, testName, usePersistence, cancellationToken);
 
-    public async ValueTask<E2EClientHandle> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
+    public async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
         var url = _nodes[nodeId].Address;
-        var client = await E2ETestConnect.ConnectAsync(url, cancellationToken);
-        var handle = new E2EClientHandle(client);
-        _clients.Add(handle);
-        return handle;
+        var client = await LoopbackConnect.ConnectAsync(url, cancellationToken);
+        _clients.Add(client);
+        return client;
     }
 
     public string GetAddress(string nodeId) => _nodes[nodeId].Address;
 
     /// <summary>
-    /// Stops and removes one cluster node while leaving other nodes running.
+    /// Stops and removes one HostedCluster node while leaving other nodes running.
     /// </summary>
     /// <param name="nodeId">Node identifier to stop.</param>
     /// <returns>A task that completes when the node has been stopped.</returns>
@@ -91,14 +90,14 @@ internal sealed class E2ECluster : IAsyncDisposable
         return target;
     }
 
-    private static async ValueTask<E2ECluster> StartAsync(
+    private static async ValueTask<HostedCluster> StartAsync(
         string[] nodeIds,
-        E2ETwoNodeStartOptions? startOptions,
+        TwoNodeStartOptions? startOptions,
         string? testName,
         bool usePersistence,
         CancellationToken cancellationToken = default)
     {
-        startOptions ??= new E2ETwoNodeStartOptions();
+        startOptions ??= new TwoNodeStartOptions();
         var urls = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
             urls[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpAddress();
@@ -107,7 +106,7 @@ internal sealed class E2ECluster : IAsyncDisposable
         for (var i = 0; i < nodeIds.Length; i++)
             topology[i] = (nodeIds[i], urls[nodeIds[i]]);
 
-        var nodes = new Dictionary<string, E2ENode>(StringComparer.Ordinal);
+        var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
         var mtls = nodeIds.Length > 1 ? new MtlsTestContext() : null;
         try
         {
@@ -121,10 +120,10 @@ internal sealed class E2ECluster : IAsyncDisposable
                     Mtls = mtls,
                     MtlsProfile = startOptions.GetProfile(nodeId),
                 };
-                nodes[nodeId] = new E2ENode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken));
+                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken));
             }
 
-            return new E2ECluster(nodes, mtls);
+            return new HostedCluster(nodes, mtls);
         }
         catch (InvalidOperationException)
         {

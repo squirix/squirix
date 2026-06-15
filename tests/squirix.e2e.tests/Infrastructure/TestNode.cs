@@ -7,11 +7,11 @@ namespace Squirix.E2ETests.Infrastructure;
 /// <summary>
 /// Represents a started test node.
 /// </summary>
-internal sealed class E2ENode : IAsyncDisposable
+internal sealed class TestNode : IAsyncDisposable
 {
     private readonly TestNodeHost _host;
 
-    public E2ENode(TestNodeHost host)
+    public TestNode(TestNodeHost host)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }

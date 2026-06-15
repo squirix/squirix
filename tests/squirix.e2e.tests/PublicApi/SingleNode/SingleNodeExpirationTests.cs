@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Infrastructure;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.SingleNode;
@@ -7,7 +8,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// Integration tests for single-node expiration, Touch, and RemoveExpiration semantics.
 /// </summary>
-public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
+public sealed class SingleNodeExpirationTests(SingleNodeFixture fixture) : PublicApiSingleNodeTestBase(fixture)
 {
     /// <summary>
     /// Verifies AddAsync with immediate expiration reports success but does not leave a live key.
@@ -16,8 +17,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-immediate-expiration-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-immediate-expiration-public-extra", DefaultCancellationToken);
 
         await cache.AddAsync(
             "k",
@@ -39,8 +39,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddAsyncTreatsExpiredKeyAsAbsent()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("add-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("add-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -65,8 +64,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetExpirationAsyncReturnsRemainingOrNull()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-get-expiration-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-get-expiration-async", DefaultCancellationToken);
 
         // Missing -> null
         Assert.False((await cache.GetExpirationAsync("missing", DefaultCancellationToken)).HasExpiration);
@@ -96,8 +94,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetExpirationReturnsRemainingOrNull()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-get-expiration-sync", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-get-expiration-sync", DefaultCancellationToken);
 
         Assert.False((await cache.GetExpirationAsync("missing", DefaultCancellationToken)).HasExpiration);
 
@@ -123,8 +120,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetValueAsyncReflectsPresenceAndExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("contains-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("contains-async", DefaultCancellationToken);
 
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
 
@@ -142,8 +138,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetValueHonorsPresenceAndExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("get-value", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("get-value", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(250) }, DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
@@ -159,8 +154,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncTreatsExpiredEntryAsMissing()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-remove-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-remove-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -185,8 +179,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveAsyncTreatsExpiredKeyAsMissing()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -210,8 +203,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncOnExpiredEntryReturnsFalseAndMakesKeyMissing()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expiration-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expiration-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -235,8 +227,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncOnNonExpiringKeyReturnsFalseAndKeepsKeyLive()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expiration-non-expiring-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expiration-non-expiring-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
@@ -252,8 +243,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncRemovesExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-remove-expiration-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-remove-expiration-async", DefaultCancellationToken);
         await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(1) }, DefaultCancellationToken);
         var expirationBefore = await cache.GetExpirationAsync("k1", DefaultCancellationToken);
         Assert.True(expirationBefore.Found);
@@ -270,8 +260,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncReportsStatusForMissingPersistentAndExpiringEntries()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expiration-result-status-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expiration-result-status-public-extra", DefaultCancellationToken);
 
         Assert.False(await cache.RemoveExpirationAsync("missing", DefaultCancellationToken));
 
@@ -298,8 +287,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseForMissingKeyAndPersistentKeyThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("missing-remove-expiration-false", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("missing-remove-expiration-false", DefaultCancellationToken);
 
         Assert.False(await cache.RemoveExpirationAsync("missing", DefaultCancellationToken));
 
@@ -315,8 +303,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseWhenAlreadyPersistent()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expiration-idempotent-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expiration-idempotent-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -340,8 +327,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationAsyncTreatsExpiredKeyAsMissing()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("remove-expiration-expired-public-extra-2", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("remove-expiration-expired-public-extra-2", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -365,8 +351,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationRemovesExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-remove-expiration-sync", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-remove-expiration-sync", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(1) }, DefaultCancellationToken);
         var before = await cache.GetExpirationAsync("k1", DefaultCancellationToken);
@@ -383,8 +368,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAsyncValueOptionsApplyRelativeExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("set-options-expiration-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("set-options-expiration-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -413,8 +397,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAsyncValueShouldNotDropExpirationWhenOverwritingExistingExpiringEntry()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -439,8 +422,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncExtendsExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-touch-async", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-touch-async", DefaultCancellationToken);
         await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(1) }, DefaultCancellationToken);
         var expirationBefore = await cache.GetExpirationAsync("k1", DefaultCancellationToken);
         Assert.True(expirationBefore.Found);
@@ -461,8 +443,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncExtendsExpirationInsertedEntryThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-touch-public-extra-expiration", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra-expiration", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -489,8 +470,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncExtendsExpirationThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-touch-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra", DefaultCancellationToken);
         var originalExpiresUtc = DateTime.UtcNow.AddSeconds(1);
         await cache.SetAsync(
             "k",
@@ -516,8 +496,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncOnExpiredEntryReturnsFalseAndMakesKeyMissing()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -541,8 +520,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncOnNonExpiringKeyAddsExpirationAndKeepsValue()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("touch-non-expiring-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("touch-non-expiring-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync("k", "v", cancellationToken: DefaultCancellationToken);
 
@@ -562,8 +540,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncRejectsNonPositiveExpirationWithoutChangingExistingExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("touch-invalid-expiration-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("touch-invalid-expiration-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -594,8 +571,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncReturnsFalseForMissingKeyThroughPublicApi()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("missing-touch-missing", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("missing-touch-missing", DefaultCancellationToken);
 
         Assert.False(await cache.TouchAsync("missing", TimeSpan.FromSeconds(1), DefaultCancellationToken));
     }
@@ -607,8 +583,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchAsyncTreatsExpiredKeyAsMissingAndDoesNotResurrect()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -632,8 +607,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchExtendsExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("expiration-touch-sync", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("expiration-touch-sync", DefaultCancellationToken);
 
         await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(1) }, DefaultCancellationToken);
         Assert.True(await cache.TouchAsync("k1", TimeSpan.FromMilliseconds(200), DefaultCancellationToken));
@@ -651,8 +625,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", DefaultCancellationToken);
 
         var added = await cache.TryAddAsync(
             "k",
@@ -675,8 +648,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncTreatsExpiredKeyAsAbsent()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-expired-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-expired-public-extra", DefaultCancellationToken);
 
         await cache.SetAsync(
             "k",
@@ -700,8 +672,7 @@ public sealed class SingleNodeExpirationTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddAsyncValueOptionsApplyAbsoluteExpiration()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<string>("try-add-options-expires-at-public-extra", DefaultCancellationToken);
 
         // ExpiresAt is captured on the client before gRPC/journal work; keep margins wide for parallel CI.
         var expiresAt = DateTimeOffset.UtcNow.AddSeconds(2);

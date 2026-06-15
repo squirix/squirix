@@ -8,7 +8,7 @@ namespace Squirix.E2ETests.Infrastructure;
 
 internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 {
-    private E2EClientHandle? _client;
+    private ISquirixClient? _client;
     private TestNodeHost? _host;
 
     private EphemeralRestartableSingleNode(string address)
@@ -27,7 +27,7 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= new E2EClientHandle(await E2ETestConnect.ConnectAsync(Address, cancellationToken));
+        _client ??= await LoopbackConnect.ConnectAsync(Address, cancellationToken);
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 

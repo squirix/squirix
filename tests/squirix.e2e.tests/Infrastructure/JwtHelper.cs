@@ -8,9 +8,9 @@ namespace Squirix.E2ETests.Infrastructure;
 /// <summary>
 /// Creates JWT credentials for authenticated E2E scenarios.
 /// </summary>
-internal static class E2EJwtHelper
+internal static class JwtHelper
 {
-    public static string CreateBearerToken(E2EJwtCredentials credentials)
+    public static string CreateBearerToken(JwtCredentials credentials)
     {
         var signingCredentials = new SigningCredentials(new SymmetricSecurityKey(credentials.SigningKey), SecurityAlgorithms.HmacSha256);
         var now = DateTime.UtcNow;
@@ -23,11 +23,11 @@ internal static class E2EJwtHelper
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public static E2EJwtCredentials CreateSymmetricCredentials()
+    public static JwtCredentials CreateSymmetricCredentials()
     {
         var signingKey = RandomNumberGenerator.GetBytes(32);
         const string issuer = "https://e2e.squirix.test";
         const string audience = "squirix-e2e";
-        return new E2EJwtCredentials(signingKey, Convert.ToBase64String(signingKey), issuer, audience);
+        return new JwtCredentials(signingKey, Convert.ToBase64String(signingKey), issuer, audience);
     }
 }

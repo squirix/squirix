@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// End-to-end coverage for multi-endpoint client bootstrap connect semantics.
 /// </summary>
-public sealed class ClientBootstrapConnectTests : E2ETestBase
+public sealed class ClientBootstrapConnectTests : TestBase
 {
     /// <summary>
     /// Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.
@@ -16,10 +16,10 @@ public sealed class ClientBootstrapConnectTests : E2ETestBase
     [Fact]
     public async Task ClientConnectsWhenAnyBootstrapEndpointIsReachable()
     {
-        await using var cluster = await E2ECluster.StartSingleNodeAsync(nameof(ClientConnectsWhenAnyBootstrapEndpointIsReachable), cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ClientConnectsWhenAnyBootstrapEndpointIsReachable), cancellationToken: DefaultCancellationToken);
         var liveUrl = cluster.GetAddress("nodeA");
 
-        await using var client = await E2ETestConnect.ConnectAsync(
+        await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(liveUrl);

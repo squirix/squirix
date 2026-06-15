@@ -1,8 +1,8 @@
 namespace Squirix.E2ETests.Infrastructure;
 
-internal sealed class E2EJwtCredentials
+internal sealed class JwtCredentials
 {
-    public E2EJwtCredentials(byte[] signingKey, string base64SigningKey, string issuer, string audience)
+    public JwtCredentials(byte[] signingKey, string base64SigningKey, string issuer, string audience)
     {
         SigningKey = signingKey;
         Base64SigningKey = base64SigningKey;

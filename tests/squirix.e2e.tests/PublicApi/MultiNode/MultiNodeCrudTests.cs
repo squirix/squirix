@@ -8,7 +8,7 @@ namespace Squirix.E2ETests.PublicApi.MultiNode;
 /// <summary>
 /// Integration tests for multi-node public CRUD and cross-node visibility.
 /// </summary>
-public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
+public sealed class MultiNodeCrudTests(TwoNodeFixture fixture) : PublicApiMultiNodeTestBase(fixture)
 {
     /// <summary>
     /// Verifies AddAsync(string, T) observes existing named-cache entries across nodes.
@@ -17,10 +17,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task AddValueOnNodeBThrowsWhenKeyInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cluster.CacheB.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>
@@ -30,17 +31,16 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task ConcurrentAddFromBothNodesOnlyOneSucceeds()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
 
-        var a = CaptureAddAsync(cluster.CacheA, key, "a");
-        var b = CaptureAddAsync(cluster.CacheB, key, "b");
+        var a = MultiNodeTestSupport.CaptureAddAsync(Cluster.CacheA, key, "a");
+        var b = MultiNodeTestSupport.CaptureAddAsync(Cluster.CacheB, key, "b");
 
         var errors = await Task.WhenAll(a, b);
 
         _ = Assert.Single(errors, static e => e is null);
         _ = Assert.Single(errors, static e => e is CacheConflictException);
-        Assert.True((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
+        Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -50,17 +50,16 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task ConcurrentTryAddFromBothNodesOnlyOneReturnsTrue()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
 
-        var a = cluster.CacheA.TryAddAsync(key, "a", cancellationToken: DefaultCancellationToken);
-        var b = cluster.CacheB.TryAddAsync(key, "b", cancellationToken: DefaultCancellationToken);
+        var a = Cluster.CacheA.TryAddAsync(key, "a", cancellationToken: DefaultCancellationToken);
+        var b = Cluster.CacheB.TryAddAsync(key, "b", cancellationToken: DefaultCancellationToken);
 
         var results = await Task.WhenAll(a, b);
 
         _ = Assert.Single(results, static r => r);
         _ = Assert.Single(results, static r => !r);
-        Assert.True((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
+        Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -70,17 +69,16 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task ConcurrentUpsertsFromBothNodesLeaveReadableValue()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
         var tasks = Enumerable.Range(0, 50).Select(i =>
-            i % 2 == 0 ? cluster.CacheA.SetAsync(key, $"a-{i}", cancellationToken: DefaultCancellationToken)
-                : cluster.CacheB.SetAsync(key, $"b-{i}", cancellationToken: DefaultCancellationToken)).ToArray();
+            i % 2 == 0 ? Cluster.CacheA.SetAsync(key, $"a-{i}", cancellationToken: DefaultCancellationToken)
+                : Cluster.CacheB.SetAsync(key, $"b-{i}", cancellationToken: DefaultCancellationToken)).ToArray();
 
         await Task.WhenAll(tasks);
 
-        var valueA = await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken);
-        var valueB = await cluster.CacheB.GetValueAsync(key, DefaultCancellationToken);
+        var valueA = await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken);
+        var valueB = await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken);
 
         Assert.True(valueA.Found);
         Assert.Equal(valueA.Value, valueB.Value);
@@ -93,14 +91,13 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task ExternalClientConnectedToNodeARoutesMutationToOwnerNodeB()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeB", "external-client-route");
-        await using var client = await E2ETestConnect.ConnectAsync(cluster.NodeAAddress, DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
+        await using var client = await LoopbackConnect.ConnectAsync(Cluster.NodeAAddress, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<object?>("orders", DefaultCancellationToken);
 
         await cache.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
-        Assert.Equal("v1", (await cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
+        Assert.Equal("v1", (await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
         Assert.Equal("v1", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
@@ -111,10 +108,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task GetEntryOnNodeBReturnsEntryInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
 
-        var entry = await cluster.CacheB.GetEntryAsync("k1", DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        var entry = await Cluster.CacheB.GetEntryAsync(key, DefaultCancellationToken);
 
         Assert.True(entry.Found);
     }
@@ -126,10 +124,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-value");
 
-        Assert.True((await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken)).Found);
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        Assert.True((await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -139,14 +138,12 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task InsertOnNodeAUpdateOnNodeBGetOnNodeAReturnsLatestValue()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
 
-        var key = FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+        await Cluster.CacheB.SetAsync(key, "v2", cancellationToken: DefaultCancellationToken);
 
-        await cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
-        await cluster.CacheB.SetAsync(key, "v2", cancellationToken: DefaultCancellationToken);
-
-        Assert.Equal("v2", (await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
+        Assert.Equal("v2", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
     /// <summary>
@@ -156,10 +153,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task InsertValueOnNodeAThenGetOnNodeBReturnsInsertedValue()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
 
-        Assert.Equal("v1", (await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken)).Value);
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        Assert.Equal("v1", (await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
     /// <summary>
@@ -169,10 +167,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task RemoveNodeBDeletesEntryInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-remove-entry");
 
-        Assert.True(await cluster.CacheB.RemoveAsync("k1", DefaultCancellationToken));
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        Assert.True(await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken));
     }
 
     /// <summary>
@@ -182,14 +181,12 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task RemoveNodeBThenGetOnNodeAReturnsNull()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
 
-        var key = FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
-        await cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
-
-        Assert.True(await cluster.CacheB.RemoveAsync(key, DefaultCancellationToken));
-        Assert.False((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
+        Assert.True(await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken));
+        Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -199,13 +196,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task SameKeyInDifferentNamedCachesRemainsIsolatedAcrossNodes()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
+        await Cluster.CacheA.SetAsync("same-key", "order-value", cancellationToken: DefaultCancellationToken);
+        await Cluster.CustomerCacheA.SetAsync("same-key", "customer-value", cancellationToken: DefaultCancellationToken);
 
-        await cluster.CacheA.SetAsync("same-key", "order-value", cancellationToken: DefaultCancellationToken);
-        await cluster.CustomerCacheA.SetAsync("same-key", "customer-value", cancellationToken: DefaultCancellationToken);
-
-        Assert.Equal("order-value", (await cluster.CacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
-        Assert.Equal("customer-value", (await cluster.CustomerCacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
+        Assert.Equal("order-value", (await Cluster.CacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
+        Assert.Equal("customer-value", (await Cluster.CustomerCacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
     }
 
     /// <summary>
@@ -215,10 +210,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryAddValueOnNodeBReturnsFalseWhenKeyInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
 
-        Assert.False(await cluster.CacheB.TryAddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        Assert.False(await Cluster.CacheB.TryAddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>
@@ -228,14 +224,12 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryGetValueOnNodeBReturnsFoundForNullValueInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
+        await Cluster.CacheA.SetAsync("null-key", null, cancellationToken: DefaultCancellationToken);
 
-        await cluster.CacheA.SetAsync("null-key", null, cancellationToken: DefaultCancellationToken);
-
-        var result = await cluster.CacheB.GetValueAsync("null-key", DefaultCancellationToken);
+        var result = await Cluster.CacheB.GetValueAsync("null-key", DefaultCancellationToken);
 
         Assert.True(result.Found);
-        Assert.False((await cluster.CacheB.GetValueAsync("missing-null-key", DefaultCancellationToken)).Found);
+        Assert.False((await Cluster.CacheB.GetValueAsync("missing-null-key", DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -245,10 +239,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryGetValueOnNodeBReturnsValueInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
 
-        var result = await cluster.CacheB.GetValueAsync("k1", DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        var result = await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken);
 
         Assert.True(result.Found);
     }
@@ -260,10 +255,11 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryRemoveOnNodeBRemovesEntryInsertedOnNodeA()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        await cluster.CacheA.SetAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
 
-        var result = await cluster.CacheB.RemoveAsync("k1", DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
+
+        var result = await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
 
         Assert.True(result);
     }
@@ -275,18 +271,17 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryRemoveOnNodeBReturnsRemoteRemovedEntryMetadata()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
 
-        await cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
 
-        var before = await cluster.CacheA.GetEntryAsync(key, DefaultCancellationToken);
+        var before = await Cluster.CacheA.GetEntryAsync(key, DefaultCancellationToken);
         Assert.True(before.Found);
 
-        var removed = await cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
+        var removed = await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
 
         Assert.True(removed);
-        Assert.False((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
+        Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -296,14 +291,13 @@ public sealed class MultiNodeCrudTests : PublicApiMultiNodeTestBase
     [Fact]
     public async Task TryRemoveOnNodeBStoredNullReportsRemoved()
     {
-        await using var cluster = await StartTwoNodeNamedCachesAsync<object?>();
-        var key = FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
+        var key = MultiNodeTestSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
 
-        await cluster.CacheA.SetAsync(key, null, cancellationToken: DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, null, cancellationToken: DefaultCancellationToken);
 
-        var removed = await cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
+        var removed = await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken);
 
         Assert.True(removed);
-        Assert.False((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
+        Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 }

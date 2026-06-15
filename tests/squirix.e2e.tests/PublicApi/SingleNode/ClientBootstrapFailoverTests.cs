@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// End-to-end coverage for bootstrap endpoint transport failover with multiple live nodes.
 /// </summary>
-public sealed class ClientBootstrapFailoverTests : E2ETestBase
+public sealed class ClientBootstrapFailoverTests : TestBase
 {
     /// <summary>
     /// Verifies an existing client session fails over to a second live bootstrap URL when the active peer stops.
@@ -16,14 +16,14 @@ public sealed class ClientBootstrapFailoverTests : E2ETestBase
     [Fact]
     public async Task ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss()
     {
-        await using var cluster = await E2ECluster.StartTwoNodeAsync(
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(
             nameof(ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss),
             cancellationToken: DefaultCancellationToken);
         var urlA = cluster.GetAddress("nodeA");
         var urlB = cluster.GetAddress("nodeB");
-        var key = new E2EKeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];
+        var key = new KeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];
 
-        await using var client = await E2ETestConnect.ConnectAsync(
+        await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
                 options.Endpoints.Add(urlA);

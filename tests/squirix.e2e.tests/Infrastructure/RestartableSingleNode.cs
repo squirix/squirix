@@ -8,12 +8,12 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Infrastructure;
 
-internal sealed class E2ERestartableSingleNode : IAsyncDisposable
+internal sealed class RestartableSingleNode : IAsyncDisposable
 {
-    private E2EClientHandle? _client;
+    private ISquirixClient? _client;
     private TestNodeHost? _host;
 
-    private E2ERestartableSingleNode(string dataDir, string address)
+    private RestartableSingleNode(string dataDir, string address)
     {
         DataDir = dataDir;
         Address = address;
@@ -23,18 +23,18 @@ internal sealed class E2ERestartableSingleNode : IAsyncDisposable
 
     private string DataDir { get; }
 
-    public static async ValueTask<E2ERestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
+    public static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
         var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
-        var node = new E2ERestartableSingleNode(root, ListenPortPool.EndToEndTests.NextHttpAddress());
+        var node = new RestartableSingleNode(root, ListenPortPool.EndToEndTests.NextHttpAddress());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= new E2EClientHandle(await E2ETestConnect.ConnectAsync(Address, cancellationToken));
+        _client ??= await LoopbackConnect.ConnectAsync(Address, cancellationToken);
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 

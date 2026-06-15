@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.E2ETests.Infrastructure;
 using Squirix.E2ETests.PublicApi.TypedValues;
 using Xunit;
 
@@ -9,7 +10,7 @@ namespace Squirix.E2ETests.PublicApi.SingleNode;
 /// <summary>
 /// Integration tests for single-node typed custom values through the public cache API.
 /// </summary>
-public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
+public sealed class SingleNodeTypedValueTests(SingleNodeFixture fixture) : PublicApiSingleNodeTestBase(fixture)
 {
     /// <summary>
     /// Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.
@@ -18,8 +19,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task AddShouldThrowForExistingCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-add", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("add-conflict");
 
         await cache.AddAsync("k", original, cancellationToken: DefaultCancellationToken);
@@ -41,8 +41,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task CustomRecordShouldRoundTripWithEmptyCollections()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-empty", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-empty", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithEmptyCollections("empty");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -59,8 +58,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task CustomRecordShouldRoundTripWithNullValueProperty()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-null", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-null", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithNullEmail("null-email");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -77,8 +75,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task CustomRecordShouldRoundTripWithUnicodeText()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-unicode", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-unicode", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfileWithUnicodeText("unicode");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -95,8 +92,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetEntryShouldReturnTypedValueAndMetadataOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-entry", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-entry", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("entry");
 
         await cache.SetAsync("k", expected, new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) }, DefaultCancellationToken);
@@ -115,8 +111,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("k");
         var factoryCalls = 0;
 
@@ -148,8 +143,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-remove-expiration", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-remove-expiration", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("remove-expiration");
 
         await cache.SetAsync("k", expected, new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) }, DefaultCancellationToken);
@@ -170,8 +164,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAndGetShouldRoundTripCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-record", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-record", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("record");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -188,8 +181,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task SetAndGetShouldRoundTripMutableClassOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedMutableCart>("typed-single-cart", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedMutableCart>("typed-single-cart", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateCart("cart");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -206,8 +198,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TouchShouldUpdateExpirationForCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-touch", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-touch", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("touch");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
@@ -230,8 +221,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-try-add", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-try-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("try-add");
 
         Assert.True(await cache.TryAddAsync("k", original, cancellationToken: DefaultCancellationToken));
@@ -249,8 +239,7 @@ public sealed class SingleNodeTypedValueTests : PublicApiSingleNodeTestBase
     [Fact]
     public async Task UpdateShouldPreserveExpirationForCustomRecordOnSingleNode()
     {
-        await using var client = await ConnectClientAsync();
-        var cache = await client.GetCacheAsync<TypedCustomerProfile>("typed-single-update", DefaultCancellationToken);
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-update", DefaultCancellationToken);
         var updated = TypedValueFactory.CreateUpdatedProfile("update");
 
         await cache.SetAsync("k", TypedValueFactory.CreateProfile("update"), new CacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) }, DefaultCancellationToken);

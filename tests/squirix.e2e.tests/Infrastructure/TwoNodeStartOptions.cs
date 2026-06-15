@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.Infrastructure;
 /// <summary>
 /// Optional startup settings for two-node E2E clusters.
 /// </summary>
-internal sealed class E2ETwoNodeStartOptions
+internal sealed class TwoNodeStartOptions
 {
     /// <summary>
     /// Gets the inter-node mTLS profile for node A.
