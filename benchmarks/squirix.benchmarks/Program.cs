@@ -1,7 +1,8 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Running;
-using Squirix.Benchmarks.Infrastructure;
+using Squirix.Benchmarks.Config;
+using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks;
 

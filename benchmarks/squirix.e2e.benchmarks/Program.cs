@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Running;
+using Squirix.E2EBenchmarks.Config;
 
 namespace Squirix.E2EBenchmarks;
 

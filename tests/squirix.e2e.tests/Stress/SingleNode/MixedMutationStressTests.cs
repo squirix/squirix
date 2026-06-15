@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.E2ETests.Infrastructure;
-using Squirix.E2ETests.Infrastructure.Stress;
+using Squirix.E2ETests.Support.Cluster;
+using Squirix.E2ETests.Support.Stress;
 using Xunit;
 
 namespace Squirix.E2ETests.Stress.SingleNode;
