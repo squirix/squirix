@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
@@ -26,7 +26,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     {
         var peers = BuildPeers(4);
         var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await using (pool.ConfigureAwait(false))
+        await using (pool)
         {
             Assert.Equal(4, pool.ActiveClientCount);
             Assert.Equal(4, pool.NodeIds.Count);

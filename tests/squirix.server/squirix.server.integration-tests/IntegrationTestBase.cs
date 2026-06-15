@@ -18,7 +18,6 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
-using Squirix.Server.Core;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
@@ -27,10 +26,10 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.TestKit.XUnit;
 using Xunit;
 
@@ -44,8 +43,7 @@ namespace Squirix.Server.IntegrationTests;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class IntegrationTestBase : IDisposable
 {
-    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new();
-    private static readonly PortAllocator PortPool = CreatePortAllocator();
+    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
     private HttpClient? _httpClient;
 
@@ -84,7 +82,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
     /// </param>
     /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <c>null</c>, the entry does not have an absolute expiry.
+    /// Optional absolute UTC expiration time. When <see langword="null"/>, the entry does not have an absolute expiry.
     /// </param>
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
@@ -94,7 +92,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// </param>
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
-    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <c>null</c>.
+    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null"/>.
     /// </returns>
     internal static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
@@ -130,7 +128,14 @@ public abstract class IntegrationTestBase : IDisposable
     /// </summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(params (string NodeId, string Url)[] topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
+    internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
+    {
+        var mapped = new (string NodeId, string Url)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            mapped[i] = (topology[i].NodeId, ListenUrls.CanonicalAuthority(topology[i].Url));
+
+        return MtlsTestContext.CreatePeers(ref _mtls, mapped);
+    }
 
     /// <summary>
     /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
@@ -165,7 +170,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
     /// </param>
     /// <param name="callPolicyFactory">
-    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <c>null</c>, a default policy is used.
+    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null"/>, a default policy is used.
     /// The factory receives the peer URL and should return a configured policy instance.
     /// </param>
     /// <param name="configureGrpc">
@@ -175,7 +180,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).
     /// </param>
     /// <param name="snapshotOptions">
-    /// Optional snapshot trigger options; when <c>null</c>, the node uses its built-in defaults.
+    /// Optional snapshot trigger options; when <see langword="null"/>, the node uses its built-in defaults.
     /// </param>
     /// <param name="persistenceOptions">
     /// Optional base persistence options. The data directory is overridden per test (node id + scope);
@@ -199,11 +204,8 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="backpressureOptions">
     /// Optional backpressure options for inbound admission control.
     /// </param>
-    /// <param name="runtimeOptions">
-    /// Optional cache runtime options such as strict type binding policy.
-    /// </param>
     /// <param name="memoryPressureOptions">
-    /// Optional memory pressure options; when <c>null</c>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
+    /// Optional memory pressure options; when <see langword="null"/>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
     /// <param name="security">
     /// Optional per-node security override. When set, environment variables are not read for auth on this startup.
@@ -223,7 +225,7 @@ public abstract class IntegrationTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal async ValueTask<TestNodeHost> StartNodeAsync(
+    internal ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
@@ -237,18 +239,56 @@ public abstract class IntegrationTestBase : IDisposable
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
-        CacheRuntimeOptions? runtimeOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        new Uri(url, UriKind.Absolute),
+        peers,
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        peerHandlerFactory,
+        backpressureOptions,
+        memoryPressureOptions,
+        security,
+        testName);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal async ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
+        Peer[] peers,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         [CallerMemberName] string? testName = null)
     {
-        var selfNodeId = peers.FirstOrDefault(p => string.Equals(p.Url, url, StringComparison.OrdinalIgnoreCase))?.NodeId ??
+        var urlString = ListenUrls.CanonicalAuthority(url);
+        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ??
                          throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = url,
+            Url = urlString,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -262,8 +302,7 @@ public abstract class IntegrationTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, url);
-        var resolvedPeerHandlerFactory = peerHandlerFactory;
+        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, urlString);
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -282,9 +321,8 @@ public abstract class IntegrationTestBase : IDisposable
             configureGrpc,
             servicesConfigure,
             persistenceOptionsOverride,
-            resolvedPeerHandlerFactory,
+            peerHandlerFactory,
             backpressureOptions,
-            runtimeOptions,
             memoryPressureOptions,
             security?.ToServerOptions(),
             null,
@@ -292,14 +330,14 @@ public abstract class IntegrationTestBase : IDisposable
             mtlsMaterial,
             DefaultCancellationToken);
 
-        return new TestNodeHost(application, url, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(application, urlString, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>
     /// Allocates a dedicated port reserved for the lifetime of the test process.
     /// </summary>
     /// <returns>A port number reserved from the shared in-process pool.</returns>
-    protected static int AllocateDedicatedPort() => PortPool.Allocate();
+    protected static int AllocateDedicatedPort() => ListenPortPool.IntegrationTests.AllocatePort();
 
     /// <summary>
     /// Creates a gRPC channel configured for HTTPS against a test node URL.
@@ -316,13 +354,10 @@ public abstract class IntegrationTestBase : IDisposable
         });
 
     /// <summary>
-    /// Allocates a unique HTTP URL for the next node using the shared port pool.
+    /// Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.
     /// </summary>
-    /// <returns>
-    /// A loopback HTTPS URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
-    /// is a free port reserved from the shared pool.
-    /// </returns>
-    protected static string GetNextHttpAddress() => $"https://127.0.0.1:{PortPool.Allocate()}";
+    /// <returns>A loopback HTTPS listen URI.</returns>
+    protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.NextHttpUri();
 
     /// <summary>
     /// Cleans up managed resources owned by the integration test base.
@@ -349,14 +384,6 @@ public abstract class IntegrationTestBase : IDisposable
             scope = $"{scope}__{tfm}";
 
         return $"{scope}__pid{Environment.ProcessId}";
-    }
-
-    private static PortAllocator CreatePortAllocator()
-    {
-        const int start = 49000;
-        const int rangeSize = 4000;
-        var end = Math.Min(65535, start + rangeSize - 1);
-        return new PortAllocator(start, end);
     }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)

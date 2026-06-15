@@ -10,7 +10,7 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceExecutor, IAsyncDisposable
 {
-    event Action? OnAppended;
+    event EventHandler? OnAppended;
 
     int CurrentSegmentIndex { get; }
 

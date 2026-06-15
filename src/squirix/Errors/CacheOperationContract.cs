@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Squirix.Errors;
 
@@ -15,7 +16,7 @@ internal static class CacheOperationContract
     /// <param name="providedVersion">The caller-provided explicit version.</param>
     /// <returns>The message text shared by local mutation and the gRPC contract detail.</returns>
     public static string InsertVersionMustExceedCurrentMessage(long currentVersion, long providedVersion) =>
-        FormattableString.Invariant($"{InsertVersionMustExceedCurrentMessagePrefix}{currentVersion}, provided={providedVersion})");
+        string.Create(CultureInfo.InvariantCulture, $"{InsertVersionMustExceedCurrentMessagePrefix}{currentVersion}, provided={providedVersion})");
 
     /// <summary>
     /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),

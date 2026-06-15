@@ -46,8 +46,15 @@ internal sealed class MemoryPressureGate : IMemoryPressureGate
         throw new ResourceExhaustedException();
     }
 
-    private static long AddSaturating(long left, long right) => right <= 0 ? left : left > long.MaxValue - right ? long.MaxValue : left + right;
+    private static long AddSaturating(long left, long right)
+    {
+        var addSaturating = left > long.MaxValue - right ? long.MaxValue : left + right;
+        return right <= 0 ? left : addSaturating;
+    }
 
-    private static string ClassifyRejectionReason(bool magnitudeUnknown, long boundedGrowth) =>
-        magnitudeUnknown ? "unknown_size" : boundedGrowth > 0 ? "estimated_limit" : "critical_pressure";
+    private static string ClassifyRejectionReason(bool magnitudeUnknown, long boundedGrowth)
+    {
+        var classifyRejectionReason = boundedGrowth > 0 ? "estimated_limit" : "critical_pressure";
+        return magnitudeUnknown ? "unknown_size" : classifyRejectionReason;
+    }
 }

@@ -20,8 +20,8 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalidBackpressure = new BackpressureOptions
         {
             MaxInFlight = 8,
@@ -46,8 +46,8 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalid = new MemoryPressureOptions
         {
             MaxEstimatedCacheBytes = 1024,

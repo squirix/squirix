@@ -14,6 +14,26 @@ internal readonly record struct CacheKey(string Namespace, string Key) : ICompar
         return key.Key;
     }
 
+    public static bool operator <(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) < 0;
+    }
+
+    public static bool operator <=(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) <= 0;
+    }
+
+    public static bool operator >(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) > 0;
+    }
+
+    public static bool operator >=(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) >= 0;
+    }
+
     public static CacheKey Default(string key) => new(CacheNames.DefaultNamespace, key);
 
     public override string ToString() => string.IsNullOrEmpty(Namespace) ? Key : Namespace + ":" + Key;

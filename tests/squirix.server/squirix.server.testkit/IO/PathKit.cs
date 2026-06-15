@@ -119,7 +119,7 @@ public static class PathKit
             startTicks = DateTime.UtcNow.Ticks;
         }
 
-        return $"pid{Environment.ProcessId}-start{startTicks}";
+        return $"pid{System.Environment.ProcessId}-start{startTicks}";
     }
 
     private static string JoinSegments(List<string> segments)

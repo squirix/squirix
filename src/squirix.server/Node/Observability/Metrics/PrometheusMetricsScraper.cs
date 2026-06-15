@@ -70,7 +70,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         {
             InstrumentPublished = static (instrument, listener) =>
             {
-                if (instrument.Meter.Name == "Squirix")
+                if (string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase))
                     listener.EnableMeasurementEvents(instrument);
             },
         };

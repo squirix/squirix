@@ -67,7 +67,7 @@ internal sealed class SnapshotCoordinator<T>
         _memoryUsageAccounting = memoryUsageAccounting ?? throw new ArgumentNullException(nameof(memoryUsageAccounting));
     }
 
-    public event Action<Manifest.SnapshotRef>? SnapshotCompleted;
+    public event EventHandler<SnapshotCompletedEventArgs>? SnapshotCompleted;
 
     public bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
 
@@ -94,7 +94,7 @@ internal sealed class SnapshotCoordinator<T>
                 static (state, seqAtFlush, ct) => state.Coordinator.ExecuteSnapshotCutAsync(seqAtFlush, state.Activity, state.Journal, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            SnapshotCompleted?.Invoke(snapshotRef);
+            SnapshotCompleted?.Invoke(this, new SnapshotCompletedEventArgs(snapshotRef));
 
             result = "success";
             _latencyThrottledUntilUtc = DateTime.MinValue;

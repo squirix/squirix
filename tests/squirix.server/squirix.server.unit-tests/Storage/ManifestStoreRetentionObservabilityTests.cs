@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Storage;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
 using Xunit;
 

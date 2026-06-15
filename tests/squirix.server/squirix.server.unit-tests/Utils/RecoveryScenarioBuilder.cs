@@ -48,7 +48,7 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
             return;
 
         _disposed = true;
-        await Cache.DisposeAsync().ConfigureAwait(false);
+        await Cache.DisposeAsync();
         DirectoryKit.TryDeleteDirectory(DataDir);
     }
 

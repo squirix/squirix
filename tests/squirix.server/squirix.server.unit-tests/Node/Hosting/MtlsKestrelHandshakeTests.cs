@@ -11,7 +11,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Cluster.Transport;
 using Xunit;
 
@@ -30,8 +30,7 @@ public sealed class MtlsKestrelHandshakeTests
     public async Task OutboundMtlsHandlerCompletesTlsHandshakeWithInternalListener()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        using var allocator = new PortAllocator(35000, 35999);
-        var internalPort = allocator.Allocate();
+        var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
         await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", TestContext.Current.CancellationToken);
 
         Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor, ["node-a"]));
@@ -44,9 +43,6 @@ public sealed class MtlsKestrelHandshakeTests
         Assert.True(sslStream.IsAuthenticated);
         Assert.True(sslStream.RemoteCertificate is not null);
     }
-
-    private static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>
-        X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.Exportable);
 
     private sealed class MtlsInternalListenerHost : IAsyncDisposable
     {
@@ -114,6 +110,11 @@ public sealed class MtlsKestrelHandshakeTests
             ClientCertificate.Dispose();
             TrustAnchor.Dispose();
         }
+
+        private static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) => X509CertificateLoader.LoadPkcs12(
+            certificate.Export(X509ContentType.Pfx),
+            null,
+            X509KeyStorageFlags.Exportable);
 
         private void ConfigureHttps(HttpsConnectionAdapterOptions https)
         {

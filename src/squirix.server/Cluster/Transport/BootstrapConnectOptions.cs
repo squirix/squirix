@@ -1,7 +1,9 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Squirix.Server.Cluster.Transport;
 
+[StructLayout(LayoutKind.Auto)]
 internal readonly struct BootstrapConnectOptions
 {
     public static readonly TimeSpan DefaultOverallDeadline = TimeSpan.FromSeconds(30);

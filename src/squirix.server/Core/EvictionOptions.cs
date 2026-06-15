@@ -7,7 +7,7 @@ internal sealed class EvictionOptions
 {
     /// <summary>
     /// Gets the maximum number of live entries before evictions are triggered.
-    /// A value of <c>null</c> disables capacity-based eviction.
+    /// A value of <see langword="null"/> disables capacity-based eviction.
     /// </summary>
     public int? Capacity { get; init; }
 

@@ -23,7 +23,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(FlushIntervalMs), value, "FlushIntervalMs must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "FlushIntervalMs must be greater than zero.");
 
             field = value;
         }
@@ -44,7 +44,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGroupCommitMaxBatch), value, "JournalGroupCommitMaxBatch must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxBatch must be greater than zero.");
 
             field = value;
         }
@@ -61,7 +61,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGroupCommitMaxWaitMs), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
 
             field = value;
         }
@@ -74,7 +74,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalMaxSegmentMb), value, "JournalMaxSegmentMb must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentMb must be greater than zero.");
 
             field = value;
         }
@@ -86,7 +86,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(ManifestRetentionCount), value, "ManifestRetentionCount must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "ManifestRetentionCount must be greater than zero.");
 
             field = value;
         }
@@ -98,7 +98,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotIntervalSec), value, "SnapshotIntervalSec must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotIntervalSec must be greater than zero.");
 
             field = value;
         }
@@ -110,7 +110,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotRetentionCount), value, "SnapshotRetentionCount must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotRetentionCount must be greater than zero.");
 
             field = value;
         }

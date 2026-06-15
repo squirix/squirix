@@ -22,24 +22,44 @@ public sealed class KeyedSingleFlightTests
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = RunFailing();
-        var second = RunFailing();
+        var first = RunFailingAsync();
+        var second = RunFailingAsync();
         await Task.Delay(30, TestContext.Current.CancellationToken);
         gate.SetResult();
 
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await first);
-        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await second);
+        InvalidOperationException? firstException = null;
+        try
+        {
+            _ = await first;
+        }
+        catch (InvalidOperationException ex)
+        {
+            firstException = ex;
+        }
+
+        InvalidOperationException? secondException = null;
+        try
+        {
+            _ = await second;
+        }
+        catch (InvalidOperationException ex)
+        {
+            secondException = ex;
+        }
+
+        Assert.NotNull(firstException);
+        Assert.NotNull(secondException);
         Assert.Equal(1, executions);
         return;
 
-        Task<int> RunFailing()
+        Task<int> RunFailingAsync()
         {
             return flights.RunAsync<int>(
                 "k",
                 async ct =>
                 {
                     _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+                    await gate.Task.WaitAsync(ct);
                     throw new InvalidOperationException("factory failed");
                 },
                 TestContext.Current.CancellationToken);
@@ -57,8 +77,8 @@ public sealed class KeyedSingleFlightTests
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var first = RunOnce();
-        var second = RunOnce();
+        var first = RunOnceAsync();
+        var second = RunOnceAsync();
         await Task.Delay(30, TestContext.Current.CancellationToken);
         gate.SetResult();
 
@@ -67,14 +87,14 @@ public sealed class KeyedSingleFlightTests
         Assert.Equal(7, await second);
         return;
 
-        Task<int> RunOnce()
+        Task<int> RunOnceAsync()
         {
             return flights.RunAsync(
                 "k",
                 async ct =>
                 {
                     _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+                    await gate.Task.WaitAsync(ct);
                     return 7;
                 },
                 TestContext.Current.CancellationToken);

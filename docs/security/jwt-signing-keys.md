@@ -19,8 +19,9 @@ Environment variable reference: [configuration.md](../configuration.md#environme
 | **OIDC / JWKS (recommended for production)** | `SQUIRIX_JWT_AUTHORITY` + `SQUIRIX_JWT_AUDIENCE` (optional `SQUIRIX_JWT_ISSUER`) | Your identity provider publishes JWKS; Squirix loads keys from authority metadata |
 | **Symmetric (dev / small deployments)** | `SQUIRIX_JWT_SIGNING_KEY` + `SQUIRIX_JWT_ISSUER` + `SQUIRIX_JWT_AUDIENCE` (when required) | You — shared secret in every node and client that mints tokens |
 
-Implementation: `SquirixSecurityServiceRegistration` accepts **one** symmetric key (`IssuerSigningKey`). There is no
-built-in support for multiple active symmetric keys or `kid`-based rollover in v0.1.
+Implementation (symmetric mode): `SquirixSecurityServiceRegistration` accepts **one** symmetric key
+(`IssuerSigningKey`). In v0.1, symmetric mode has no built-in support for multiple active symmetric keys or
+`kid`-based rollover.
 
 ## Blast radius (symmetric mode)
 
@@ -52,7 +53,7 @@ Docker and getting-started examples ship **test-only** signing keys. Do not reus
 When you configure symmetric JWT auth (`SQUIRIX_JWT_SIGNING_KEY`), generate a **unique** secret for each environment.
 The Docker dev fixture `dev-squirix-docker-jwt-key!!!!!!` is public in this repository.
 
-```powershell
+```sh
 # At least 32 random bytes (example)
 openssl rand -base64 48
 ```

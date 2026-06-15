@@ -16,6 +16,8 @@ public sealed class CachePipelineOrderTests
     public void CachePipelineKeepsDomainErrorMappingOutsideDeadline()
     {
         var source = LoadRegistrationSource();
+        CachePipelineRegistrationOrderAssertions.AssertLayerRegisteredBefore(CachePipelineLayer.Deadline, CachePipelineLayer.DomainErrorMapping);
+
         var deadline = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.Deadline);
         var domain = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.DomainErrorMapping);
         Assert.True(deadline < domain, "Deadline must register before DomainErrorMapping so domain mapping wraps deadline at runtime.");
@@ -28,24 +30,21 @@ public sealed class CachePipelineOrderTests
     public void CachePipelineKeepsJournalBeforeLocalMutation()
     {
         var source = LoadRegistrationSource();
-        var client = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.ClientCache);
-        var journal = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.JournalLogging);
-        Assert.True(client < journal, "ClientCache must be registered before JournalLogging so the Journal factory wraps the local branch.");
+        CachePipelineRegistrationOrderAssertions.AssertLayerRegisteredBefore(CachePipelineLayer.ClientCache, CachePipelineLayer.JournalLogging);
 
         Assert.Contains("GetRequiredService<ClientCache<object?>>()", source, StringComparison.Ordinal);
         Assert.Contains("GetRequiredService<JournalLoggingCacheDecorator<object?>>()", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures memory admission sits outside the owner-local Journal branch (admission registration after journal in inner-to-outer source order).
+    /// Ensures memory admission sits outside the owner-local Journal branch.
     /// </summary>
     [Fact]
     public void CachePipelineKeepsMemoryAdmissionBeforeJournal()
     {
-        var source = LoadRegistrationSource();
-        var journal = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.JournalLogging);
-        var admission = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.MemoryAdmission);
-        Assert.True(journal < admission, "JournalLogging must register before MemoryAdmission so admission wraps the routed branch outside journal.");
+        CachePipelineRegistrationOrderAssertions.AssertLayerRegisteredBefore(
+            CachePipelineLayer.JournalLogging,
+            CachePipelineLayer.MemoryAdmission);
     }
 
     /// <summary>
@@ -55,6 +54,8 @@ public sealed class CachePipelineOrderTests
     public void CachePipelineKeepsMetricsOutsideAdmission()
     {
         var source = LoadRegistrationSource();
+        CachePipelineRegistrationOrderAssertions.AssertLayerRegisteredBefore(CachePipelineLayer.MemoryAdmission, CachePipelineLayer.Metrics);
+
         var admission = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.MemoryAdmission);
         var metrics = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.Metrics);
         Assert.True(admission < metrics, "MemoryAdmission must register before Metrics.");
@@ -69,17 +70,16 @@ public sealed class CachePipelineOrderTests
         var source = LoadRegistrationSource();
         CachePipelineRegistrationOrderAssertions.AssertTracingPrecedesLogicalAggregate(source);
 
-        var tracing = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, CachePipelineLayer.Tracing);
+        var tracingIndex = CachePipelineRegistrationOrderAssertions.GetRegistrationSequenceIndex(CachePipelineLayer.Tracing);
 
         foreach (var layer in CachePipelineDescriptor.AddSingletonRegistrationInnerToOuter)
         {
             if (layer == CachePipelineLayer.Tracing)
-            {
                 continue;
-            }
 
-            var prior = CachePipelineRegistrationOrderAssertions.IndexOfRequired(source, layer);
-            Assert.True(prior < tracing, $"{layer} registration must appear before Tracing (inner-to-outer registration order).");
+            Assert.True(
+                CachePipelineRegistrationOrderAssertions.GetRegistrationSequenceIndex(layer) < tracingIndex,
+                $"{layer} registration must appear before Tracing (inner-to-outer registration order).");
         }
     }
 

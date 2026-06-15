@@ -51,7 +51,12 @@ internal static class JournalSegmentFileVerifier
 
             try
             {
-                ArgumentNullException.ThrowIfNull(rentedBuffer);
+                if (rentedBuffer is null)
+                {
+                    error = "journal frame payload buffer is missing";
+                    return false;
+                }
+
                 var payloadSpan = rentedBuffer.AsSpan(0, payloadLength);
                 JournalEnvelope envelope;
                 try

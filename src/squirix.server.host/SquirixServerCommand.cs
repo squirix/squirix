@@ -7,7 +7,7 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
     internal static SquirixServerCommand Parse(string[] args)
     {
         var name = args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
-        var start = name == "run" && (args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal)) ? 0 : 1;
+        var start = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length == 0 || args[0].StartsWith("--", StringComparison.Ordinal)) ? 0 : 1;
         var strict = false;
         var persist = false;
         string? url = null;

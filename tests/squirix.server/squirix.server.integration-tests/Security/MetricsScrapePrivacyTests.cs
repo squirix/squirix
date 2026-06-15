@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Runtime;
-using Squirix.Server.TestKit.Security;
+using Squirix.Server.TestKit.Auth;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;

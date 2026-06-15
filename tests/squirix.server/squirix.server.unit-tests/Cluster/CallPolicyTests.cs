@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Utils;
+using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit.Testing;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;

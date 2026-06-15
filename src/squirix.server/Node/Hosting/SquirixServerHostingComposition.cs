@@ -12,7 +12,6 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
@@ -49,7 +48,6 @@ internal static class SquirixServerHostingComposition
         PersistenceOptions? persistenceOptionsOverride = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         BackpressureOptions? backpressureOptions = null,
-        CacheRuntimeOptions? runtimeOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         SecurityOptions? securityOptionsOverride = null,
         SquirixServerExtensionOptions? extensions = null,
@@ -76,7 +74,7 @@ internal static class SquirixServerHostingComposition
             memoryPressureOptions,
             mtlsOptions,
             mtlsMaterial);
-        _ = builder.Services.AddSquirixRuntimeServices(runtimeOptions);
+        _ = builder.Services.AddSquirixRuntimeServices();
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, peerHandlerFactory);
         if (persistenceEnabled)
             _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);

@@ -47,8 +47,7 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
 
             async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
             {
-                await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken)
-                             .ConfigureAwait(false);
+                await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
             }
 
             ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)

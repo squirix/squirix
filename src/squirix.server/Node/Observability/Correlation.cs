@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
@@ -43,8 +44,9 @@ internal static class Correlation
         {
             var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName);
             var ctx2 = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
-            using var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
-            return base.AsyncUnaryCall(request, ctx2, continuation);
+            var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
+            var call = base.AsyncUnaryCall(request, ctx2, continuation);
+            return WrapUnaryCall(scope, call);
         }
 
         private static CallOptions AttachTraceHeaders(CallOptions opt, string method)
@@ -80,6 +82,44 @@ internal static class Correlation
             }
 
             meta.Add(new Metadata.Entry(key, value));
+        }
+
+        private static AsyncUnaryCall<TResponse> WrapUnaryCall<TResponse>(IDisposable scope, AsyncUnaryCall<TResponse> inner)
+        {
+            var scopeDisposed = 0;
+
+            async Task<TResponse> ResponseAsync()
+            {
+                try
+                {
+#pragma warning disable VSTHRD003
+
+                    // Scope must live until the outbound unary call completes.
+                    return await inner.ResponseAsync.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+                }
+                finally
+                {
+                    DisposeScopeOnce();
+                }
+            }
+
+            return new AsyncUnaryCall<TResponse>(
+                ResponseAsync(),
+                inner.ResponseHeadersAsync,
+                inner.GetStatus,
+                inner.GetTrailers,
+                () =>
+                {
+                    DisposeScopeOnce();
+                    inner.Dispose();
+                });
+
+            void DisposeScopeOnce()
+            {
+                if (Interlocked.Exchange(ref scopeDisposed, 1) == 0)
+                    scope.Dispose();
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -170,7 +171,7 @@ internal sealed class ManifestStore
             return 0;
 
         var numberPart = name.Substring(StorageFilePrefixes.Manifest.Length, name.Length - StorageFilePrefixes.Manifest.Length - StorageFileExtensions.Manifest.Length);
-        return int.TryParse(numberPart, out var n) ? n : 0;
+        return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 
     private static int TryParseSnapshotIndex(string name)
@@ -183,7 +184,7 @@ internal sealed class ManifestStore
             return 0;
 
         var numberPart = name.Substring(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - StorageFileExtensions.Snapshot.Length);
-        return int.TryParse(numberPart, out var n) ? n : 0;
+        return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 
     private void ReportRetentionCleanupException(string artifactKind, Exception exception)
@@ -227,7 +228,10 @@ internal sealed class ManifestStore
             throw new InvalidDataException($"Manifest current pointer is empty: {_currentPath}");
 
         var fromCurrent = TryParseIndex(name);
-        return fromCurrent <= 0 ? throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}") : fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
+        if (fromCurrent <= 0)
+            throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
+
+        return fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
     }
 
     private int ScanMaxManifestIndexOnDisk()
