@@ -3,8 +3,8 @@ using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Storage;
-using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;

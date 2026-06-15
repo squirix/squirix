@@ -11,7 +11,7 @@ internal static class DirectoryEx
     /// Safely creates a directory with strict validation and returns its normalized absolute path.
     /// </summary>
     /// <param name="path">
-    /// The target directory path. May be relative or absolute. Must not be <c>null</c>, empty, or whitespace,
+    /// The target directory path. May be relative or absolute. Must not be <see langword="null"/>, empty, or whitespace,
     /// and must not contain invalid characters or wildcards.
     /// </param>
     /// <param name="baseDir">

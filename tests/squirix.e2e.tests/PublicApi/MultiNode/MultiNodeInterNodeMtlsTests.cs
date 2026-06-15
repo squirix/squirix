@@ -4,8 +4,8 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Infrastructure;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Cluster;
+using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Mtls;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.MultiNode;

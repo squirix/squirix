@@ -3,7 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Utils;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Benchmarks.Infrastructure;
 

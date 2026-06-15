@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Hosting;
 using DirectoryKit = Squirix.E2EBenchmarks.Utils.DirectoryKit;
 using PathKit = Squirix.E2EBenchmarks.Utils.PathKit;
 

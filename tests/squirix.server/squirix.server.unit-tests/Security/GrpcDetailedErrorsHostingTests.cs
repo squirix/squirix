@@ -3,7 +3,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Security;

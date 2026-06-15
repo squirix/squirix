@@ -65,6 +65,6 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
         await StartNodeAsync().ConfigureAwait(false);
         await StartSharedCacheAsync("bench-entry-payload").ConfigureAwait(false);
         _smallValue = new string('x', 256);
-        _largeValue = EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue();
+        _largeValue = EntryLimitKit.CreateNearLimitDiscriminatedStringValue();
     }
 }

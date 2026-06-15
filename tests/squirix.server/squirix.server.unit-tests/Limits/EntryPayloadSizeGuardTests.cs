@@ -18,7 +18,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Fact]
     public void EntryJustAboveLimitThrowsPayloadTooLarge()
     {
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
+        var value = EntryLimitKit.CreateStringValueExceedingEntryLimit();
         var entry = new CacheEntry<object?> { Value = value, Version = 1 };
 
         var ex = Assert.Throws<SquirixException>(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));
@@ -34,7 +34,7 @@ public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
     [Fact]
     public void EntryJustBelowLimitDoesNotThrow()
     {
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+        var value = EntryLimitKit.CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
         var entry = new CacheEntry<object?> { Value = value, Version = 1 };
 
         var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));

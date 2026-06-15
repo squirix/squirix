@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.E2ETests.Infrastructure;

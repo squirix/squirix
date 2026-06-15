@@ -7,8 +7,8 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.Http;
-using Squirix.Server.TestKit.Security;
+using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;

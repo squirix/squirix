@@ -32,7 +32,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit");
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
+        var value = EntryLimitKit.CreateStringValueExceedingEntryLimit();
 
         using var channelA = CreateGrpcChannel(new Uri(urlA, UriKind.Absolute));
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
@@ -72,7 +72,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         using var channel = CreateGrpcChannel(new Uri(url, UriKind.Absolute));
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var value = EntryPayloadLimitTestHelpers.CreateStringValueExceedingEntryLimit();
+        var value = EntryLimitKit.CreateStringValueExceedingEntryLimit();
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {

@@ -24,11 +24,11 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Environment;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.TestKit.XUnit;
 using Xunit;
 
@@ -122,7 +122,7 @@ public abstract class SmokeTestBase : IDisposable
     /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
     /// </param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
-    /// <param name="memoryPressureOptions">Optional memory pressure options; when <c>null</c>, defaults merged from settings and environment are used.</param>
+    /// <param name="memoryPressureOptions">Optional memory pressure options; when <see langword="null"/>, defaults merged from settings and environment are used.</param>
     /// <param name="testName">
     /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
     /// </param>
@@ -256,7 +256,7 @@ public abstract class SmokeTestBase : IDisposable
     /// underlying document's lifetime; otherwise the value is used as-is.
     /// </param>
     /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <c>null</c>, the entry has no absolute expiry.
+    /// Optional absolute UTC expiration time. When <see langword="null"/>, the entry has no absolute expiry.
     /// </param>
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
@@ -268,7 +268,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> containing the provided <paramref name="value" />,
     /// <paramref name="expiresUtc" />, <paramref name="version" />, and <paramref name="tags" /> (if any).
-    /// The <c>Expiration</c> property is set to <c>null</c>.
+    /// The <c>Expiration</c> property is set to <see langword="null"/>.
     /// </returns>
     private protected static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {

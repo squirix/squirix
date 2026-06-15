@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -115,45 +114,6 @@ public static class DirectoryKit
             d = PathKit.Combine(d, hint);
         CreateDirectory(d);
         return d;
-    }
-
-    /// <summary>
-    /// Attempts to collect parsed values from files matching the provided pattern.
-    /// </summary>
-    /// <typeparam name="T">Collected value type.</typeparam>
-    /// <param name="dir">Directory path to inspect.</param>
-    /// <param name="searchPattern">Search pattern passed to <see cref="Directory.GetFiles(string,string)" />.</param>
-    /// <param name="sink">Collection receiving parsed values.</param>
-    /// <param name="collectFromFile">
-    /// Callback invoked for each matching file path. The callback may add zero or more values into <paramref name="sink" />.
-    /// </param>
-    /// <remarks>
-    /// Returns silently when directory enumeration fails with <see cref="IOException" /> or
-    /// <see cref="UnauthorizedAccessException" />, which is useful in tests that race with cleanup.
-    /// </remarks>
-    public static void TryCollectFileValues<T>(string dir, string searchPattern, ICollection<T> sink, Action<string, ICollection<T>> collectFromFile)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(dir);
-        ArgumentException.ThrowIfNullOrWhiteSpace(searchPattern);
-        ArgumentNullException.ThrowIfNull(sink);
-        ArgumentNullException.ThrowIfNull(collectFromFile);
-
-        string[] files;
-        try
-        {
-            files = Directory.GetFiles(dir, searchPattern);
-        }
-        catch (IOException)
-        {
-            return;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return;
-        }
-
-        foreach (var file in files)
-            collectFromFile(file, sink);
     }
 
     /// <summary>

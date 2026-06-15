@@ -7,7 +7,7 @@ using BenchmarkDotNet.Engines;
 using Squirix.Benchmarks.Infrastructure;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.Server.TestKit.Benchmarking;
+using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Benchmarks;

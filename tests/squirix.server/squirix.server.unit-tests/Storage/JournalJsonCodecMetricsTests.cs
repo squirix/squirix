@@ -4,7 +4,7 @@ using System.Text.Json;
 using Google.Protobuf;
 using Squirix.Server.Storage.Journaling.Json;
 using Squirix.Server.Storage.JournalProto;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Storage;

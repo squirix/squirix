@@ -1,7 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Infrastructure;
-using Squirix.Server.TestKit.AspNetCore;
+using Squirix.Server.TestKit.Hosting;
 using Xunit;
 
 namespace Squirix.E2ETests.PublicApi.SingleNode;

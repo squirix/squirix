@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
-using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;

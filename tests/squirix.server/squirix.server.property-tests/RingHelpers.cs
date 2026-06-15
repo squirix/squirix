@@ -33,7 +33,7 @@ internal static class RingHelpers
     /// Returns a shuffled copy of <paramref name="source" /> using the Fisher–Yates algorithm.
     /// </summary>
     /// <typeparam name="T">Element type.</typeparam>
-    /// <param name="source">Input sequence to shuffle. Must not be <c>null</c>.</param>
+    /// <param name="source">Input sequence to shuffle. Must not be <see langword="null"/>.</param>
     /// <param name="seed">Seed for the pseudo-random generator to ensure reproducible permutations.</param>
     /// <returns>A new array containing the elements of <paramref name="source" /> in randomized order.</returns>
     /// <remarks>
@@ -41,7 +41,7 @@ internal static class RingHelpers
     /// Deterministic shuffling (via <paramref name="seed" />) is useful to assert order-invariance
     /// properties while keeping failing cases reproducible.
     /// </remarks>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="source" /> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="source" /> is <see langword="null"/>.</exception>
     public static T[] Shuffle<T>(T[] source, int seed)
     {
         ArgumentNullException.ThrowIfNull(source);

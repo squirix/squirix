@@ -1,6 +1,6 @@
 using System;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Cluster;
+using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.E2ETests.Infrastructure;
 

@@ -76,7 +76,7 @@ public static class DirectoryKit
         ValidateNoInvalidChars(path);
 
         var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
-        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? Environment.CurrentDirectory, path));
+        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? System.Environment.CurrentDirectory, path));
 
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");

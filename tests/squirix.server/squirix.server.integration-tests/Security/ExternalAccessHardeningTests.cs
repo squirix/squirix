@@ -3,8 +3,8 @@ using System.Net;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Security;
+using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 

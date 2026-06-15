@@ -25,7 +25,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     ///         <description>Snapshot in-flight flag is present and boolean.</description>
     ///     </item>
     ///     <item>
-    ///         <description>Snapshot age is reported as either <c>null</c> or numeric.</description>
+    ///         <description>Snapshot age is reported as either <see langword="null"/> or numeric.</description>
     ///     </item>
     ///     <item>
     ///         <description>Compaction object includes state and in-flight flag.</description>

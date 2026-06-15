@@ -11,7 +11,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Cluster.Transport;
 using Xunit;
 

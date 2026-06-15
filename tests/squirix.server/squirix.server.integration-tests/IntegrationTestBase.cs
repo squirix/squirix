@@ -26,10 +26,10 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Mtls;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.TestKit.XUnit;
 using Xunit;
 
@@ -83,7 +83,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
     /// </param>
     /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <c>null</c>, the entry does not have an absolute expiry.
+    /// Optional absolute UTC expiration time. When <see langword="null"/>, the entry does not have an absolute expiry.
     /// </param>
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
@@ -93,7 +93,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// </param>
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
-    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <c>null</c>.
+    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null"/>.
     /// </returns>
     internal static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
@@ -164,7 +164,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
     /// </param>
     /// <param name="callPolicyFactory">
-    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <c>null</c>, a default policy is used.
+    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null"/>, a default policy is used.
     /// The factory receives the peer URL and should return a configured policy instance.
     /// </param>
     /// <param name="configureGrpc">
@@ -174,7 +174,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).
     /// </param>
     /// <param name="snapshotOptions">
-    /// Optional snapshot trigger options; when <c>null</c>, the node uses its built-in defaults.
+    /// Optional snapshot trigger options; when <see langword="null"/>, the node uses its built-in defaults.
     /// </param>
     /// <param name="persistenceOptions">
     /// Optional base persistence options. The data directory is overridden per test (node id + scope);
@@ -199,7 +199,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// Optional backpressure options for inbound admission control.
     /// </param>
     /// <param name="memoryPressureOptions">
-    /// Optional memory pressure options; when <c>null</c>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
+    /// Optional memory pressure options; when <see langword="null"/>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
     /// <param name="security">
     /// Optional per-node security override. When set, environment variables are not read for auth on this startup.

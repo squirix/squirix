@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Cluster.Transport;
 using Xunit;
 

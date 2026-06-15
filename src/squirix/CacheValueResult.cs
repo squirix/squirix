@@ -5,5 +5,5 @@ namespace Squirix;
 /// </summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
-/// <param name="Value">The retrieved value, which may be <c>null</c> when <paramref name="Found" /> is <c>true</c>.</param>
+/// <param name="Value">The retrieved value, which may be <see langword="null"/> when <paramref name="Found" /> is <c>true</c>.</param>
 public readonly record struct CacheValueResult<T>(bool Found, T? Value);

@@ -4,7 +4,7 @@ using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Backpressure;

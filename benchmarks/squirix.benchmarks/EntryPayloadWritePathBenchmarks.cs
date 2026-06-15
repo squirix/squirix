@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Attributes;
+using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.Limits;
 using ServerCacheEntry = Squirix.Server.CacheEntry<string>;
 
@@ -57,7 +58,7 @@ public class EntryPayloadWritePathBenchmarks
             EntryPayloadProfile.Small256B => new string('x', 256),
             EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
             EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
-            EntryPayloadProfile.NearLimitDiscriminated => EntryPayloadLimitTestHelpers.CreateNearLimitDiscriminatedStringValue(),
+            EntryPayloadProfile.NearLimitDiscriminated => EntryLimitKit.CreateNearLimitDiscriminatedStringValue(),
             _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
         };
 

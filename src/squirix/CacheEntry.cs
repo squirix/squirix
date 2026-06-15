@@ -29,7 +29,7 @@ public sealed class CacheEntry<T>
     public DateTime? ExpiresUtc { get; init; }
 
     /// <summary>
-    /// Gets the value to store. May be <c>null</c>.
+    /// Gets the value to store. May be <see langword="null"/>.
     /// </summary>
     public required T? Value { get; init; }
 }

@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit.Utils;
+using Squirix.Server.TestKit.Testing;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Observability;

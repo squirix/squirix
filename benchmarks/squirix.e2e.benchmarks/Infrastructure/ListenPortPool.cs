@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Infrastructure;
 

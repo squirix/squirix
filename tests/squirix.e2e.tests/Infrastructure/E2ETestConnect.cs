@@ -2,7 +2,7 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Infrastructure;
 
