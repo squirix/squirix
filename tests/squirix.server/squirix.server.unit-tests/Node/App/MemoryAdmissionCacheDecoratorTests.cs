@@ -27,11 +27,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
         const string key = "race-key";
 
         await using var physical = new PhysicalCache<string>();
-        var inner = new ClientCache<string>(physical, physical);
-        var accounting = new MemoryUsageAccounting();
-        var estimator = new CacheEntrySizeEstimator<string>();
-        var gate = CreatePermissiveGate(accounting, self);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, self, new FixedOwnerLocator(self));
+        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(self, physical);
         var entry = new CacheEntry<string> { Value = "v", Version = 1 };
         var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, payloadIsCounter: false);
 
@@ -48,6 +44,49 @@ public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(expectedBytes, accounting.EstimatedBytes);
         Assert.True(await inner.ContainsAsync(cacheName, key, DefaultCancellationToken));
+    }
+
+    /// <summary>
+    /// Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.
+    /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task SetAsyncConcurrentMissAccountsSingleEntryForLocalOwnerKey()
+    {
+        const string self = "node-a";
+        const string cacheName = "orders";
+        const string key = "set-race-key";
+
+        await using var physical = new PhysicalCache<string>();
+        var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(self, physical);
+        var entry = new CacheEntry<string> { Value = "v", Version = 1 };
+        var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, payloadIsCounter: false);
+
+        const int concurrency = 32;
+        await Task.WhenAll(
+            Enumerable.Range(0, concurrency)
+                .Select(_ => cache.SetAsync(cacheName, key, entry, DefaultCancellationToken).AsTask()));
+
+        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(expectedBytes, accounting.EstimatedBytes);
+        Assert.True(await inner.ContainsAsync(cacheName, key, DefaultCancellationToken));
+        var stored = await inner.GetEntryAsync(cacheName, key, DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal("v", stored.Value);
+    }
+
+    private static (
+        MemoryAdmissionCacheDecorator<string> Cache,
+        ClientCache<string> Inner,
+        MemoryUsageAccounting Accounting,
+        CacheEntrySizeEstimator<string> Estimator) CreateLocalOwnerCache(string self, PhysicalCache<string> physical)
+    {
+        var inner = new ClientCache<string>(physical, physical);
+        var accounting = new MemoryUsageAccounting();
+        var estimator = new CacheEntrySizeEstimator<string>();
+        var gate = CreatePermissiveGate(accounting, self);
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, self, new FixedOwnerLocator(self));
+        return (cache, inner, accounting, estimator);
     }
 
     private static MemoryPressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId)
