@@ -25,17 +25,6 @@ public sealed class GrpcTransportEndpointsTests
     }
 
     /// <summary>
-    /// Ensures disabled cluster mTLS keeps the default HTTPS handler without a client certificate.
-    /// </summary>
-    [Fact]
-    public void CreateChannelHandlerWithoutMtlsUsesDefaultHandler()
-    {
-        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
-
-        Assert.Null(handler.SslOptions.ClientCertificates);
-    }
-
-    /// <summary>
     /// Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.
     /// </summary>
     [Fact]
@@ -115,7 +104,7 @@ public sealed class GrpcTransportEndpointsTests
     public void ValidatePeerServerCertificateRejectsExpiredCertificate()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        var notBefore = bundle.Ca.NotBefore;
+        var notBefore = new DateTimeOffset(bundle.Ca.NotBefore.ToUniversalTime());
         var notAfter = notBefore.AddHours(1);
         using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
 

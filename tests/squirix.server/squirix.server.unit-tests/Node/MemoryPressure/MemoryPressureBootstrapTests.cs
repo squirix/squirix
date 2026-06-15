@@ -1,5 +1,5 @@
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Environment;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.MemoryPressure;

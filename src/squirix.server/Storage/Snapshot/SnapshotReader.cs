@@ -20,19 +20,22 @@ internal sealed class SnapshotReader
         var entries = new List<(CacheKey Key, CacheEntry<T> Entry)>();
         var idempotencyRecords = new List<PersistedIdempotencyRecord>();
 
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
-        while (true)
+        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        await using (fs.ConfigureAwait(false))
         {
-            var (ok, payload) = await FrameCodec.ReadFrameStrictAsync(fs, frame => ReadStrictPayload<T>(frame, skipExpired), cancellationToken).ConfigureAwait(false);
-            if (!ok)
-                return new SnapshotLoadResult<T>(entries, idempotencyRecords);
+            while (true)
+            {
+                var (ok, payload) = await FrameCodec.ReadFrameStrictAsync(fs, frame => ReadStrictPayload<T>(frame, skipExpired), cancellationToken).ConfigureAwait(false);
+                if (!ok)
+                    return new SnapshotLoadResult<T>(entries, idempotencyRecords);
 
-            var snapshotPayload = payload ?? throw new InvalidDataException("Snapshot frame payload is missing.");
-            if (snapshotPayload.Entry is { } entry)
-                entries.Add(entry);
+                var snapshotPayload = payload ?? throw new InvalidDataException("Snapshot frame payload is missing.");
+                if (snapshotPayload.Entry is { } entry)
+                    entries.Add(entry);
 
-            if (snapshotPayload.Idempotency is { } idempotency)
-                idempotencyRecords.Add(idempotency);
+                if (snapshotPayload.Idempotency is { } idempotency)
+                    idempotencyRecords.Add(idempotency);
+            }
         }
     }
 
@@ -41,15 +44,18 @@ internal sealed class SnapshotReader
         bool skipExpired = true,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
-        while (true)
+        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        await using (fs.ConfigureAwait(false))
         {
-            var (ok, frame) = await FrameCodec.ReadFrameAsync(fs, payload => ReadEntryPayload<T>(payload, skipExpired), cancellationToken).ConfigureAwait(false);
-            if (!ok)
-                yield break;
+            while (true)
+            {
+                var (ok, frame) = await FrameCodec.ReadFrameAsync(fs, payload => ReadEntryPayload<T>(payload, skipExpired), cancellationToken).ConfigureAwait(false);
+                if (!ok)
+                    yield break;
 
-            if (frame is { HasEntry: true, Key: { } key, Entry: { } entry })
-                yield return (key, entry);
+                if (frame is { HasEntry: true, Key: { } key, Entry: { } entry })
+                    yield return (key, entry);
+            }
         }
     }
 

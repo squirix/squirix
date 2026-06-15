@@ -56,7 +56,7 @@ public sealed class SquirixSerializerTests
         var called = Fake.GetCalls(custom).Any(static call =>
         {
             var method = call.Method;
-            if (method.Name != nameof(ISquirixSerializer.Deserialize))
+            if (!string.Equals(method.Name, nameof(ISquirixSerializer.Deserialize), StringComparison.OrdinalIgnoreCase))
                 return false;
 
             var parameters = method.GetParameters();

@@ -1,6 +1,7 @@
 #:property PublishAot=false
-#:property NoWarn=SA1649
+#:property NoWarn=SA1649;S3903
 using System.Diagnostics;
+using System.Globalization;
 
 var runs = new[]
 {
@@ -17,33 +18,38 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    output.WriteLine("sqr-resiliency-repeat — run selected resiliency tests repeatedly.");
-    output.WriteLine();
-    output.WriteLine("Usage:");
-    output.WriteLine("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]");
+    await output.WriteLineAsync("sqr-resiliency-repeat — run selected resiliency tests repeatedly.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-resiliency-repeat.cs -- [-Iterations N] [-Configuration Release] [-NoBuild]").ConfigureAwait(false);
     return 0;
 }
 
 var iterations = 5;
 var configuration = "Release";
 var noBuild = false;
-for (var i = 0; i < argv.Length; i++)
+var argIndex = 0;
+while (argIndex < argv.Length)
 {
-    var a = argv[i];
+    var a = argv[argIndex];
     if (string.Equals(a, "-Iterations", StringComparison.OrdinalIgnoreCase)
         || string.Equals(a, "--iterations", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length || !int.TryParse(argv[++i], out iterations) || iterations < 1)
-            return Fail("Iterations must be positive.");
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out iterations) || iterations < 1)
+            return await FailAsync("Iterations must be positive.").ConfigureAwait(false);
+
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "-Configuration", StringComparison.OrdinalIgnoreCase)
         || string.Equals(a, "--configuration", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return Fail("missing value for -Configuration");
-        configuration = argv[++i];
+        if (argIndex + 1 >= argv.Length)
+            return await FailAsync("missing value for -Configuration").ConfigureAwait(false);
+
+        configuration = argv[argIndex + 1];
+        argIndex += 2;
         continue;
     }
 
@@ -51,19 +57,20 @@ for (var i = 0; i < argv.Length; i++)
         || string.Equals(a, "--no-build", StringComparison.OrdinalIgnoreCase))
     {
         noBuild = true;
+        argIndex++;
         continue;
     }
 
-    return Fail($"unknown argument '{a}'");
+    return await FailAsync($"unknown argument '{a}'").ConfigureAwait(false);
 }
 
 var repoRoot = ResolveRepoRoot();
 for (var iteration = 1; iteration <= iterations; iteration++)
 {
-    output.WriteLine($"Iteration {iteration}/{iterations}");
+    await output.WriteLineAsync($"Iteration {iteration}/{iterations}").ConfigureAwait(false);
     foreach (var run in runs)
     {
-        output.WriteLine($"Running {run.Label}");
+        await output.WriteLineAsync($"Running {run.Label}").ConfigureAwait(false);
         var list = new List<string>
         {
             "test",
@@ -77,13 +84,13 @@ for (var iteration = 1; iteration <= iterations; iteration++)
         if (noBuild)
             list.Add("--no-build");
 
-        var code = RunDotnet(repoRoot, list);
+        var code = await RunDotnetAsync(repoRoot, list).ConfigureAwait(false);
         if (code != 0)
-            return Fail($"Failed: {run.Label} on iteration {iteration}.", code);
+            return await FailAsync($"Failed: {run.Label} on iteration {iteration}.", code).ConfigureAwait(false);
     }
 }
 
-output.WriteLine("All resiliency repeat runs passed.");
+await output.WriteLineAsync("All resiliency repeat runs passed.").ConfigureAwait(false);
 return 0;
 
 static string ResolveRepoRoot()
@@ -105,7 +112,7 @@ static string ResolveRepoRoot()
     return Environment.CurrentDirectory;
 }
 
-static int RunDotnet(string repoRoot, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> args)
 {
     using var proc = Process.Start(new ProcessStartInfo
     {
@@ -114,18 +121,20 @@ static int RunDotnet(string repoRoot, IReadOnlyList<string> args)
         UseShellExecute = false,
         Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
     });
-    proc?.WaitForExit();
+    if (proc is not null)
+        await proc.WaitForExitAsync().ConfigureAwait(false);
+
     return proc?.ExitCode ?? 1;
 }
 
 static string QuoteIfNeeded(string value)
 {
-    return value.Contains(' ') ? $"\"{value}\"" : value;
+    return value.Contains(' ', StringComparison.Ordinal) ? $"\"{value}\"" : value;
 }
 
-static int Fail(string message, int code = 1)
+static async Task<int> FailAsync(string message, int code = 1)
 {
-    Console.Error.WriteLine(message);
+    await Console.Error.WriteLineAsync(message).ConfigureAwait(false);
     return code;
 }
 

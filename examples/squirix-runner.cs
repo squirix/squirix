@@ -2,7 +2,6 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;

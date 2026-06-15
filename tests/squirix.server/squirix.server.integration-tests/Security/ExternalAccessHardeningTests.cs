@@ -3,8 +3,8 @@ using System.Net;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
-using Squirix.Server.TestKit.AspNetCore;
-using Squirix.Server.TestKit.Security;
+using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -22,12 +22,12 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
     [Fact]
     public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
     {
-        var url = GetNextHttpAddress();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions());
 
-        var response = await HttpClient.GetAsync(new Uri($"{url}/health"), DefaultCancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(url, "/health"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
@@ -39,12 +39,13 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
     public async Task NonLoopbackListenWithJwtSucceeds()
     {
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
 
-        using var channel = CreateGrpcChannel(new Uri($"https://127.0.0.1:{mainPort}", UriKind.Absolute));
+        var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
+        using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
@@ -61,8 +62,8 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
     public async Task ProductionExternalUrlRequiresAuthentication()
     {
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
+        var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()));
         Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);

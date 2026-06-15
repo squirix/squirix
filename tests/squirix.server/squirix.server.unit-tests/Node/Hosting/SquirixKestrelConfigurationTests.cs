@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Cluster.Transport;
 using Xunit;
 
@@ -21,10 +21,8 @@ public sealed class SquirixKestrelConfigurationTests
     public void ConfigureKestrelWithMtlsBuildsInternalListener()
     {
         using var bundle = MtlsTestCertificateFactory.Create();
-        using var primaryAllocator = new PortAllocator(32000, 32999);
-        using var internalAllocator = new PortAllocator(33000, 33999);
-        var primaryPort = primaryAllocator.Allocate();
-        var internalPort = internalAllocator.Allocate();
+        var primaryPort = ListenPortPool.ServerUnitTests.AllocatePort();
+        var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -57,8 +55,7 @@ public sealed class SquirixKestrelConfigurationTests
     [Fact]
     public void ConfigureKestrelWithStandaloneTopologyBuildsPrimaryListenerOnly()
     {
-        using var allocator = new PortAllocator(31000, 31999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder();
         var options = new MtlsOptions();
         var material = MtlsCertificateMaterial.Load(options, port, false);

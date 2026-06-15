@@ -20,11 +20,11 @@ namespace Squirix.Internal.Cluster.Transport;
 /// </summary>
 internal sealed class ClientPool : IClientPool
 {
-    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
+    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
-    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
+    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private int _disposed;
 
     public ClientPool(
@@ -32,6 +32,7 @@ internal sealed class ClientPool : IClientPool
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
+        CallCredentials? callCredentials = null,
         BootstrapConnectOptions? connectOptions = null)
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
@@ -44,6 +45,7 @@ internal sealed class ClientPool : IClientPool
             GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
+                Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixClientGrpcLimits.MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixClientGrpcLimits.MaxSendMessageSizeBytes,

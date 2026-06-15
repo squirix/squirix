@@ -1,8 +1,8 @@
 using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
@@ -24,7 +24,11 @@ internal static class MtlsTestCertificateFactory
         using var nodeKey = RSA.Create(2048);
         var nodeRequest = new CertificateRequest("CN=node-a", nodeKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         nodeRequest.AddClusterNodeExtensions();
-        var nodePublic = nodeRequest.Create(ca, ca.NotBefore, ca.NotAfter, Guid.NewGuid().ToByteArray());
+        var nodePublic = nodeRequest.Create(
+            ca,
+            new DateTimeOffset(ca.NotBefore.ToUniversalTime()),
+            new DateTimeOffset(ca.NotAfter.ToUniversalTime()),
+            Guid.NewGuid().ToByteArray());
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
 
         return new MtlsTestCertificateBundle(directory, ca, nodeCertificate);
@@ -35,8 +39,8 @@ internal static class MtlsTestCertificateFactory
         ArgumentNullException.ThrowIfNull(ca);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
 
-        var effectiveNotBefore = notBefore ?? ca.NotBefore;
-        var effectiveNotAfter = notAfter ?? ca.NotAfter;
+        var effectiveNotBefore = notBefore ?? new DateTimeOffset(ca.NotBefore.ToUniversalTime());
+        var effectiveNotAfter = notAfter ?? new DateTimeOffset(ca.NotAfter.ToUniversalTime());
 
         using var peerKey = RSA.Create(2048);
         var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);

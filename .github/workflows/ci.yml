@@ -296,7 +296,6 @@ jobs:
                 run: |
                     set -o pipefail
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      -p:UseAppHost=false \
                       --filter "FullyQualifiedName~AuthSmokeTests" 2>&1 | tee test-output-smoke-auth.log
 
             -   name: Run Smoke Tests
@@ -305,7 +304,6 @@ jobs:
                     set -o pipefail
                     mkdir -p coverage/smoke
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      -p:UseAppHost=false \
                       --logger "trx;LogFileName=smoke.trx" \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
                       --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee test-output-smoke.log
@@ -358,11 +356,11 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ github.event_name == 'schedule' && 8 || 4 }}
+            max-parallel: ${{ github.event_name == 'schedule' && 8 || 7 }}
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e ]
+                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -431,10 +429,14 @@ jobs:
                       server-integration)
                         PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
                         ;;
-                      e2e)
+                      e2e-single-node)
                         PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
                         # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
-                        FILTER_ARGS=(--filter "Suite!=Stress")
+                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress")
+                        ;;
+                      e2e-multi-node)
+                        PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
+                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
                         ;;
                       *)
                         echo "Unsupported suite: ${{ matrix.suite }}" >&2
@@ -442,23 +444,21 @@ jobs:
                         ;;
                     esac
 
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+                    if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.suite }}" != "server-property" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" \
                         --results-directory "${{ github.workspace }}/coverage/${{ matrix.suite }}" \
                         --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     else
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     fi
 
             -   name: Verify Suite Coverage Was Collected
-                if: matrix.os == 'ubuntu-latest'
+                if: matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 shell: bash
                 run: |
                     mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -471,7 +471,7 @@ jobs:
                     fi
 
             -   name: Upload Raw Coverage Files
-                if: always() && matrix.os == 'ubuntu-latest'
+                if: always() && matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}
@@ -541,6 +541,7 @@ jobs:
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
 
             -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
                 shell: bash
@@ -550,7 +551,7 @@ jobs:
                     test_projects=()
                     while IFS= read -r -d '' f; do
                       test_projects+=("$f")
-                    done < <(git ls-files -z '*Tests.csproj' '*E2E.csproj')
+                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj')
 
                     if [ ${#test_projects[@]} -eq 0 ]; then
                       echo "No test projects found (*.Tests.csproj)." >&2
@@ -575,6 +576,15 @@ jobs:
                         echo "No tests discovered in $proj" >&2
                         exit 1
                       fi
+
+                      count="$(echo "$output" | sed -n '/The following Tests are available:/,$p' | tail -n +2 | grep -E '^[[:space:]]+[^[:space:]]' | wc -l | tr -d '[:space:]')"
+                      if [ "${count:-0}" -le 0 ]; then
+                        echo "$output"
+                        echo "No test names were listed for $proj" >&2
+                        exit 1
+                      fi
+
+                      echo "Discovered $count tests in $proj"
                     done
 
     coverage:
@@ -618,7 +628,7 @@ jobs:
                     reports: coverage/**/coverage.cobertura.xml
                     targetdir: coverage/merged
                     reporttypes: Cobertura
-                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
+                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
                     classfilters: '+*;-JetBrains.Annotations.*'
 
             -   name: Enforce Coverage Gate
@@ -651,7 +661,7 @@ jobs:
                     reports: coverage/**/coverage.cobertura.xml
                     targetdir: coverage/report
                     reporttypes: HtmlInline;Cobertura;TextSummary
-                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
+                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
                     classfilters: '+*;-JetBrains.Annotations.*'
 
             -   name: Upload Coverage Artifact

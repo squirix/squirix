@@ -19,7 +19,7 @@ public static class ExportedTypeReflection
     /// </summary>
     /// <param name="assembly">Assembly whose exported API is summarized.</param>
     /// <returns>Normalized type and member identities, compared with <see cref="StringComparer.Ordinal" />.</returns>
-    public static HashSet<string> GetExportedApiIdentitySet(Assembly assembly) => GetExportedApiIdentities(assembly).ToHashSet(StringComparer.Ordinal);
+    public static IReadOnlySet<string> GetExportedApiIdentitySet(Assembly assembly) => GetExportedApiIdentities(assembly).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// Yields exported types from <paramref name="assembly" />, excluding compiler-generated artifacts.

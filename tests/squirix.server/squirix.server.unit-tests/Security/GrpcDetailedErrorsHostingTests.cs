@@ -3,7 +3,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Squirix.Server.TestKit.Http;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Security;
@@ -37,8 +37,7 @@ public sealed class GrpcDetailedErrorsHostingTests
 
     private static WebApplication BuildHost(string environmentName)
     {
-        using var allocator = new PortAllocator(30000, 30999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var applicationOptions = new WebApplicationOptions
         {
             EnvironmentName = environmentName,

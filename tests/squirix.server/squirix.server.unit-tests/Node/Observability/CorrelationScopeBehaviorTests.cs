@@ -23,9 +23,8 @@ public sealed class CorrelationScopeBehaviorTests
         _ = activity.Start();
         var logger = new CapturingLogger();
 
-        using (Correlation.BeginStandardScope(logger, "node-a", "Svc/Call"))
-        {
-        }
+        using var scope = Correlation.BeginStandardScope(logger, "node-a", "Svc/Call");
+        Assert.NotNull(scope);
 
         Assert.NotNull(logger.LastScopeState);
         var state = logger.LastScopeState;
@@ -44,9 +43,8 @@ public sealed class CorrelationScopeBehaviorTests
     {
         var logger = new CapturingLogger();
 
-        using (Correlation.BeginStandardScope(logger, "node-a"))
-        {
-        }
+        using var scope = Correlation.BeginStandardScope(logger, "node-a");
+        Assert.NotNull(scope);
 
         Assert.NotNull(logger.LastScopeState);
         var state = logger.LastScopeState;

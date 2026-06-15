@@ -1,5 +1,4 @@
 using System.IO;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.UnitTests.Architecture;

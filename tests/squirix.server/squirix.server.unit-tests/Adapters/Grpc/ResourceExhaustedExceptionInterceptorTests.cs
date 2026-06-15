@@ -56,8 +56,19 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
     public async Task ServerStreamingSuccessfulCallPassesThrough()
     {
         var interceptor = new ResourceExhaustedExceptionInterceptor();
+        var invoked = false;
 
-        await interceptor.ServerStreamingServerHandler("request", new TestServerStreamWriter<string>(), new TestServerCallContext(), static (_, _, _) => Task.CompletedTask);
+        await interceptor.ServerStreamingServerHandler(
+            "request",
+            new TestServerStreamWriter<string>(),
+            new TestServerCallContext(),
+            (request, _, _) =>
+            {
+                invoked = string.Equals(request, "request", StringComparison.Ordinal);
+                return Task.CompletedTask;
+            });
+
+        Assert.True(invoked);
     }
 
     /// <summary>

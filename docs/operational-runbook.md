@@ -44,7 +44,7 @@ Collect:
 - health/readiness detail
 - configured peer set and static ring shape
 - journal and snapshot errors from logs
-- Backpressure pressure and request failures from logs
+- Backpressure and request failures from logs
 - Serializer and journal JSON codec failures
 - Correlation or trace ids for failing requests
 - `memoryPressure` on `/health/ready/details` (state, resolved byte limit, estimated usage, entry count, rejections;
@@ -96,7 +96,7 @@ Alerting guidance:
   capacity — trending estimated bytes toward the configured limit. No automatic host readiness failure.
 - **Critical** (`state == "critical"`): treat as imminent admission pressure. Expect growing writes to fail with
   documented `MEMORY_PRESSURE` / `ResourceExhausted` signals; monitor
-  `rejectedWriteCount` and `squirix_memory_rejections_total`. journal and snapshots remain **durability** tools — not an
+  `rejectedWriteCount` and `squirix_memory_rejections_total`. Journal and snapshots remain **durability** tools — not an
   overflow tier for RAM pressure.
 - **Cardinality:** do not add raw cache names, keys, value previews, serialized payloads, or exception messages as
   metric labels or trace tags. Generic logical cache operation metrics are owned by `MetricsCacheDecorator<T>` and use
@@ -132,8 +132,8 @@ working-set size.
 Back up the full persistence set for a node:
 
 - journal segments
-- Snapshot files
-- Manifest files
+- snapshot files
+- manifest files
 - Node configuration
 - Serializer configuration and package versions
 

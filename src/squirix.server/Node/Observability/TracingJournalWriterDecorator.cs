@@ -20,7 +20,7 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
     }
 
-    public event Action? OnAppended
+    public event EventHandler? OnAppended
     {
         add => _inner.OnAppended += value;
         remove => _inner.OnAppended -= value;

@@ -1,9 +1,7 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Squirix.TestKit.IO;
 
@@ -12,67 +10,6 @@ namespace Squirix.TestKit.IO;
 /// </summary>
 public static class FileKit
 {
-    /// <summary>
-    /// Determines whether a file exists at the provided path after validating the file path shape.
-    /// </summary>
-    /// <param name="path">Absolute or relative file path to validate and inspect.</param>
-    /// <returns><see langword="true" /> when a regular file exists at the validated path; otherwise <see langword="false" />.</returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="path" /> is empty/whitespace, contains invalid characters or wildcards,
-    /// has empty segments, uses Windows-reserved names, ends with dot/space on Windows, or does not include a file name.
-    /// </exception>
-    public static bool Exists(string? path)
-    {
-        var full = ValidateAndGetFullPath(path);
-        return File.Exists(full);
-    }
-
-    /// <summary>
-    /// Returns the length in bytes of the file at the provided path after validating the file path shape.
-    /// </summary>
-    /// <param name="path">Absolute or relative file path to validate and inspect.</param>
-    /// <returns>Length of the file in bytes.</returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="path" /> is empty/whitespace, contains invalid characters or wildcards,
-    /// has empty segments, uses Windows-reserved names, ends with dot/space on Windows, or does not include a file name.
-    /// </exception>
-    /// <exception cref="FileNotFoundException">Thrown when the file does not exist.</exception>
-    public static long GetLength(string? path)
-    {
-        var full = ValidateAndGetFullPath(path);
-        return new FileInfo(full).Length;
-    }
-
-    /// <summary>
-    /// Attempts to delete a file at the given <paramref name="path" /> and suppresses all exceptions.
-    /// </summary>
-    /// <param name="path">
-    /// Absolute or relative path to the file to delete. If <see langword="null" /> or empty,
-    /// the method returns without performing any action.
-    /// </param>
-    /// <remarks>
-    /// This is a best-effort cleanup helper that intentionally ignores any errors
-    /// (e.g., <see cref="IOException" />, <see cref="UnauthorizedAccessException" />).
-    /// Prefer this in test teardown code where failures during cleanup should not fail the test.
-    /// For strict deletion semantics, use <see cref="File.Delete(string)" /> directly.
-    /// </remarks>
-    public static void TryDelete(string? path)
-    {
-        try
-        {
-            if (!string.IsNullOrEmpty(path))
-                File.Delete(path);
-        }
-        catch (IOException)
-        {
-            /* ignore */
-        }
-        catch (UnauthorizedAccessException)
-        {
-            /* ignore */
-        }
-    }
-
     /// <summary>
     /// Writes the specified text to a file after validating the file path and ensuring the parent directory exists.
     /// </summary>
@@ -92,27 +29,6 @@ public static class FileKit
         File.WriteAllText(full, contents);
     }
 
-    /// <summary>
-    /// Writes the specified text to a file after validating the file path and ensuring the parent directory exists.
-    /// </summary>
-    /// <param name="path">Absolute or relative file path to create or overwrite.</param>
-    /// <param name="contents">Text content to write.</param>
-    /// <param name="cancellationToken">Cancellation token for the asynchronous operation.</param>
-    /// <returns>A task representing the asynchronous write operation.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="contents" /> is <see langword="null" />.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="path" /> is invalid or does not include a file name.</exception>
-    public static async Task WriteAllTextAsync(string path, string contents, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(contents);
-
-        var full = ValidateAndGetFullPath(path);
-        var directory = Path.GetDirectoryName(full);
-        if (!string.IsNullOrWhiteSpace(directory))
-            DirectoryKit.CreateDirectory(directory);
-
-        await File.WriteAllTextAsync(full, contents, cancellationToken).ConfigureAwait(false);
-    }
-
     private static bool IsWindowsReservedName(string seg)
     {
         var name = seg;
@@ -128,7 +44,7 @@ public static class FileKit
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), out var num) && num is >= 0 and <= 9;
+        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static string ValidateAndGetFullPath(string? path)
@@ -164,19 +80,19 @@ public static class FileKit
         {
             var seg = rawSeg.Trim();
             if (seg.Length == 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.");
+                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
 
                 if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.");
+                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
             }
 
             if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.");
+                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
         }
     }
 }

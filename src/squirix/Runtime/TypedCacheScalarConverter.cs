@@ -71,50 +71,48 @@ internal static class TypedCacheScalarConverter
 
     private static bool TryConvertNonEnumScalar(object value, Type target, [NotNullWhen(true)] out object? converted)
     {
-        if (target == typeof(string))
-        {
-            if (value is string s)
-            {
-                converted = s;
-                return true;
-            }
-
-            converted = null;
-            return false;
-        }
-
-        if (target == typeof(bool))
-        {
-            if (value is bool b)
-            {
-                converted = b;
-                return true;
-            }
-
-            converted = null;
-            return false;
-        }
-
-        if (target == typeof(char))
-        {
-            if (value is char c)
-            {
-                converted = c;
-                return true;
-            }
-
-            converted = null;
-            return false;
-        }
+        if (TryConvertToStringBoolOrChar(value, target, out converted))
+            return true;
 
         if (IsIntegerType(target))
         {
             if (TryNormalizeToIntegralDecimal(value, out var integral))
                 return TryDecimalToIntegerTarget(integral, target, out converted);
+
             converted = null;
             return false;
         }
 
+        if (TryConvertToFloatingPointTarget(value, target, out converted))
+            return true;
+
+        converted = null;
+        return false;
+    }
+
+    private static bool TryConvertToEnumStrict(object value, Type enumType, [NotNullWhen(true)] out object? enumObj)
+    {
+        var underlying = Enum.GetUnderlyingType(enumType);
+        if (!TryConvertNonEnumScalar(value, underlying, out var boxedUnderlying))
+        {
+            enumObj = null;
+            return false;
+        }
+
+        try
+        {
+            enumObj = Enum.ToObject(enumType, boxedUnderlying);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            enumObj = null;
+            return false;
+        }
+    }
+
+    private static bool TryConvertToFloatingPointTarget(object value, Type target, [NotNullWhen(true)] out object? converted)
+    {
         if (target == typeof(double))
         {
             if (!TryToDoubleStrict(value, out var d))
@@ -155,23 +153,78 @@ internal static class TypedCacheScalarConverter
         return false;
     }
 
-    private static bool TryConvertToEnumStrict(object value, Type enumType, [NotNullWhen(true)] out object? enumObj)
+    private static bool TryConvertToStringBoolOrChar(object value, Type target, [NotNullWhen(true)] out object? converted)
     {
-        var underlying = Enum.GetUnderlyingType(enumType);
-        if (!TryConvertNonEnumScalar(value, underlying, out var boxedUnderlying))
+        if (target == typeof(string))
         {
-            enumObj = null;
+            if (value is string s)
+            {
+                converted = s;
+                return true;
+            }
+
+            converted = null;
+            return false;
+        }
+
+        if (target == typeof(bool))
+        {
+            if (value is bool b)
+            {
+                converted = b;
+                return true;
+            }
+
+            converted = null;
+            return false;
+        }
+
+        if (target == typeof(char) && value is char c)
+        {
+            converted = c;
+            return true;
+        }
+
+        converted = null;
+        return false;
+    }
+
+    private static bool TryDecimalFromDouble(double d, out decimal converted)
+    {
+        if (!double.IsFinite(d))
+        {
+            converted = 0;
             return false;
         }
 
         try
         {
-            enumObj = Enum.ToObject(enumType, boxedUnderlying);
+            converted = decimal.CreateChecked(d);
             return true;
         }
-        catch (ArgumentException)
+        catch (OverflowException)
         {
-            enumObj = null;
+            converted = 0;
+            return false;
+        }
+    }
+
+    private static bool TryDecimalFromFloat(float f, out decimal converted)
+    {
+        if (!float.IsFinite(f))
+        {
+            converted = 0;
+            return false;
+        }
+
+        try
+        {
+            converted = decimal.CreateChecked(f);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            converted = 0;
             return false;
         }
     }
@@ -253,6 +306,72 @@ internal static class TypedCacheScalarConverter
         }
     }
 
+    private static bool TryDoubleFromDecimal(decimal m, out double converted)
+    {
+        try
+        {
+            converted = double.CreateChecked(m);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            converted = 0;
+            return false;
+        }
+    }
+
+    private static bool TryIntegralFromDecimal(decimal dec, out decimal integral)
+    {
+        if (dec != decimal.Truncate(dec))
+        {
+            integral = 0;
+            return false;
+        }
+
+        integral = dec;
+        return true;
+    }
+
+    private static bool TryIntegralFromDouble(double d, out decimal integral)
+    {
+        if (!double.IsInteger(d))
+        {
+            integral = 0;
+            return false;
+        }
+
+        try
+        {
+            integral = decimal.CreateChecked(d);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            integral = 0;
+            return false;
+        }
+    }
+
+    private static bool TryIntegralFromFloat(float f, out decimal integral)
+    {
+        if (!float.IsInteger(f))
+        {
+            integral = 0;
+            return false;
+        }
+
+        try
+        {
+            integral = decimal.CreateChecked(f);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            integral = 0;
+            return false;
+        }
+    }
+
     private static bool TryNormalizeToIntegralDecimal(object value, out decimal integral)
     {
         switch (value)
@@ -282,50 +401,11 @@ internal static class TypedCacheScalarConverter
                 integral = decimal.CreateChecked(x);
                 return true;
             case double d:
-                if (!double.IsInteger(d))
-                {
-                    integral = 0;
-                    return false;
-                }
-
-                try
-                {
-                    integral = decimal.CreateChecked(d);
-                    return true;
-                }
-                catch (OverflowException)
-                {
-                    integral = 0;
-                    return false;
-                }
-
+                return TryIntegralFromDouble(d, out integral);
             case float f:
-                if (!float.IsInteger(f))
-                {
-                    integral = 0;
-                    return false;
-                }
-
-                try
-                {
-                    integral = decimal.CreateChecked(f);
-                    return true;
-                }
-                catch (OverflowException)
-                {
-                    integral = 0;
-                    return false;
-                }
-
+                return TryIntegralFromFloat(f, out integral);
             case decimal dec:
-                if (dec != decimal.Truncate(dec))
-                {
-                    integral = 0;
-                    return false;
-                }
-
-                integral = dec;
-                return true;
+                return TryIntegralFromDecimal(dec, out integral);
             default:
                 integral = 0;
                 return false;
@@ -364,41 +444,9 @@ internal static class TypedCacheScalarConverter
                 converted = decimal.CreateChecked(x);
                 return true;
             case double d:
-                if (!double.IsFinite(d))
-                {
-                    converted = 0;
-                    return false;
-                }
-
-                try
-                {
-                    converted = decimal.CreateChecked(d);
-                    return true;
-                }
-                catch (OverflowException)
-                {
-                    converted = 0;
-                    return false;
-                }
-
+                return TryDecimalFromDouble(d, out converted);
             case float f:
-                if (!float.IsFinite(f))
-                {
-                    converted = 0;
-                    return false;
-                }
-
-                try
-                {
-                    converted = decimal.CreateChecked(f);
-                    return true;
-                }
-                catch (OverflowException)
-                {
-                    converted = 0;
-                    return false;
-                }
-
+                return TryDecimalFromFloat(f, out converted);
             default:
                 converted = 0;
                 return false;
@@ -428,17 +476,7 @@ internal static class TypedCacheScalarConverter
                 converted = f;
                 return true;
             case decimal m:
-                try
-                {
-                    converted = double.CreateChecked(m);
-                    return true;
-                }
-                catch (OverflowException)
-                {
-                    converted = 0;
-                    return false;
-                }
-
+                return TryDoubleFromDecimal(m, out converted);
             case byte x:
                 converted = x;
                 return true;

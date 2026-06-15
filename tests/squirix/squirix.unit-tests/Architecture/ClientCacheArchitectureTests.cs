@@ -81,8 +81,12 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var protobuf = LoadProject("src/squirix/Squirix.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf").SingleOrDefault(static element =>
-            string.Equals(element.Attribute("Include")?.Value, @"..\shared\transport\grpc\Protos\SquirixCache.proto", StringComparison.Ordinal));
+        var protobuf = LoadProject("src/squirix/Squirix.csproj").Descendants()
+                                                                .Where(static element => string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
+                                                                .SingleOrDefault(static element => string.Equals(
+                                                                     element.Attribute("Include")?.Value,
+                                                                     @"..\shared\transport\grpc\Protos\SquirixCache.proto",
+                                                                     StringComparison.Ordinal));
 
         Assert.NotNull(protobuf);
         Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
@@ -179,8 +183,8 @@ public sealed class ClientCacheArchitectureTests
 
     private static string[] ReadIncludes(XDocument project, string itemName) =>
     [
-        .. project.Descendants().Where(element => element.Name.LocalName == itemName).Select(static element => element.Attribute("Include")?.Value)
-                  .Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
+        .. project.Descendants().Where(element => string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                  .Select(static element => element.Attribute("Include")?.Value).Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
     ];
 
     private static string[] ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);

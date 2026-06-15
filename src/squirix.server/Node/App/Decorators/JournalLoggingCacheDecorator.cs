@@ -34,7 +34,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     public async ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        if (!await TryAddCore(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+        if (!await TryAddCoreAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             throw new InvalidOperationException($"Key already exists: {key}");
     }
 
@@ -54,7 +54,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (existing.Found)
             return existing;
 
-        if (await TryAddCore(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+        if (await TryAddCoreAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             return new CacheValueResult<T>(true, entry.Value);
 
         return await _inner.TryGetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -131,10 +131,10 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     }
 
     public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        TryAddCore(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
+        TryAddCoreAsync(cacheName, key, new CacheEntry<T> { Value = value }, cancellationToken);
 
     public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        TryAddCore(cacheName, key, entry, cancellationToken);
+        TryAddCoreAsync(cacheName, key, entry, cancellationToken);
 
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.TryGetValueAsync(cacheName, key, cancellationToken);
@@ -174,7 +174,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 
-    private async ValueTask<bool> TryAddCore(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    private async ValueTask<bool> TryAddCoreAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return await _inner.TryAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);

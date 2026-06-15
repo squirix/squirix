@@ -139,7 +139,7 @@ internal static class FrameCodec
     ///     if durability is required.
     ///     </para>
     /// </remarks>
-    /// <exception cref="ArgumentNullException">Thrown by underlying APIs if <paramref name="s" /> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentNullException">Thrown by underlying APIs if <paramref name="s" /> is <see langword="null"/>.</exception>
     /// <exception cref="ObjectDisposedException">The stream has been disposed.</exception>
     /// <exception cref="NotSupportedException">The stream does not support writing.</exception>
     /// <exception cref="IOException">An I/O error occurred during writing.</exception>

@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
-using Squirix.Server.TestKit.Http;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Networking;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
@@ -25,8 +25,7 @@ public sealed class AspNetCoreHostingExtensionsTests
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        using var allocator = new PortAllocator(26000, 26999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var url = $"https://localhost:{port}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -65,8 +64,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
-        using var allocator = new PortAllocator(25000, 25999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options =>
@@ -97,8 +95,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         var callbackCount = 0;
-        using var allocator = new PortAllocator(28000, 28999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -129,9 +126,8 @@ public sealed class AspNetCoreHostingExtensionsTests
             {
                 EnvironmentName = "Development",
             });
-        var marker = new ExtensionMarker();
-        using var allocator = new PortAllocator(27000, 27999);
-        var port = allocator.Allocate();
+        var marker = new ExtensionMarker("extension-test");
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -145,7 +141,9 @@ public sealed class AspNetCoreHostingExtensionsTests
         using var app = builder.Build();
         _ = app.MapSquirixServer();
 
-        Assert.Same(marker, app.Services.GetRequiredService<ExtensionMarker>());
+        var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
+        Assert.Same(marker, registeredMarker);
+        Assert.Equal(marker.Name, registeredMarker.Name);
         var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
     }
@@ -162,8 +160,7 @@ public sealed class AspNetCoreHostingExtensionsTests
                 EnvironmentName = "Development",
             });
         bool? authEnabled = null;
-        using var allocator = new PortAllocator(29000, 29999);
-        var port = allocator.Allocate();
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = builder.AddSquirixServer(
             options => options.Url = new Uri($"https://localhost:{port}"),
@@ -176,5 +173,5 @@ public sealed class AspNetCoreHostingExtensionsTests
         Assert.False(authEnabled);
     }
 
-    private sealed class ExtensionMarker;
+    private sealed record ExtensionMarker(string Name);
 }

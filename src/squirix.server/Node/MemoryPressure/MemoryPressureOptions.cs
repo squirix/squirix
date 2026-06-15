@@ -22,7 +22,7 @@ internal sealed record MemoryPressureOptions
         init
         {
             if (value is <= 0 or > 100)
-                throw new ArgumentOutOfRangeException(nameof(CriticalPressureThresholdPercent), value, "CriticalPressureThresholdPercent must be in the range (0, 100].");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "CriticalPressureThresholdPercent must be in the range (0, 100].");
 
             field = value;
         }
@@ -37,7 +37,7 @@ internal sealed record MemoryPressureOptions
         init
         {
             if (value is <= 0 or > 100)
-                throw new ArgumentOutOfRangeException(nameof(HighPressureThresholdPercent), value, "HighPressureThresholdPercent must be in the range (0, 100].");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "HighPressureThresholdPercent must be in the range (0, 100].");
 
             field = value;
         }
@@ -52,7 +52,7 @@ internal sealed record MemoryPressureOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(MaxEstimatedCacheBytes), value, "MaxEstimatedCacheBytes must be positive.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "MaxEstimatedCacheBytes must be positive.");
 
             field = value;
         }

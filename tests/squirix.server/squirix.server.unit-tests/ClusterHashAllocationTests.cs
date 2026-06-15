@@ -1,5 +1,5 @@
 using Squirix.Server.Cluster;
-using Squirix.Server.TestKit.Utils;
+using Squirix.Server.TestKit.Testing;
 using Xunit;
 
 namespace Squirix.Server.UnitTests;
