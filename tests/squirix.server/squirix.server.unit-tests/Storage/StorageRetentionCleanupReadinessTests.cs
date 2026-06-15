@@ -13,36 +13,53 @@ namespace Squirix.Server.UnitTests.Storage;
 public sealed class StorageRetentionCleanupReadinessTests
 {
     /// <summary>
-    /// Ensures a single failed write does not degrade readiness under the strict default thresholds.
-    /// </summary>
-    [Fact]
-    public void SingleFailedWriteDoesNotDegradeReadiness()
-    {
-        var readiness = CreateReadiness(consecutiveWrites: 3, windowFailures: 5);
-
-        readiness.RecordWriteOutcome(hadFailure: true);
-
-        Assert.False(readiness.IsDegraded);
-        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
-        Assert.Equal(1, readiness.RecentFailureCount);
-    }
-
-    /// <summary>
     /// Ensures consecutive failed writes degrade readiness once the configured threshold is reached.
     /// </summary>
     [Fact]
     public void ConsecutiveFailedWritesDegradeReadiness()
     {
-        var readiness = CreateReadiness(consecutiveWrites: 3, windowFailures: 5);
+        var readiness = CreateReadiness(3, 5);
 
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: true);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(true);
         Assert.False(readiness.IsDegraded);
 
-        readiness.RecordWriteOutcome(hadFailure: true);
+        readiness.RecordWriteOutcome(true);
 
         Assert.True(readiness.IsDegraded);
         Assert.Equal(3, readiness.ConsecutiveWriteFailures);
+    }
+
+    /// <summary>
+    /// Ensures the readiness health check reports unhealthy when retention cleanup is degraded.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task HealthCheckReportsUnhealthyWhenRetentionCleanupIsDegraded()
+    {
+        var readiness = CreateReadiness(2, 5);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(true);
+
+        var check = new StorageRetentionCleanupReadinessHealthCheck(readiness);
+        var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    /// <summary>
+    /// Ensures a single failed write does not degrade readiness under the strict default thresholds.
+    /// </summary>
+    [Fact]
+    public void SingleFailedWriteDoesNotDegradeReadiness()
+    {
+        var readiness = CreateReadiness(3, 5);
+
+        readiness.RecordWriteOutcome(true);
+
+        Assert.False(readiness.IsDegraded);
+        Assert.Equal(1, readiness.ConsecutiveWriteFailures);
+        Assert.Equal(1, readiness.RecentFailureCount);
     }
 
     /// <summary>
@@ -51,12 +68,12 @@ public sealed class StorageRetentionCleanupReadinessTests
     [Fact]
     public void SuccessfulWriteResetsConsecutiveFailures()
     {
-        var readiness = CreateReadiness(consecutiveWrites: 3, windowFailures: 5);
+        var readiness = CreateReadiness(3, 5);
 
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: false);
-        readiness.RecordWriteOutcome(hadFailure: true);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(false);
+        readiness.RecordWriteOutcome(true);
 
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
@@ -68,42 +85,24 @@ public sealed class StorageRetentionCleanupReadinessTests
     [Fact]
     public void WindowFailureCountDegradesReadiness()
     {
-        var readiness = CreateReadiness(consecutiveWrites: 10, windowFailures: 3);
+        var readiness = CreateReadiness(10, 3);
 
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: false);
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: false);
-        readiness.RecordWriteOutcome(hadFailure: true);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(false);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(false);
+        readiness.RecordWriteOutcome(true);
 
         Assert.True(readiness.IsDegraded);
         Assert.Equal(3, readiness.RecentFailureCount);
     }
 
-    /// <summary>
-    /// Ensures the readiness health check reports unhealthy when retention cleanup is degraded.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task HealthCheckReportsUnhealthyWhenRetentionCleanupIsDegraded()
-    {
-        var readiness = CreateReadiness(consecutiveWrites: 2, windowFailures: 5);
-        readiness.RecordWriteOutcome(hadFailure: true);
-        readiness.RecordWriteOutcome(hadFailure: true);
-
-        var check = new StorageRetentionCleanupReadinessHealthCheck(readiness);
-        var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
-
-        Assert.Equal(HealthStatus.Unhealthy, result.Status);
-    }
-
-    private static StorageRetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) =>
-        new(
-            new PersistenceOptions
-            {
-                DataDir = "unused",
-                RetentionCleanupDegradedConsecutiveWrites = consecutiveWrites,
-                RetentionCleanupDegradedWindowMinutes = 15,
-                RetentionCleanupDegradedWindowFailures = windowFailures,
-            });
+    private static StorageRetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) => new(
+        new PersistenceOptions
+        {
+            DataDir = "unused",
+            RetentionCleanupDegradedConsecutiveWrites = consecutiveWrites,
+            RetentionCleanupDegradedWindowMinutes = 15,
+            RetentionCleanupDegradedWindowFailures = windowFailures,
+        });
 }

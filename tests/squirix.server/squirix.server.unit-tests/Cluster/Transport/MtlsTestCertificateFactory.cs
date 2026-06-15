@@ -1,19 +1,14 @@
 using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 internal static class MtlsTestCertificateFactory
 {
-    public static MtlsTestCertificateBundle Create(string? rootDirectory = null)
+    public static MtlsTestCertificateBundle Create()
     {
-        var directory = rootDirectory ?? DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-tests");
-        if (rootDirectory is not null)
-            DirectoryKit.CreateDirectory(directory);
-
         using var caKey = RSA.Create(2048);
         var caRequest = new CertificateRequest("CN=Squirix Cluster Test CA", caKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
@@ -31,7 +26,7 @@ internal static class MtlsTestCertificateFactory
             Guid.NewGuid().ToByteArray());
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
 
-        return new MtlsTestCertificateBundle(directory, ca, nodeCertificate);
+        return new MtlsTestCertificateBundle(ca, nodeCertificate);
     }
 
     public static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)

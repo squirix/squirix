@@ -81,18 +81,11 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
     [Fact]
     public void ManifestRejectsDuplicateProperties()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-manifest-strict");
-        try
-        {
-            WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"currentJournal":2,"nextSequence":3}""");
-            var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
+        using var dir = new TempDirectory("squirix-manifest-strict");
+        WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"currentJournal":2,"nextSequence":3}""");
+        var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-            _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
     }
 
     /// <summary>
@@ -101,18 +94,11 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
     [Fact]
     public void ManifestRejectsUnknownCriticalFields()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-manifest-unknown");
-        try
-        {
-            WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"nextSequence":3,"commitIndex":9}""");
-            var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
+        using var dir = new TempDirectory("squirix-manifest-unknown");
+        WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"nextSequence":3,"commitIndex":9}""");
+        var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-            _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
     }
 
     /// <summary>
@@ -122,8 +108,8 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
     [Fact]
     public async Task SnapshotMetadataRejectsDuplicateProperties()
     {
-        var path = await WriteSnapshotFrameAsync(
-            """{"kind":"idempotency","kind":"entry","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}}}""");
+        using var dir = new TempDirectory("squirix-snapshot-strict");
+        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","kind":"entry","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}}}""");
 
         _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
     }
@@ -135,8 +121,8 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
     [Fact]
     public async Task SnapshotMetadataRejectsMalformedPayload()
     {
-        var path = await WriteSnapshotFrameAsync(
-            """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"cas"}}}""");
+        using var dir = new TempDirectory("squirix-snapshot-strict");
+        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"cas"}}}""");
 
         var error = await Assert.ThrowsAsync<InvalidDataException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
 
@@ -150,8 +136,8 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
     [Fact]
     public async Task SnapshotMetadataRejectsUnknownCriticalFields()
     {
-        var path = await WriteSnapshotFrameAsync(
-            """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}},"commitIndex":9}""");
+        using var dir = new TempDirectory("squirix-snapshot-strict");
+        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}},"commitIndex":9}""");
 
         _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
     }
@@ -163,9 +149,8 @@ public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), manifestName + Environment.NewLine);
     }
 
-    private static async Task<string> WriteSnapshotFrameAsync(string json)
+    private static async Task<string> WriteSnapshotFrameAsync(TempDirectory dir, string json)
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-snapshot-strict");
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}");
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await FrameCodec.WriteFrameAsync(stream, Encoding.UTF8.GetBytes(json), DefaultCancellationToken);

@@ -109,29 +109,22 @@ public sealed class MemoryPressureSettingsBindingTests
     [Fact]
     public void UnifiedSettingsMergesMemoryPressureSectionFromFile()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-mp-settings-merge");
-        try
-        {
-            const string json = """
-                                {
-                                  "Squirix": {
-                                    "MemoryPressure": {
-                                      "maxEstimatedCacheBytes": 1000
-                                    }
-                                  }
+        using var dir = new TempDirectory("squirix-mp-settings-merge");
+        const string json = """
+                            {
+                              "Squirix": {
+                                "MemoryPressure": {
+                                  "maxEstimatedCacheBytes": 1000
                                 }
-                                """;
-            var path = PathKit.Combine(dir, "Squirix.settings.json");
-            File.WriteAllText(path, json);
-            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
-            Assert.True(ok);
-            var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
-            Assert.Equal(1000L, resolved.MaxEstimatedCacheBytes);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+                              }
+                            }
+                            """;
+        var path = PathKit.Combine(dir, "Squirix.settings.json");
+        File.WriteAllText(path, json);
+        var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
+        Assert.True(ok);
+        var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
+        Assert.Equal(1000L, resolved.MaxEstimatedCacheBytes);
     }
 
     /// <summary>
@@ -140,33 +133,26 @@ public sealed class MemoryPressureSettingsBindingTests
     [Fact]
     public void UnifiedSettingsMergesThresholdsFromFile()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-mp-settings-thresholds");
-        try
-        {
-            const string json = """
-                                {
-                                  "Squirix": {
-                                    "MemoryPressure": {
-                                      "maxEstimatedCacheBytes": 5000,
-                                      "highPressureThresholdPercent": 70,
-                                      "criticalPressureThresholdPercent": 88
-                                    }
-                                  }
+        using var dir = new TempDirectory("squirix-mp-settings-thresholds");
+        const string json = """
+                            {
+                              "Squirix": {
+                                "MemoryPressure": {
+                                  "maxEstimatedCacheBytes": 5000,
+                                  "highPressureThresholdPercent": 70,
+                                  "criticalPressureThresholdPercent": 88
                                 }
-                                """;
-            var path = PathKit.Combine(dir, "Squirix.settings.json");
-            File.WriteAllText(path, json);
-            var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
-            Assert.True(ok);
-            var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(20_000));
-            Assert.Equal(5000L, resolved.MaxEstimatedCacheBytes);
-            Assert.Equal(70, resolved.HighPressureThresholdPercent);
-            Assert.Equal(88, resolved.CriticalPressureThresholdPercent);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+                              }
+                            }
+                            """;
+        var path = PathKit.Combine(dir, "Squirix.settings.json");
+        File.WriteAllText(path, json);
+        var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
+        Assert.True(ok);
+        var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(20_000));
+        Assert.Equal(5000L, resolved.MaxEstimatedCacheBytes);
+        Assert.Equal(70, resolved.HighPressureThresholdPercent);
+        Assert.Equal(88, resolved.CriticalPressureThresholdPercent);
     }
 
     private sealed class FixedMemoryBudgetProvider(long availableBytes) : IMemoryBudgetProvider

@@ -17,26 +17,19 @@ public sealed class ManifestStoreWriteSafetyTests : ServerUnitTestBase
     [Fact]
     public void WriteAdvancesManifestIndexWhenCurrentIsValid()
     {
-        var dir = DirectoryKit.CreateTempDirectory("manifest-store-monotonic");
-        try
-        {
-            var options = new PersistenceOptions { DataDir = dir };
-            var store = new ManifestStore(options);
-            store.Write(new Manifest { CurrentJournal = 1 });
+        using var dir = new TempDirectory("manifest-store-monotonic");
+        var options = new PersistenceOptions { DataDir = dir };
+        var store = new ManifestStore(options);
+        store.Write(new Manifest { CurrentJournal = 1 });
 
-            var first = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            Assert.True(File.Exists(first));
+        var first = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        Assert.True(File.Exists(first));
 
-            store.Write(new Manifest { CurrentJournal = 2 });
+        store.Write(new Manifest { CurrentJournal = 2 });
 
-            var second = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}");
-            Assert.True(File.Exists(second));
-            Assert.Contains("000002", File.ReadAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current")), StringComparison.Ordinal);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var second = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}");
+        Assert.True(File.Exists(second));
+        Assert.Contains("000002", File.ReadAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current")), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -45,24 +38,17 @@ public sealed class ManifestStoreWriteSafetyTests : ServerUnitTestBase
     [Fact]
     public void WriteThrowsWhenCurrentIsCorruptAndManifestAlreadyExists()
     {
-        var dir = DirectoryKit.CreateTempDirectory("manifest-store-corrupt-current");
-        try
-        {
-            var options = new PersistenceOptions { DataDir = dir };
-            var store = new ManifestStore(options);
-            var existingPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-            var existingBytes = """{"schemaVersion":1,"currentJournal":1}"""u8.ToArray();
-            File.WriteAllBytes(existingPath, existingBytes);
-            File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name");
+        using var dir = new TempDirectory("manifest-store-corrupt-current");
+        var options = new PersistenceOptions { DataDir = dir };
+        var store = new ManifestStore(options);
+        var existingPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        var existingBytes = """{"schemaVersion":1,"currentJournal":1}"""u8.ToArray();
+        File.WriteAllBytes(existingPath, existingBytes);
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name");
 
-            var ex = Assert.Throws<InvalidDataException>(() => store.Write(new Manifest { CurrentJournal = 2 }));
-            Assert.Contains("current pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.True(File.Exists(existingPath));
-            Assert.Equal(existingBytes, File.ReadAllBytes(existingPath));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        var ex = Assert.Throws<InvalidDataException>(() => store.Write(new Manifest { CurrentJournal = 2 }));
+        Assert.Contains("current pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(File.Exists(existingPath));
+        Assert.Equal(existingBytes, File.ReadAllBytes(existingPath));
     }
 }

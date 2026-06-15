@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace Squirix.Benchmarks.Support.IO;
@@ -12,6 +13,22 @@ namespace Squirix.Benchmarks.Support.IO;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Utility is shared across benchmark and test tooling.")]
 public static class DirectoryKit
 {
+    /// <summary>
+    /// Creates a new unique temporary directory under the system temp path.
+    /// </summary>
+    /// <param name="innerDirectory">A subfolder name under the system temp path.</param>
+    /// <param name="hint">Optional additional subfolder appended for traceability.</param>
+    /// <returns>The absolute path to the created directory.</returns>
+    public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
+    {
+        var directory = PathKit.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"));
+        if (!string.IsNullOrEmpty(hint))
+            directory = PathKit.Combine(directory, hint);
+
+        _ = Directory.CreateDirectory(directory);
+        return directory;
+    }
+
     /// <summary>
     /// Best-effort recursive delete of a directory.
     /// </summary>

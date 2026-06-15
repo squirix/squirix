@@ -29,33 +29,26 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     [Fact]
     public async Task JournalWriterWritesHeaderAfterInvalidSegmentRepair()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-invalid-header-repair");
-        try
+        using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
+        var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var manifestStore = new ManifestStore(persistence);
+        var journalSegmentPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
+        await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
+        manifestStore.Write(new Manifest { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null });
+
+        await using (var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()))
         {
-            var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-            var manifestStore = new ManifestStore(persistence);
-            var journalSegmentPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-            await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
-            manifestStore.Write(new Manifest { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null });
-
-            await using (var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate()))
-            {
-                await journal.AppendPutAsync(CacheKey.Default("k"), BuildEntryJson("v"), null, DefaultCancellationToken);
-                await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-            }
-
-            var bytes = await File.ReadAllBytesAsync(journalSegmentPath, DefaultCancellationToken);
-            Assert.True(bytes.AsSpan(0, 4).SequenceEqual(JournalFraming.Magic));
-            Assert.Equal(JournalFraming.Version, bytes[4]);
-
-            await using var stream = File.OpenRead(journalSegmentPath);
-            Assert.True(JournalSegmentFileVerifier.TryVerify(stream, DefaultCancellationToken, out var frames, out _, out var error), error);
-            Assert.Equal(1, frames);
+            await journal.AppendPutAsync(CacheKey.Default("k"), BuildEntryJson("v"), null, DefaultCancellationToken);
+            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+
+        var bytes = await File.ReadAllBytesAsync(journalSegmentPath, DefaultCancellationToken);
+        Assert.True(bytes.AsSpan(0, 4).SequenceEqual(JournalFraming.Magic));
+        Assert.Equal(JournalFraming.Version, bytes[4]);
+
+        await using var stream = File.OpenRead(journalSegmentPath);
+        Assert.True(JournalSegmentFileVerifier.TryVerify(stream, DefaultCancellationToken, out var frames, out _, out var error), error);
+        Assert.Equal(1, frames);
     }
 
     /// <summary>

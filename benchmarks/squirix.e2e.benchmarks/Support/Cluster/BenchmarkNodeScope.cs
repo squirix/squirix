@@ -16,11 +16,11 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// </summary>
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
-    private readonly string _dataDir;
+    private readonly TempDirectory? _dataDir;
     private readonly TestNodeHost _host;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, string dataDir, string endpoint)
+    private BenchmarkNodeScope(TestNodeHost host, TempDirectory? dataDir, string endpoint)
     {
         _host = host;
         _dataDir = dataDir;
@@ -40,8 +40,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         }
         finally
         {
-            if (!string.IsNullOrWhiteSpace(_dataDir))
-                DirectoryKit.TryDeleteDirectory(_dataDir);
+            _dataDir?.Dispose();
         }
     }
 
@@ -68,11 +67,9 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         BenchmarkRuntime.EnsureInitialized();
 
         var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
-        var dataDir = usePersistence ? PathKit.Combine(Path.GetTempPath(), $"squirix-e2e-bench-{Guid.NewGuid():N}") : string.Empty;
-        if (usePersistence)
-            _ = Directory.CreateDirectory(dataDir);
+        var dataDir = usePersistence ? new TempDirectory("squirix-e2e-bench") : null;
 
-        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)
+        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir!, cancellationToken).ConfigureAwait(false)
             : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
 
         try
@@ -88,13 +85,13 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         catch (InvalidOperationException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            dataDir?.Dispose();
             throw;
         }
         catch (IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            dataDir?.Dispose();
             throw;
         }
     }

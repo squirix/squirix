@@ -19,7 +19,7 @@ public sealed class UnifiedSettingsTests : ServerUnitTestBase
     [Fact]
     public void TryLoadClusterConfigFromSettingsFilePathParsesClusterSectionTest()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-unified-cluster-json");
+        using var dir = new TempDirectory("squirix-unified-cluster-json");
         const string json = """
                             {
                               "Squirix": {
@@ -36,16 +36,9 @@ public sealed class UnifiedSettingsTests : ServerUnitTestBase
         var settingsPath = PathKit.Combine(dir, "Squirix.settings.json");
         File.WriteAllText(settingsPath, json);
 
-        try
-        {
-            Assert.True(UnifiedSettings.TryLoadClusterConfigFromSettingsFilePath(settingsPath, out var cfg));
-            Assert.Equal("alpha", cfg.NodeId);
-            _ = Assert.Single(cfg.Peers);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(UnifiedSettings.TryLoadClusterConfigFromSettingsFilePath(settingsPath, out var cfg));
+        Assert.Equal("alpha", cfg.NodeId);
+        _ = Assert.Single(cfg.Peers);
     }
 
     /// <summary>
@@ -54,7 +47,7 @@ public sealed class UnifiedSettingsTests : ServerUnitTestBase
     [Fact]
     public void TryMergeMemoryPressureFromSettingsFilePathMergesSection()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-unified-memory-json");
+        using var dir = new TempDirectory("squirix-unified-memory-json");
         var path = PathKit.Combine(dir, "mp.json");
         const string json = """
                             {
@@ -67,14 +60,7 @@ public sealed class UnifiedSettingsTests : ServerUnitTestBase
                             """;
         File.WriteAllText(path, json);
         var baseline = new UnresolvedMemoryPressureOptions();
-        try
-        {
-            Assert.True(UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, baseline, out var merged));
-            Assert.Equal(7777, merged.MaxEstimatedCacheBytes);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.True(UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, baseline, out var merged));
+        Assert.Equal(7777, merged.MaxEstimatedCacheBytes);
     }
 }

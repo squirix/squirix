@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Storage;
 /// </summary>
 public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsyncLifetime
 {
-    private string _dir = null!;
+    private TempDirectory _dir = null!;
 
     /// <summary>
     /// CRC mismatch in a segment throws <see cref="InvalidDataException" /> instead of silently stopping.
@@ -159,7 +159,7 @@ public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsync
     /// <returns>A completed task.</returns>
     public ValueTask DisposeAsync()
     {
-        DirectoryKit.TryDeleteDirectory(_dir);
+        _dir.Dispose();
         return ValueTask.CompletedTask;
     }
 
@@ -169,7 +169,7 @@ public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsync
     /// <returns>A completed task.</returns>
     public ValueTask InitializeAsync()
     {
-        _dir = DirectoryKit.CreateTempDirectory("squirix-mmf-journal");
+        _dir = new TempDirectory("squirix-mmf-journal");
         return ValueTask.CompletedTask;
     }
 

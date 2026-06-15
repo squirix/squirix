@@ -29,18 +29,18 @@ public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
         await using var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(self, physical);
         var entry = new CacheEntry<string> { Value = "v", Version = 1 };
-        var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, payloadIsCounter: false);
+        var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, false);
 
         const int concurrency = 32;
-        var results = await Task.WhenAll(
-            Enumerable.Range(0, concurrency)
-                .Select(_ => cache.GetOrAddAsync(cacheName, key, entry, DefaultCancellationToken).AsTask()));
+        var results = await Task.WhenAll(Enumerable.Range(0, concurrency).Select(_ => cache.GetOrAddAsync(cacheName, key, entry, DefaultCancellationToken).AsTask()));
 
-        Assert.All(results, result =>
-        {
-            Assert.True(result.Found);
-            Assert.Equal("v", result.Value);
-        });
+        Assert.All(
+            results,
+            static result =>
+            {
+                Assert.True(result.Found);
+                Assert.Equal("v", result.Value);
+            });
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(expectedBytes, accounting.EstimatedBytes);
         Assert.True(await inner.ContainsAsync(cacheName, key, DefaultCancellationToken));
@@ -60,12 +60,10 @@ public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
         await using var physical = new PhysicalCache<string>();
         var (cache, inner, accounting, estimator) = CreateLocalOwnerCache(self, physical);
         var entry = new CacheEntry<string> { Value = "v", Version = 1 };
-        var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, payloadIsCounter: false);
+        var expectedBytes = estimator.EstimateBytes(new CacheKey(cacheName, key), entry, false);
 
         const int concurrency = 32;
-        await Task.WhenAll(
-            Enumerable.Range(0, concurrency)
-                .Select(_ => cache.SetAsync(cacheName, key, entry, DefaultCancellationToken).AsTask()));
+        await Task.WhenAll(Enumerable.Range(0, concurrency).Select(_ => cache.SetAsync(cacheName, key, entry, DefaultCancellationToken).AsTask()));
 
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(expectedBytes, accounting.EstimatedBytes);
@@ -75,11 +73,8 @@ public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal("v", stored.Value);
     }
 
-    private static (
-        MemoryAdmissionCacheDecorator<string> Cache,
-        ClientCache<string> Inner,
-        MemoryUsageAccounting Accounting,
-        CacheEntrySizeEstimator<string> Estimator) CreateLocalOwnerCache(string self, PhysicalCache<string> physical)
+    private static ( MemoryAdmissionCacheDecorator<string> Cache, ClientCache<string> Inner, MemoryUsageAccounting Accounting, CacheEntrySizeEstimator<string> Estimator)
+        CreateLocalOwnerCache(string self, PhysicalCache<string> physical)
     {
         var inner = new ClientCache<string>(physical, physical);
         var accounting = new MemoryUsageAccounting();

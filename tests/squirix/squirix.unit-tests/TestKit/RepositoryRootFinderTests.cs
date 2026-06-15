@@ -30,19 +30,12 @@ public sealed class RepositoryRootFinderTests
     [Fact]
     public void FindReturnsRootFromNestedStartDirectory()
     {
-        var parent = PathKit.Combine(AppContext.BaseDirectory, "nested");
+        using var parent = TempDirectory.CreateUnder(AppContext.BaseDirectory, "nested");
         var nested = PathKit.Combine(parent, "deep");
-        try
-        {
-            DirectoryKit.CreateDirectory(nested, AppContext.BaseDirectory);
+        DirectoryKit.CreateDirectory(nested, AppContext.BaseDirectory);
 
-            var root = RepositoryRootFinder.Find(nested);
-            AssertRootHasRepositorySolutionFile(root);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(parent);
-        }
+        var root = RepositoryRootFinder.Find(nested);
+        AssertRootHasRepositorySolutionFile(root);
     }
 
     /// <summary>
@@ -61,18 +54,11 @@ public sealed class RepositoryRootFinderTests
     [Fact]
     public void FindThrowsWhenMarkersAreMissing()
     {
-        var temp = DirectoryKit.CreateTempDirectory("squirix-repo-root-missing");
-        try
-        {
-            var leaf = PathKit.Combine(temp, "a", "b");
-            DirectoryKit.CreateDirectory(leaf, temp);
+        using var temp = new TempDirectory("squirix-repo-root-missing");
+        var leaf = PathKit.Combine(temp, "a", "b");
+        DirectoryKit.CreateDirectory(leaf, temp);
 
-            _ = Assert.Throws<InvalidOperationException>(() => RepositoryRootFinder.Find(leaf));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(temp);
-        }
+        _ = Assert.Throws<InvalidOperationException>(() => RepositoryRootFinder.Find(leaf));
     }
 
     /// <summary>
@@ -81,22 +67,15 @@ public sealed class RepositoryRootFinderTests
     [Fact]
     public void FindUsesExplicitStartDirectoryNotOnlyCurrentWorkingDirectory()
     {
-        var temp = DirectoryKit.CreateTempDirectory("squirix-repo-root-explicit");
-        try
-        {
-            var fakeRoot = PathKit.Combine(temp, "repo");
-            DirectoryKit.CreateDirectory(fakeRoot, temp);
-            FileKit.WriteAllText(PathKit.Combine(fakeRoot, "squirix.slnx"), string.Empty);
-            var nested = PathKit.Combine(fakeRoot, "out", "bin");
-            DirectoryKit.CreateDirectory(nested, fakeRoot);
+        using var temp = new TempDirectory("squirix-repo-root-explicit");
+        var fakeRoot = PathKit.Combine(temp, "repo");
+        DirectoryKit.CreateDirectory(fakeRoot, temp);
+        FileKit.WriteAllText(PathKit.Combine(fakeRoot, "squirix.slnx"), string.Empty);
+        var nested = PathKit.Combine(fakeRoot, "out", "bin");
+        DirectoryKit.CreateDirectory(nested, fakeRoot);
 
-            var resolved = RepositoryRootFinder.Find(nested);
-            Assert.Equal(Path.GetFullPath(fakeRoot), Path.GetFullPath(resolved));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(temp);
-        }
+        var resolved = RepositoryRootFinder.Find(nested);
+        Assert.Equal(Path.GetFullPath(fakeRoot), Path.GetFullPath(resolved));
     }
 
     private static void AssertRootHasClientSource(string root) => Assert.True(File.Exists(PathKit.Combine(root, "src", "squirix", "SquirixClient.cs")));

@@ -36,7 +36,7 @@ public sealed class MtlsOptionsTests
     [Fact]
     public void RemotePeersRejectMissingFiles()
     {
-        var missingRoot = DirectoryKit.CreateTempDirectory("squirix-cluster-mtls-missing");
+        using var missingRoot = new TempDirectory("squirix-cluster-mtls-missing");
         var options = new MtlsOptions
         {
             CaPath = PathKit.Combine(missingRoot, "missing-ca.crt"),
@@ -45,17 +45,10 @@ public sealed class MtlsOptionsTests
             InternalListenPort = 6101,
         };
 
-        try
-        {
-            var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
-            Assert.Contains("CA file was not found", ex.Message, StringComparison.Ordinal);
-            Assert.Contains("certificate file was not found", ex.Message, StringComparison.Ordinal);
-            Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(missingRoot);
-        }
+        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        Assert.Contains("CA file was not found", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("certificate file was not found", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -27,57 +27,50 @@ public sealed class JournalWriterFailedAppendTailTests : ServerUnitTestBase
     [Fact]
     public async Task CanceledPayloadWriteTruncatesTailBeforeLaterReplayableFrames()
     {
-        var dir = DirectoryKit.CreateTempDirectory("squirix-journal-failed-append-tail");
-        try
+        using var dir = new TempDirectory("squirix-journal-failed-append-tail");
+        var options = CreateOptions(dir);
+        var manifestStore = new ManifestStore(options);
+        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+
+        var anchorPayload = BuildEntryJson("anchor");
+        await journal.AppendPutAsync(CacheKey.Default("anchor-key"), anchorPayload, null, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+
+        var segmentPath = SegmentPath(dir, 1);
+        var lengthBeforeFailed = new FileInfo(segmentPath).Length;
+
+        var journalEnvelope = new JournalEnvelope
         {
-            var options = CreateOptions(dir);
-            var manifestStore = new ManifestStore(options);
-            await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
-
-            var anchorPayload = BuildEntryJson("anchor");
-            await journal.AppendPutAsync(CacheKey.Default("anchor-key"), anchorPayload, null, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-
-            var segmentPath = SegmentPath(dir, 1);
-            var lengthBeforeFailed = new FileInfo(segmentPath).Length;
-
-            var journalEnvelope = new JournalEnvelope
+            Seq = 2,
+            UnixMs = 2,
+            Put = new Put
             {
-                Seq = 2,
-                UnixMs = 2,
-                Put = new Put
+                Item = new EntryPair
                 {
-                    Item = new EntryPair
-                    {
-                        Key = "stranded-key",
-                        EntryJson = ByteString.CopyFrom(BuildEntryJson("stranded")),
-                    },
+                    Key = "stranded-key",
+                    EntryJson = ByteString.CopyFrom(BuildEntryJson("stranded")),
                 },
-            };
-            var strandedPayload = RecordCodec.Serialize(journalEnvelope);
-            using var canceled = new CancellationTokenSource();
-            await canceled.CancelAsync();
+            },
+        };
+        var strandedPayload = RecordCodec.Serialize(journalEnvelope);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
 
-            var appendFrame = typeof(JournalWriter).GetMethod("AppendFrameAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(appendFrame);
+        var appendFrame = typeof(JournalWriter).GetMethod("AppendFrameAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(appendFrame);
 
-            _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => _ = await (Task<int>)appendFrame.Invoke(journal, [strandedPayload, canceled.Token])!);
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => _ = await (Task<int>)appendFrame.Invoke(journal, [strandedPayload, canceled.Token])!);
 
-            Assert.Equal(lengthBeforeFailed, new FileInfo(segmentPath).Length);
-            Assert.Equal(lengthBeforeFailed, journal.ActiveSegmentWrittenBytes);
+        Assert.Equal(lengthBeforeFailed, new FileInfo(segmentPath).Length);
+        Assert.Equal(lengthBeforeFailed, journal.ActiveSegmentWrittenBytes);
 
-            var afterPayload = BuildEntryJson("after");
-            await journal.AppendPutAsync(CacheKey.Default("after-key"), afterPayload, null, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+        var afterPayload = BuildEntryJson("after");
+        await journal.AppendPutAsync(CacheKey.Default("after-key"), afterPayload, null, DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-            Assert.False(ContainsPutKey(ReadSegment(segmentPath), "stranded-key"));
-            Assert.True(ContainsPutKey(ReadSegment(segmentPath), "anchor-key"));
-            Assert.True(ContainsPutKey(ReadSegment(segmentPath), "after-key"));
-        }
-        finally
-        {
-            DirectoryKit.TryDeleteDirectory(dir);
-        }
+        Assert.False(ContainsPutKey(ReadSegment(segmentPath), "stranded-key"));
+        Assert.True(ContainsPutKey(ReadSegment(segmentPath), "anchor-key"));
+        Assert.True(ContainsPutKey(ReadSegment(segmentPath), "after-key"));
     }
 
     private static byte[] BuildEntryJson(string value) => DiscriminatedEntryJsonWriter.BuildEntryJson(value, null, null, 1, null);
