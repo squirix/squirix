@@ -232,20 +232,22 @@ internal sealed class JournalWriter : IJournalCoordinator
         }
     }
 
-    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TResult>(
+    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
-        Func<TState, ulong, CancellationToken, ValueTask<TResult>> action,
+        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(captureUnderBarrier);
+        ArgumentNullException.ThrowIfNull(buildOutsideBarrier);
         ThrowIfFlushLoopFailed();
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         await WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
-        TResult result;
+        ulong seqAtFlush;
+        TBarrier barrierState;
         try
         {
-            ulong seqAtFlush;
             await _ioGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -257,14 +259,14 @@ internal sealed class JournalWriter : IJournalCoordinator
                 _ = _ioGate.Release();
             }
 
-            result = await action(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
+            barrierState = await captureUnderBarrier(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _ = _mutationGate.Release();
         }
 
-        return result;
+        return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
