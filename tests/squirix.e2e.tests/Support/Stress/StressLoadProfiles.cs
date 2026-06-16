@@ -24,7 +24,7 @@ internal static class StressLoadProfiles
     /// <returns>The scaled operation count.</returns>
     public static int ScaleOperations(int baseOperations)
     {
-        var scaled = (int)Math.Round(baseOperations * Scale, MidpointRounding.AwayFromZero);
+        var scaled = Convert.ToInt32(Math.Round(baseOperations * Scale, MidpointRounding.AwayFromZero));
         return Math.Max(1, scaled);
     }
 

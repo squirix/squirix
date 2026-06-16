@@ -122,7 +122,7 @@ internal sealed class SnapshotReader
 
         var cacheNamespace = root.TryGetProperty("namespace", out var namespaceNode) ? namespaceNode.GetString() : null;
         cacheNamespace = PersistedCacheNamespace.Normalize(cacheNamespace);
-        return new SnapshotPayload<T>((new CacheKey(cacheNamespace, key), entry), null);
+        return new SnapshotPayload<T>((new CacheKey(cacheNamespace, key), entry!), null);
     }
 
     private static SnapshotPayload<T> ReadStrictPayload<T>(ReadOnlyMemory<byte> payload, bool skipExpired)

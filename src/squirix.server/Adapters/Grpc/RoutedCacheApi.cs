@@ -6,9 +6,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Grpc;
 
-/// <summary>
-/// Binds a cache namespace to the routed cache contract.
-/// </summary>
+/// <summary>Binds a cache namespace to the routed cache contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 {

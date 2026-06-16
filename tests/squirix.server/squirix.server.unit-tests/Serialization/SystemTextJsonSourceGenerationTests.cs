@@ -16,14 +16,10 @@ using SquirixJsonSerializerContext = Squirix.Server.Serialization.SquirixJsonSer
 
 namespace Squirix.Server.UnitTests.Serialization;
 
-/// <summary>
-/// Tests for System.Text.Json source-generated metadata used by the default serializer.
-/// </summary>
+/// <summary>Tests for System.Text.Json source-generated metadata used by the default serializer.</summary>
 public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.
-    /// </summary>
+    /// <summary>Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
     [Fact]
     public void JournalCodecRoundTripsRemoveExpiration()
     {
@@ -49,9 +45,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal("default", roundTrip.RemoveExpiration.Namespace);
     }
 
-    /// <summary>
-    /// Ensures the compact touch-expiration journal operation uses the persisted camelCase shape and round-trips.
-    /// </summary>
+    /// <summary>Ensures the compact touch-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
     [Fact]
     public void JournalCodecRoundTripsTouchExpiration()
     {
@@ -79,9 +73,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal(1_765_000_000_000, roundTrip.TouchExpiration.ExpiresUnixMs);
     }
 
-    /// <summary>
-    /// Ensures the runtime journal codec preserves the existing JSON envelope shape.
-    /// </summary>
+    /// <summary>Ensures the runtime journal codec preserves the existing JSON envelope shape.</summary>
     [Fact]
     public void JournalCodecUsesGeneratedJsonContract()
     {
@@ -113,9 +105,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.False(root.TryGetProperty("Seq", out _));
     }
 
-    /// <summary>
-    /// Ensures journal JSON DTOs keep the existing web/camelCase JSON contract.
-    /// </summary>
+    /// <summary>Ensures journal JSON DTOs keep the existing web/camelCase JSON contract.</summary>
     [Fact]
     public void JournalDtoUsesSourceGeneratedWebContract()
     {
@@ -150,9 +140,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal("k1", roundTrip.Put?.Item.Key);
     }
 
-    /// <summary>
-    /// Ensures reflection fallback remains available for application payload types.
-    /// </summary>
+    /// <summary>Ensures reflection fallback remains available for application payload types.</summary>
     [Fact]
     public void KeepsReflectionFallbackForUnknownApplicationTypes()
     {
@@ -165,9 +153,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
-    /// <summary>
-    /// Ensures manifest serialization keeps the persisted camelCase property names.
-    /// </summary>
+    /// <summary>Ensures manifest serialization keeps the persisted camelCase property names.</summary>
     [Fact]
     public void ManifestContextPreservesPersistedJsonShape()
     {
@@ -196,9 +182,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.False(element.TryGetProperty("CurrentJournal", out _));
     }
 
-    /// <summary>
-    /// Ensures persistence DTOs outside journal are covered by the generated context.
-    /// </summary>
+    /// <summary>Ensures persistence DTOs outside journal are covered by the generated context.</summary>
     [Fact]
     public void PersistenceDtosRoundTripWithGeneratedMetadata()
     {
@@ -241,9 +225,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal("insert", snapshotRoundTrip.Idempotency?.Outcome.Kind);
     }
 
-    /// <summary>
-    /// Ensures health diagnostics DTOs keep stable nested JSON shapes.
-    /// </summary>
+    /// <summary>Ensures health diagnostics DTOs keep stable nested JSON shapes.</summary>
     [Fact]
     public void RestContextPreservesHealthJsonShape()
     {
@@ -259,7 +241,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
-        Assert.Equal(7, backlog.GetInt64());
+        Assert.Equal(7UL, backlog.GetUInt64());
         Assert.True(healthElement.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out _));
         Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
@@ -267,9 +249,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));
     }
 
-    /// <summary>
-    /// Ensures REST response DTOs keep the public web JSON contract.
-    /// </summary>
+    /// <summary>Ensures REST response DTOs keep the public web JSON contract.</summary>
     [Fact]
     public void RestContextPreservesPublicResponseJsonShape()
     {
@@ -287,9 +267,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal(JsonValueKind.Null, detail.ValueKind);
     }
 
-    /// <summary>
-    /// Ensures SerializeToElement can still round-trip application payloads through reflection fallback.
-    /// </summary>
+    /// <summary>Ensures SerializeToElement can still round-trip application payloads through reflection fallback.</summary>
     [Fact]
     public void SerializeToElementKeepsReflectionFallbackForUnknownApplicationTypes()
     {
@@ -303,9 +281,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
-    /// <summary>
-    /// Ensures SerializeToElement preserves the generated JSON contract for known DTOs.
-    /// </summary>
+    /// <summary>Ensures SerializeToElement preserves the generated JSON contract for known DTOs.</summary>
     [Fact]
     public void SerializeToElementUsesConfiguredJsonContract()
     {
@@ -332,9 +308,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.False(element.TryGetProperty("Seq", out _));
     }
 
-    /// <summary>
-    /// Ensures snapshot metadata frames keep the persisted camelCase property names.
-    /// </summary>
+    /// <summary>Ensures snapshot metadata frames keep the persisted camelCase property names.</summary>
     [Fact]
     public void SnapshotFrameContextPreservesPersistedJsonShape()
     {

@@ -1,21 +1,16 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.LocalCache;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Core;
 
-/// <summary>
-/// Unit tests covering expiration operations: TouchAsync, GetExpirationAsync, and RemoveExpirationAsync.
-/// </summary>
+/// <summary>Unit tests covering expiration operations: TouchAsync, GetExpirationAsync, and RemoveExpirationAsync.</summary>
 public sealed class ExpirationOperationsTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncClearsExpirationAndKeepsKey()
     {
@@ -38,15 +33,12 @@ public sealed class ExpirationOperationsTests : UnitTestBase
         Assert.Equal("v", found.Value);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync does not resurrect an already expired entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync does not resurrect an already expired entry.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncDoesNotResurrectExpiredEntry()
     {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var cache = new PhysicalCache<string>(clock);
+        var timeProvider = new FakeTimeProvider();
+        await using var cache = new PhysicalCache<string>(timeProvider);
 
         await cache.InsertAsync(
             "k",
@@ -57,17 +49,14 @@ public sealed class ExpirationOperationsTests : UnitTestBase
             },
             DefaultCancellationToken);
 
-        clock.Advance(TimeSpan.FromMilliseconds(30));
+        timeProvider.Advance(TimeSpan.FromMilliseconds(30));
 
         Assert.False(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
         var result = await cache.TryGetValueAsync("k", DefaultCancellationToken);
         Assert.False(result.Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync on a non-expiring key returns false and leaves the value and absence of expiration unchanged.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync on a non-expiring key returns false and leaves the value and absence of expiration unchanged.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncOnNonExpiringKeyReturnsFalseAndKeepsKeyLive()
     {
@@ -81,10 +70,7 @@ public sealed class ExpirationOperationsTests : UnitTestBase
         Assert.Null(await cache.GetExpirationAsync("k", DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync returns false for a missing key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync returns false for a missing key.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseForMissingKey()
     {
@@ -92,10 +78,7 @@ public sealed class ExpirationOperationsTests : UnitTestBase
         Assert.False(await cache.RemoveExpirationAsync("missing", DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration once and returns false when the key is already persistent.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync removes expiration once and returns false when the key is already persistent.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseWhenAlreadyPersistent()
     {

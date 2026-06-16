@@ -4,9 +4,7 @@ using Microsoft.AspNetCore.Routing;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
-/// <summary>
-/// Maps the built-in Prometheus-compatible metrics endpoint for the squirix server host.
-/// </summary>
+/// <summary>Maps the built-in Prometheus-compatible metrics endpoint for the squirix server host.</summary>
 internal static class SquirixMetricsEndpointExtensions
 {
     /// <summary>
@@ -31,7 +29,7 @@ internal static class SquirixMetricsEndpointExtensions
 
                 ctx.Response.ContentType = "text/plain; version=0.0.4";
                 var text = PrometheusMetricsScraper.Instance.Scrape();
-                await ctx.Response.WriteAsync(text).ConfigureAwait(false);
+                await ctx.Response.WriteAsync(text, ctx.RequestAborted).ConfigureAwait(false);
             });
     }
 }

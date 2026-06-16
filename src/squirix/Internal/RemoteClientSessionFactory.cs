@@ -86,6 +86,6 @@ internal static class RemoteClientSessionFactory
                 result.Add(normalized);
         }
 
-        return result.Count == 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
+        return result.Count is 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
     }
 }

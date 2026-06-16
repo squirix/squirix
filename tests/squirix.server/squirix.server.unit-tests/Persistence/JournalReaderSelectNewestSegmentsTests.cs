@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Squirix.Server.Storage;
@@ -8,21 +9,17 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests for bounded journal segment selection used by diagnostics.
-/// </summary>
+/// <summary>Tests for bounded journal segment selection used by diagnostics.</summary>
 public sealed class JournalReaderSelectNewestSegmentsTests
 {
-    /// <summary>
-    /// EnumerateSegments returns sorted indices and respects the requested start segment.
-    /// </summary>
+    /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
     [Fact]
     public void EnumerateSegmentsRespectsFromSegmentAndSortsAscending()
     {
         using var dir = new TempDirectory("squirix-journal-enum-from");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{9:000000}{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2:000000}{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15:000000}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
 
         var segments = JournalReader.EnumerateSegments(dir, 9).ToArray();
         Assert.Equal(2, segments.Length);
@@ -30,9 +27,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         Assert.Equal(15, segments[1].Index);
     }
 
-    /// <summary>
-    /// EnumerateSegments returns empty when journal directory does not exist.
-    /// </summary>
+    /// <summary>EnumerateSegments returns empty when journal directory does not exist.</summary>
     [Fact]
     public void EnumerateSegmentsReturnsEmptyWhenDirectoryMissing()
     {
@@ -41,15 +36,13 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         Assert.Empty(segments);
     }
 
-    /// <summary>
-    /// EnumerateSegments ignores journal-shaped names whose numeric index does not parse.
-    /// </summary>
+    /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>
     [Fact]
     public void EnumerateSegmentsSkipsJournalFilesWithNonNumericIndex()
     {
         using var dir = new TempDirectory("squirix-journal-enum-filter");
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42:000000}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
 
         var segments = JournalReader.EnumerateSegments(dir, 1).ToArray();
 
@@ -57,16 +50,14 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         Assert.Equal(42, seg.Index);
     }
 
-    /// <summary>
-    /// Verifies only the newest segments are retained when many exist on disk.
-    /// </summary>
+    /// <summary>Verifies only the newest segments are retained when many exist on disk.</summary>
     [Fact]
     public void SelectNewestSegmentsKeepsOnlyNewestByIndex()
     {
         using var dir = new TempDirectory("squirix-journal-select");
         for (var i = 1; i <= 40; i++)
         {
-            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i:000000}{StorageFileExtensions.Journal}");
+            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
             File.WriteAllText(path, "x");
         }
 

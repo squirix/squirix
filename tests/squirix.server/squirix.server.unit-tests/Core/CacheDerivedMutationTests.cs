@@ -1,22 +1,16 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.LocalCache;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Core;
 
-/// <summary>
-/// Unit tests for derived cache mutations on the server local cache surface.
-/// </summary>
+/// <summary>Unit tests for derived cache mutations on the server local cache surface.</summary>
 public sealed class CacheDerivedMutationTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures ClientCache GetOrAddAsync invokes the factory once under concurrency.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures ClientCache GetOrAddAsync invokes the factory once under concurrency.</summary>
     [Fact]
     public async Task ClientCacheGetOrAddAsyncInvokesFactoryOnceUnderConcurrency()
     {
@@ -58,17 +52,14 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         }
     }
 
-    /// <summary>
-    /// Ensures ClientCache UpdateAsync preserves expiration through the adapter.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures ClientCache UpdateAsync preserves expiration through the adapter.</summary>
     [Fact]
     public async Task ClientCacheUpdateAsyncPreservesExpiration()
     {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var physical = new PhysicalCache<string>(clock);
+        var timeProvider = new FakeTimeProvider();
+        await using var physical = new PhysicalCache<string>(timeProvider);
         var clientCache = new ClientCache<string>(physical, physical);
-        var expires = clock.UtcNow.AddMinutes(10);
+        var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
         await clientCache.SetAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await clientCache.UpdateAsync("orders", "k", "new", DefaultCancellationToken);
@@ -80,16 +71,13 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         Assert.Equal(expires, entry.ExpiresUtc);
     }
 
-    /// <summary>
-    /// Ensures UpdateAsync changes the value while preserving expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures UpdateAsync changes the value while preserving expiration.</summary>
     [Fact]
     public async Task UpdateAsyncPreservesExpirationOnPhysicalCache()
     {
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var cache = new PhysicalCache<string>(clock);
-        var expires = clock.UtcNow.AddMinutes(5);
+        var timeProvider = new FakeTimeProvider();
+        await using var cache = new PhysicalCache<string>(timeProvider);
+        var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
         await cache.InsertAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await cache.UpdateAsync("k", "new", DefaultCancellationToken);
@@ -101,10 +89,7 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         Assert.Equal(expires, entry.ExpiresUtc);
     }
 
-    /// <summary>
-    /// Ensures UpdateAsync returns false for missing keys.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures UpdateAsync returns false for missing keys.</summary>
     [Fact]
     public async Task UpdateAsyncReturnsFalseForMissingKey()
     {

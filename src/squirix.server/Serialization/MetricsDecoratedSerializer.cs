@@ -6,9 +6,7 @@ using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Serialization;
 
-/// <summary>
-/// Decorator that records metrics for serialization operations and delegates to an inner serializer.
-/// </summary>
+/// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
 internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
 {
     private readonly string _impl;
@@ -124,14 +122,14 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
 
     private void Record(string op, bool success, long startTimestamp)
     {
-        var elapsedSeconds = (Stopwatch.GetTimestamp() - startTimestamp) / (double)Stopwatch.Frequency;
+        var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
         SerializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
         SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
     }
 
     private void RecordFailure(string op, Exception ex, long startTimestamp)
     {
-        var elapsedSeconds = (Stopwatch.GetTimestamp() - startTimestamp) / (double)Stopwatch.Frequency;
+        var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
         SerializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
         SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
         var exType = ex.GetType().Name;

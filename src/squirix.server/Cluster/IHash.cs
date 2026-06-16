@@ -1,13 +1,9 @@
 namespace Squirix.Server.Cluster;
 
-/// <summary>
-/// Provides a 64-bit non-cryptographic hash function, suitable for consistent hashing/partitioning.
-/// </summary>
+/// <summary>Provides a 64-bit non-cryptographic hash function, suitable for consistent hashing/partitioning.</summary>
 internal interface IHash
 {
-    /// <summary>
-    /// Computes a 64-bit hash for the canonical cache route key without materializing the route-key string.
-    /// </summary>
+    /// <summary>Computes a 64-bit hash for the canonical cache route key without materializing the route-key string.</summary>
     /// <param name="cacheName">The canonical cache name.</param>
     /// <param name="key">The user key.</param>
     /// <returns>The 64-bit hash value.</returns>

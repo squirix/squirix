@@ -7,9 +7,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Builds deterministic fingerprints for mutating cache RPC requests.
-/// </summary>
+/// <summary>Builds deterministic fingerprints for mutating cache RPC requests.</summary>
 internal static class RpcMutationFingerprints
 {
     public static string Set(string cacheName, string key, Entry entry) => Concat("set", cacheName, key, HashMessage(entry));

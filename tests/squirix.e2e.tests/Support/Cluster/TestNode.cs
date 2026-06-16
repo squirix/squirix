@@ -4,9 +4,7 @@ using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.E2ETests.Support.Cluster;
 
-/// <summary>
-/// Represents a started test node.
-/// </summary>
+/// <summary>Represents a started test node.</summary>
 internal sealed class TestNode : IAsyncDisposable
 {
     private readonly TestNodeHost _host;

@@ -19,7 +19,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     private readonly string _cacheName;
     private readonly IClientPool _clients;
     private readonly BootstrapEndpointFailover _failover;
-    private readonly KeyedSingleFlight _getOrAddFlights = new();
+    private readonly KeyedSingleFlight<CacheValueResult<T>> _getOrAddFlights = new();
     private readonly ISquirixSerializer _serializer;
 
     public RemoteCache(string cacheName, BootstrapEndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
@@ -38,12 +38,14 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<CacheEntryResult<T>> GetEntryAsync(string key, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var entry = await GetEntryOrDefaultAsync(key, cancellationToken).ConfigureAwait(false);
         return entry is null ? new CacheEntryResult<T>(false, null) : new CacheEntryResult<T>(true, entry);
     }
 
     public async Task<CacheExpirationResult> GetExpirationAsync(string key, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var response = await ExecuteAsync(
             static (client, state, ct) =>
             {
@@ -69,6 +71,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         CacheEntryOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(valueFactory);
 
         return _getOrAddFlights.RunAsync(
@@ -94,13 +97,14 @@ internal sealed class RemoteCache<T> : ICache<T>
                     request,
                     ct).ConfigureAwait(false);
 
-                return new CacheValueResult<T>(true, ProtoEx.FromCacheValue<T>(response.Value, _serializer));
+                return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false));
             },
             cancellationToken);
     }
 
     public async Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var response = await ExecuteAsync(
             static (client, state, ct) =>
             {
@@ -110,11 +114,14 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? new CacheValueResult<T>(true, ProtoEx.FromCacheValue<T>(response.Value, _serializer)) : new CacheValueResult<T>(false, default);
+        return response.Found
+            ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false))
+            : new CacheValueResult<T>(false, default);
     }
 
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) =>
@@ -124,6 +131,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) => (await client.RemoveExpirationAsync(
@@ -134,6 +142,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var entry = ToEntry(value, options);
         OperationInputValidator<T>.ValidateEntry(entry);
         var request = ToSetValueRequest(key, entry);
@@ -144,6 +153,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) =>
@@ -165,6 +175,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var entry = ToEntry(value, options);
         OperationInputValidator<T>.ValidateEntry(entry);
         var request = ToTrySetValueRequest(key, entry);
@@ -176,6 +187,7 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     public async Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default)
     {
+        KeyInputValidator.Validate(key, nameof(key));
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) => (await client.UpdateValueAsync(
@@ -277,11 +289,13 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             return await ExecuteAsync(
                 async (client, ct) =>
-                    (await client.GetAsync(new GetRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ConfigureAwait(false)).Entry.MapProtoEntryToCacheEntry<T>(
-                        _serializer),
+                {
+                    var response = await client.GetAsync(new GetRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ConfigureAwait(false);
+                    return await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false);
+                },
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
         {
             return null;
         }

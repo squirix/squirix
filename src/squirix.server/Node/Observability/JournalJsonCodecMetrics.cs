@@ -3,9 +3,7 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Metrics for journal JSON codec (encode/decode of journal envelopes to/from JSON payloads).
-/// </summary>
+/// <summary>Metrics for journal JSON codec (encode/decode of journal envelopes to/from JSON payloads).</summary>
 internal static class JournalJsonCodecMetrics
 {
     private static readonly Histogram<double> OpDurationSecondsHist = MeterRegistry.Meter.CreateHistogram<double>("squirix_journal_json_op_duration_seconds");

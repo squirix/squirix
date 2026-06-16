@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -16,30 +17,26 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Verifies a failed in-flight journal frame write does not strand later durable frames behind a torn tail (SQU-35).
-/// </summary>
+/// <summary>Verifies a failed in-flight journal frame write does not strand later durable frames behind a torn tail (SQU-35).</summary>
 public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
 {
-    /// <summary>
-    /// After a canceled payload write, the torn partial frame is truncated and a later append is replayable.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>After a canceled payload write, the torn partial frame is truncated and a later append is replayable.</summary>
     [Fact]
     public async Task CanceledPayloadWriteTruncatesTailBeforeLaterReplayableFrames()
     {
         using var dir = new TempDirectory("squirix-journal-failed-append-tail");
         var options = CreateOptions(dir);
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
 
-        var anchorPayload = BuildEntryJson("anchor");
+        var anchorPayload = await BuildEntryJsonAsync("anchor");
         await journal.AppendPutAsync(CacheKey.Default("anchor-key"), anchorPayload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
         var segmentPath = SegmentPath(dir, 1);
         var lengthBeforeFailed = new FileInfo(segmentPath).Length;
 
+        var strandedPayloadBytes = await BuildEntryJsonAsync("stranded");
         var journalEnvelope = new JournalEnvelope
         {
             Seq = 2,
@@ -49,7 +46,7 @@ public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
                 Item = new EntryPair
                 {
                     Key = "stranded-key",
-                    EntryJson = ByteString.CopyFrom(BuildEntryJson("stranded")),
+                    EntryJson = ByteString.CopyFrom(strandedPayloadBytes),
                 },
             },
         };
@@ -60,12 +57,18 @@ public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
         var appendFrame = typeof(JournalWriter).GetMethod("AppendFrameAsync", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(appendFrame);
 
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => _ = await (Task<int>)appendFrame.Invoke(journal, [strandedPayload, canceled.Token])!);
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            if (appendFrame.Invoke(journal, [strandedPayload, canceled.Token]) is not Task<int> appendTask)
+                throw new InvalidOperationException("AppendFrameAsync did not return Task<int>.");
+
+            _ = await appendTask;
+        });
 
         Assert.Equal(lengthBeforeFailed, new FileInfo(segmentPath).Length);
         Assert.Equal(lengthBeforeFailed, journal.ActiveSegmentWrittenBytes);
 
-        var afterPayload = BuildEntryJson("after");
+        var afterPayload = await BuildEntryJsonAsync("after");
         await journal.AppendPutAsync(CacheKey.Default("after-key"), afterPayload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
@@ -74,13 +77,14 @@ public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
         Assert.True(ContainsPutKey(ReadSegment(segmentPath), "after-key"));
     }
 
-    private static byte[] BuildEntryJson(string value) => DiscriminatedEntryJsonWriter.BuildEntryJson(value, null, null, 1, null);
+    private static Task<byte[]> BuildEntryJsonAsync(string value) =>
+        DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
 
     private static bool ContainsPutKey(IEnumerable<JournalEnvelope> envelopes, string key)
     {
         foreach (var env in envelopes)
         {
-            if (env.OpCase == JournalEnvelope.OpOneofCase.Put && string.Equals(env.Put.Item.Key, key, StringComparison.OrdinalIgnoreCase))
+            if (env.OpCase is JournalEnvelope.OpOneofCase.Put && string.Equals(env.Put.Item.Key, key, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -107,5 +111,5 @@ public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
 
     private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
         dataDir,
-        $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
+        $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 }

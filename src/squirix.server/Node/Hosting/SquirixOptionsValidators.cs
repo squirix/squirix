@@ -19,7 +19,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixOptionsValidators
 {
-    private static ValidateOptionsResult ToResult(List<string> failures) => failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    private static ValidateOptionsResult ToResult(List<string> failures) => failures.Count is 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class BackpressureOptionsValidator : IValidateOptions<BackpressureOptions>
@@ -100,7 +100,7 @@ internal static class SquirixOptionsValidators
         {
             try
             {
-                var primaryListenPort = Uri.TryCreate(_cluster.Url, UriKind.Absolute, out var uri) ? uri.Port : (int?)null;
+                var primaryListenPort = Uri.TryCreate(_cluster.Url, UriKind.Absolute, out var uri) ? uri.Port : default(int?);
                 options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
                 return ValidateOptionsResult.Success;
             }

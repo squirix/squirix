@@ -4,9 +4,7 @@ using Xunit;
 
 namespace Squirix.Server.TestKit.XUnit;
 
-/// <summary>
-/// Resolves filesystem path segments for test persistence so journal and snapshot directories stay isolated per xUnit test case.
-/// </summary>
+/// <summary>Resolves filesystem path segments for test persistence so journal and snapshot directories stay isolated per xUnit test case.</summary>
 public static class TestPersistenceScope
 {
     /// <summary>

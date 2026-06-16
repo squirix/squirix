@@ -4,9 +4,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.E2EBenchmarks.Support.Harness;
 
-/// <summary>
-/// Non-generic adapter over typed cache operations for a benchmark value shape.
-/// </summary>
+/// <summary>Non-generic adapter over typed cache operations for a benchmark value shape.</summary>
 internal interface IE2EBenchmarkValueAdapter
 {
     Task AddAsync(string key, int valueIndex, CancellationToken cancellationToken);

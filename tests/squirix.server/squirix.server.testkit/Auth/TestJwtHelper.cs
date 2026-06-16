@@ -6,9 +6,7 @@ using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit.Auth;
 
-/// <summary>
-/// JWT helpers for in-process server and integration tests.
-/// </summary>
+/// <summary>JWT helpers for in-process server and integration tests.</summary>
 public static class TestJwtHelper
 {
     /// <summary>Writes a bearer token for the supplied credentials.</summary>

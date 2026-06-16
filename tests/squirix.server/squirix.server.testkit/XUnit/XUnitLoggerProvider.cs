@@ -5,9 +5,7 @@ using Xunit;
 
 namespace Squirix.Server.TestKit.XUnit;
 
-/// <summary>
-/// XUnit logger provider that pipes log messages into test output.
-/// </summary>
+/// <summary>XUnit logger provider that pipes log messages into test output.</summary>
 public sealed class XUnitLoggerProvider : ILoggerProvider
 {
     private readonly ConcurrentDictionary<string, ILogger> _loggers = new(StringComparer.OrdinalIgnoreCase);
@@ -16,16 +14,14 @@ public sealed class XUnitLoggerProvider : ILoggerProvider
     /// <summary>
     /// Initializes a new instance of the <see cref="XUnitLoggerProvider" /> class.
     /// </summary>
-    /// <param name="output">
-    /// The test output.
-    /// </param>
+    /// <param name="output">The test output.</param>
     public XUnitLoggerProvider(ITestOutputHelper output)
     {
         _output = output;
     }
 
     /// <inheritdoc />
-    public ILogger CreateLogger(string categoryName) => _loggers.GetOrAdd(categoryName, name => new XUnitLogger(_output, name));
+    public ILogger CreateLogger(string categoryName) => _loggers.GetOrAdd(categoryName, static (name, provider) => new XUnitLogger(provider._output, name), this);
 
     /// <inheritdoc />
     public void Dispose()

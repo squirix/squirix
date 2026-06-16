@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -11,21 +12,27 @@ namespace Squirix.Server.Cluster.Transport;
 
 internal static class GrpcChannelConnectWarmup
 {
-    public static async ValueTask ConnectWithRetryAsync(GrpcChannel channel, string endpointName, BootstrapConnectOptions options, CancellationToken cancellationToken)
+    public static async ValueTask ConnectWithRetryAsync(
+        GrpcChannel channel,
+        string endpointName,
+        BootstrapConnectOptions options,
+        CancellationToken cancellationToken,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentException.ThrowIfNullOrWhiteSpace(endpointName);
 
-        var deadlineUtc = DateTime.UtcNow + options.OverallDeadline;
+        var time = timeProvider ?? TimeProvider.System;
+        var deadlineUtc = time.GetUtcNow() + options.OverallDeadline;
         Exception? lastFailure = null;
         var attempt = 0;
 
-        while (DateTime.UtcNow < deadlineUtc)
+        while (time.GetUtcNow() < deadlineUtc)
         {
             cancellationToken.ThrowIfCancellationRequested();
             attempt++;
 
-            var remaining = deadlineUtc - DateTime.UtcNow;
+            var remaining = deadlineUtc - time.GetUtcNow();
             if (remaining <= TimeSpan.Zero)
                 break;
 
@@ -41,7 +48,7 @@ internal static class GrpcChannelConnectWarmup
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                lastFailure = new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds}ms.");
+                lastFailure = new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds.ToString(CultureInfo.InvariantCulture)}ms.");
             }
             catch (HttpRequestException ex)
             {
@@ -56,7 +63,7 @@ internal static class GrpcChannelConnectWarmup
                 lastFailure = ex;
             }
 
-            remaining = deadlineUtc - DateTime.UtcNow;
+            remaining = deadlineUtc - time.GetUtcNow();
             if (remaining <= TimeSpan.Zero)
                 break;
 
@@ -64,10 +71,10 @@ internal static class GrpcChannelConnectWarmup
             if (backoff > remaining)
                 backoff = remaining;
 
-            await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(backoff, time, cancellationToken).ConfigureAwait(false);
         }
 
-        throw lastFailure ?? new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.OverallDeadline.TotalSeconds}s.");
+        throw lastFailure ?? new InvalidOperationException($"Failed to connect to endpoint '{endpointName}' within {options.OverallDeadline.TotalSeconds.ToString(CultureInfo.InvariantCulture)}s.");
     }
 
     private static TimeSpan BackoffWithJitter(int attempt, BootstrapConnectOptions options)

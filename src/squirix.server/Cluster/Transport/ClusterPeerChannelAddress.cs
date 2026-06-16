@@ -3,14 +3,10 @@ using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Resolves gRPC channel addresses for inter-node cluster transport.
-/// </summary>
+/// <summary>Resolves gRPC channel addresses for inter-node cluster transport.</summary>
 internal static class ClusterPeerChannelAddress
 {
-    /// <summary>
-    /// Resolves the gRPC endpoint used for inter-node cluster calls.
-    /// </summary>
+    /// <summary>Resolves the gRPC endpoint used for inter-node cluster calls.</summary>
     /// <param name="peer">Configured cluster peer.</param>
     /// <param name="mtlsOptions">Cluster mTLS options for the local node.</param>
     /// <param name="interNodeMtlsEnabled">Whether inter-node mTLS transport is active.</param>

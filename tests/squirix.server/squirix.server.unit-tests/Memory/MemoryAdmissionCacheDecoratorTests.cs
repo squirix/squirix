@@ -3,12 +3,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -23,10 +23,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
     private const int ConcurrentRaceWidth = 64;
     private const string Self = "node-a";
 
-    /// <summary>
-    /// Ensures concurrent local-owner AddAsync misses account memory for one physical entry only.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures concurrent local-owner AddAsync misses account memory for one physical entry only.</summary>
     [Fact]
     public async Task AddAsyncConcurrentMissAccountsSingleEntryForLocalOwnerKey()
     {
@@ -58,10 +55,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.True(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures concurrent local-owner GetOrAddAsync misses account memory for one physical entry only.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures concurrent local-owner GetOrAddAsync misses account memory for one physical entry only.</summary>
     [Fact]
     public async Task GetOrAddAsyncConcurrentMissAccountsSingleEntryForLocalOwnerKey()
     {
@@ -82,10 +76,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.True(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures RemoveAsync accounts for one removed local-owner entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures RemoveAsync accounts for one removed local-owner entry.</summary>
     [Fact]
     public async Task RemoveAsyncConcurrentRemoveAccountsSingleEntryForLocalOwnerKey()
     {
@@ -108,23 +99,20 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.False(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures RemoveExpirationAsync accounts for removed expiration metadata on a local-owner entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures RemoveExpirationAsync accounts for removed expiration metadata on a local-owner entry.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncAccountsExpirationMetadataShrinkForLocalOwnerKey()
     {
         const string key = "remove-expiration-key";
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var physical = new PhysicalCache<string>(clock);
+        var timeProvider = new FakeTimeProvider();
+        await using var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var keyValue = new CacheKey(CacheName, key);
         var entry = new CacheEntry<string>
         {
             Value = "v",
             Version = 1,
-            ExpiresUtc = clock.UtcNow.AddMinutes(10),
+            ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
@@ -136,10 +124,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.Equal(1, accounting.EntryCount);
     }
 
-    /// <summary>
-    /// Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
     [Fact]
     public async Task SetAsyncConcurrentMissAccountsSingleEntryForLocalOwnerKey()
     {
@@ -156,10 +141,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.True(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures SetAsync replace accounts for value-size growth on a local-owner entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures SetAsync replace accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task SetAsyncReplaceAccountsValueSizeDeltaForLocalOwnerKey()
     {
@@ -179,16 +161,13 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.Equal(bytesBeforeReplace + expectedDelta, accounting.EstimatedBytes);
     }
 
-    /// <summary>
-    /// Ensures TouchAsync accounts for added expiration metadata on a previously non-expiring entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures TouchAsync accounts for added expiration metadata on a previously non-expiring entry.</summary>
     [Fact]
     public async Task TouchAsyncAccountsExpirationMetadataGrowthForLocalOwnerKey()
     {
         const string key = "touch-key";
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var physical = new PhysicalCache<string>(clock);
+        var timeProvider = new FakeTimeProvider();
+        await using var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var keyValue = new CacheKey(CacheName, key);
         var entry = CreateEntry("v");
@@ -202,22 +181,19 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.Equal(1, accounting.EntryCount);
     }
 
-    /// <summary>
-    /// Ensures TouchAsync does not change accounting when expiration metadata was already present.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures TouchAsync does not change accounting when expiration metadata was already present.</summary>
     [Fact]
     public async Task TouchAsyncDoesNotChangeAccountingWhenExpirationMetadataAlreadyPresent()
     {
         const string key = "retouch-key";
-        var clock = new FakeClock(DateTime.UtcNow);
-        await using var physical = new PhysicalCache<string>(clock);
+        var timeProvider = new FakeTimeProvider();
+        await using var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical);
         var entry = new CacheEntry<string>
         {
             Value = "v",
             Version = 1,
-            ExpiresUtc = clock.UtcNow.AddMinutes(10),
+            ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
 
         Assert.True(await cache.TryAddAsync(CacheName, key, entry, DefaultCancellationToken));
@@ -228,10 +204,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.Equal(1, accounting.EntryCount);
     }
 
-    /// <summary>
-    /// Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
     [Fact]
     public async Task TryAddAsyncConcurrentMissAccountsSingleEntryForLocalOwnerKey()
     {
@@ -252,10 +225,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.True(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures TryRemoveAsync accounts for one removed local-owner entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures TryRemoveAsync accounts for one removed local-owner entry.</summary>
     [Fact]
     public async Task TryRemoveAsyncConcurrentRemoveAccountsSingleEntryForLocalOwnerKey()
     {
@@ -278,10 +248,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.False(await inner.ContainsAsync(CacheName, key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Ensures UpdateAsync accounts for value-size growth on a local-owner entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures UpdateAsync accounts for value-size growth on a local-owner entry.</summary>
     [Fact]
     public async Task UpdateAsyncAccountsValueSizeDeltaForLocalOwnerKey()
     {
@@ -302,10 +269,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.EstimatedBytes);
     }
 
-    /// <summary>
-    /// Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
     [Fact]
     public async Task UpdateAsyncConcurrentReplaceAccountsSingleReplaceForLocalOwnerKey()
     {

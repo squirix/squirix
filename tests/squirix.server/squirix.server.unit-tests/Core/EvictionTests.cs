@@ -16,7 +16,6 @@ public sealed class EvictionTests : UnitTestBase
     /// Ensures that when <see cref="EvictionPolicyType.Lru" /> is active (default),
     /// the least recently used entry is evicted once capacity is exceeded.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task DefaultPolicyIsLruWhenCapacitySetShouldEvictLeastRecentlyUsed()
     {
@@ -41,7 +40,6 @@ public sealed class EvictionTests : UnitTestBase
     /// the oldest inserted entry is evicted once capacity is exceeded,
     /// regardless of subsequent accesses.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task FifoPolicyWhenCapacitySetShouldEvictOldestInserted()
     {

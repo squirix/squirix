@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -20,7 +21,6 @@ using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Contracts;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
@@ -50,9 +50,7 @@ public abstract class SmokeTestBase : IDisposable
 
     private MtlsTestContext? _mtls;
 
-    /// <summary>
-    /// Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.
-    /// </summary>
+    /// <summary>Gets a default cancellation token with a fixed timeout (~30s) for smoke tests.</summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
     /// <summary>
@@ -70,9 +68,7 @@ public abstract class SmokeTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>
-    /// Resolves the cluster-aware cache API client from the node's dependency injection container.
-    /// </summary>
+    /// <summary>Resolves the cluster-aware cache API client from the node's dependency injection container.</summary>
     /// <param name="host">The started test node host that exposes the service provider.</param>
     /// <returns>
     /// The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.
@@ -82,9 +78,7 @@ public abstract class SmokeTestBase : IDisposable
     /// </exception>
     internal static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
 
-    /// <summary>
-    /// Gets the next available HTTP URL bound to 127.0.0.1 with a dynamically allocated port.
-    /// </summary>
+    /// <summary>Gets the next available HTTP URL bound to 127.0.0.1 with a dynamically allocated port.</summary>
     /// <returns>
     /// A loopback URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>, where <c>&lt;port&gt;</c>
     /// is reserved from the shared port pool at the time of the call.
@@ -93,9 +87,7 @@ public abstract class SmokeTestBase : IDisposable
     /// The port is allocated by the test process and is intended for ephemeral use during integration tests.
     /// Callers should bind immediately to minimize races with other processes.
     /// </remarks>
-    /// <summary>
-    /// Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.
-    /// </summary>
+    /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
     internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
@@ -118,7 +110,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="servicesConfigure">Optional action to configure DI services.</param>
     /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
     /// <param name="persistenceOptions">Optional persistence options.</param>
-    /// <param name="usePersistence">When <c>true</c>, starts the node with WAL/snapshot persistence enabled.</param>
+    /// <param name="usePersistence">When <see langword="true"/>, starts the node with WAL/snapshot persistence enabled.</param>
     /// <param name="output">Optional xUnit output helper for log capture.</param>
     /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
     /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
@@ -209,11 +201,11 @@ public abstract class SmokeTestBase : IDisposable
         var dataDir = string.Empty;
         if (usePersistence || persistenceOptions is not null)
         {
-            persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, scope, cleanTestDir);
+            persistenceOptionsOverride = await GetPersistenceOptionsAsync(persistenceOptions, selfNodeId, scope, cleanTestDir, cancellationToken).ConfigureAwait(false);
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, urlString);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, urlString, cancellationToken).ConfigureAwait(false);
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -223,7 +215,7 @@ public abstract class SmokeTestBase : IDisposable
                 _ = b.AddFilter("Grpc", LogLevel.Debug);
                 _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
-                _ = output != null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
+                _ = output is not null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
             true,
             snapshotOptions,
@@ -243,9 +235,7 @@ public abstract class SmokeTestBase : IDisposable
         return new TestNodeHost(app, urlString, dataDir, persistenceOptionsOverride is not null);
     }
 
-    /// <summary>
-    /// Creates a gRPC channel configured for HTTPS against a test node URL.
-    /// </summary>
+    /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
     /// <param name="url">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
     protected static GrpcChannel CreateGrpcChannel(Uri url) => GrpcChannel.ForAddress(
@@ -264,18 +254,14 @@ public abstract class SmokeTestBase : IDisposable
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
         var port = ListenPortPool.SmokeTests.AllocatePort();
-        return ($"https://0.0.0.0:{port}", $"https://127.0.0.1:{port}");
+        return ($"https://0.0.0.0:{port.ToString(CultureInfo.InvariantCulture)}", $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}");
     }
 
-    /// <summary>
-    /// Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.
-    /// </summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.SmokeTests.NextHttpUri();
 
-    /// <summary>
-    /// Disposes managed resources owned by the test base.
-    /// </summary>
+    /// <summary>Disposes managed resources owned by the test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
     [UsedImplicitly]
     protected virtual void Dispose(bool disposing)
@@ -333,7 +319,7 @@ public abstract class SmokeTestBase : IDisposable
     {
         var baseName = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
         var combined = string.IsNullOrWhiteSpace(extra) ? baseName : $"{baseName}__{extra}";
-        return $"{combined}__pid{Environment.ProcessId}";
+        return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>
@@ -351,17 +337,6 @@ public abstract class SmokeTestBase : IDisposable
         return PathKit.Combine(true, appData, "SquirixSmoke");
     }
 
-    private string ConstructDataDir(string? dataDir, string selfNodeId, string testScope, bool clean)
-    {
-        var dataRoot = PathKit.Combine(true, GetStableRoot(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(dataRoot, 0))
-            DirectoryKit.TryDeleteDirectory(dataRoot);
-
-        var combine = dataDir ?? PathKit.Combine(true, dataRoot, selfNodeId);
-        DirectoryKit.CreateDirectory(combine);
-        return combine;
-    }
-
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
         DefaultRequestVersion = HttpVersion.Version20,
@@ -369,9 +344,25 @@ public abstract class SmokeTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private PersistenceOptions GetPersistenceOptions(PersistenceOptions? persistenceOptions, string selfNodeId, string testScope, bool clean)
+    private async Task<string> ConstructDataDirAsync(string? dataDir, string selfNodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
-        var dataDir = ConstructDataDir(persistenceOptions?.DataDir, selfNodeId, testScope, clean);
+        var dataRoot = PathKit.Combine(true, GetStableRoot(), GetType().Name, testScope, "cluster");
+        if (clean && CleanedScopes.TryAdd(dataRoot, 0))
+            await DirectoryKit.TryDeleteDirectoryAsync(dataRoot, cancellationToken).ConfigureAwait(false);
+
+        var combine = dataDir ?? PathKit.Combine(true, dataRoot, selfNodeId);
+        DirectoryKit.CreateDirectory(combine);
+        return combine;
+    }
+
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
+        PersistenceOptions? persistenceOptions,
+        string selfNodeId,
+        string testScope,
+        bool clean,
+        CancellationToken cancellationToken)
+    {
+        var dataDir = await ConstructDataDirAsync(persistenceOptions?.DataDir, selfNodeId, testScope, clean, cancellationToken).ConfigureAwait(false);
         return persistenceOptions ?? new PersistenceOptions
         {
             DataDir = dataDir,

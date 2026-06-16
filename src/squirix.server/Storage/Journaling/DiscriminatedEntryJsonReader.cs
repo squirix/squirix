@@ -26,16 +26,16 @@ internal static class DiscriminatedEntryJsonReader
     private const string TagNull = "n";
     private const string TagString = "s";
 
-    public static bool TryElementToEntry<T>(JsonElement root, out CacheEntry<T> entry)
+    public static bool TryElementToEntry<T>(JsonElement root, out CacheEntry<T>? entry)
     {
-        entry = null!;
-        if (root.ValueKind != JsonValueKind.Object)
+        entry = null;
+        if (root.ValueKind is not JsonValueKind.Object)
             return false;
 
-        if (!root.TryGetProperty(FieldValue, out var valueEl) || valueEl.ValueKind != JsonValueKind.Object)
+        if (!root.TryGetProperty(FieldValue, out var valueEl) || valueEl.ValueKind is not JsonValueKind.Object)
             return false;
 
-        if (!valueEl.TryGetProperty(FieldTypeTag, out var tagEl) || tagEl.ValueKind != JsonValueKind.String)
+        if (!valueEl.TryGetProperty(FieldTypeTag, out var tagEl) || tagEl.ValueKind is not JsonValueKind.String)
             return false;
 
         var tag = tagEl.GetString();
@@ -48,7 +48,7 @@ internal static class DiscriminatedEntryJsonReader
             return false;
 
         DateTime? expUtc = null;
-        if (root.TryGetProperty(FieldExpiresUtc, out var expEl) && expEl.ValueKind == JsonValueKind.String && DateTime.TryParse(
+        if (root.TryGetProperty(FieldExpiresUtc, out var expEl) && expEl.ValueKind is JsonValueKind.String && DateTime.TryParse(
                 expEl.GetString(),
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
@@ -58,22 +58,21 @@ internal static class DiscriminatedEntryJsonReader
         }
 
         long version = 1;
-        if (root.TryGetProperty(FieldVersion, out var verEl) && verEl.ValueKind == JsonValueKind.Number && verEl.TryGetInt64(out var v) && v > 0)
+        if (root.TryGetProperty(FieldVersion, out var verEl) && verEl.ValueKind is JsonValueKind.Number && verEl.TryGetInt64(out var v) && v > 0)
             version = v;
 
         TimeSpan? expiration = null;
-        if (root.TryGetProperty(FieldExpirationTicks, out var expirationTicksEl) && expirationTicksEl.ValueKind == JsonValueKind.Number &&
-            expirationTicksEl.TryGetInt64(out var expirationTicks))
+        if (root.TryGetProperty(FieldExpirationTicks, out var expirationTicksEl) && expirationTicksEl.ValueKind is JsonValueKind.Number && expirationTicksEl.TryGetInt64(out var expirationTicks))
         {
             expiration = TimeSpan.FromTicks(expirationTicks);
         }
 
         FrozenDictionary<string, string>? tags = null;
-        if (root.TryGetProperty(FieldTags, out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Object)
+        if (root.TryGetProperty(FieldTags, out var tagsEl) && tagsEl.ValueKind is JsonValueKind.Object)
         {
             var dict = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var p in tagsEl.EnumerateObject())
-                dict[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? string.Empty : p.Value.GetRawText();
+                dict[p.Name] = p.Value.ValueKind is JsonValueKind.String ? p.Value.GetString() ?? string.Empty : p.Value.GetRawText();
             tags = dict.ToFrozenDictionary(StringComparer.Ordinal);
         }
 
@@ -88,7 +87,7 @@ internal static class DiscriminatedEntryJsonReader
         return true;
     }
 
-    public static bool TryUtf8ToEntry<T>(ReadOnlyMemory<byte> utf8Json, out CacheEntry<T> entry)
+    public static bool TryUtf8ToEntry<T>(ReadOnlyMemory<byte> utf8Json, out CacheEntry<T>? entry)
     {
         using var doc = JsonDocument.Parse(utf8Json);
         return TryElementToEntry(doc.RootElement, out entry);
@@ -143,7 +142,7 @@ internal static class DiscriminatedEntryJsonReader
     private static bool TryReadBytesDiscriminant(bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
-        if (!hasInner || inner.ValueKind != JsonValueKind.String)
+        if (!hasInner || inner.ValueKind is not JsonValueKind.String)
             return false;
 
         try
@@ -164,7 +163,7 @@ internal static class DiscriminatedEntryJsonReader
     private static bool TryReadDecimalDiscriminant(bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
-        if (!hasInner || inner.ValueKind != JsonValueKind.String)
+        if (!hasInner || inner.ValueKind is not JsonValueKind.String)
             return false;
 
         if (!decimal.TryParse(inner.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var m))
@@ -196,7 +195,7 @@ internal static class DiscriminatedEntryJsonReader
     private static bool TryReadDoubleDiscriminant(bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
-        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+        if (!hasInner || inner.ValueKind is not JsonValueKind.Number)
             return false;
 
         if (!inner.TryGetDouble(out var d))
@@ -209,7 +208,7 @@ internal static class DiscriminatedEntryJsonReader
     private static bool TryReadInt32Discriminant(bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
-        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+        if (!hasInner || inner.ValueKind is not JsonValueKind.Number)
             return false;
 
         if (!inner.TryGetInt32(out var i))
@@ -222,7 +221,7 @@ internal static class DiscriminatedEntryJsonReader
     private static bool TryReadInt64Discriminant(bool hasInner, JsonElement inner, out object? result)
     {
         result = null;
-        if (!hasInner || inner.ValueKind != JsonValueKind.Number)
+        if (!hasInner || inner.ValueKind is not JsonValueKind.Number)
             return false;
 
         if (!inner.TryGetInt64(out var l))
@@ -248,7 +247,7 @@ internal static class DiscriminatedEntryJsonReader
         if (!hasInner)
             return false;
 
-        result = inner.ValueKind == JsonValueKind.String ? inner.GetString() : inner.ToString();
+        result = inner.ValueKind is JsonValueKind.String ? inner.GetString() : inner.ToString();
         return true;
     }
 }

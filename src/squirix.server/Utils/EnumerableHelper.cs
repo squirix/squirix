@@ -6,9 +6,7 @@ namespace Squirix.Server.Utils;
 
 internal static class EnumerableHelper
 {
-    /// <summary>
-    /// Returns distinct, non-whitespace strings in first-seen order.
-    /// </summary>
+    /// <summary>Returns distinct, non-whitespace strings in first-seen order.</summary>
     /// <param name="values">Candidate values.</param>
     /// <returns>Deduplicated values.</returns>
     public static string[] GetDistinct([NoEnumeration] IEnumerable<string> values)

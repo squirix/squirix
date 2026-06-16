@@ -10,11 +10,12 @@ using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 
-namespace Squirix.Server.Node.Hosting;
+namespace Squirix.Server.TestKit.Hosting;
 
 internal static class SquirixNodeHost
 {
@@ -44,7 +45,7 @@ internal static class SquirixNodeHost
             configureExtensions(extensions);
         }
 
-        SquirixServerHostingComposition.ConfigureBuilder(
+        await SquirixServerHostingComposition.ConfigureBuilderAsync(
             builder,
             cluster,
             waitForRecovery,
@@ -59,7 +60,8 @@ internal static class SquirixNodeHost
             securityOptionsOverride,
             extensions,
             mtlsOptionsOverride,
-            mtlsMaterialOverride);
+            mtlsMaterialOverride,
+            cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
         _ = SquirixServerHostingComposition.MapServer(app);
@@ -83,7 +85,7 @@ internal static class SquirixNodeHost
             new WebApplicationOptions
             {
                 Args = [],
-                ApplicationName = typeof(SquirixNodeHost).Assembly.GetName().Name,
+                ApplicationName = "Squirix.Server",
             });
 
         _ = builder.Logging.ClearProviders();

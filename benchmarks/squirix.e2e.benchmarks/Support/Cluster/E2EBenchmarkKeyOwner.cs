@@ -6,9 +6,7 @@ using System.Text;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
-/// <summary>
-/// Mirrors the Squirix consistent-hash owner selection for benchmark setup.
-/// </summary>
+/// <summary>Mirrors the Squirix consistent-hash owner selection for benchmark setup.</summary>
 internal sealed class E2EBenchmarkKeyOwner
 {
     private readonly (ulong Hash, string Node)[] _ring;
@@ -43,7 +41,7 @@ internal sealed class E2EBenchmarkKeyOwner
                 keys.Add(candidate);
         }
 
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count} benchmark keys owned by {ownerId}.");
+        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count.ToString(CultureInfo.InvariantCulture)} benchmark keys owned by {ownerId}.");
     }
 
     private static ulong HashCacheRouteKey(string cacheName, string key)

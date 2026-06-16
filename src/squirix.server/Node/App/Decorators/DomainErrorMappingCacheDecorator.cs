@@ -91,7 +91,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         catch (RpcException ex)
         {
             DomainTransportErrorMapper.Map(ex, cancellationToken);
-            return default!;
+            return default;
         }
     }
 }

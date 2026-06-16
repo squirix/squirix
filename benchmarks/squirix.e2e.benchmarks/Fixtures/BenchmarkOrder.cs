@@ -7,9 +7,7 @@ using JetBrains.Annotations;
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 namespace Squirix.E2EBenchmarks.Fixtures;
 
-/// <summary>
-/// Custom class used by nested class serialization benchmarks.
-/// </summary>
+/// <summary>Custom class used by nested class serialization benchmarks.</summary>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark data model is serialized in public benchmark payloads.")]
 public sealed class BenchmarkOrder
 {
@@ -43,30 +41,20 @@ public sealed class BenchmarkOrder
         Tags = new Dictionary<string, string>(tags, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Gets or sets the creation timestamp.
-    /// </summary>
+    /// <summary>Gets or sets the creation timestamp.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>
-    /// Gets or sets the customer identifier.
-    /// </summary>
+    /// <summary>Gets or sets the customer identifier.</summary>
     public string CustomerId { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Gets or sets the order identifier.
-    /// </summary>
+    /// <summary>Gets or sets the order identifier.</summary>
     public string Id { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Gets the order lines.
-    /// </summary>
+    /// <summary>Gets the order lines.</summary>
     [JsonInclude]
     public IReadOnlyList<BenchmarkOrderLine> Lines { get; private set; }
 
-    /// <summary>
-    /// Gets diagnostic tags.
-    /// </summary>
+    /// <summary>Gets diagnostic tags.</summary>
     [JsonInclude]
     public IReadOnlyDictionary<string, string> Tags { get; private set; }
 }

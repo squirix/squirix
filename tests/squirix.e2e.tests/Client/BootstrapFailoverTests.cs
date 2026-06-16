@@ -6,15 +6,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Client;
 
-/// <summary>
-/// End-to-end coverage for bootstrap endpoint transport failover with multiple live nodes.
-/// </summary>
+/// <summary>End-to-end coverage for bootstrap endpoint transport failover with multiple live nodes.</summary>
 public sealed class BootstrapFailoverTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Verifies an existing client session fails over to a second live bootstrap URL when the active peer stops.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies an existing client session fails over to a second live bootstrap URL when the active peer stops.</summary>
     [Fact]
     public async Task ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss()
     {

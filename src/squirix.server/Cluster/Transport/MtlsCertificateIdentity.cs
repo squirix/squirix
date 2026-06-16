@@ -3,14 +3,10 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Reads cluster node identity from inter-node mTLS certificates.
-/// </summary>
+/// <summary>Reads cluster node identity from inter-node mTLS certificates.</summary>
 internal static class MtlsCertificateIdentity
 {
-    /// <summary>
-    /// Returns whether the certificate common name matches the expected cluster node identifier.
-    /// </summary>
+    /// <summary>Returns whether the certificate common name matches the expected cluster node identifier.</summary>
     /// <param name="certificate">Peer or node certificate.</param>
     /// <param name="expectedNodeId">Configured cluster node identifier.</param>
     /// <returns><see langword="true" /> when identities match using ordinal comparison.</returns>

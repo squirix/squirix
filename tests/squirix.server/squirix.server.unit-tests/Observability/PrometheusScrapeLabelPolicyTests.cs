@@ -5,14 +5,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for public HTTP Prometheus scrape label filtering.
-/// </summary>
+/// <summary>Unit tests for public HTTP Prometheus scrape label filtering.</summary>
 public sealed class PrometheusScrapeLabelPolicyTests
 {
-    /// <summary>
-    /// Verifies filtered tags render to a Prometheus label set without stripped names.
-    /// </summary>
+    /// <summary>Verifies filtered tags render to a Prometheus label set without stripped names.</summary>
     [Fact]
     public void BuildLabelKeyOmitsStrippedLabelsInPublicExport()
     {
@@ -29,9 +25,7 @@ public sealed class PrometheusScrapeLabelPolicyTests
         Assert.DoesNotContain("cache=", labelKey, StringComparison.InvariantCulture);
     }
 
-    /// <summary>
-    /// Verifies cache and exception_type labels are removed from public export tags.
-    /// </summary>
+    /// <summary>Verifies cache and exception_type labels are removed from public export tags.</summary>
     [Fact]
     public void FilterPublicTagsRemovesIdentifyingLabels()
     {

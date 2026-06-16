@@ -5,9 +5,7 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// </summary>
 internal interface IMemoryBudgetProvider
 {
-    /// <summary>
-    /// Gets the total memory available to the process in bytes.
-    /// </summary>
+    /// <summary>Gets the total memory available to the process in bytes.</summary>
     /// <returns>Available process memory in bytes.</returns>
     long GetTotalAvailableBytes();
 }

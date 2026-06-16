@@ -7,19 +7,14 @@ using Xunit;
 
 namespace Squirix.UnitTests.Internal;
 
-/// <summary>
-/// Unit tests for per-key single-flight coordination.
-/// </summary>
+/// <summary>Unit tests for per-key single-flight coordination.</summary>
 public sealed class KeyedSingleFlightTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures concurrent callers observe the same factory exception.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Ensures concurrent callers observe the same factory exception.</summary>
     [Fact]
     public async Task RunAsyncPropagatesSameFailureToConcurrentCallers()
     {
-        var flights = new KeyedSingleFlight();
+        var flights = new KeyedSingleFlight<int>();
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -55,7 +50,7 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
 
         Task<int> RunFailingAsync()
         {
-            return flights.RunAsync<int>(
+            return flights.RunAsync(
                 "k",
                 async ct =>
                 {
@@ -67,14 +62,11 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
         }
     }
 
-    /// <summary>
-    /// Ensures concurrent callers for one key share one execution.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Ensures concurrent callers for one key share one execution.</summary>
     [Fact]
     public async Task RunAsyncSharesOneExecutionForSameKey()
     {
-        var flights = new KeyedSingleFlight();
+        var flights = new KeyedSingleFlight<int>();
         var executions = 0;
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 

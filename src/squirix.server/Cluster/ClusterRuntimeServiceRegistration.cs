@@ -45,9 +45,7 @@ internal static class ClusterRuntimeServiceRegistration
             return services;
         }
 
-        /// <summary>
-        /// Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.
-        /// </summary>
+        /// <summary>Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory; defaults to a conservative remote policy.</param>
         /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory for pooled gRPC channels.</param>

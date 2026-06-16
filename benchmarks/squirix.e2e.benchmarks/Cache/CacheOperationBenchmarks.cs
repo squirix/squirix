@@ -5,17 +5,13 @@ using BenchmarkDotNet.Attributes;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
-/// <summary>
-/// End-to-end public API benchmarks for basic cache operations.
-/// </summary>
+/// <summary>End-to-end public API benchmarks for basic cache operations.</summary>
 [BenchmarkCategory("e2e", "read", "write", "mutation")]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
 public class CacheOperationBenchmarks : CacheBenchmarkBase
 {
-    /// <summary>
-    /// Measures AddAsync for missing keys.
-    /// </summary>
+    /// <summary>Measures AddAsync for missing keys.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
@@ -25,9 +21,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             await Adapter.AddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Measures AddAsync conflict exception path for existing keys.
-    /// </summary>
+    /// <summary>Measures AddAsync conflict exception path for existing keys.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write", "exception-path")]
@@ -37,9 +31,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.AddConflictAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures GetEntryAsync hit path.
-    /// </summary>
+    /// <summary>Measures GetEntryAsync hit path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
@@ -49,9 +41,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetEntryHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures GetValueAsync hit path.
-    /// </summary>
+    /// <summary>Measures GetValueAsync hit path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
@@ -61,9 +51,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures GetValueAsync miss path.
-    /// </summary>
+    /// <summary>Measures GetValueAsync miss path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
@@ -73,9 +61,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetValueMissAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures RemoveAsync for existing keys with inline reset.
-    /// </summary>
+    /// <summary>Measures RemoveAsync for existing keys with inline reset.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
@@ -89,9 +75,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
         }
     }
 
-    /// <summary>
-    /// Measures RemoveAsync miss path.
-    /// </summary>
+    /// <summary>Measures RemoveAsync miss path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
@@ -101,9 +85,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.RemoveAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures SetAsync upsert path.
-    /// </summary>
+    /// <summary>Measures SetAsync upsert path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
@@ -113,9 +95,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Measures TryAddAsync success path.
-    /// </summary>
+    /// <summary>Measures TryAddAsync success path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
@@ -125,9 +105,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.TryAddAsync(NextUniqueAddKey(), i, CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures TryAddAsync conflict path.
-    /// </summary>
+    /// <summary>Measures TryAddAsync conflict path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]
@@ -137,9 +115,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(!await Adapter.TryAddAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures UpdateAsync hit path.
-    /// </summary>
+    /// <summary>Measures UpdateAsync hit path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]
@@ -149,9 +125,7 @@ public class CacheOperationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.UpdateAsync(NextHitKey(), i, CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures UpdateAsync miss path.
-    /// </summary>
+    /// <summary>Measures UpdateAsync miss path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("mutation")]

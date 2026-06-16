@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -25,7 +26,6 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     /// <summary>
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
     [Fact]
     public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
     {
@@ -44,7 +44,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/metrics"), DefaultCancellationToken);
-        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback scrape success, got {(int)loopbackAnonymous.StatusCode} {loopbackAnonymous.ReasonPhrase}");
+        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback scrape success, got {loopbackAnonymous.StatusCode:D} {loopbackAnonymous.ReasonPhrase}");
 
         using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/metrics"))
         {
@@ -52,20 +52,20 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, DefaultCancellationToken);
-            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {(int)loopbackWithJwt.StatusCode} {loopbackWithJwt.ReasonPhrase}");
+            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {loopbackWithJwt.StatusCode:D} {loopbackWithJwt.ReasonPhrase}");
         }
 
-        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port}/metrics"), DefaultCancellationToken);
+        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
 
-        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/metrics"))
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"))
         {
             remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
             var remoteInvalidJwt = await RemoteMetricsClient.SendAsync(remoteInvalid, DefaultCancellationToken);
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using (var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/metrics"))
+        using (var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"))
         {
             remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
@@ -77,12 +77,12 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     {
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if (nic.OperationalStatus != OperationalStatus.Up)
+            if (nic.OperationalStatus is not OperationalStatus.Up)
                 continue;
 
             foreach (var address in nic.GetIPProperties().UnicastAddresses)
             {
-                if (address.Address.AddressFamily != AddressFamily.InterNetwork)
+                if (address.Address.AddressFamily is not AddressFamily.InterNetwork)
                     continue;
 
                 if (IPAddress.IsLoopback(address.Address))

@@ -4,19 +4,13 @@ using System.IO;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.
-/// </summary>
+/// <summary>Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.</summary>
 internal sealed record MtlsOptions
 {
-    /// <summary>
-    /// Gets the path to the PEM-encoded cluster CA / trust root certificate.
-    /// </summary>
+    /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>
     public string? CaPath { get; init; }
 
-    /// <summary>
-    /// Gets the path to the PEM-encoded node certificate.
-    /// </summary>
+    /// <summary>Gets the path to the PEM-encoded node certificate.</summary>
     public string? CertPath { get; init; }
 
     /// <summary>
@@ -24,24 +18,16 @@ internal sealed record MtlsOptions
     /// </summary>
     public string? CertPfxPassword { get; init; }
 
-    /// <summary>
-    /// Gets the path to the node certificate PFX/PKCS#12 file.
-    /// </summary>
+    /// <summary>Gets the path to the node certificate PFX/PKCS#12 file.</summary>
     public string? CertPfxPath { get; init; }
 
-    /// <summary>
-    /// Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.
-    /// </summary>
+    /// <summary>Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.</summary>
     public int InternalListenPort { get; init; }
 
-    /// <summary>
-    /// Gets the path to the PEM-encoded node private key.
-    /// </summary>
+    /// <summary>Gets the path to the PEM-encoded node private key.</summary>
     public string? KeyPath { get; init; }
 
-    /// <summary>
-    /// Validates configuration shape and file presence without loading certificates.
-    /// </summary>
+    /// <summary>Validates configuration shape and file presence without loading certificates.</summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether cluster topology requires inter-node mTLS.</param>
     /// <exception cref="InvalidOperationException">Thrown when configuration is incomplete or inconsistent.</exception>

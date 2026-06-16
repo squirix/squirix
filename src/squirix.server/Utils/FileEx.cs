@@ -5,9 +5,7 @@ namespace Squirix.Server.Utils;
 
 internal static class FileEx
 {
-    /// <summary>
-    /// Publishes a temp file as the final durable file, replacing an existing destination when present.
-    /// </summary>
+    /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
     /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
     /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>

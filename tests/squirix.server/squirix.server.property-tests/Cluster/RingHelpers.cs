@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Squirix.Server.PropertyTests.Cluster;
 
@@ -9,14 +10,10 @@ namespace Squirix.Server.PropertyTests.Cluster;
 /// </summary>
 internal static class RingHelpers
 {
-    /// <summary>
-    /// Generates a deterministic sequence of pseudo-random keys suitable for large sampling loops.
-    /// </summary>
+    /// <summary>Generates a deterministic sequence of pseudo-random keys suitable for large sampling loops.</summary>
     /// <param name="count">Number of keys to generate. Must be non-negative.</param>
     /// <param name="seed">Seed for the pseudo-random generator to ensure reproducibility.</param>
-    /// <returns>
-    /// A sequence of unique (with high probability) string keys based on a seeded PRNG.
-    /// </returns>
+    /// <returns>A sequence of unique (with high probability) string keys based on a seeded PRNG.</returns>
     /// <remarks>
     /// Keys are produced in the form <c>"key-{NextInt64()}"</c>. Using a fixed <paramref name="seed" />
     /// guarantees the same sequence across runs, which is important for reproducible property failures.
@@ -47,7 +44,8 @@ internal static class RingHelpers
         ArgumentNullException.ThrowIfNull(source);
 
         var rng = new DeterministicRandom(seed);
-        var arr = (T[])source.Clone();
+        var arr = new T[source.Length];
+        Array.Copy(source, arr, source.Length);
 
         for (var i = arr.Length - 1; i > 0; i--)
         {
@@ -62,7 +60,7 @@ internal static class RingHelpers
     {
         var rng = new DeterministicRandom(seed);
         for (var i = 0; i < count; i++)
-            yield return $"key-{rng.NextInt64()}";
+            yield return $"key-{rng.NextInt64().ToString(CultureInfo.InvariantCulture)}";
     }
 
     private struct DeterministicRandom
@@ -71,7 +69,7 @@ internal static class RingHelpers
 
         public DeterministicRandom(int seed)
         {
-            _state = unchecked((uint)seed) + 0x9E3779B97F4A7C15UL;
+            _state = uint.CreateTruncating(seed) + 0x9E3779B97F4A7C15UL;
         }
 
         public int Next(int exclusiveUpperBound)
@@ -79,10 +77,10 @@ internal static class RingHelpers
             if (exclusiveUpperBound <= 0)
                 throw new ArgumentOutOfRangeException(nameof(exclusiveUpperBound), "Upper bound must be positive.");
 
-            return (int)(NextUInt64() % (uint)exclusiveUpperBound);
+            return int.CreateTruncating(NextUInt64() % uint.CreateTruncating(exclusiveUpperBound));
         }
 
-        public long NextInt64() => unchecked((long)NextUInt64());
+        public long NextInt64() => long.CreateTruncating(NextUInt64());
 
         private ulong NextUInt64()
         {

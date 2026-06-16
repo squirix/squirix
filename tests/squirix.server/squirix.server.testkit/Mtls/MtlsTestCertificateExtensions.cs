@@ -3,14 +3,10 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>
-/// Standard TLS extensions for cluster test node certificates.
-/// </summary>
+/// <summary>Standard TLS extensions for cluster test node certificates.</summary>
 internal static class MtlsTestCertificateExtensions
 {
-    /// <summary>
-    /// Adds key usage and extended key usage required for mutual TLS client and server authentication.
-    /// </summary>
+    /// <summary>Adds key usage and extended key usage required for mutual TLS client and server authentication.</summary>
     /// <param name="request">Certificate signing request.</param>
     public static void AddClusterNodeExtensions(this CertificateRequest request)
     {

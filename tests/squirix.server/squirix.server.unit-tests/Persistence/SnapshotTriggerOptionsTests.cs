@@ -15,9 +15,7 @@ public sealed class SnapshotTriggerOptionsTests
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>
-    /// Verifies lower-bound scalar values remain accepted.
-    /// </summary>
+    /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
     {
@@ -41,9 +39,7 @@ public sealed class SnapshotTriggerOptionsTests
         Assert.Equal(TimeSpan.Zero, options.LatencyThrottleDuration);
     }
 
-    /// <summary>
-    /// Verifies invalid scalar values fail at assignment time.
-    /// </summary>
+    /// <summary>Verifies invalid scalar values fail at assignment time.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
     [InlineData(nameof(SnapshotTriggerOptions.SnapshotInterval))]
@@ -61,24 +57,11 @@ public sealed class SnapshotTriggerOptionsTests
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies JSON binding still applies valid option values through init setters.
-    /// </summary>
+    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """
-                            {
-                              "enabled": true,
-                              "snapshotInterval": "00:03:00",
-                              "snapshotEveryNOps": 100,
-                              "snapshotEveryNBytes": 2048,
-                              "minGapBetweenSnapshots": "00:00:05",
-                              "journalGrowthThrottleBytes": 1024,
-                              "latencySloMilliseconds": 5.5,
-                              "latencyThrottleDuration": "00:00:02"
-                            }
-                            """;
+        const string json = """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
         var options = JsonSerializer.Deserialize<SnapshotTriggerOptions>(json, JsonOptions);
 

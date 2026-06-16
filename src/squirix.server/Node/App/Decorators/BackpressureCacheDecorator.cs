@@ -8,9 +8,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Applies runtime cache-operation backpressure before logical cache operations enter the inner runtime pipeline.
-/// </summary>
+/// <summary>Applies runtime cache-operation backpressure before logical cache operations enter the inner runtime pipeline.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
 {

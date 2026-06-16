@@ -1,10 +1,9 @@
 using System;
+using System.Globalization;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Resolves loaded memory pressure settings against the process RAM budget.
-/// </summary>
+/// <summary>Resolves loaded memory pressure settings against the process RAM budget.</summary>
 internal static class MemoryPressureOptionsResolver
 {
     /// <summary>
@@ -35,9 +34,9 @@ internal static class MemoryPressureOptionsResolver
         {
             null => capBytes,
             <= 0 => throw new InvalidOperationException("MemoryPressure MaxEstimatedCacheBytes must be positive when set."),
-            var configured when configured > capBytes => throw new InvalidOperationException(
-                $"MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the {RamBudgetPercent}% RAM cap ({capBytes})."),
-            var configured => (long)configured,
+            { } configured when configured > capBytes => throw new InvalidOperationException(
+                $"MemoryPressure MaxEstimatedCacheBytes ({configured.ToString(CultureInfo.InvariantCulture)}) exceeds the {RamBudgetPercent.ToString(CultureInfo.InvariantCulture)}% RAM cap ({capBytes.ToString(CultureInfo.InvariantCulture)})."),
+            { } configured => configured,
         };
 
         var options = new MemoryPressureOptions

@@ -5,15 +5,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Persistence;
 
-/// <summary>
-/// Verifies ephemeral nodes do not restore cache state across restart.
-/// </summary>
+/// <summary>Verifies ephemeral nodes do not restore cache state across restart.</summary>
 public sealed class EphemeralRestartTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Ensures a restarted ephemeral node does not restore previously written values.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Ensures a restarted ephemeral node does not restore previously written values.</summary>
     [Fact]
     public async Task RestartShouldNotRestoreValueInEphemeralMode()
     {

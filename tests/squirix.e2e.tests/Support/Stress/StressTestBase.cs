@@ -43,6 +43,6 @@ public abstract class StressTestBase : EndToEndTestBase
         for (var w = 0; w < writers; w++)
             tasks[w] = writerBody(w);
 
-        await Task.WhenAll(tasks).WaitAsync(budget);
+        await Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
     }
 }

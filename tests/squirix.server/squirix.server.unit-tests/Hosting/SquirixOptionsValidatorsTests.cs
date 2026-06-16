@@ -18,9 +18,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// </summary>
 public sealed class SquirixOptionsValidatorsTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies backpressure validator accepts boundary thresholds at the inclusive limits.
-    /// </summary>
+    /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>
     [Fact]
     public void BackpressureValidatorAcceptsInclusiveThresholdBoundaries()
     {
@@ -40,9 +38,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.False(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies a burst without rate limit configuration is rejected.
-    /// </summary>
+    /// <summary>Verifies a burst without rate limit configuration is rejected.</summary>
     [Fact]
     public void BackpressureValidatorRejectsBurstWithoutRate()
     {
@@ -57,9 +53,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies backpressure queue wait must remain positive when enabled semantics apply.
-    /// </summary>
+    /// <summary>Verifies backpressure queue wait must remain positive when enabled semantics apply.</summary>
     [Fact]
     public void BackpressureValidatorRejectsNonPositiveQueueWait()
     {
@@ -71,9 +65,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies backpressure validator rejects per-client inflight values above the node cap.
-    /// </summary>
+    /// <summary>Verifies backpressure validator rejects per-client inflight values above the node cap.</summary>
     [Fact]
     public void BackpressureValidatorRejectsPerClientInFlightAboveNodeCap()
     {
@@ -89,9 +81,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies a minimal valid cluster configuration passes validation.
-    /// </summary>
+    /// <summary>Verifies a minimal valid cluster configuration passes validation.</summary>
     [Fact]
     public void ClusterConfigValidatorAcceptsWellFormedCluster()
     {
@@ -110,9 +100,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.False(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies duplicate peer identifiers fail validation.
-    /// </summary>
+    /// <summary>Verifies duplicate peer identifiers fail validation.</summary>
     [Fact]
     public void ClusterConfigValidatorRejectsDuplicatePeerIds()
     {
@@ -135,9 +123,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies empty node identifiers fail validation.
-    /// </summary>
+    /// <summary>Verifies empty node identifiers fail validation.</summary>
     [Fact]
     public void ClusterConfigValidatorRejectsEmptyNodeId()
     {
@@ -156,9 +142,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies peer URLs must be absolute HTTPS endpoints.
-    /// </summary>
+    /// <summary>Verifies peer URLs must be absolute HTTPS endpoints.</summary>
     [Fact]
     public void ClusterConfigValidatorRejectsInvalidPeerUrls()
     {
@@ -177,9 +161,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies plaintext HTTP peer URLs are rejected.
-    /// </summary>
+    /// <summary>Verifies plaintext HTTP peer URLs are rejected.</summary>
     [Fact]
     public void ClusterConfigValidatorRejectsPlaintextHttpPeerUrls()
     {
@@ -198,9 +180,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies journal compaction validator accepts valid local scalar values after setter validation.
-    /// </summary>
+    /// <summary>Verifies journal compaction validator accepts valid local scalar values after setter validation.</summary>
     [Fact]
     public void JournalCompactionValidatorAcceptsValidTailSegments()
     {
@@ -212,9 +192,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.False(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies journal metrics exporter validator accepts valid intervals after setter validation.
-    /// </summary>
+    /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
     [Fact]
     public void JournalMetricsExporterValidatorAcceptsValidInterval()
     {
@@ -226,9 +204,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.False(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies memory pressure cross-property validation stays in the validator path.
-    /// </summary>
+    /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
     [Fact]
     public void MemoryPressureValidatorRejectsHighThresholdNotBelowCritical()
     {
@@ -245,9 +221,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.
-    /// </summary>
+    /// <summary>Verifies persistence validation still enforces required paths that cannot be local scalar setter checks.</summary>
     [Fact]
     public void PersistenceValidatorRejectsEmptyDataDir()
     {
@@ -267,9 +241,7 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
         Assert.True(result.Failed);
     }
 
-    /// <summary>
-    /// Verifies snapshot trigger validator accepts valid local scalar values after setter validation.
-    /// </summary>
+    /// <summary>Verifies snapshot trigger validator accepts valid local scalar values after setter validation.</summary>
     [Fact]
     public void SnapshotTriggerValidatorAcceptsValidCadence()
     {

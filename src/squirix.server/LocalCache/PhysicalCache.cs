@@ -5,27 +5,26 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Timing;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>
-/// In-memory cache store (KV + expiration).
-/// </summary>
+/// <summary>In-memory cache store (KV + expiration).</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotReader<T>, IAsyncDisposable
 {
-    private readonly IClock _clock;
     private readonly LocalEvictionIndex _evictionIndex;
     private readonly ConcurrentDictionary<CacheKey, StoredEntry> _store = new();
+    private readonly TimeProvider _timeProvider;
 
-    public PhysicalCache(IClock? clock = null, EvictionOptions? eviction = null)
+    public PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null)
     {
-        _clock = clock ?? SystemClock.Instance;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _evictionIndex = new LocalEvictionIndex(eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru });
     }
 
     int ILocalCacheStats.EntryCount => _store.Count;
+
+    private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
     public ValueTask AddAsync(CacheKey key, T? value, CancellationToken cancellationToken) => AddAsync(key, new CacheEntry<T> { Value = value }, cancellationToken);
 
@@ -56,7 +55,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
             yield return (pair.Key, ToEntry(stored));
             produced++;
-            if (produced % yieldEvery == 0)
+            if (produced % yieldEvery is 0)
                 await Task.Yield();
         }
     }
@@ -67,7 +66,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!TryGetLive(key, out var stored) || stored.ExpiresUtc is not { } expires)
             return ValueTask.FromResult<TimeSpan?>(null);
 
-        var remaining = expires - _clock.UtcNow;
+        var remaining = expires - UtcNow;
         return ValueTask.FromResult<TimeSpan?>(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
     }
 
@@ -103,7 +102,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(false);
 
         _evictionIndex.Untrack(key);
-        if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+        if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
             return ValueTask.FromResult(false);
 
         return ValueTask.FromResult(true);
@@ -129,7 +128,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!TryGetLive(key, out var stored))
             return ValueTask.FromResult(false);
 
-        var expires = _clock.UtcNow.Add(expiration);
+        var expires = UtcNow.Add(expiration);
         _store[key] = stored with { ExpiresUtc = expires };
         _evictionIndex.TouchExisting(key);
         return ValueTask.FromResult(true);
@@ -177,7 +176,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
 
         _evictionIndex.Untrack(key);
-        if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+        if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
             return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
 
         return ValueTask.FromResult(new CacheRemoveResult<T>(true, stored.Value));
@@ -191,7 +190,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (!_store.TryGetValue(key, out var stored))
                 return ValueTask.FromResult(false);
 
-            if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+            if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
             {
                 if (!_store.TryRemove(key, out _))
                     continue;
@@ -237,7 +236,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         var version = entry.Version > 0 ? entry.Version : 1;
         var expires = entry.ExpiresUtc;
         if (expires is null && entry.Expiration is { } expiration)
-            expires = _clock.UtcNow.Add(expiration);
+            expires = UtcNow.Add(expiration);
 
         return new CacheEntry<T>
         {
@@ -253,7 +252,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         if (!_store.TryGetValue(key, out stored))
             return false;
 
-        if (stored.ExpiresUtc is { } expires && expires <= _clock.UtcNow)
+        if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
         {
             _ = _store.TryRemove(key, out _);
             _evictionIndex.Untrack(key);

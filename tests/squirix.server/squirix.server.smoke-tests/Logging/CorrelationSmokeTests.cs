@@ -25,7 +25,6 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     /// Starts two nodes (A,B). Sends a gRPC insert to A for a key owned by B with a custom traceparent header.
     /// Verifies that node B's gRPC server received the same traceparent in its request metadata.
     /// </summary>
-    /// <returns>A Task representing the asynchronous smoke test.</returns>
     [Fact]
     public async Task TraceContextFlowsFromGrpcToGrpcAcrossNodes()
     {

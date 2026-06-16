@@ -36,7 +36,6 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     ///     </item>
     /// </list>
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
     public async Task ReadyDetailsEndpointReportsReadinessSignals()
     {
@@ -107,7 +106,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     {
         Assert.True(json.TryGetProperty("journalBacklogOps", out var journalBacklogProp));
         Assert.True(journalBacklogProp.ValueKind is JsonValueKind.Number);
-        Assert.True(journalBacklogProp.GetInt64() >= 1);
+        Assert.True(journalBacklogProp.GetUInt64() >= 1);
     }
 
     private static void AssertMemoryPressureReadiness(JsonElement json)

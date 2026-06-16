@@ -20,18 +20,14 @@ public abstract class IntegrationTestBase : IDisposable
     /// </summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
-    /// <summary>
-    /// Cleans up sockets handler, HTTP client, and cancellation tokens.
-    /// </summary>
+    /// <summary>Cleans up sockets handler, HTTP client, and cancellation tokens.</summary>
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>
-    /// Releases managed resources for derived classes.
-    /// </summary>
+    /// <summary>Releases managed resources for derived classes.</summary>
     /// <param name="disposing">Whether managed resources should be released.</param>
     [PublicAPI]
     protected virtual void Dispose(bool disposing)

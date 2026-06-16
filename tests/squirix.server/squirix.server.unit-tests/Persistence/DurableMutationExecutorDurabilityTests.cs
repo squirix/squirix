@@ -11,15 +11,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Regression tests for durable journal ordering: fsync before in-memory apply.
-/// </summary>
+/// <summary>Regression tests for durable journal ordering: fsync before in-memory apply.</summary>
 public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures a failed in-memory apply after durable journal is not retried.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
     [Fact]
     public async Task MemoryApplyFailureAfterJournalIsNotRetried()
     {
@@ -32,8 +27,8 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
             ManifestRetentionCount = 1,
         };
 
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
 
         var executor = new DurableMutationExecutor(journal);
         var applyCalls = 0;
@@ -48,7 +43,7 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
 
         async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, cancellationToken);
         }
 
         static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)

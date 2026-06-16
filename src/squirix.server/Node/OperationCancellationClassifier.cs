@@ -12,9 +12,7 @@ namespace Squirix.Server.Node;
 /// </remarks>
 internal static class OperationCancellationClassifier
 {
-    /// <summary>
-    /// Classifies linked cancellation sources using explicit token state.
-    /// </summary>
+    /// <summary>Classifies linked cancellation sources using explicit token state.</summary>
     /// <param name="callerCanceled">True when the outer caller token is canceled.</param>
     /// <param name="operationEffectiveCanceled">True when the operation-level effective token is canceled.</param>
     /// <param name="perAttemptScopeCanceled">True when the per-attempt linked source is canceled.</param>
@@ -37,9 +35,7 @@ internal static class OperationCancellationClassifier
     public static CancellationScenarioKind ClassifyLogicalPipelineDeadlineCancellation(CancellationToken callerToken, CancellationToken linkedPipelineToken) =>
         ClassifyFromLinkedTokenState(callerToken.IsCancellationRequested, linkedPipelineToken.IsCancellationRequested, false);
 
-    /// <summary>
-    /// Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.
-    /// </summary>
+    /// <summary>Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.</summary>
     /// <param name="callerToken">The application caller token.</param>
     /// <param name="operationEffectiveToken">Caller linked with optional ambient RPC deadline budget.</param>
     /// <param name="perAttemptCompositeToken">Token from the attempt's linked source (caller plus per-attempt timeout).</param>
@@ -59,11 +55,9 @@ internal static class OperationCancellationClassifier
     /// <param name="cancellationToken">The logical caller token for the operation.</param>
     /// <returns><see langword="true" /> when <paramref name="ex" /> is canceled and <paramref name="cancellationToken" /> is canceled; otherwise <see langword="false" />.</returns>
     public static bool IsCallerInitiatedGrpcCancellation(RpcException ex, CancellationToken cancellationToken) =>
-        ex.StatusCode == StatusCode.Cancelled && cancellationToken.IsCancellationRequested;
+        ex.StatusCode is StatusCode.Cancelled && cancellationToken.IsCancellationRequested;
 
-    /// <summary>
-    /// Returns true when a gRPC server-streaming read fault should be treated as cooperative watch shutdown.
-    /// </summary>
+    /// <summary>Returns true when a gRPC server-streaming read fault should be treated as cooperative watch shutdown.</summary>
     /// <param name="ex">The transport exception.</param>
     /// <param name="cancellationToken">The logical caller token for the watch consumer.</param>
     /// <returns><see langword="true" /> when <paramref name="cancellationToken" /> is canceled and <paramref name="ex" /> is a known abort status; otherwise <see langword="false" />.</returns>

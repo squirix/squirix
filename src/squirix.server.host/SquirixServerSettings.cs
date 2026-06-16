@@ -1,6 +1,10 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace Squirix.Server.Host;
 
 internal static class SquirixServerSettings
 {
-    internal static SquirixServerOptions Load(string path) => SquirixServerConfiguration.LoadFromFile(path);
+    internal static Task<SquirixServerOptions> LoadAsync(string path, CancellationToken cancellationToken = default) =>
+        SquirixServerConfiguration.LoadFromFileAsync(path, cancellationToken);
 }

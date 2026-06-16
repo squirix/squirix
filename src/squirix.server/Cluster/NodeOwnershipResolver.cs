@@ -4,9 +4,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>
-/// Cluster-backed node ownership resolver for inbound endpoint routing checks.
-/// </summary>
+/// <summary>Cluster-backed node ownership resolver for inbound endpoint routing checks.</summary>
 internal sealed class NodeOwnershipResolver : INodeOwnershipResolver
 {
     private readonly INodeLocator _locator;

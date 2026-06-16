@@ -5,9 +5,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>
-/// Trusted replay entry points used during durable recovery.
-/// </summary>
+/// <summary>Trusted replay entry points used during durable recovery.</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 internal interface ILocalCacheRecovery<T>
 {

@@ -6,9 +6,7 @@ using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
-/// <summary>
-/// Delays durable recovery replay until a test signal is released.
-/// </summary>
+/// <summary>Delays durable recovery replay until a test signal is released.</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 internal sealed class DelayedLocalCacheRecoveryDecorator<T> : ILocalCacheRecovery<T>
 {

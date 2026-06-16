@@ -5,9 +5,7 @@ using Google.Protobuf;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Coordinates replay-or-execute semantics for mutating cache RPC handlers.
-/// </summary>
+/// <summary>Coordinates replay-or-execute semantics for mutating cache RPC handlers.</summary>
 internal sealed class RpcMutationIdempotencyCoordinator
 {
     private readonly RpcMutationIdempotencyGuard _guard;
@@ -28,7 +26,7 @@ internal sealed class RpcMutationIdempotencyCoordinator
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
         if (_guard.TryReplay(operationId, fingerprint, new MessageParser<TResponse>(static () => new TResponse()), out var cached))
-            return cached;
+            return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
         var response = await execute(cancellationToken).ConfigureAwait(false);
         _guard.RecordSuccess(operationId, fingerprint, response);

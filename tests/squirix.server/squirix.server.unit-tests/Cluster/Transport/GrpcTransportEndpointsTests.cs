@@ -3,35 +3,32 @@ using System.Net.Http;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>
-/// Unit tests for outbound cluster gRPC transport handler configuration.
-/// </summary>
+/// <summary>Unit tests for outbound cluster gRPC transport handler configuration.</summary>
 public sealed class GrpcTransportEndpointsTests
 {
-    /// <summary>
-    /// Ensures disabled material keeps the default HTTPS handler without a client certificate.
-    /// </summary>
+    /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>
     [Fact]
     public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
     {
-        using var handler = (SocketsHttpHandler)GrpcTransportEndpoints.CreateChannelHandler();
+        using var createdHandler = GrpcTransportEndpoints.CreateChannelHandler();
+        if (createdHandler is not SocketsHttpHandler handler)
+            throw new InvalidOperationException("Expected SocketsHttpHandler.");
 
         Assert.Null(handler.SslOptions.ClientCertificates);
     }
 
-    /// <summary>
-    /// Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.
-    /// </summary>
+    /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
     [Fact]
-    public void CreateMtlsHandlerAttachesLocalNodeCertificate()
+    public async Task CreateMtlsHandlerAttachesLocalNodeCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var material = MtlsCertificateMaterial.Load(
             new MtlsOptions
             {
@@ -50,13 +47,11 @@ public sealed class GrpcTransportEndpointsTests
         Assert.Equal(material.NodeCertificate, clientCertificate);
     }
 
-    /// <summary>
-    /// Ensures the outbound handler rejects missing peer server certificates.
-    /// </summary>
+    /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
     [Fact]
-    public void CreateMtlsHandlerRejectsMissingPeerServerCertificate()
+    public async Task CreateMtlsHandlerRejectsMissingPeerServerCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var material = MtlsCertificateMaterial.Load(
             new MtlsOptions
             {
@@ -73,38 +68,32 @@ public sealed class GrpcTransportEndpointsTests
         Assert.False(callback(this, null, null, SslPolicyErrors.None));
     }
 
-    /// <summary>
-    /// Ensures peer server certificates signed by the cluster CA are accepted for the expected peer.
-    /// </summary>
+    /// <summary>Ensures peer server certificates signed by the cluster CA are accepted for the expected peer.</summary>
     [Fact]
-    public void ValidatePeerServerCertificateAcceptsCertificateSignedByClusterCa()
+    public async Task ValidatePeerServerCertificateAcceptsCertificateSignedByClusterCa()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-b"));
     }
 
-    /// <summary>
-    /// Ensures peer server certificates signed by an untrusted CA are rejected.
-    /// </summary>
+    /// <summary>Ensures peer server certificates signed by an untrusted CA are rejected.</summary>
     [Fact]
-    public void ValidatePeerServerCertificateRejectsCertificateSignedByUntrustedCa()
+    public async Task ValidatePeerServerCertificateRejectsCertificateSignedByUntrustedCa()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var untrustedCa = CreateStandaloneCa("CN=Other CA");
         using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(untrustedCa, "node-b");
 
         Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-b"));
     }
 
-    /// <summary>
-    /// Ensures expired peer server certificates are rejected.
-    /// </summary>
+    /// <summary>Ensures expired peer server certificates are rejected.</summary>
     [Fact]
-    public void ValidatePeerServerCertificateRejectsExpiredCertificate()
+    public async Task ValidatePeerServerCertificateRejectsExpiredCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var notBefore = new DateTimeOffset(bundle.Ca.NotBefore.ToUniversalTime());
         var notAfter = notBefore.AddHours(1);
         using var expiredServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
@@ -112,13 +101,11 @@ public sealed class GrpcTransportEndpointsTests
         Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(expiredServerCertificate, bundle.Ca, "node-b"));
     }
 
-    /// <summary>
-    /// Ensures peer server certificates with the wrong node identity are rejected.
-    /// </summary>
+    /// <summary>Ensures peer server certificates with the wrong node identity are rejected.</summary>
     [Fact]
-    public void ValidatePeerServerCertificateRejectsMismatchedNodeId()
+    public async Task ValidatePeerServerCertificateRejectsMismatchedNodeId()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerServerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.False(GrpcTransportEndpoints.ValidatePeerServerCertificate(peerServerCertificate, bundle.Ca, "node-c"));

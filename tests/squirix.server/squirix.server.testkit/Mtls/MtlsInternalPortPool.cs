@@ -10,9 +10,7 @@ internal static class MtlsInternalPortPool
         HostPortRegions.StartInclusive(HostPortRegion.MtlsInternal),
         HostPortRegions.EndExclusive(HostPortRegion.MtlsInternal) - 1);
 
-    /// <summary>
-    /// Allocates a dedicated internal listener port that differs from all excluded primary ports.
-    /// </summary>
+    /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
     /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
     /// <returns>An internal listener port for cluster mTLS.</returns>
     public static int AllocateInternalPort(IReadOnlyCollection<int> excludedPorts)

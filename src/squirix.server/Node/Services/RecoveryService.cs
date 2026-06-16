@@ -73,7 +73,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _ = _manifestStore.ReadCurrentOrDefault();
+        _ = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
         if (_options.BlockOnStart)
         {
@@ -100,14 +100,12 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static InvalidDataException CreateJournalReplayBoundaryFailure(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment, bool snapshotPresent) =>
         new(
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent}."));
+            $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent.ToString(CultureInfo.InvariantCulture)}.");
 
     private static int DetermineJournalOnlyReplayStart(Manifest manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
-        var missingInitialSegment = firstAvailableSegment == 0 && manifestCurrentJournal != 1;
+        var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
         return missingInitialSegment || journalGapDetected ? throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false)
             : Math.Max(firstAvailableSegment, manifestCurrentJournal);
@@ -115,8 +113,8 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
 
-    private static bool IsExpiredForRecovery(CacheEntry<T> entry) =>
-        (entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow) || (entry.Expiration is { } expiration && expiration <= TimeSpan.Zero);
+    private static bool IsExpiredForRecovery(CacheEntry<T>? entry) =>
+        entry is not null && ((entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow) || (entry.Expiration is { } expiration && expiration <= TimeSpan.Zero));
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
@@ -136,7 +134,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 if (IsExpiredForRecovery(entry))
                     break;
 
-                await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                await _localCache.InsertForDurableRecoveryAsync(key, entry!, cancellationToken).ConfigureAwait(false);
                 _idempotency.RestoreInsert(put.OperationId, IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), put.Item.EntryJson.Span));
                 break;
             }
@@ -187,7 +185,7 @@ internal sealed class RecoveryService<T> : IHostedService
         var lastAvailableSegment = 0;
         foreach (var segment in JournalReader.EnumerateSegments(_opt.DataDir, 1))
         {
-            if (firstAvailableSegment == 0)
+            if (firstAvailableSegment is 0)
                 firstAvailableSegment = segment.Index;
 
             lastAvailableSegment = segment.Index;
@@ -204,9 +202,9 @@ internal sealed class RecoveryService<T> : IHostedService
         lastAppliedSeq = 0;
     }
 
-    private ReplayContext LoadReplayContext()
+    private async Task<ReplayContext> LoadReplayContextAsync(CancellationToken cancellationToken)
     {
-        var manifest = _manifestStore.ReadCurrentOrDefault();
+        var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapRef = manifest.LastSnapshot;
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var (firstAvailableSegment, lastAvailableSegment) = GetJournalSegmentRange();
@@ -228,7 +226,7 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         try
         {
-            var context = LoadReplayContext();
+            var context = await LoadReplayContextAsync(cancellationToken).ConfigureAwait(false);
             var replayState = await RestoreSnapshotIfPresentAsync(context, cancellationToken).ConfigureAwait(false);
             LogReplayBoundary(context, replayState.FromSegment);
             await ReplayJournalSegmentsAsync(replayState.FromSegment, replayState.LastAppliedSequence, cancellationToken).ConfigureAwait(false);

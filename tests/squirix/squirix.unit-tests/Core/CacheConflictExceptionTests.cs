@@ -8,9 +8,7 @@ namespace Squirix.UnitTests.Core;
 /// </summary>
 public sealed class CacheConflictExceptionTests
 {
-    /// <summary>
-    /// Ensures the conflicting key is exposed on the exception.
-    /// </summary>
+    /// <summary>Ensures the conflicting key is exposed on the exception.</summary>
     [Fact]
     public void KeyExposesConflictingCacheKey()
     {

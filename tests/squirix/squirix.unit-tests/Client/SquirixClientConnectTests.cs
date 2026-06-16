@@ -5,15 +5,10 @@ using Xunit;
 
 namespace Squirix.UnitTests.Client;
 
-/// <summary>
-/// Covers the public remote-only client factory surface.
-/// </summary>
+/// <summary>Covers the public remote-only client factory surface.</summary>
 public sealed class SquirixClientConnectTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies explicit remote mode requires at least one endpoint.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies explicit remote mode requires at least one endpoint.</summary>
     [Fact]
     public async Task ConnectAsyncOptionsRejectNoEndpoints()
     {
@@ -22,10 +17,7 @@ public sealed class SquirixClientConnectTests : UnitTestBase
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Verifies plaintext HTTP endpoints are rejected during bootstrap configuration.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies plaintext HTTP endpoints are rejected during bootstrap configuration.</summary>
     [Fact]
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
@@ -35,10 +27,7 @@ public sealed class SquirixClientConnectTests : UnitTestBase
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Verifies the string overload rejects plaintext HTTP endpoints.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies the string overload rejects plaintext HTTP endpoints.</summary>
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {

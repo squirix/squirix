@@ -8,9 +8,7 @@ using Squirix.E2ETests.Support.Cluster;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>
-/// Per-test cluster startup and routing helpers for multi-node public API tests.
-/// </summary>
+/// <summary>Per-test cluster startup and routing helpers for multi-node public API tests.</summary>
 internal static class MultiNodeSupport
 {
     internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value, CancellationToken cancellationToken)

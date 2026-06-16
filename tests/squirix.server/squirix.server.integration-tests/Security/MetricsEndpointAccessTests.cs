@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -14,29 +15,24 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies Prometheus metrics access rules for loopback and remote clients.
-/// </summary>
+/// <summary>Verifies Prometheus metrics access rules for loopback and remote clients.</summary>
 public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 {
     private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
     private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
-    /// <summary>
-    /// Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.</summary>
     [Fact]
     public async Task AuthenticatedMetricsScrapeSucceedsOnNonLoopbackListenerWhenAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort}/metrics");
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/metrics");
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
@@ -45,28 +41,22 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies loopback scrapes succeed without credentials when server auth is enabled.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
     public async Task LoopbackMetricsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
-        var response = await HttpClient.GetAsync(new Uri($"https://127.0.0.1:{mainPort}/metrics"), DefaultCancellationToken);
+        var response = await HttpClient.GetAsync(new Uri($"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/metrics"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies remote scrapes without credentials are rejected when server auth is enabled.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
     public async Task RemoteMetricsScrapeReturns401WithoutCredentialsWhenAuthEnabled()
     {
@@ -75,7 +65,7 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://0.0.0.0:{mainPort}";
+        var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
@@ -85,18 +75,18 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
     }
 
     private static Task<HttpResponseMessage> GetMetricsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
-        NonLoopbackIpHttpClient.GetAsync(new Uri($"https://{localIp}:{port}/metrics"), cancellationToken);
+        NonLoopbackIpHttpClient.GetAsync(new Uri($"https://{localIp}:{port.ToString(CultureInfo.InvariantCulture)}/metrics"), cancellationToken);
 
     private static string? TryGetLocalNonLoopbackIpv4()
     {
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if (nic.OperationalStatus != OperationalStatus.Up)
+            if (nic.OperationalStatus is not OperationalStatus.Up)
                 continue;
 
             foreach (var address in nic.GetIPProperties().UnicastAddresses)
             {
-                if (address.Address.AddressFamily != AddressFamily.InterNetwork)
+                if (address.Address.AddressFamily is not AddressFamily.InterNetwork)
                     continue;
 
                 if (IPAddress.IsLoopback(address.Address))

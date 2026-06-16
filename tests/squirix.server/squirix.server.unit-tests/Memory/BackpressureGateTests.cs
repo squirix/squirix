@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
@@ -10,9 +11,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Unit tests for node-level backpressure admission control.
-/// </summary>
+/// <summary>Unit tests for node-level backpressure admission control.</summary>
 public sealed class BackpressureGateTests : UnitTestBase
 {
     private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
@@ -20,10 +19,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     private const string BackpressureTrackedClientsInstrumentName = "squirix_backpressure_tracked_clients";
     private const string MeterName = "Squirix";
 
-    /// <summary>
-    /// Verifies disabled backpressure returns an accepted empty lease and emits bypass metrics.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies disabled backpressure returns an accepted empty lease and emits bypass metrics.</summary>
     [Fact]
     public async Task AcquireBypassesWhenBackpressureIsDisabled()
     {
@@ -47,10 +43,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_bypass_total", ("transport", "rest"), ("op", "insert")));
     }
 
-    /// <summary>
-    /// Verifies admission succeeds immediately while slots are available.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies admission succeeds immediately while slots are available.</summary>
     [Fact]
     public async Task AcquireSucceedsImmediatelyWhenCapacityAvailable()
     {
@@ -73,10 +66,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         }
     }
 
-    /// <summary>
-    /// Verifies concurrent acquire and release does not exceed configured in-flight capacity.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     [Fact]
     public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
     {
@@ -106,7 +96,7 @@ public sealed class BackpressureGateTests : UnitTestBase
 
             await runClients;
 
-            Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0]} exceeded limit {maxInFlight}.");
+            Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
         }
         finally
         {
@@ -114,10 +104,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         }
     }
 
-    /// <summary>
-    /// Verifies observable gauges report both in-flight work and queued requests.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
     [Fact]
     public async Task GaugesReflectInFlightAndQueueDepth()
     {
@@ -168,10 +155,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         secondLease.Dispose();
     }
 
-    /// <summary>
-    /// Verifies observable gauges are not overwritten by an idle gate and remain correct after that gate is disposed.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies observable gauges are not overwritten by an idle gate and remain correct after that gate is disposed.</summary>
     [Fact]
     public async Task GaugesRemainBoundToActiveGateAfterIdleGateDispose()
     {
@@ -229,10 +213,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         secondA.Dispose();
     }
 
-    /// <summary>
-    /// Verifies disposing the same lease twice follows current release behavior.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies disposing the same lease twice follows current release behavior.</summary>
     [Fact]
     public async Task LeaseDoubleDisposeKeepsCurrentBehavior()
     {
@@ -252,10 +233,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         _ = Assert.Throws<SemaphoreFullException>(lease.Dispose);
     }
 
-    /// <summary>
-    /// Verifies node-level rate limiting rejects excess requests and emits a node-scoped metric.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies node-level rate limiting rejects excess requests and emits a node-scoped metric.</summary>
     [Fact]
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
     {
@@ -283,10 +261,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_rate_limit_reject_total", ("transport", "rest"), ("op", "get"), ("scope", "node")));
     }
 
-    /// <summary>
-    /// Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
     [Fact]
     public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
     {
@@ -314,10 +289,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_reject_total", ("transport", "grpc"), ("op", "get"), ("reason", "client_queue_full")));
     }
 
-    /// <summary>
-    /// Verifies per-client rate limiting rejects one client without blocking unrelated clients.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies per-client rate limiting rejects one client without blocking unrelated clients.</summary>
     [Fact]
     public async Task PerClientRateLimitIsolatedByClient()
     {
@@ -347,10 +319,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_rate_limit_reject_total", ("transport", "grpc"), ("op", "get"), ("scope", "client")));
     }
 
-    /// <summary>
-    /// Verifies requests are rejected once the hard threshold is reached while another request is queued.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies requests are rejected once the hard threshold is reached while another request is queued.</summary>
     [Fact]
     public async Task QueueFullRejectsImmediately()
     {
@@ -370,7 +339,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         using var secondCts = new CancellationTokenSource();
         var secondAcquire = gate.AcquireAsync("grpc", "insert", "grpc:client-b", secondCts.Token).AsTask();
 
-        await Task.Delay(20, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(20), TimeProvider.System, DefaultCancellationToken);
 
         var (decision, rejectedLease) = await gate.AcquireAsync("grpc", "insert", "grpc:client-c", DefaultCancellationToken);
         rejectedLease.Dispose();
@@ -384,10 +353,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         first.Dispose();
     }
 
-    /// <summary>
-    /// Verifies a queued request is rejected after exceeding the configured queue wait budget.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies a queued request is rejected after exceeding the configured queue wait budget.</summary>
     [Fact]
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
@@ -414,10 +380,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_queue_timeouts_total", ("transport", "rest"), ("op", "get")));
     }
 
-    /// <summary>
-    /// Verifies a queued acquire completes after a held lease is released.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies a queued acquire completes after a held lease is released.</summary>
     [Fact]
     public async Task QueuedAcquireCompletesAfterLeaseRelease()
     {
@@ -445,10 +408,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         }
     }
 
-    /// <summary>
-    /// Verifies queued admission observes caller cancellation and records queue cancellation metrics.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies queued admission observes caller cancellation and records queue cancellation metrics.</summary>
     [Fact]
     public async Task QueuedAcquireObservesCallerCancellation()
     {
@@ -476,10 +436,7 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_queue_cancellations_total", ("transport", "rest"), ("op", "remove")));
     }
 
-    /// <summary>
-    /// Verifies the slowdown counter is emitted when load crosses the soft threshold.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Verifies the slowdown counter is emitted when load crosses the soft threshold.</summary>
     [Fact]
     public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
     {
@@ -512,12 +469,14 @@ public sealed class BackpressureGateTests : UnitTestBase
         return false;
     }
 
-    private static bool IsBackpressureGauge(string instrumentName) =>
-        instrumentName is BackpressureInFlightInstrumentName or BackpressureQueueDepthInstrumentName or BackpressureTrackedClientsInstrumentName;
+    private static bool IsBackpressureGauge(string name) =>
+        string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal)
+        || string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal)
+        || string.Equals(name, BackpressureTrackedClientsInstrumentName, StringComparison.Ordinal);
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
-        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex}", cancellationToken);
+        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
         if (!decision.IsAccepted)
             return;
 
@@ -564,7 +523,7 @@ public sealed class BackpressureGateTests : UnitTestBase
             if (HasAtLeast(inFlight, 1) && HasAtLeast(queueDepth, 1) && HasAtLeast(trackedClients, 2))
                 return;
 
-            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
         }
 
         Assert.Contains(inFlight, static x => x >= 1);
@@ -576,7 +535,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(task.IsCanceled);
     }

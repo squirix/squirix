@@ -2,14 +2,14 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>
-/// Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.
-/// </summary>
+/// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>
 internal sealed class MtlsTestBundle : IDisposable
 {
     private readonly X509Certificate2 _ca;
@@ -25,13 +25,12 @@ internal sealed class MtlsTestBundle : IDisposable
         FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
     }
 
-    /// <summary>
-    /// Creates validated cluster mTLS options and loaded material for a test node.
-    /// </summary>
+    /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="internalListenPort">Dedicated internal HTTPS listener port.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material suitable for host startup overrides.</returns>
-    public (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNode(string nodeId, int internalListenPort)
+    public async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeAsync(string nodeId, int internalListenPort, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
 
@@ -39,7 +38,7 @@ internal sealed class MtlsTestBundle : IDisposable
         DirectoryKit.CreateDirectory(nodeDirectory);
 
         using var nodeCertificate = CreateNodeCertificate(nodeId);
-        return CreateNodeFromCertificate(nodeId, internalListenPort, nodeDirectory, nodeCertificate);
+        return await CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -49,14 +48,18 @@ internal sealed class MtlsTestBundle : IDisposable
         _rootDirectory.Dispose();
     }
 
-    internal (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(string nodeId, int internalListenPort, X509Certificate2 nodeCertificate)
+    internal Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeFromCertificateAsync(
+        string nodeId,
+        int internalListenPort,
+        X509Certificate2 nodeCertificate,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(nodeCertificate);
 
         var nodeDirectory = PathKit.Combine(_rootDirectory, nodeId);
         DirectoryKit.CreateDirectory(nodeDirectory);
-        return CreateNodeFromCertificate(nodeId, internalListenPort, nodeDirectory, nodeCertificate);
+        return CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken);
     }
 
     internal X509Certificate2 GetClusterCertificateAuthority() => _ca;
@@ -84,16 +87,17 @@ internal sealed class MtlsTestBundle : IDisposable
         return nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
     }
 
-    private (MtlsOptions Options, MtlsCertificateMaterial Material) CreateNodeFromCertificate(
+    private async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeFromCertificateAsync(
         string nodeId,
         int internalListenPort,
         string nodeDirectory,
-        X509Certificate2 nodeCertificate)
+        X509Certificate2 nodeCertificate,
+        CancellationToken cancellationToken)
     {
         _ = nodeId;
         var exportableCertificate = MtlsTestCertificates.LoadExportableCertificate(nodeCertificate);
         var pfxPath = PathKit.Combine(nodeDirectory, "node.pfx");
-        File.WriteAllBytes(pfxPath, exportableCertificate.Export(X509ContentType.Pfx));
+        await File.WriteAllBytesAsync(pfxPath, exportableCertificate.Export(X509ContentType.Pfx), cancellationToken).ConfigureAwait(false);
 
         var options = new MtlsOptions
         {

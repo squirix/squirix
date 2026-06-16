@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,31 +14,26 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Verifies journal segment roll happens before the frame that would overflow the active segment.
-/// </summary>
+/// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
 public sealed class JournalWriterSegmentRollTests : UnitTestBase
 {
-    /// <summary>
-    /// When the next manifest file cannot be created, the roll fails before the overflow frame is appended.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]
     public async Task BlockedNextManifestFilePreventsOverflowFrameFromBeingAppended()
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
 
-        var overflowPayload = BuildLargePutPayload();
+        var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowFrameLen = FrameLength(overflowPayload);
         await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
 
         var segmentOnePath = SegmentPath(dir, 1);
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-        BlockNextManifestWrite(dir);
+        await BlockNextManifestWriteAsync(dir);
         var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
         _ = await Assert.ThrowsAnyAsync<IOException>(() => journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken).AsTask());
 
@@ -48,50 +44,48 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
             Assert.False(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
     }
 
-    /// <summary>
-    /// An overflow frame is written only after a successful roll, on the new journal segment file.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
     public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
 
-        var overflowPayload = BuildLargePutPayload();
+        var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowFrameLen = FrameLength(overflowPayload);
         await FillSegmentOneForOverflowAsync(journal, overflowFrameLen, DefaultCancellationToken);
 
         await journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        Assert.Equal(2, manifestStore.ReadCurrentOrDefault().CurrentJournal);
+        Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         Assert.False(ContainsPutKey(ReadSingleSegment(dir, 1), "overflow-key"));
         Assert.True(ContainsPutKey(ReadSingleSegment(dir, 2), "overflow-key"));
     }
 
     /// <summary>
-    /// Forces the next <see cref="ManifestStore.Write" /> onto a path that already exists (<see cref="FileMode.CreateNew" /> conflict).
+    /// Forces the next <see cref="ManifestStore.WriteAsync" /> onto a path that already exists (<see cref="FileMode.CreateNew" /> conflict).
     /// </summary>
-    private static void BlockNextManifestWrite(string dataDir)
+    private static async Task BlockNextManifestWriteAsync(string dataDir)
     {
         var currentPath = PathKit.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
         const string baselineName = $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}";
-        File.WriteAllText(currentPath, baselineName);
+        await File.WriteAllTextAsync(currentPath, baselineName, DefaultCancellationToken);
 
         const string blockedName = $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}";
-        File.WriteAllText(PathKit.Combine(dataDir, blockedName), string.Empty);
+        await File.WriteAllTextAsync(PathKit.Combine(dataDir, blockedName), string.Empty, DefaultCancellationToken);
     }
 
-    private static byte[] BuildLargePutPayload() => DiscriminatedEntryJsonWriter.BuildEntryJson(new string('y', 16_000), null, null, 1, null);
+    private static Task<byte[]> BuildLargePutPayloadAsync() =>
+        DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('y', 16_000), null, null, 1, null);
 
     private static bool ContainsPutKey(IEnumerable<JournalEnvelope> envelopes, string key)
     {
         foreach (var env in envelopes)
         {
-            if (env.OpCase == JournalEnvelope.OpOneofCase.Put && string.Equals(env.Put.Item.Key, key, StringComparison.OrdinalIgnoreCase))
+            if (env.OpCase is JournalEnvelope.OpOneofCase.Put && string.Equals(env.Put.Item.Key, key, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -111,11 +105,11 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
 
     private static async Task FillSegmentOneForOverflowAsync(JournalWriter journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
-        var fillPayload = DiscriminatedEntryJsonWriter.BuildEntryJson(new string('x', 128), null, null, 1, null);
+        var fillPayload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('x', 128), null, null, 1, null);
         var fillFrameLen = FrameLength(fillPayload);
         const long maxBytes = 1024L * 1024L;
 
-        for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex == 1 && journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxBytes; i++)
+        for (var i = 0; i < 16_384 && journal.CurrentSegmentIndex is 1 && journal.ActiveSegmentWrittenBytes + fillFrameLen <= maxBytes; i++)
         {
             await journal.AppendPutAsync(CacheKey.Default("fill"), fillPayload, null, cancellationToken);
         }
@@ -139,5 +133,5 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
 
     private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
         dataDir,
-        $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
+        $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 }

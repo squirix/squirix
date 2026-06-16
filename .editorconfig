@@ -203,18 +203,34 @@ resharper_csharp_place_constructor_initializer_on_same_line = false
 resharper_place_constructor_initializer_on_same_line = false
 
 # Meziantou.Analyzer Rules
-# Allow member access expressions (e.g. request.Definition) where the root is a parameter
+# Allow member access expressions (e.g. request.Definition) where the root is a parameter.
 MA0015.consider_member_access_as_parameter = true
 
+# MA0003: Require named arguments when passing literal values to method calls.
 dotnet_diagnostic.MA0003.severity = none
+# MA0157: Methods returning IAsyncEnumerable must not use the Async suffix.
+dotnet_diagnostic.MA0157.severity = none
+# MA0038: Make instance method static (deprecated; prefer CA1822).
+dotnet_diagnostic.MA0038.severity = none
+# MA0174: Record declarations should use explicit 'record class' keyword.
+dotnet_diagnostic.MA0174.severity = none
 
 [tools/**]
+# MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).
 dotnet_diagnostic.MA0047.severity = none
+# MA0048: File name must match the primary type name (script file names differ from inline types).
 dotnet_diagnostic.MA0048.severity = none
+# MA0051: Method exceeds configured line/statement limits (verify/pack scripts are intentionally long).
 dotnet_diagnostic.MA0051.severity = none
 
 [examples/**]
+# MA0048: File name must match the primary type name (script file names differ from inline types).
 dotnet_diagnostic.MA0048.severity = none
+
+[{tests,benchmarks}/**]
+# SA1615: Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant).
+# Other paths (for example src/**) keep the default SA1615 severity when a member is already documented.
+dotnet_diagnostic.SA1615.severity = none
 
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none

@@ -10,14 +10,10 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>
-/// Direct gRPC probes for inter-node mTLS security scenarios in black-box tests.
-/// </summary>
+/// <summary>Direct gRPC probes for inter-node mTLS security scenarios in black-box tests.</summary>
 public static class MtlsInterNodeGrpcProbe
 {
-    /// <summary>
-    /// Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.
-    /// </summary>
+    /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>
     /// <param name="primaryUrl">Primary external HTTPS listener URL.</param>
     /// <param name="bearerToken">Optional external bearer token.</param>
     /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
@@ -29,9 +25,7 @@ public static class MtlsInterNodeGrpcProbe
         return await TryGetValueAsync(new Uri(primaryUrl, UriKind.Absolute), bearerToken, includeInternalOwnerHeader, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.
-    /// </summary>
+    /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>
     /// <param name="primaryUrl">Primary external HTTPS listener URL.</param>
     /// <param name="bearerToken">Optional external bearer token.</param>
     /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>

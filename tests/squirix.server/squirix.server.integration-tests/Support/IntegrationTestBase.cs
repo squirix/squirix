@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -21,7 +22,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
@@ -66,9 +66,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// </summary>
     protected HttpClient HttpClient => _httpClient ??= CreateHttpClient();
 
-    /// <summary>
-    /// Cleans up sockets handler, HTTP client, and cancellation tokens.
-    /// </summary>
+    /// <summary>Cleans up sockets handler, HTTP client, and cancellation tokens.</summary>
     public void Dispose()
     {
         Dispose(true);
@@ -88,9 +86,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
     /// </param>
-    /// <param name="tags">
-    /// Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.
-    /// </param>
+    /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
     /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null"/>.
@@ -114,9 +110,7 @@ public abstract class IntegrationTestBase : IDisposable
         };
     }
 
-    /// <summary>
-    /// Resolves the cluster-aware cache API client from the test node’s dependency injection container.
-    /// </summary>
+    /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
     /// <param name="host">The started test node host providing access to the service provider.</param>
     /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
     /// <exception cref="InvalidOperationException">
@@ -124,9 +118,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// </exception>
     internal static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
 
-    /// <summary>
-    /// Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.
-    /// </summary>
+    /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
     internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
@@ -138,13 +130,15 @@ public abstract class IntegrationTestBase : IDisposable
         return MtlsTestContext.CreatePeers(ref _mtls, mapped);
     }
 
-    /// <summary>
-    /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
-    /// </summary>
+    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
-    internal SocketsHttpHandler CreateClusterCaTrustingHandlerWithoutClientCertificate(string targetPeerNodeId, Peer[] peers)
+    internal async Task<SocketsHttpHandler> CreateClusterCaTrustingHandlerWithoutClientCertificateAsync(
+        string targetPeerNodeId,
+        Peer[] peers,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
         var bootstrapPeer = peers[0];
@@ -155,20 +149,24 @@ public abstract class IntegrationTestBase : IDisposable
             VirtualNodes = 128,
             Peers = peers,
         };
-        var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, bootstrapPeer.Url);
+        (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Url, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor, targetPeerNodeId);
     }
 
-    /// <summary>
-    /// Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.
-    /// </summary>
+    /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.</summary>
     /// <param name="callerNodeId">Configured node identifier for the presenting peer.</param>
     /// <param name="callerPrimaryUrl">Primary listen URL for the presenting peer.</param>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A handler for trusted inter-node mTLS tests.</returns>
-    internal SocketsHttpHandler CreateTrustedInterNodeClientHandler(string callerNodeId, string callerPrimaryUrl, string targetPeerNodeId, Peer[] peers)
+    internal async Task<SocketsHttpHandler> CreateTrustedInterNodeClientHandlerAsync(
+        string callerNodeId,
+        string callerPrimaryUrl,
+        string targetPeerNodeId,
+        Peer[] peers,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callerNodeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(callerPrimaryUrl);
@@ -180,10 +178,8 @@ public abstract class IntegrationTestBase : IDisposable
             VirtualNodes = 128,
             Peers = peers,
         };
-        var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, callerPrimaryUrl);
-        return material is not { Enabled: true }
-            ? LoopbackHttp.CreateHandler()
-            : GrpcTransportEndpoints.CreateMtlsHandler(material, targetPeerNodeId);
+        (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, callerPrimaryUrl, cancellationToken).ConfigureAwait(false);
+        return material is not { Enabled: true } ? LoopbackHttp.CreateHandler() : GrpcTransportEndpoints.CreateMtlsHandler(material, targetPeerNodeId);
     }
 
     /// <summary>
@@ -203,9 +199,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="configureGrpc">
     /// Optional callback to configure <see cref="GrpcServiceOptions" />.
     /// </param>
-    /// <param name="servicesConfigure">
-    /// Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).
-    /// </param>
+    /// <param name="servicesConfigure">Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).</param>
     /// <param name="snapshotOptions">
     /// Optional snapshot trigger options; when <see langword="null"/>, the node uses its built-in defaults.
     /// </param>
@@ -214,29 +208,19 @@ public abstract class IntegrationTestBase : IDisposable
     /// other fields are honored as provided.
     /// </param>
     /// <param name="usePersistence">
-    /// When <c>true</c>, starts the node with WAL/snapshot persistence enabled using a test-scoped data directory.
+    /// When <see langword="true"/>, starts the node with WAL/snapshot persistence enabled using a test-scoped data directory.
     /// </param>
-    /// <param name="output">
-    /// Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.
-    /// </param>
+    /// <param name="output">Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.</param>
     /// <param name="cleanTestDir">
-    /// If <c>true</c>, the per-test data directory is cleaned before startup. If <c>false</c>, it is reused.
+    /// If <see langword="true"/>, the per-test data directory is cleaned before startup. If <see langword="false"/>, it is reused.
     /// </param>
-    /// <param name="extraScope">
-    /// Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.
-    /// </param>
-    /// <param name="peerHandlerFactory">
-    /// Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).
-    /// </param>
-    /// <param name="backpressureOptions">
-    /// Optional backpressure options for inbound admission control.
-    /// </param>
+    /// <param name="extraScope">Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.</param>
+    /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
+    /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
     /// <param name="memoryPressureOptions">
     /// Optional memory pressure options; when <see langword="null"/>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
-    /// <param name="security">
-    /// Optional per-node security override. When set, environment variables are not read for auth on this startup.
-    /// </param>
+    /// <param name="security">Optional per-node security override. When set, environment variables are not read for auth on this startup.</param>
     /// <param name="waitForRecovery">
     /// When persistence is enabled, blocks host startup until journal replay completes. Set to <see langword="false" /> to exercise non-blocking recovery.
     /// </param>
@@ -315,8 +299,9 @@ public abstract class IntegrationTestBase : IDisposable
         [CallerMemberName] string? testName = null)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ??
-                         throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ?? throw new ArgumentException(
+            "The peers list must contain an entry for the node being started",
+            nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
@@ -331,11 +316,16 @@ public abstract class IntegrationTestBase : IDisposable
         var dataDir = string.Empty;
         if (usePersistence || persistenceOptions is not null)
         {
-            persistenceOptionsOverride = GetPersistenceOptions(persistenceOptions, selfNodeId, BuildTestScope(scopeName, extraScope), cleanTestDir);
+            persistenceOptionsOverride = await GetPersistenceOptionsAsync(
+                persistenceOptions,
+                selfNodeId,
+                BuildTestScope(scopeName, extraScope),
+                cleanTestDir,
+                DefaultCancellationToken);
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        var (mtlsOptions, mtlsMaterial) = MtlsTestContext.ResolveForNode(ref _mtls, clusterConfig, urlString);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, urlString, DefaultCancellationToken);
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -346,7 +336,7 @@ public abstract class IntegrationTestBase : IDisposable
                 _ = b.AddFilter("Grpc", LogLevel.Debug);
                 _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
-                _ = output != null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
+                _ = output is not null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
             waitForRecovery,
             snapshotOptions,
@@ -366,15 +356,11 @@ public abstract class IntegrationTestBase : IDisposable
         return new TestNodeHost(application, urlString, dataDir, persistenceOptionsOverride is not null);
     }
 
-    /// <summary>
-    /// Allocates a dedicated port reserved for the lifetime of the test process.
-    /// </summary>
+    /// <summary>Allocates a dedicated port reserved for the lifetime of the test process.</summary>
     /// <returns>A port number reserved from the shared in-process pool.</returns>
     protected static int AllocateDedicatedPort() => ListenPortPool.IntegrationTests.AllocatePort();
 
-    /// <summary>
-    /// Creates a gRPC channel configured for HTTPS against a test node URL.
-    /// </summary>
+    /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
     /// <param name="url">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
     protected static GrpcChannel CreateGrpcChannel(Uri url) => GrpcChannel.ForAddress(
@@ -386,15 +372,11 @@ public abstract class IntegrationTestBase : IDisposable
             MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
-    /// <summary>
-    /// Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.
-    /// </summary>
+    /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
     /// <returns>A loopback HTTPS listen URI.</returns>
     protected static Uri GetNextHttpUri() => ListenPortPool.IntegrationTests.NextHttpUri();
 
-    /// <summary>
-    /// Cleans up managed resources owned by the integration test base.
-    /// </summary>
+    /// <summary>Cleans up managed resources owned by the integration test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
     [UsedImplicitly]
     protected virtual void Dispose(bool disposing)
@@ -416,7 +398,7 @@ public abstract class IntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(tfm))
             scope = $"{scope}__{tfm}";
 
-        return $"{scope}__pid{Environment.ProcessId}";
+        return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
@@ -426,11 +408,16 @@ public abstract class IntegrationTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private PersistenceOptions GetPersistenceOptions(PersistenceOptions? persistenceOptions, string selfNodeId, string testScope, bool clean)
+    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
+        PersistenceOptions? persistenceOptions,
+        string selfNodeId,
+        string testScope,
+        bool clean,
+        CancellationToken cancellationToken)
     {
         var path = PathKit.Combine(true, PathKit.GetProcTempPath(), GetType().Name, testScope, "cluster");
         if (clean && CleanedScopes.TryAdd(path, 0))
-            DirectoryKit.TryDeleteDirectory(path);
+            await DirectoryKit.TryDeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
         var effectiveDataDir = persistenceOptions?.DataDir ?? PathKit.Combine(true, path, selfNodeId);
         DirectoryKit.CreateDirectory(effectiveDataDir);

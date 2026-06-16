@@ -4,9 +4,7 @@ using Xunit;
 
 namespace Squirix.UnitTests.Internal;
 
-/// <summary>
-/// Unit tests for remote RPC error mapping in the public SDK client.
-/// </summary>
+/// <summary>Unit tests for remote RPC error mapping in the public SDK client.</summary>
 public sealed class RemoteRpcErrorMapperTests
 {
     /// <summary>

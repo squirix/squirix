@@ -6,9 +6,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Adds OpenTelemetry spans around journal coordinator operations.
-/// </summary>
+/// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
 internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
 {
     private readonly JournalWriter _inner;

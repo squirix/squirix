@@ -5,9 +5,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>
-/// Allocation-focused tests for cluster hashing hot paths.
-/// </summary>
+/// <summary>Allocation-focused tests for cluster hashing hot paths.</summary>
 public sealed class ClusterHashAllocationTests : UnitTestBase
 {
     /// <summary>

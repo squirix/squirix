@@ -7,9 +7,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Applies an optional default operation deadline to logical cache calls.
-/// </summary>
+/// <summary>Applies an optional default operation deadline to logical cache calls.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -92,7 +90,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
         catch (OperationCanceledException ex)
         {
-            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) == CancellationScenarioKind.OperationDeadlineExceeded)
+            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is CancellationScenarioKind.OperationDeadlineExceeded)
             {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
             }
@@ -115,7 +113,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
         catch (OperationCanceledException ex)
         {
-            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) == CancellationScenarioKind.OperationDeadlineExceeded)
+            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is CancellationScenarioKind.OperationDeadlineExceeded)
             {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
             }

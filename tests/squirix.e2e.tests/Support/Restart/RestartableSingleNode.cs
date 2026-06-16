@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,7 +27,7 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
 
     public static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
-        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId}", "restartable", Guid.NewGuid().ToString("N"));
+        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}", "restartable", Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(root);
         var node = new RestartableSingleNode(root, ListenPortPool.EndToEndTests.NextHttpAddress());
         await node.StartNodeAsync(cancellationToken);

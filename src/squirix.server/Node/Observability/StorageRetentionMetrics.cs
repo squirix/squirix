@@ -2,9 +2,7 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Metrics for best-effort manifest retention cleanup after durable manifest commits.
-/// </summary>
+/// <summary>Metrics for best-effort manifest retention cleanup after durable manifest commits.</summary>
 internal static class StorageRetentionMetrics
 {
     public static readonly Counter2Labels DeleteFailuresTotal = new(

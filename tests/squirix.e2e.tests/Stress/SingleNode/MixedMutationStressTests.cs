@@ -9,9 +9,7 @@ using Xunit;
 
 namespace Squirix.E2ETests.Stress.SingleNode;
 
-/// <summary>
-/// Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.
-/// </summary>
+/// <summary>Concurrent mixed-mutation contention over a fixed key set, asserting client-visible correctness invariants.</summary>
 [Trait(StressCategory.TraitName, StressCategory.TraitValue)]
 public sealed class MixedMutationStressTests : StressTestBase
 {
@@ -19,7 +17,6 @@ public sealed class MixedMutationStressTests : StressTestBase
     /// Races concurrent TryAdd then Insert over a shared key set and asserts a single add winner per key
     /// and a converged final value drawn from the writer set.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task ConcurrentMixedMutationsKeepClientVisibleInvariants()
     {
@@ -49,7 +46,7 @@ public sealed class MixedMutationStressTests : StressTestBase
     {
         var entry = await cache.GetEntryAsync(key, token);
         Assert.True(entry.Found);
-        Assert.Contains((string)entry.Value!, expectedValues);
+        Assert.Contains(Assert.IsType<string>(entry.Value), expectedValues);
 
         var reread = await cache.GetEntryAsync(key, token);
         Assert.True(reread.Found);

@@ -10,14 +10,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests validating journal JSON codec metrics.
-/// </summary>
+/// <summary>Tests validating journal JSON codec metrics.</summary>
 public sealed class JournalJsonCodecMetricsTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures failed decode emits error op and duration metric.
-    /// </summary>
+    /// <summary>Ensures failed decode emits error op and duration metric.</summary>
     [Fact]
     public void DecodeErrorEmitsErrorOp()
     {
@@ -30,9 +26,7 @@ public sealed class JournalJsonCodecMetricsTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_journal_json_op_duration_seconds", ("op", "decode")));
     }
 
-    /// <summary>
-    /// Ensures successful encode/decode emit ops, duration, and payload byte metrics.
-    /// </summary>
+    /// <summary>Ensures successful encode/decode emit ops, duration, and payload byte metrics.</summary>
     [Fact]
     public void EncodeDecodeSuccessEmitsOpsDurationAndPayloadBytes()
     {
@@ -67,9 +61,7 @@ public sealed class JournalJsonCodecMetricsTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_journal_json_payload_bytes_total", ("op", "decode")));
     }
 
-    /// <summary>
-    /// Ensures failed encode emits error op and duration metric.
-    /// </summary>
+    /// <summary>Ensures failed encode emits error op and duration metric.</summary>
     [Fact]
     public void EncodeErrorEmitsErrorOp()
     {
@@ -88,9 +80,7 @@ public sealed class JournalJsonCodecMetricsTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_journal_json_op_duration_seconds", ("op", "encode")));
     }
 
-    /// <summary>
-    /// Ensures JSON journal encoding writes entry payloads as UTF-8 bytes instead of JSON strings.
-    /// </summary>
+    /// <summary>Ensures JSON journal encoding writes entry payloads as UTF-8 bytes instead of JSON strings.</summary>
     [Fact]
     public void EncodeWritesEntryPayloadAsUtf8Bytes()
     {

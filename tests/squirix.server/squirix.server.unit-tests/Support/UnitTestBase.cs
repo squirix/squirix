@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>
-/// Provides a common base for server unit tests.
-/// </summary>
+/// <summary>Provides a common base for server unit tests.</summary>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class UnitTestBase : IDisposable
 {
@@ -30,9 +28,7 @@ public abstract class UnitTestBase : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>
-    /// Disposes managed resources owned by the unit test base.
-    /// </summary>
+    /// <summary>Disposes managed resources owned by the unit test base.</summary>
     /// <param name="disposing">True when called from <see cref="Dispose()" />; false from a finalizer path.</param>
     [UsedImplicitly]
     protected virtual void Dispose(bool disposing)

@@ -7,16 +7,12 @@ using System.Runtime.CompilerServices;
 
 namespace Squirix.TestKit.Testing;
 
-/// <summary>
-/// Helpers for reflection-based public exported type analysis in tests.
-/// </summary>
+/// <summary>Helpers for reflection-based public exported type analysis in tests.</summary>
 public static class ExportedTypeReflection
 {
     private const BindingFlags DeclaredMemberFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
-    /// <summary>
-    /// Builds the set of stable exported public API identity strings used by broad public API snapshot tests.
-    /// </summary>
+    /// <summary>Builds the set of stable exported public API identity strings used by broad public API snapshot tests.</summary>
     /// <param name="assembly">Assembly whose exported API is summarized.</param>
     /// <returns>Normalized type and member identities, compared with <see cref="StringComparer.Ordinal" />.</returns>
     public static IReadOnlySet<string> GetExportedApiIdentitySet(Assembly assembly) => GetExportedApiIdentities(assembly).ToHashSet(StringComparer.Ordinal);
@@ -43,7 +39,7 @@ public static class ExportedTypeReflection
     }
 
     private static string FormatParameterList(ParameterInfo[] parameters) =>
-        "(" + string.Join(",", parameters.Select(static parameter => FormatTypeName(parameter.ParameterType))) + ")";
+        "(" + string.Join(',', parameters.Select(static parameter => FormatTypeName(parameter.ParameterType))) + ")";
 
     private static IEnumerable<string> FormatPropertyLines(PropertyInfo property)
     {
@@ -51,22 +47,22 @@ public static class ExportedTypeReflection
         var indexParameters = property.GetIndexParameters();
         if (indexParameters.Length > 0)
         {
-            var indexSignature = string.Join(",", indexParameters.Select(static parameter => FormatTypeName(parameter.ParameterType)));
+            var indexSignature = string.Join(',', indexParameters.Select(static parameter => FormatTypeName(parameter.ParameterType)));
             var propertyType = FormatTypeName(property.PropertyType);
-            if (property.GetMethod?.IsPublic == true)
+            if (property.GetMethod?.IsPublic is true)
                 yield return "P:" + declaring + "::this[" + indexSignature + "]:" + propertyType + ".get";
 
-            if (property.SetMethod?.IsPublic == true)
+            if (property.SetMethod?.IsPublic is true)
                 yield return "P:" + declaring + "::this[" + indexSignature + "]:" + propertyType + ".set";
 
             yield break;
         }
 
         var typeName = FormatTypeName(property.PropertyType);
-        if (property.GetMethod?.IsPublic == true)
+        if (property.GetMethod?.IsPublic is true)
             yield return "P:" + declaring + "::" + property.Name + ":" + typeName + ".get";
 
-        if (property.SetMethod?.IsPublic == true)
+        if (property.SetMethod?.IsPublic is true)
             yield return "P:" + declaring + "::" + property.Name + ":" + typeName + ".set";
     }
 
@@ -104,12 +100,10 @@ public static class ExportedTypeReflection
         if (tick >= 0)
             genericDefinitionName = genericDefinitionName[..tick];
 
-        return genericDefinitionName + "<" + string.Join(",", type.GetGenericArguments().Select(FormatTypeName)) + ">";
+        return genericDefinitionName + "<" + string.Join(',', type.GetGenericArguments().Select(FormatTypeName)) + ">";
     }
 
-    /// <summary>
-    /// Builds stable exported public API identity strings, ordered by type and then by member.
-    /// </summary>
+    /// <summary>Builds stable exported public API identity strings, ordered by type and then by member.</summary>
     /// <param name="assembly">Assembly whose exported API is summarized.</param>
     /// <returns>Normalized type and member identities in snapshot order.</returns>
     private static List<string> GetExportedApiIdentities(Assembly assembly)
@@ -139,7 +133,7 @@ public static class ExportedTypeReflection
             memberLines.AddRange(type.GetEvents(DeclaredMemberFlags).Select(FormatEventLine));
             memberLines.AddRange(type.GetFields(DeclaredMemberFlags).Where(static field => !field.IsSpecialName).Select(FormatFieldLine));
 
-            lines.AddRange(memberLines.OrderBy(static line => line, StringComparer.Ordinal));
+            lines.AddRange(memberLines.Order(StringComparer.Ordinal));
         }
 
         return lines;
@@ -154,7 +148,7 @@ public static class ExportedTypeReflection
     private static bool IsCompilerGeneratedPublicArtifact(Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        return type.GetCustomAttribute<CompilerGeneratedAttribute>() is not null || type.FullName?.Contains('<', StringComparison.Ordinal) == true;
+        return Attribute.IsDefined(type, typeof(CompilerGeneratedAttribute)) || type.FullName?.Contains('<', StringComparison.Ordinal) is true;
     }
 
     private static bool IsOrdinaryMethod(MethodInfo method) => !method.IsSpecialName || method.Name.StartsWith("op_", StringComparison.Ordinal);

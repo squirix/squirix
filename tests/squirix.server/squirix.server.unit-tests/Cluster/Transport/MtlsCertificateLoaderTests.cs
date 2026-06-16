@@ -1,6 +1,7 @@
 using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -8,18 +9,14 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>
-/// Unit tests for cluster mTLS certificate loading.
-/// </summary>
+/// <summary>Unit tests for cluster mTLS certificate loading.</summary>
 public sealed class MtlsCertificateLoaderTests
 {
-    /// <summary>
-    /// Ensures PEM loading works for trusted test certificates.
-    /// </summary>
+    /// <summary>Ensures PEM loading works for trusted test certificates.</summary>
     [Fact]
-    public void LoadLoadsPemBackedNodeCertificateAndTrustAnchor()
+    public async Task LoadLoadsPemBackedNodeCertificateAndTrustAnchor()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -34,13 +31,11 @@ public sealed class MtlsCertificateLoaderTests
         Assert.True(material.NodeCertificate!.HasPrivateKey);
     }
 
-    /// <summary>
-    /// Ensures PFX loading works for trusted test certificates.
-    /// </summary>
+    /// <summary>Ensures PFX loading works for trusted test certificates.</summary>
     [Fact]
-    public void LoadLoadsPfxBackedNodeCertificateAndTrustAnchor()
+    public async Task LoadLoadsPfxBackedNodeCertificateAndTrustAnchor()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -56,13 +51,11 @@ public sealed class MtlsCertificateLoaderTests
         Assert.True(material.NodeCertificate.HasPrivateKey);
     }
 
-    /// <summary>
-    /// Ensures certificates without a private key are rejected.
-    /// </summary>
+    /// <summary>Ensures certificates without a private key are rejected.</summary>
     [Fact]
-    public void LoadRejectsCertificateWithoutPrivateKey()
+    public async Task LoadRejectsCertificateWithoutPrivateKey()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var certOnly = X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath);
 
         var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca));
@@ -70,13 +63,11 @@ public sealed class MtlsCertificateLoaderTests
         Assert.Contains("private key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Ensures untrusted node certificates are rejected.
-    /// </summary>
+    /// <summary>Ensures untrusted node certificates are rejected.</summary>
     [Fact]
-    public void LoadRejectsUntrustedNodeCertificate()
+    public async Task LoadRejectsUntrustedNodeCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var untrustedKey = RSA.Create(2048);
         var untrustedRequest = new CertificateRequest("CN=untrusted-node", untrustedKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var untrustedCertificate = untrustedRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
@@ -97,9 +88,7 @@ public sealed class MtlsCertificateLoaderTests
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// Ensures standalone topology returns an empty material instance.
-    /// </summary>
+    /// <summary>Ensures standalone topology returns an empty material instance.</summary>
     [Fact]
     public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
     {

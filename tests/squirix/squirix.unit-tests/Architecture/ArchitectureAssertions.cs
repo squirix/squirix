@@ -10,9 +10,7 @@ namespace Squirix.UnitTests.Architecture;
 /// </summary>
 internal static class ArchitectureAssertions
 {
-    /// <summary>
-    /// Fails the test with a sorted, newline-separated list of failing type names when the rule is not satisfied.
-    /// </summary>
+    /// <summary>Fails the test with a sorted, newline-separated list of failing type names when the rule is not satisfied.</summary>
     /// <param name="result">The NetArchTest evaluation result.</param>
     public static void AssertArchitecture(TestResult result)
     {
@@ -21,6 +19,6 @@ internal static class ArchitectureAssertions
             return;
         }
 
-        Assert.Fail(string.Join(Environment.NewLine, result.FailingTypeNames.OrderBy(static x => x, StringComparer.Ordinal)));
+        Assert.Fail(string.Join(Environment.NewLine, result.FailingTypeNames.Order(StringComparer.Ordinal)));
     }
 }

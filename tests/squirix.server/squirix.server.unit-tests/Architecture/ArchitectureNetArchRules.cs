@@ -5,9 +5,7 @@ using TestResult = NetArchTest.Rules.TestResult;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// NetArchTest composition helpers used across architecture tests.
-/// </summary>
+/// <summary>NetArchTest composition helpers used across architecture tests.</summary>
 internal static class ArchitectureNetArchRules
 {
     /// <summary>
@@ -20,7 +18,7 @@ internal static class ArchitectureNetArchRules
     {
         ArgumentNullException.ThrowIfNull(matchingTypes);
         ArgumentNullException.ThrowIfNull(exactNamespaces);
-        if (exactNamespaces.Count == 0)
+        if (exactNamespaces.Count is 0)
         {
             throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
         }

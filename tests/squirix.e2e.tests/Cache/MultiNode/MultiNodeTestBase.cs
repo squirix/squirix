@@ -22,14 +22,10 @@ public abstract class MultiNodeTestBase : EndToEndTestBase, IClassFixture<TwoNod
     /// <param name="fixture">Shared two-node cluster fixture.</param>
     protected MultiNodeTestBase(TwoNodeFixture fixture) => _fixture = fixture ?? throw new ArgumentNullException(nameof(fixture));
 
-    /// <summary>
-    /// Gets the shared object-typed named caches for both nodes.
-    /// </summary>
+    /// <summary>Gets the shared object-typed named caches for both nodes.</summary>
     protected TwoNodeNamedCaches<object?> Cluster => _fixture.NamedCaches;
 
-    /// <summary>
-    /// Creates typed named-cache facades backed by the shared cluster.
-    /// </summary>
+    /// <summary>Creates typed named-cache facades backed by the shared cluster.</summary>
     /// <typeparam name="T">Cached value type.</typeparam>
     /// <returns>Named caches for both nodes.</returns>
     protected ValueTask<TwoNodeNamedCaches<T>> GetNamedCachesAsync<T>() => _fixture.CreateNamedCachesAsync<T>(DefaultCancellationToken);

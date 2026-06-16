@@ -7,9 +7,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Allocation-focused tests for observability scopes.
-/// </summary>
+/// <summary>Allocation-focused tests for observability scopes.</summary>
 public sealed class CorrelationAllocationTests : UnitTestBase
 {
     /// <summary>

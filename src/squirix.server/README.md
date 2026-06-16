@@ -19,8 +19,8 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | Type                                                | Role                                                                                                              |
 |-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URL on the handle) |
-| `SquirixServerAspNetCoreExtensions`                 | `AddSquirixServer`, `MapSquirixServer` for custom ASP.NET Core hosts                                              |
-| `SquirixServerConfiguration`                        | Load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                               |
+| `SquirixServerAspNetCoreExtensions`                 | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
+| `SquirixServerConfiguration`                        | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables WAL/snapshot durability                                              |
 
 Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only; see
@@ -30,7 +30,7 @@ Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only;
 
 ```csharp
 // Discovered Squirix.settings.json is loaded when loadDiscoveredSettings is true (default).
-builder.AddSquirixServer(options =>
+await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");
@@ -43,7 +43,7 @@ app.MapSquirixServer();
 Explicit settings path or in-memory baseline:
 
 ```csharp
-builder.AddSquirixServer(
+await builder.AddSquirixServerAsync(
     options => options.NodeId = "node-a",
     settingsPath: "Squirix.settings.json",
     loadDiscoveredSettings: false);
@@ -51,7 +51,7 @@ builder.AddSquirixServer(
 
 ## Tests and samples
 
-`SquirixServer.StartAsync` uses `SquirixServerConfiguration.LoadOrCreateDefault()` (discovered settings file, else an
+`SquirixServer.StartAsync` uses `SquirixServerConfiguration.LoadOrCreateDefaultAsync` (discovered settings file, else an
 ephemeral free HTTPS port). Pass the same URL to the client:
 
 ```csharp
@@ -60,8 +60,8 @@ await using var server = await SquirixServer.StartAsync(cancellationToken);
 await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellationToken);
 ```
 
-For options you control in code without a file, use `AddSquirixServer` on a `WebApplicationBuilder` instead of
-`SquirixServer.StartAsync`.
+For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a
+`WebApplicationBuilder` instead of `SquirixServer.StartAsync`.
 
 Integration and smoke tests start nodes through `IntegrationTestBase.StartNodeAsync` or
 `SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to unauthenticated nodes via
@@ -76,7 +76,7 @@ squirix-server validate-config --settings Squirix.settings.json --strict
 
 ## Standalone host
 
-The `squirix-server` executable uses the same `AddSquirixServer` / `MapSquirixServer` pipeline. Local dev defaults
+The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline. Local dev defaults
 listen on port **5001**:
 
 ```powershell

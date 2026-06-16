@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support.Client;
@@ -6,15 +7,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>
-/// Integration tests for multi-node public CRUD and cross-node visibility.
-/// </summary>
+/// <summary>Integration tests for multi-node public CRUD and cross-node visibility.</summary>
 public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
-    /// <summary>
-    /// Verifies AddAsync(string, T) observes existing named-cache entries across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>
     [Fact]
     public async Task AddValueOnNodeBThrowsWhenKeyInsertedOnNodeA()
     {
@@ -25,10 +21,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies only one concurrent AddAsync succeeds for the same key across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>
     [Fact]
     public async Task ConcurrentAddFromBothNodesOnlyOneSucceeds()
     {
@@ -44,10 +37,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies only one concurrent TryAddAsync returns true for the same key across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies only one concurrent TryAddAsync returns true for the same key across nodes.</summary>
     [Fact]
     public async Task ConcurrentTryAddFromBothNodesOnlyOneReturnsTrue()
     {
@@ -63,18 +53,15 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies concurrent upserts from different nodes converge to one visible value without corrupting reads.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies concurrent upserts from different nodes converge to one visible value without corrupting reads.</summary>
     [Fact]
     public async Task ConcurrentUpsertsFromBothNodesLeaveReadableValue()
     {
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
         var tasks = Enumerable.Range(0, 50).Select(i =>
-            i % 2 == 0 ? Cluster.CacheA.SetAsync(key, $"a-{i}", cancellationToken: DefaultCancellationToken)
-                : Cluster.CacheB.SetAsync(key, $"b-{i}", cancellationToken: DefaultCancellationToken)).ToArray();
+            i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
+                : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)).ToArray();
 
         await Task.WhenAll(tasks);
 
@@ -85,10 +72,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.Equal(valueA.Value, valueB.Value);
     }
 
-    /// <summary>
-    /// Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.</summary>
     [Fact]
     public async Task ExternalClientConnectedToNodeARoutesMutationToOwnerNodeB()
     {
@@ -102,10 +86,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.Equal("v1", (await cache.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies GetEntryAsync sees a named-cache entry written by another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies GetEntryAsync sees a named-cache entry written by another node.</summary>
     [Fact]
     public async Task GetEntryOnNodeBReturnsEntryInsertedOnNodeA()
     {
@@ -118,10 +99,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True(entry.Found);
     }
 
-    /// <summary>
-    /// Verifies GetValueAsync sees a named-cache entry written by another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies GetValueAsync sees a named-cache entry written by another node.</summary>
     [Fact]
     public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
     {
@@ -132,10 +110,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True((await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies an update through one node is immediately visible when reading through another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies an update through one node is immediately visible when reading through another node.</summary>
     [Fact]
     public async Task InsertOnNodeAUpdateOnNodeBGetOnNodeAReturnsLatestValue()
     {
@@ -147,10 +122,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.Equal("v2", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies SetAsync(string, T) writes are visible from another node for the same named cache.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies SetAsync(string, T) writes are visible from another node for the same named cache.</summary>
     [Fact]
     public async Task InsertValueOnNodeAThenGetOnNodeBReturnsInsertedValue()
     {
@@ -161,10 +133,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.Equal("v1", (await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync on one node removes a named-cache entry written on another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies RemoveAsync on one node removes a named-cache entry written on another node.</summary>
     [Fact]
     public async Task RemoveNodeBDeletesEntryInsertedOnNodeA()
     {
@@ -175,10 +144,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True(await Cluster.CacheB.RemoveAsync(key, DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies a remove through one node makes the key missing through another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies a remove through one node makes the key missing through another node.</summary>
     [Fact]
     public async Task RemoveNodeBThenGetOnNodeAReturnsNull()
     {
@@ -190,10 +156,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies the same key in different named caches remains isolated across cluster nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies the same key in different named caches remains isolated across cluster nodes.</summary>
     [Fact]
     public async Task SameKeyInDifferentNamedCachesRemainsIsolatedAcrossNodes()
     {
@@ -204,10 +167,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.Equal("customer-value", (await Cluster.CustomerCacheB.GetValueAsync("same-key", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) observes existing named-cache values across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies TryAddAsync(string, T) observes existing named-cache values across nodes.</summary>
     [Fact]
     public async Task TryAddValueOnNodeBReturnsFalseWhenKeyInsertedOnNodeA()
     {
@@ -218,10 +178,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.False(await Cluster.CacheB.TryAddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies a stored null value remains distinguishable from a missing key across nodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies a stored null value remains distinguishable from a missing key across nodes.</summary>
     [Fact]
     public async Task TryGetValueOnNodeBReturnsFoundForNullValueInsertedOnNodeA()
     {
@@ -233,10 +190,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.False((await Cluster.CacheB.GetValueAsync("missing-null-key", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies GetValueAsync sees a named-cache value written by another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies GetValueAsync sees a named-cache value written by another node.</summary>
     [Fact]
     public async Task TryGetValueOnNodeBReturnsValueInsertedOnNodeA()
     {
@@ -249,10 +203,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True(result.Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync can remove a named-cache entry written by another node.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies RemoveAsync can remove a named-cache entry written by another node.</summary>
     [Fact]
     public async Task TryRemoveOnNodeBRemovesEntryInsertedOnNodeA()
     {
@@ -265,10 +216,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.True(result);
     }
 
-    /// <summary>
-    /// Verifies remote RemoveAsync removes an entry after it was read.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies remote RemoveAsync removes an entry after it was read.</summary>
     [Fact]
     public async Task TryRemoveOnNodeBReturnsRemoteRemovedEntryMetadata()
     {
@@ -285,10 +233,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         Assert.False((await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies remote RemoveAsync removes a stored null value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies remote RemoveAsync removes a stored null value.</summary>
     [Fact]
     public async Task TryRemoveOnNodeBStoredNullReportsRemoved()
     {

@@ -36,7 +36,7 @@ dotnet add package squirix.server --version 0.1.0-preview.4
 var builder = WebApplication.CreateBuilder(args);
 
 // Loads Squirix.settings.json from the working directory when present.
-builder.AddSquirixServer(options =>
+await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");
@@ -48,7 +48,7 @@ app.MapSquirixServer();
 await app.RunAsync();
 ```
 
-`AddSquirixServer(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
+`AddSquirixServerAsync(...)` registers the server runtime and configures the primary Kestrel HTTPS listener (HTTP/1.1 and
 HTTP/2 on one port). `MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
 ## Loopback development default (not production posture)
@@ -76,7 +76,7 @@ port with JWT/OIDC; cluster forwarding uses the internal port and per-node certi
 Explicit settings path:
 
 ```csharp
-builder.AddSquirixServer(
+await builder.AddSquirixServerAsync(
     options => options.NodeId = "node-a",
     settingsPath: "Squirix.settings.json",
     loadDiscoveredSettings: false);
@@ -92,4 +92,5 @@ await using var server = await SquirixServer.StartAsync(cancellationToken);
 await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellationToken);
 ```
 
-For options controlled entirely in code, prefer `AddSquirixServer` on `WebApplicationBuilder` over `SquirixServer.StartAsync`.
+For options controlled entirely in code, prefer `await builder.AddSquirixServerAsync(...)` on `WebApplicationBuilder`
+over `SquirixServer.StartAsync`.

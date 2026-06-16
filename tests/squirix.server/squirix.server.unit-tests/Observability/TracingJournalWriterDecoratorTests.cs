@@ -14,34 +14,28 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
 {
-    /// <summary>
-    /// Append put through the decorator begins a journal put trace scope.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     [Fact]
     public async Task AppendPutAsyncCreatesJournalPutSpan()
     {
         using var dir = new TempDirectory("squirix-tracing-journal-decorator");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
-        var manifestStore = new ManifestStore(options);
-        await using var core = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var core = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalWriterDecorator(core, tracer);
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null);
+        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind == JournalOperationKind.Put);
+        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
         Assert.Equal("trace-key", context.Key);
         Assert.Equal(payload.Length, Assert.Single(tracer.FramePayloadBytes));
     }
 
-    /// <summary>
-    /// Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.
-    /// </summary>
+    /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>
     /// <param name="groupCommitMaxWaitMs">Group-commit wait window; zero disables group commit.</param>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
     [Theory]
     [InlineData(5)]
     [InlineData(0)]
@@ -55,17 +49,17 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 600_000,
         };
-        var manifestStore = new ManifestStore(options);
-        await using var core = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var core = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalWriterDecorator(core, tracer);
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null);
+        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
         if (groupCommitMaxWaitMs > 0)
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind == JournalOperationKind.Put);
+        var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
         Assert.Equal(groupCommitMaxWaitMs > 0, context.GroupCommitEnabled);
     }
 }

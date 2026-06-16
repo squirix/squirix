@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Hosting;
@@ -13,13 +14,11 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 /// </summary>
 public sealed class MtlsOptionsTests
 {
-    /// <summary>
-    /// Ensures multi-node topology rejects an internal port that matches the primary listener.
-    /// </summary>
+    /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>
     [Fact]
-    public void RemotePeersRejectInternalPortMatchingPrimaryListener()
+    public async Task RemotePeersRejectInternalPortMatchingPrimaryListener()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -31,9 +30,7 @@ public sealed class MtlsOptionsTests
         Assert.Contains("must differ", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures missing files fail validation for multi-node topology.
-    /// </summary>
+    /// <summary>Ensures missing files fail validation for multi-node topology.</summary>
     [Fact]
     public void RemotePeersRejectMissingFiles()
     {
@@ -52,13 +49,11 @@ public sealed class MtlsOptionsTests
         Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures PFX and PEM inputs cannot be mixed.
-    /// </summary>
+    /// <summary>Ensures PFX and PEM inputs cannot be mixed.</summary>
     [Fact]
-    public void RemotePeersRejectMixedPfxAndPemPaths()
+    public async Task RemotePeersRejectMixedPfxAndPemPaths()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
         {
             CaPath = bundle.CaPath,
@@ -72,9 +67,7 @@ public sealed class MtlsOptionsTests
         Assert.Contains("not both", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures multi-node topology requires CA, node certificate, and internal listen port.
-    /// </summary>
+    /// <summary>Ensures multi-node topology requires CA, node certificate, and internal listen port.</summary>
     [Fact]
     public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
     {
@@ -86,9 +79,7 @@ public sealed class MtlsOptionsTests
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures standalone topology does not require cluster mTLS material.
-    /// </summary>
+    /// <summary>Ensures standalone topology does not require cluster mTLS material.</summary>
     [Fact]
     public void StandaloneTopologyDoesNotRequireCertificatePaths()
     {
@@ -98,9 +89,7 @@ public sealed class MtlsOptionsTests
         Assert.Null(ex);
     }
 
-    /// <summary>
-    /// Ensures startup validation allows standalone topology without mTLS material.
-    /// </summary>
+    /// <summary>Ensures startup validation allows standalone topology without mTLS material.</summary>
     [Fact]
     public void StartupValidatorAllowsStandaloneTopologyWithoutMtlsMaterial()
     {

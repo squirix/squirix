@@ -7,15 +7,10 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests.Health;
 
-/// <summary>
-/// Smoke tests for health probe endpoints that remain public when JWT auth is enabled.
-/// </summary>
+/// <summary>Smoke tests for health probe endpoints that remain public when JWT auth is enabled.</summary>
 public sealed class HealthProbeSmokeTests : SmokeTestBase
 {
-    /// <summary>
-    /// Ensures documented health probes stay reachable without JWT when auth is enabled.
-    /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
+    /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     [Fact]
     public async Task HealthProbesRemainAccessibleWithoutJwtWhenAuthEnabled()
     {
@@ -31,9 +26,9 @@ public sealed class HealthProbeSmokeTests : SmokeTestBase
             cancellationToken: DefaultCancellationToken);
 
         var live = await HttpClient.GetAsync(new Uri(url, "/health/live"), DefaultCancellationToken);
-        Assert.True(live.IsSuccessStatusCode, $"Expected /health/live success, got {(int)live.StatusCode} {live.ReasonPhrase}");
+        Assert.True(live.IsSuccessStatusCode, $"Expected /health/live success, got {live.StatusCode:D} {live.ReasonPhrase}");
 
         var ready = await HttpClient.GetAsync(new Uri(url, "/health/ready"), DefaultCancellationToken);
-        Assert.True(ready.IsSuccessStatusCode, $"Expected /health/ready success, got {(int)ready.StatusCode} {ready.ReasonPhrase}");
+        Assert.True(ready.IsSuccessStatusCode, $"Expected /health/ready success, got {ready.StatusCode:D} {ready.ReasonPhrase}");
     }
 }

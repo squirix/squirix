@@ -9,9 +9,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// </summary>
 public sealed class BackpressureOptionsTests
 {
-    /// <summary>
-    /// Ensures the default configuration passes validation and exposes conservative defaults.
-    /// </summary>
+    /// <summary>Ensures the default configuration passes validation and exposes conservative defaults.</summary>
     [Fact]
     public void DefaultsAreValid()
     {
@@ -27,9 +25,7 @@ public sealed class BackpressureOptionsTests
         Assert.Null(options.NodeRateLimitPerSecond);
     }
 
-    /// <summary>
-    /// Ensures rate limiting requires both refill rate and burst capacity.
-    /// </summary>
+    /// <summary>Ensures rate limiting requires both refill rate and burst capacity.</summary>
     [Fact]
     public void ValidateThrowsForIncompleteRateLimit()
     {
@@ -43,9 +39,7 @@ public sealed class BackpressureOptionsTests
         Assert.Contains("NodeRateLimitBurst", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures per-client concurrency cannot be configured above the global node cap.
-    /// </summary>
+    /// <summary>Ensures per-client concurrency cannot be configured above the global node cap.</summary>
     [Fact]
     public void ValidateThrowsForInvalidPerClientConcurrency()
     {
@@ -60,9 +54,7 @@ public sealed class BackpressureOptionsTests
         Assert.Contains("PerClientMaxInFlight", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures invalid threshold ordering is rejected during validation.
-    /// </summary>
+    /// <summary>Ensures invalid threshold ordering is rejected during validation.</summary>
     [Fact]
     public void ValidateThrowsForInvalidThresholdOrdering()
     {

@@ -10,9 +10,7 @@ using Squirix.Utils;
 
 namespace Squirix.Benchmarks.Support.Grpc;
 
-/// <summary>
-/// Reads through generated gRPC stubs only, without the public Squirix client SDK stack.
-/// </summary>
+/// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
 internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 {
     private static readonly ISquirixSerializer Serializer = new SystemTextJsonSerializer();
@@ -31,7 +29,7 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return ValueTask.CompletedTask;
 
         _channel.Dispose();
@@ -70,6 +68,6 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
     {
         var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? ProtoEx.FromCacheValue<string>(response.Value, Serializer) : null;
+        return response.Found ? await ProtoEx.FromCacheValueAsync<string>(response.Value, Serializer).ConfigureAwait(false) : null;
     }
 }

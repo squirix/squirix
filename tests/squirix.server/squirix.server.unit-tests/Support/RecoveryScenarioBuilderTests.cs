@@ -4,15 +4,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>
-/// Guards shared recovery test infrastructure behavior.
-/// </summary>
+/// <summary>Guards shared recovery test infrastructure behavior.</summary>
 public sealed class RecoveryScenarioBuilderTests
 {
-    /// <summary>
-    /// Verifies the shared recovery scenario owns and deletes its temporary directory.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies the shared recovery scenario owns and deletes its temporary directory.</summary>
     [Fact]
     public async Task DisposeDeletesTemporaryDirectory()
     {

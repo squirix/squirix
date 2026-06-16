@@ -7,15 +7,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Persistence;
 
-/// <summary>
-/// Integration tests for typed custom values restored through durable restart recovery.
-/// </summary>
+/// <summary>Integration tests for typed custom values restored through durable restart recovery.</summary>
 public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Verifies RestartShouldNotRestoreExpiredCustomRecord.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RestartShouldNotRestoreExpiredCustomRecord.</summary>
     [Fact]
     public async Task RestartShouldNotRestoreExpiredCustomRecord()
     {
@@ -25,7 +20,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         await cache.SetAsync("k", TypedValueFactory.CreateProfile("expired"), new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(100) }, DefaultCancellationToken);
 
         // Expiration is time-based; wait past the TTL before restart so recovery observes a deterministically expired entry.
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
 
         await node.RestartAsync(DefaultCancellationToken);
@@ -34,10 +29,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         Assert.False((await restartedCache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RestartShouldRestoreCustomRecordFromWal.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RestartShouldRestoreCustomRecordFromWal.</summary>
     [Fact]
     public async Task RestartShouldRestoreCustomRecordFromWal()
     {
@@ -55,10 +47,7 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies RestartShouldRestoreMutableClassFromWal.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RestartShouldRestoreMutableClassFromWal.</summary>
     [Fact]
     public async Task RestartShouldRestoreMutableClassFromWal()
     {

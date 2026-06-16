@@ -44,7 +44,7 @@ internal static class CacheNameValidator
             return false;
         }
 
-        if (cacheName is "." or "..")
+        if (cacheName.Equals(".", StringComparison.Ordinal) || cacheName.Equals("..", StringComparison.Ordinal))
         {
             error = CacheNameValidationError.Reserved;
             return false;

@@ -7,7 +7,7 @@ Client and server packages keep **separate** serializer hosts:
 
 - **Client** (`Squirix.Serialization.SerializationProvider`): immutable default used by transport helpers; each
   `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixOptions.Serializer`.
-- **Server:** uses a built-in JSON encoder for durability and adapters. `AddSquirixServer` / `SquirixServer.StartAsync`
+- **Server:** uses a built-in JSON encoder for durability and adapters. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
   do not expose a serializer hook on `SquirixServerOptions`.
 
 ## Remote client serializer

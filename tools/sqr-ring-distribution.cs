@@ -73,7 +73,7 @@ if (string.IsNullOrWhiteSpace(nodesCsv))
 try
 {
     var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
-    if (nodes.Length == 0)
+    if (nodes.Length is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = new ConsistentHashRing(nodes, virtualNodes);
@@ -83,20 +83,21 @@ try
 
     for (var i = 0; i < sampleSize; i++)
     {
-        var key = $"sample-key-{i}";
+        var key = $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}";
         var owner = ring.GetOwner(cacheName, key);
         distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
     }
 
     await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
     await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
-    await output.WriteLineAsync($"virtualNodes: {virtualNodes}").ConfigureAwait(false);
-    await output.WriteLineAsync($"sampleSize: {sampleSize}").ConfigureAwait(false);
-    foreach (var item in distribution.OrderBy(static x => x.Key, StringComparer.Ordinal))
+    await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+    await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+    foreach (var key in distribution.Keys.Order(StringComparer.Ordinal))
     {
-        var share = Math.Round((double)item.Value / sampleSize, 6);
-        await output.WriteLineAsync($"node.{item.Key}.count: {item.Value}").ConfigureAwait(false);
-        await output.WriteLineAsync($"node.{item.Key}.share: {share}").ConfigureAwait(false);
+        var count = distribution[key];
+        var share = Math.Round(Convert.ToDouble(count, CultureInfo.InvariantCulture) / sampleSize, 6, MidpointRounding.ToEven);
+        await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     }
 
     return 0;

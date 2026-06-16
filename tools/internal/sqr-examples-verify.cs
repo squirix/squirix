@@ -30,10 +30,10 @@ if (!Directory.Exists(examplesDir))
     return 1;
 }
 
-var files = Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+var files = Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase)
                      .ToArray();
 
-if (files.Length == 0)
+if (files.Length is 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.").ConfigureAwait(false);
     return 1;
@@ -45,13 +45,13 @@ foreach (var file in files)
     var relativePath = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
 
     await output.WriteLineAsync($"---- {relativePath} --help ----").ConfigureAwait(false);
-    if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", "--help"]).ConfigureAwait(false) != 0)
+    if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", "--help"], CancellationToken.None).ConfigureAwait(false) is not 0)
         return 1;
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
         await output.WriteLineAsync($"---- {relativePath} {string.Join(' ', smokeArgs)} ----").ConfigureAwait(false);
-        if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs]).ConfigureAwait(false) != 0)
+        if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) is not 0)
             return 1;
     }
 }
@@ -68,7 +68,7 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
     };
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, string[] args)
+static async Task<int> RunDotnetAsync(string workingDirectory, string[] args, CancellationToken cancellationToken)
 {
     var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg));
     using var proc = Process.Start(
@@ -81,7 +81,7 @@ static async Task<int> RunDotnetAsync(string workingDirectory, string[] args)
         });
 
     if (proc is not null)
-        await proc.WaitForExitAsync().ConfigureAwait(false);
+        await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
 }

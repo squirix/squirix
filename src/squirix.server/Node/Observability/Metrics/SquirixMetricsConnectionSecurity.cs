@@ -4,9 +4,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
-/// <summary>
-/// Connection-origin and authorization checks for the Prometheus metrics scrape endpoint.
-/// </summary>
+/// <summary>Connection-origin and authorization checks for the Prometheus metrics scrape endpoint.</summary>
 internal static class SquirixMetricsConnectionSecurity
 {
     /// <summary>
@@ -38,6 +36,6 @@ internal static class SquirixMetricsConnectionSecurity
     {
         ArgumentNullException.ThrowIfNull(httpContext);
 
-        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated == true;
+        return IsLoopbackClient(httpContext) || httpContext.User.Identity?.IsAuthenticated is true;
     }
 }

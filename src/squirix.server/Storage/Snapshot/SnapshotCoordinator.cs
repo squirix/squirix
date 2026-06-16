@@ -71,7 +71,7 @@ internal sealed class SnapshotCoordinator<T>
 
     public event EventHandler<SnapshotCompletedEventArgs>? SnapshotCompleted;
 
-    public bool IsInFlight => Volatile.Read(ref _snapshotInFlight) != 0;
+    public bool IsInFlight => Volatile.Read(ref _snapshotInFlight) is not 0;
 
     public async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
@@ -83,7 +83,7 @@ internal sealed class SnapshotCoordinator<T>
         if (ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure())
             return;
 
-        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _snapshotInFlight, 1, 0) is not 0)
             return;
 
         using var activity = ActivitySourceHolder.StartInternal("snapshot.create");
@@ -115,7 +115,7 @@ internal sealed class SnapshotCoordinator<T>
             }
 
             _ = activity?.SetTag("snapshot.result", result);
-            _ = activity?.SetTag("snapshot.duration_ms", (long)sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("snapshot.duration_ms", sw.Elapsed.TotalMilliseconds);
 
             Volatile.Write(ref _snapshotInFlight, 0);
         }
@@ -143,17 +143,17 @@ internal sealed class SnapshotCoordinator<T>
         IJournalCoordinator currentJournal,
         CancellationToken cancellationToken)
     {
-        _ = currentActivity?.SetTag("snapshot.seq_at_flush", (long)seqAtFlush);
+        _ = currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
 
         var items = new List<(CacheKey Key, object Json)>(captured.Items.Count);
         foreach (var (key, entry) in captured.Items)
         {
-            var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags);
+            var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(payload);
             items.Add((key, doc.RootElement.Clone()));
         }
 
-        var prev = _manifestStore.ReadCurrentOrDefault();
+        var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         _ = currentActivity?.SetTag("snapshot.index", nextIndex);
 
@@ -176,7 +176,7 @@ internal sealed class SnapshotCoordinator<T>
                 ReplayFromJournalSegment = currentJournal.CurrentSegmentIndex,
             },
         };
-        _manifestStore.Write(updated);
+        await _manifestStore.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
 
         _lastSnapshotUtc = now;
         _opsAtLast = _journal.AppendedOps;
@@ -185,7 +185,7 @@ internal sealed class SnapshotCoordinator<T>
     }
 
     private bool ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure() =>
-        _memoryPressureEvaluator.Evaluate(_memoryUsageAccounting.EstimatedBytes) == MemoryPressureState.Critical;
+        _memoryPressureEvaluator.Evaluate(_memoryUsageAccounting.EstimatedBytes) is MemoryPressureState.Critical;
 
     private bool ShouldTrigger(DateTime utcNow)
     {

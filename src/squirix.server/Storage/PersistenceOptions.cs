@@ -29,14 +29,10 @@ internal sealed record PersistenceOptions
         }
     }
 
-    /// <summary>
-    /// Gets a value indicating whether journal group commit is enabled.
-    /// </summary>
+    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
     public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
 
-    /// <summary>
-    /// Gets the maximum number of concurrent durable mutations that can share one durability flush.
-    /// </summary>
+    /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
     [JsonPropertyName("groupCommitMaxBatch")]
     public int JournalGroupCommitMaxBatch
     {
@@ -116,14 +112,10 @@ internal sealed record PersistenceOptions
         }
     }
 
-    /// <summary>
-    /// Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.
-    /// </summary>
+    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
     public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
 
-    /// <summary>
-    /// Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.
-    /// </summary>
+    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
     public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
 
     /// <summary>

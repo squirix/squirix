@@ -17,9 +17,7 @@ public sealed class PublicApiGoldenSnapshotTests
 {
     private static readonly Assembly SquirixMainAssembly = typeof(ICache<>).Assembly;
 
-    /// <summary>
-    /// Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.
-    /// </summary>
+    /// <summary>Ensures the on-disk golden snapshot matches the assembly; fails on unexpected additions or removals.</summary>
     [Fact]
     public void GoldenSnapshotMatchesMainAssemblyExports()
     {
@@ -30,7 +28,7 @@ public sealed class PublicApiGoldenSnapshotTests
 
         var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
         var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-        if (unexpected.Length == 0 && missing.Length == 0)
+        if (unexpected.Length is 0 && missing.Length is 0)
             return;
 
         var sb = new StringBuilder();

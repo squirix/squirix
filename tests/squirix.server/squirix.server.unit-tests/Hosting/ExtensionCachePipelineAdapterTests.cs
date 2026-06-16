@@ -7,15 +7,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>
-/// Verifies extension cache pipeline adapter behavior.
-/// </summary>
+/// <summary>Verifies extension cache pipeline adapter behavior.</summary>
 public sealed class ExtensionCachePipelineAdapterTests
 {
-    /// <summary>
-    /// Ensures entry-aware extension pipelines receive entry operations.
-    /// </summary>
-    /// <returns>A task that completes when the test finishes.</returns>
+    /// <summary>Ensures entry-aware extension pipelines receive entry operations.</summary>
     [Fact]
     public async Task EntryOperationsUseEntryAwareDecoratedPipeline()
     {
@@ -54,9 +49,9 @@ public sealed class ExtensionCachePipelineAdapterTests
             return new ValueTask<CacheEntry<object?>?>(_entry);
         }
 
-        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new((TimeSpan?)null);
+        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => default;
 
-        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new((object?)null);
+        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => default;
 
         public ValueTask InsertAsync(string cacheName, string key, object? value, CancellationToken cancellationToken) => default;
 
@@ -91,15 +86,15 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<CacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
             GetEntryCalls++;
-            return new ValueTask<CacheEntry<object?>?>((CacheEntry<object?>?)null);
+            return default;
         }
 
-        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => new((TimeSpan?)null);
+        public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => default;
 
         public ValueTask<CacheValueResult<object?>> GetOrAddAsync(string cacheName, string key, CacheEntry<object?> entry, CancellationToken cancellationToken) =>
             new(new CacheValueResult<object?>(false, null));
 
-        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => new((object?)null);
+        public ValueTask<object?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => default;
 
         public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => new(false);
 

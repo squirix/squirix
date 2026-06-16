@@ -9,9 +9,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// </summary>
 public sealed class MemoryPressureOptionsResolverTests
 {
-    /// <summary>
-    /// Verifies unset max bytes defaults to 80% of available memory.
-    /// </summary>
+    /// <summary>Verifies unset max bytes defaults to 80% of available memory.</summary>
     [Fact]
     public void ResolveDefaultsMaxBytesToRamCap()
     {
@@ -20,9 +18,7 @@ public sealed class MemoryPressureOptionsResolverTests
         Assert.Equal(800_000L, resolved.MaxEstimatedCacheBytes);
     }
 
-    /// <summary>
-    /// Verifies explicit max bytes below the RAM cap are preserved.
-    /// </summary>
+    /// <summary>Verifies explicit max bytes below the RAM cap are preserved.</summary>
     [Fact]
     public void ResolvePreservesConfiguredMaxBelowCap()
     {
@@ -31,9 +27,7 @@ public sealed class MemoryPressureOptionsResolverTests
         Assert.Equal(500_000L, resolved.MaxEstimatedCacheBytes);
     }
 
-    /// <summary>
-    /// Verifies explicit max bytes above the RAM cap fail resolution.
-    /// </summary>
+    /// <summary>Verifies explicit max bytes above the RAM cap fail resolution.</summary>
     [Fact]
     public void ResolveRejectsConfiguredMaxAboveRamCap()
     {
@@ -44,9 +38,7 @@ public sealed class MemoryPressureOptionsResolverTests
         Assert.Contains("exceeds the 80% RAM cap", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies non-positive explicit max bytes fail resolution.
-    /// </summary>
+    /// <summary>Verifies non-positive explicit max bytes fail resolution.</summary>
     [Fact]
     public void ResolveRejectsNonPositiveConfiguredMax()
     {
@@ -57,9 +49,7 @@ public sealed class MemoryPressureOptionsResolverTests
         Assert.Contains("must be positive", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies zero available memory fails resolution.
-    /// </summary>
+    /// <summary>Verifies zero available memory fails resolution.</summary>
     [Fact]
     public void ResolveRejectsZeroAvailableMemory()
     {

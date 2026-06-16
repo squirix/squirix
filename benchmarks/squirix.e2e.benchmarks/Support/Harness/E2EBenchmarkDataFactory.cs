@@ -5,9 +5,7 @@ using Squirix.E2EBenchmarks.Fixtures;
 
 namespace Squirix.E2EBenchmarks.Support.Harness;
 
-/// <summary>
-/// Creates deterministic values for benchmark setup and write paths.
-/// </summary>
+/// <summary>Creates deterministic values for benchmark setup and write paths.</summary>
 internal static class E2EBenchmarkDataFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 0, 0, 0, TimeSpan.Zero);
@@ -37,5 +35,5 @@ internal static class E2EBenchmarkDataFactory
         new BenchmarkAddress("Seattle", "Pine Street", (98000 + (index % 100)).ToString(CultureInfo.InvariantCulture)),
         ["reader", "writer"],
         BaseInstant.AddMinutes(index),
-        index % 17 == 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);
+        index % 17 is 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);
 }

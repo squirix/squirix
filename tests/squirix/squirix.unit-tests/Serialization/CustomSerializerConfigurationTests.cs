@@ -13,9 +13,7 @@ namespace Squirix.UnitTests.Serialization;
 /// </summary>
 public sealed class CustomSerializerConfigurationTests
 {
-    /// <summary>
-    /// Mirrors SquirixClient.ConnectAsync options configuration before session creation.
-    /// </summary>
+    /// <summary>Mirrors SquirixClient.ConnectAsync options configuration before session creation.</summary>
     [Fact]
     public void ConnectAsyncConfigurePatternAssignsSerializerAfterConstruction()
     {
@@ -27,9 +25,7 @@ public sealed class CustomSerializerConfigurationTests
         _ = SerializationProvider.Create(options.Serializer);
     }
 
-    /// <summary>
-    /// Verifies that a null serializer creates an independent default serializer instance.
-    /// </summary>
+    /// <summary>Verifies that a null serializer creates an independent default serializer instance.</summary>
     [Fact]
     public void CreateWithNullSerializerUsesDefault()
     {
@@ -83,9 +79,7 @@ public sealed class CustomSerializerConfigurationTests
         Assert.Same(before, SerializationProvider.Instance);
     }
 
-    /// <summary>
-    /// Verifies that two scoped serializers created in the same process do not replace each other or the default host.
-    /// </summary>
+    /// <summary>Verifies that two scoped serializers created in the same process do not replace each other or the default host.</summary>
     [Fact]
     public void ScopedSerializersDoNotCrossAffect()
     {

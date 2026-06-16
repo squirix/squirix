@@ -15,9 +15,7 @@ public sealed class JournalCompactionOptionsTests
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>
-    /// Verifies lower-bound scalar values remain accepted.
-    /// </summary>
+    /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
     {
@@ -33,9 +31,7 @@ public sealed class JournalCompactionOptionsTests
         Assert.Equal(TimeSpan.Zero, options.MinGap);
     }
 
-    /// <summary>
-    /// Verifies invalid scalar values fail at assignment time.
-    /// </summary>
+    /// <summary>Verifies invalid scalar values fail at assignment time.</summary>
     [Fact]
     public void FieldBackedValidationRejectsInvalidScalars()
     {
@@ -45,23 +41,12 @@ public sealed class JournalCompactionOptionsTests
         Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies JSON binding still applies valid option values through setters.
-    /// </summary>
+    /// <summary>Verifies JSON binding still applies valid option values through setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """
-                            {
-                              "enabled": true,
-                              "minTailSegments": 3,
-                              "minTailBytes": 4096,
-                              "minGap": "00:00:30"
-                            }
-                            """;
-
+        const string json = """{"enabled":true,"minTailSegments":3,"minTailBytes":4096,"minGap":"00:00:30"}""";
         var options = JsonSerializer.Deserialize<JournalCompactionOptions>(json, JsonOptions);
-
         Assert.NotNull(options);
         Assert.True(options.Enabled);
         Assert.Equal(3, options.MinTailSegments);

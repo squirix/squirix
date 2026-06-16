@@ -22,7 +22,7 @@ internal static class CacheOperationContract
     public static SquirixException PayloadTooLarge(int maxBytes) => new(
         SquirixErrorCode.PayloadTooLarge,
         "PayloadTooLarge",
-        string.Create(CultureInfo.InvariantCulture, $"Payload size limit is {maxBytes} bytes."));
+        $"Payload size limit is {maxBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
 
     public static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
@@ -7,100 +8,86 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Durability behavior tests for manifest persistence and CURRENT pointer updates.
-/// </summary>
+/// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
 public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
 {
-    private TempDirectory _dir = null!;
+    private TempDirectory? _dir;
+
+    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
     /// <summary>
     /// Verifies that <see cref="ManifestStore" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
     [Fact]
-    public void ManifestStoreCreatesCurrentPointerOnFirstWrite()
+    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = new PersistenceOptions { DataDir = _dir };
-        var store = new ManifestStore(options);
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
 
-        store.Write(new Manifest { CurrentJournal = 1, NextSequence = 1 });
-        var currentPath = PathKit.Combine(_dir, "man-current");
+        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000001.msqx", File.ReadAllText(currentPath).Trim());
+        Assert.Equal("man-000001.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
     }
 
-    /// <summary>
-    /// Verifies that first boot without a current pointer returns a default manifest.
-    /// </summary>
+    /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
     [Fact]
-    public void ManifestStoreReturnsDefaultWhenCurrentPointerIsMissing()
+    public async Task ManifestStoreReturnsDefaultWhenCurrentPointerIsMissing()
     {
-        var options = new PersistenceOptions { DataDir = _dir };
-        var store = new ManifestStore(options);
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
 
-        var manifest = store.ReadCurrentOrDefault();
+        var manifest = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
 
         Assert.Equal(1, manifest.CurrentJournal);
         Assert.Equal(1UL, manifest.NextSequence);
     }
 
-    /// <summary>
-    /// Verifies that an empty current pointer is treated as storage corruption.
-    /// </summary>
+    /// <summary>Verifies that an empty current pointer is treated as storage corruption.</summary>
     [Fact]
-    public void ManifestStoreThrowsWhenCurrentPointerIsEmpty()
+    public async Task ManifestStoreThrowsWhenCurrentPointerIsEmpty()
     {
-        var options = new PersistenceOptions { DataDir = _dir };
-        var store = new ManifestStore(options);
-        File.WriteAllText(PathKit.Combine(_dir, "man-current"), string.Empty);
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), string.Empty, DefaultCancellationToken);
 
-        _ = Assert.Throws<InvalidDataException>(store.ReadCurrentOrDefault);
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies that a missing current pointer target is treated as storage corruption.
-    /// </summary>
+    /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
     [Fact]
-    public void ManifestStoreThrowsWhenCurrentPointerTargetIsMissing()
+    public async Task ManifestStoreThrowsWhenCurrentPointerTargetIsMissing()
     {
-        var options = new PersistenceOptions { DataDir = _dir };
-        var store = new ManifestStore(options);
-        File.WriteAllText(PathKit.Combine(_dir, "man-current"), "man-000123.msqx");
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
+        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), "man-000123.msqx", DefaultCancellationToken);
 
-        _ = Assert.Throws<FileNotFoundException>(store.ReadCurrentOrDefault);
+        _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.
-    /// </summary>
+    /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
     [Fact]
-    public void ManifestStoreUpdatesCurrentPointerOnRewrite()
+    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = new PersistenceOptions { DataDir = _dir };
-        var store = new ManifestStore(options);
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
 
-        store.Write(new Manifest { CurrentJournal = 1, NextSequence = 1 });
-        var currentPath = PathKit.Combine(_dir, "man-current");
+        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        var currentPath = PathKit.Combine(Dir, "man-current");
 
-        store.Write(new Manifest { CurrentJournal = 2, NextSequence = 10 });
+        await store.WriteAsync(new Manifest { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
         Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000002.msqx", File.ReadAllText(currentPath).Trim());
+        Assert.Equal("man-000002.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
     }
 
-    /// <summary>
-    /// Cleans up the temporary directory after the test.
-    /// </summary>
-    /// <returns>A <see cref="ValueTask" /> representing the asynchronous operation.</returns>
+    /// <summary>Cleans up the temporary directory after the test.</summary>
     public ValueTask DisposeAsync()
     {
-        _dir.Dispose();
+        _dir?.Dispose();
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>
-    /// Creates a temporary directory for test storage.
-    /// </summary>
-    /// <returns>A <see cref="ValueTask" /> representing the asynchronous operation.</returns>
+    /// <summary>Creates a temporary directory for test storage.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("squirix");

@@ -9,15 +9,18 @@ using Xunit.Sdk;
 
 namespace Squirix.Server.SmokeTests.Observability;
 
-/// <summary>
-/// Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.
-/// </summary>
+/// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
 public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
 {
+    [GeneratedRegex("""^squirix_journal_appends_total\{[^}]*op="insert"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
+    private static partial Regex AppendsTotalRegex { get; }
+
+    [GeneratedRegex("""^squirix_ops_total\{[^}]*operation="set"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
+    private static partial Regex OpsTotalRegex { get; }
+
     /// <summary>
     /// Verifies that the server host exposes <c>/metrics</c> and that basic cache operations appear in the scrape output.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous smoke test.</returns>
     [Fact]
     public async Task MetricsEndpointExposesCountersAfterOperations()
     {
@@ -37,16 +40,10 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
         Assert.DoesNotContain("cache=\"", body, StringComparison.InvariantCulture);
         Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);
 
-        var hasOps = OpsTotalRegex().IsMatch(body);
-        var match = AppendsTotalRegex().IsMatch(body);
+        var hasOps = OpsTotalRegex.IsMatch(body);
+        var match = AppendsTotalRegex.IsMatch(body);
         Assert.True(hasOps || match, $"Expected ops or journal insert counters in metrics output. Body snippet:\n{body[..Math.Min(body.Length, 2000)]}");
     }
-
-    [GeneratedRegex("""^squirix_journal_appends_total\{[^}]*op="insert"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
-    private static partial Regex AppendsTotalRegex();
-
-    [GeneratedRegex("""^squirix_ops_total\{[^}]*operation="set"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
-    private static partial Regex OpsTotalRegex();
 
     private async Task<string> GetWithRetryAsync(Uri metricsUrl, TimeSpan delay, int attempts)
     {
@@ -60,11 +57,11 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
                     return body;
             }
 
-            await Task.Delay(delay, DefaultCancellationToken);
+            await Task.Delay(delay, TimeProvider.System, DefaultCancellationToken);
         }
 
         var last = await HttpClient.GetAsync(metricsUrl, DefaultCancellationToken);
         var lastBody = await last.Content.ReadAsStringAsync(DefaultCancellationToken);
-        throw new XunitException($"Metrics endpoint did not return expected content. Status={(int)last.StatusCode} {last.ReasonPhrase}. Body='{lastBody}'");
+        throw new XunitException($"Metrics endpoint did not return expected content. Status={last.StatusCode:D} {last.ReasonPhrase}. Body='{lastBody}'");
     }
 }

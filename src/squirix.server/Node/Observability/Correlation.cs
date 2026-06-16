@@ -9,9 +9,7 @@ using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Utilities and interceptors for structured logging scopes and trace-context propagation.
-/// </summary>
+/// <summary>Utilities and interceptors for structured logging scopes and trace-context propagation.</summary>
 internal static class Correlation
 {
     private const string TraceParentHeader = "traceparent";
@@ -46,7 +44,7 @@ internal static class Correlation
             var ctx2 = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
             var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
             var call = base.AsyncUnaryCall(request, ctx2, continuation);
-            return WrapUnaryCall(scope, call);
+            return WrapUnaryCallAsync(scope, call);
         }
 
         private static CallOptions AttachTraceHeaders(CallOptions opt, string method)
@@ -84,7 +82,7 @@ internal static class Correlation
             meta.Add(new Metadata.Entry(key, value));
         }
 
-        private static AsyncUnaryCall<TResponse> WrapUnaryCall<TResponse>(IDisposable scope, AsyncUnaryCall<TResponse> inner)
+        private static AsyncUnaryCall<TResponse> WrapUnaryCallAsync<TResponse>(IDisposable scope, AsyncUnaryCall<TResponse> inner)
         {
             var scopeDisposed = 0;
 
@@ -117,7 +115,7 @@ internal static class Correlation
 
             void DisposeScopeOnce()
             {
-                if (Interlocked.Exchange(ref scopeDisposed, 1) == 0)
+                if (Interlocked.Exchange(ref scopeDisposed, 1) is 0)
                     scope.Dispose();
             }
         }

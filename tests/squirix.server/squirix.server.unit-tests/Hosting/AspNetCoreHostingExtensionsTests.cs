@@ -1,8 +1,10 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Runtime;
@@ -14,50 +16,44 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>
-/// Verifies the public ASP.NET Core custom-hosting entry point.
-/// </summary>
+/// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
 public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.
-    /// </summary>
-    /// <returns>A task that completes when the custom host has started and stopped.</returns>
+    /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var url = $"https://localhost:{port}";
+        var url = $"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
                 EnvironmentName = "Development",
             });
 
-        _ = builder.AddSquirixServer(
+        _ = await builder.AddSquirixServerAsync(
             options =>
             {
                 options.NodeId = "aspnet-test";
                 options.Url = new Uri(url);
             },
-            loadDiscoveredSettings: false);
+            loadDiscoveredSettings: false,
+            cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
-        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
+        var endpoints = GetMappedEndpoints(app);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) is true);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) is true);
 
         await app.StartAsync(DefaultCancellationToken);
         await app.StopAsync(DefaultCancellationToken);
     }
 
-    /// <summary>
-    /// Ensures a configured data directory keeps the server's default strict fsync persistence mode.
-    /// </summary>
+    /// <summary>Ensures a configured data directory keeps the server's default strict fsync persistence mode.</summary>
     [Fact]
-    public void DataDirectoryOverridePreservesStrictFsyncDefault()
+    public async Task DataDirectoryOverridePreservesStrictFsyncDefault()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -67,15 +63,16 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
-        _ = builder.AddSquirixServer(
+        _ = await builder.AddSquirixServerAsync(
             options =>
             {
-                options.Url = new Uri($"https://localhost:{port}");
+                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
                 options.UsePersistence(dataDir);
             },
-            loadDiscoveredSettings: false);
+            loadDiscoveredSettings: false,
+            cancellationToken: DefaultCancellationToken);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
         Assert.Equal(dataDir, persistence.DataDir);
@@ -84,11 +81,9 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
             Directory.Delete(dataDir, true);
     }
 
-    /// <summary>
-    /// Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.
-    /// </summary>
+    /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
     [Fact]
-    public void PackageExtensionCanDecorateBasicCachePipeline()
+    public async Task PackageExtensionCanDecorateBasicCachePipeline()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -98,8 +93,8 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var callbackCount = 0;
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
@@ -108,19 +103,18 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
                     callbackCount++;
                     return pipeline;
                 };
-            });
+            },
+            cancellationToken: DefaultCancellationToken);
 
-        using (var app = builder.Build())
+        await using (var app = builder.Build())
             _ = app.Services.GetRequiredService<ICacheRuntime>();
 
         Assert.Equal(1, callbackCount);
     }
 
-    /// <summary>
-    /// Ensures optional package extensions can register services and map endpoints through the public hosting API.
-    /// </summary>
+    /// <summary>Ensures optional package extensions can register services and map endpoints through the public hosting API.</summary>
     [Fact]
-    public void PackageExtensionCanRegisterServiceAndMapEndpoint()
+    public async Task PackageExtensionCanRegisterServiceAndMapEndpoint()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -130,30 +124,29 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var marker = new ExtensionMarker("extension-test");
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
                 extensions.ConfigureServices = services => services.AddSingleton(marker);
                 extensions.MapEndpoints = static app => app.MapGet("/extension-test", static () => "ok");
-            });
+            },
+            cancellationToken: DefaultCancellationToken);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
         var registeredMarker = app.Services.GetRequiredService<ExtensionMarker>();
         Assert.Same(marker, registeredMarker);
         Assert.Equal(marker.Name, registeredMarker.Name);
-        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints).ToArray();
-        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) == true);
+        var endpoints = GetMappedEndpoints(app);
+        Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) is true);
     }
 
-    /// <summary>
-    /// Ensures package extensions receive the host authentication state while mapping protocol endpoints.
-    /// </summary>
+    /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
     [Fact]
-    public void PackageExtensionReceivesAuthenticationStateWhileMappingEndpoints()
+    public async Task PackageExtensionReceivesAuthenticationStateWhileMappingEndpoints()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -163,15 +156,24 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         bool? authEnabled = null;
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
-        _ = builder.AddSquirixServer(
-            options => options.Url = new Uri($"https://localhost:{port}"),
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
-            configureExtensions: extensions => extensions.MapEndpointsWithAuthorization = (_, enabled) => authEnabled = enabled);
+            configureExtensions: extensions => extensions.MapEndpointsWithAuthorization = (_, enabled) => authEnabled = enabled,
+            cancellationToken: DefaultCancellationToken);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         _ = app.MapSquirixServer();
 
         Assert.False(authEnabled);
+    }
+
+    private static Endpoint[] GetMappedEndpoints(WebApplication app)
+    {
+        if (app is not IEndpointRouteBuilder routeBuilder)
+            throw new InvalidOperationException("Web application does not expose endpoint data sources.");
+
+        return routeBuilder.DataSources.SelectMany(static source => source.Endpoints).ToArray();
     }
 
     private sealed record ExtensionMarker(string Name);

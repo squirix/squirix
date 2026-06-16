@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage.Journaling;
 
@@ -15,12 +16,12 @@ internal static class EntryPayloadSizeGuard
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
-    public static void EnsureWithinLimit<T>(CacheEntry<T> entry)
+    public static async Task EnsureWithinLimitAsync<T>(CacheEntry<T> entry)
     {
-        if (MeasureSerializedBytes(entry) > SquirixEntryLimits.MaxEntrySizeBytes)
+        if (await MeasureSerializedBytesAsync(entry).ConfigureAwait(false) > SquirixEntryLimits.MaxEntrySizeBytes)
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
-    public static int MeasureSerializedBytes<T>(CacheEntry<T> entry) =>
-        DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).Length;
+    public static async Task<int> MeasureSerializedBytesAsync<T>(CacheEntry<T> entry) =>
+        (await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false)).Length;
 }

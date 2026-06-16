@@ -15,7 +15,6 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBas
     /// <summary>
     /// Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct <see cref="JournalWriter" /> call).
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task ExclusiveMaintenanceExecutorDispatchRunsSuppliedAction()
     {
@@ -27,8 +26,8 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBas
             FlushIntervalMs = 100,
         };
 
-        var manifestStore = new ManifestStore(persistence);
-        await using var journal = new JournalWriter(persistence, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(persistence);
+        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var executed = false;
         await journal.ExecuteMaintenanceExclusiveAsync(
             _ =>

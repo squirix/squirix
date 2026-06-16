@@ -9,15 +9,10 @@ using Xunit;
 
 namespace Squirix.Server.SmokeTests.Config;
 
-/// <summary>
-/// Smoke tests for startup-time configuration validation.
-/// </summary>
+/// <summary>Smoke tests for startup-time configuration validation.</summary>
 public sealed class ConfigValidationTests : SmokeTestBase
 {
-    /// <summary>
-    /// Invalid node options fail during host startup through the options validation pipeline.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Invalid node options fail during host startup through the options validation pipeline.</summary>
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
@@ -40,10 +35,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Invalid memory pressure options fail during host startup through the options validation pipeline.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Invalid memory pressure options fail during host startup through the options validation pipeline.</summary>
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {

@@ -5,14 +5,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Security;
 
-/// <summary>
-/// Unit tests for metrics endpoint loopback client detection.
-/// </summary>
+/// <summary>Unit tests for metrics endpoint loopback client detection.</summary>
 public sealed class SquirixMetricsConnectionSecurityTests
 {
-    /// <summary>
-    /// Verifies remote addresses are not treated as local clients.
-    /// </summary>
+    /// <summary>Verifies remote addresses are not treated as local clients.</summary>
     [Fact]
     public void IsLoopbackClientReturnsFalseForRemoteAddress()
     {
@@ -27,9 +23,7 @@ public sealed class SquirixMetricsConnectionSecurityTests
         Assert.False(SquirixMetricsConnectionSecurity.IsLoopbackClient(http));
     }
 
-    /// <summary>
-    /// Verifies missing remote addresses are not treated as local clients.
-    /// </summary>
+    /// <summary>Verifies missing remote addresses are not treated as local clients.</summary>
     [Fact]
     public void IsLoopbackClientReturnsFalseWhenRemoteAddressMissing()
     {
@@ -38,9 +32,7 @@ public sealed class SquirixMetricsConnectionSecurityTests
         Assert.False(SquirixMetricsConnectionSecurity.IsLoopbackClient(http));
     }
 
-    /// <summary>
-    /// Verifies IPv4 loopback addresses are treated as local clients.
-    /// </summary>
+    /// <summary>Verifies IPv4 loopback addresses are treated as local clients.</summary>
     [Fact]
     public void IsLoopbackClientReturnsTrueForIpv4Loopback()
     {
@@ -55,9 +47,7 @@ public sealed class SquirixMetricsConnectionSecurityTests
         Assert.True(SquirixMetricsConnectionSecurity.IsLoopbackClient(http));
     }
 
-    /// <summary>
-    /// Verifies IPv6 loopback addresses are treated as local clients.
-    /// </summary>
+    /// <summary>Verifies IPv6 loopback addresses are treated as local clients.</summary>
     [Fact]
     public void IsLoopbackClientReturnsTrueForIpv6Loopback()
     {

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using FsCheck.Fluent;
 using Squirix.Server.Cluster;
@@ -13,31 +14,23 @@ namespace Squirix.Server.PropertyTests.Cluster;
 /// </summary>
 public sealed class ConsistentHashRingPropertyTests
 {
-    /// <summary>
-    /// Executes the determinism property via FsCheck under xUnit v3.
-    /// </summary>
+    /// <summary>Executes the determinism property via FsCheck under xUnit v3.</summary>
     [Fact]
     public void DeterminismSameConfigYieldsIdenticalOwnersProperty() => RunProperty(
         60,
         static (nodes, keySeed, orderSeed, vnodes) => CheckDeterminismSameConfigYieldsIdenticalOwners(nodes, keySeed, orderSeed, vnodes));
 
-    /// <summary>
-    /// Executes the fairness property via FsCheck under xUnit v3.
-    /// </summary>
+    /// <summary>Executes the fairness property via FsCheck under xUnit v3.</summary>
     [Fact]
     public void FairDistributionIsApproximatelyUniformProperty() => RunProperty(
         60,
         static (nodes, seed, vnodes) => CheckFairDistributionIsApproximatelyUniform(nodes, seed, vnodes));
 
-    /// <summary>
-    /// Executes the add-node movement property via FsCheck under xUnit v3.
-    /// </summary>
+    /// <summary>Executes the add-node movement property via FsCheck under xUnit v3.</summary>
     [Fact]
     public void MovementOnAddIsUpperBoundedProperty() => RunProperty(30, static (baseNodes, seed, vnodes) => CheckMovementOnAddIsUpperBounded(baseNodes, seed, vnodes));
 
-    /// <summary>
-    /// Executes the remove-node movement property via FsCheck under xUnit v3.
-    /// </summary>
+    /// <summary>Executes the remove-node movement property via FsCheck under xUnit v3.</summary>
     [Fact]
     public void MovementOnRemoveAffectsOnlyKeysOfRemovedNodeProperty() => RunProperty(
         40,
@@ -49,15 +42,13 @@ public sealed class ConsistentHashRingPropertyTests
     /// and the same <paramref name="vnodes" />, <see cref="ConsistentHashRing.GetOwner(string)" />
     /// must return identical owners for all sampled keys and for repeated calls.
     /// </summary>
-    /// <param name="nodes">
-    /// Distinct node identifiers participating in the ring. May be empty; in that case the property vacuously holds.
-    /// </param>
+    /// <param name="nodes">Distinct node identifiers participating in the ring. May be empty; in that case the property vacuously holds.</param>
     /// <param name="keySeed">Seed for deterministic key sampling.</param>
     /// <param name="orderSeed">Seed used to shuffle <paramref name="nodes" /> for order-invariance checks.</param>
     /// <param name="vnodes">Number of virtual nodes per physical node.</param>
     private static void CheckDeterminismSameConfigYieldsIdenticalOwners(string[] nodes, int keySeed, int orderSeed, int vnodes)
     {
-        if (nodes.Length == 0)
+        if (nodes.Length is 0)
             return;
 
         var ringA = new ConsistentHashRing(nodes, vnodes);
@@ -96,12 +87,12 @@ public sealed class ConsistentHashRingPropertyTests
             counts[ring.GetOwner(key)]++;
 
         var n = nodes.Length;
-        var expected = sample / (double)n;
+        var expected = 1.0 * sample / n;
         var p = 1.0 / n;
         var sigma = Math.Sqrt(sample * p * (1 - p));
         var relSigma = sigma / expected;
         var samplingTerm = (relSigma * 8) + 0.02;
-        var k = Math.Max(1.0, vnodes / (double)n);
+        var k = Math.Max(1.0, 1.0 * vnodes / n);
         var discretenessTerm = 1.8 / Math.Sqrt(k);
         var smallClusterSlack = n switch
         {
@@ -111,8 +102,8 @@ public sealed class ConsistentHashRingPropertyTests
         };
         var threshold = Math.Min(0.50, Math.Max(0.15, Math.Max(samplingTerm, discretenessTerm) + smallClusterSlack));
         var maxDev = counts.Values.Max(c => Math.Abs(c - expected) / expected);
-        var userMessage = $"n={n}, vnodes={vnodes}, perNode≈{k:F1}, sample={sample}, " + $"maxDev={maxDev:P2}, threshold={threshold:P2}, " +
-                          $"sampling={samplingTerm:P2}, discrete={discretenessTerm:P2}, " + $"counts=[{string.Join(", ", counts.Values)}]";
+        var userMessage = $"n={n.ToString(CultureInfo.InvariantCulture)}, vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}, perNode≈{k.ToString("F1", CultureInfo.InvariantCulture)}, sample={sample.ToString(CultureInfo.InvariantCulture)}, " + $"maxDev={maxDev.ToString("P2", CultureInfo.InvariantCulture)}, threshold={threshold.ToString("P2", CultureInfo.InvariantCulture)}, " +
+                          $"sampling={samplingTerm.ToString("P2", CultureInfo.InvariantCulture)}, discrete={discretenessTerm.ToString("P2", CultureInfo.InvariantCulture)}, " + $"counts=[{string.Join(", ", counts.Values)}]";
         Assert.True(maxDev <= threshold, userMessage);
     }
 
@@ -122,33 +113,27 @@ public sealed class ConsistentHashRingPropertyTests
     /// The assertion uses an upper bound (expected + slack) to catch regressions while allowing
     /// random variance and discrete vnode placement.
     /// </summary>
-    /// <param name="baseNodes">
-    /// The set of nodes before adding a new one. Must contain at least two distinct node identifiers.
-    /// </param>
-    /// <param name="seed">
-    /// Seed controlling the identity of the synthetic new node (for reproducibility) and key sampling.
-    /// </param>
-    /// <param name="vnodes">
-    /// Number of virtual nodes per physical node used to build the ring.
-    /// </param>
+    /// <param name="baseNodes">The set of nodes before adding a new one. Must contain at least two distinct node identifiers.</param>
+    /// <param name="seed">Seed controlling the identity of the synthetic new node (for reproducibility) and key sampling.</param>
+    /// <param name="vnodes">Number of virtual nodes per physical node used to build the ring.</param>
     private static void CheckMovementOnAddIsUpperBounded(string[] baseNodes, int seed, int vnodes)
     {
         if (baseNodes.Length < 2)
             return;
 
         var ring = new ConsistentHashRing(baseNodes, vnodes);
-        var newNode = $"node-new-{Math.Abs(seed % 1_000_000)}";
+        var newNode = $"node-new-{Math.Abs(seed % 1_000_000).ToString(CultureInfo.InvariantCulture)}";
         var withNew = baseNodes.Append(newNode).ToArray();
         var ring2 = new ConsistentHashRing(withNew, vnodes);
 
         const int sample = 20_000;
         var moved = RingHelpers.MakeKeys(sample, seed).Count(key => !string.Equals(ring.GetOwner(key), ring2.GetOwner(key), StringComparison.OrdinalIgnoreCase));
         var n = baseNodes.Length;
-        var ratio = moved / (double)sample;
+        var ratio = 1.0 * moved / sample;
         var expected = 1.0 / (n + 1);
         var upper = expected + 0.12;
 
-        Assert.True(ratio <= upper, $"n={n}, expected~={expected:P1}, moved={ratio:P2} (<= {upper:P2}), vnodes={vnodes}");
+        Assert.True(ratio <= upper, $"n={n.ToString(CultureInfo.InvariantCulture)}, expected~={expected.ToString("P1", CultureInfo.InvariantCulture)}, moved={ratio.ToString("P2", CultureInfo.InvariantCulture)} (<= {upper.ToString("P2", CultureInfo.InvariantCulture)}), vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>
@@ -170,8 +155,7 @@ public sealed class ConsistentHashRingPropertyTests
         var remaining = nodes.Where(n => !string.Equals(n, victim, StringComparison.OrdinalIgnoreCase)).ToArray();
         var ringAfter = new ConsistentHashRing(remaining, vnodes);
 
-        const int phi = unchecked((int)0x9E3779B9u);
-        var altSeed = seed ^ phi;
+        var altSeed = seed ^ int.CreateTruncating(0x9E3779B9u);
 
         const int sample = 20_000;
         foreach (var key in RingHelpers.MakeKeys(sample, altSeed))

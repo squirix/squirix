@@ -2,13 +2,9 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 
 internal enum TypedCustomerStatus
 {
-    /// <summary>
-    /// Active customer profile.
-    /// </summary>
+    /// <summary>Active customer profile.</summary>
     Active,
 
-    /// <summary>
-    /// Suspended customer profile.
-    /// </summary>
+    /// <summary>Suspended customer profile.</summary>
     Suspended,
 }

@@ -6,9 +6,7 @@ using BenchmarkDotNet.Attributes;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
-/// <summary>
-/// End-to-end public API benchmarks for expiration operations.
-/// </summary>
+/// <summary>End-to-end public API benchmarks for expiration operations.</summary>
 [BenchmarkCategory("e2e", "expiration", "mutation")]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
@@ -18,9 +16,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
     private static readonly TimeSpan LongExpiration = TimeSpan.FromHours(1);
     private int _removeExpirationOffset;
 
-    /// <summary>
-    /// Measures GetExpirationAsync for an expiring entry.
-    /// </summary>
+    /// <summary>Measures GetExpirationAsync for an expiring entry.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
@@ -30,9 +26,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetExpirationAsync(NextExpiringHitKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures GetExpirationAsync for a non-expiring entry.
-    /// </summary>
+    /// <summary>Measures GetExpirationAsync for a non-expiring entry.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "read")]
@@ -42,9 +36,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetExpirationAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures RemoveExpirationAsync for pre-seeded expiring entries.
-    /// </summary>
+    /// <summary>Measures RemoveExpirationAsync for pre-seeded expiring entries.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = DestructiveExpirationBatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
@@ -54,9 +46,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.RemoveExpirationAsync(Keyspace.ExpiringHitKey(i), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.
-    /// </summary>
+    /// <summary>Re-seeds expiring entries outside the measured body for destructive RemoveExpirationAsync benchmarks.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [IterationSetup(Target = nameof(RemoveExpirationShouldClearExpirationAsync))]
     public async Task SeedRemoveExpirationIterationAsync()
@@ -66,9 +56,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
             await Adapter.SetExpiringAsync(Keyspace.ExpiringHitKey(i), offset + i, LongExpiration, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Measures TouchAsync absolute expiration path.
-    /// </summary>
+    /// <summary>Measures TouchAsync absolute expiration path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "mutation")]
@@ -79,9 +67,7 @@ public class CacheExpirationBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.TouchAbsoluteAsync(NextHitKey(), expiresAt, CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures TouchAsync relative expiration path.
-    /// </summary>
+    /// <summary>Measures TouchAsync relative expiration path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("expiration", "mutation")]

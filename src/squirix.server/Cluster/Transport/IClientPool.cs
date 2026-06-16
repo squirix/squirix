@@ -4,9 +4,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Small pool for squirix gRPC clients keyed by NodeId.
-/// </summary>
+/// <summary>Small pool for squirix gRPC clients keyed by NodeId.</summary>
 internal interface IClientPool : IAsyncDisposable
 {
     SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId);

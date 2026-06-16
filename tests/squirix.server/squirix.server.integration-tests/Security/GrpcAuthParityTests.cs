@@ -9,13 +9,10 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies gRPC cache authentication when JWT is enabled.
-/// </summary>
+/// <summary>Verifies gRPC cache authentication when JWT is enabled.</summary>
 public sealed class GrpcAuthParityTests : IntegrationTestBase
 {
     /// <summary>Verifies gRPC rejects requests authenticated with an invalid JWT bearer token.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcInvalidJwtIsRejected()
     {
@@ -36,7 +33,6 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC rejects requests without credentials when JWT auth is enabled.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcMissingAuthIsRejectedWhenJwtEnabled()
     {
@@ -56,7 +52,6 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC accepts requests authenticated with a valid JWT bearer token.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcValidJwtSucceeds()
     {

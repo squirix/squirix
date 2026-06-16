@@ -15,19 +15,19 @@ internal sealed class JournalDurabilityGroupCommit
     private readonly Func<CancellationToken, ValueTask> _flushAsync;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
+    private readonly TimeProvider _timeProvider;
     private CancellationTokenSource? _delayCts;
     private int _drainGate;
     private List<TaskCompletionSource> _waiters = [];
 
-    public JournalDurabilityGroupCommit(Func<CancellationToken, ValueTask> flushAsync, PersistenceOptions opt)
+    public JournalDurabilityGroupCommit(Func<CancellationToken, ValueTask> flushAsync, PersistenceOptions opt, TimeProvider? timeProvider = null)
     {
         _flushAsync = flushAsync ?? throw new ArgumentNullException(nameof(flushAsync));
         _opt = opt ?? throw new ArgumentNullException(nameof(opt));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <summary>
-    /// Waits until appended journal bytes through the caller's append are covered by a durability flush.
-    /// </summary>
+    /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the caller's append is durable.</returns>
     public async ValueTask AwaitCommitAsync(CancellationToken cancellationToken)
@@ -41,14 +41,14 @@ internal sealed class JournalDurabilityGroupCommit
         lock (_sync)
         {
             _waiters.Add(waiter);
-            if (_waiters.Count == 1)
+            if (_waiters.Count is 1)
                 scheduleDelay = true;
             else if (_waiters.Count >= _opt.JournalGroupCommitMaxBatch)
                 flushImmediately = true;
         }
 
         if (flushImmediately)
-            CancelDelayTimer();
+            await CancelDelayTimerAsync().ConfigureAwait(false);
         else if (scheduleDelay)
             _ = ScheduleDelayFlushAsync();
 
@@ -61,46 +61,40 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            CancelWaiter(waiter, cancellationToken);
+            await CancelWaiterAsync(waiter, cancellationToken).ConfigureAwait(false);
             throw;
         }
     }
 
-    /// <summary>
-    /// Fails any pending commit waiters during shutdown.
-    /// </summary>
+    /// <summary>Fails any pending commit waiters during shutdown.</summary>
     /// <param name="reason">The exception propagated to pending waiters.</param>
-    public void CancelPending(Exception reason)
+    /// <returns>A <see cref="ValueTask" /> that completes after pending waiters are failed.</returns>
+    public async ValueTask CancelPendingAsync(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
         List<TaskCompletionSource> pending;
+        CancellationTokenSource? delayCts;
         lock (_sync)
         {
-            CancelDelayTimerLocked();
+            delayCts = TakeDelayCtsLocked();
             pending = _waiters;
             _waiters = [];
         }
+
+        await CancelAndDisposeDelayCtsAsync(delayCts).ConfigureAwait(false);
 
         foreach (var waiter in pending)
             _ = waiter.TrySetException(reason);
     }
 
-    private void CancelDelayTimer()
+    private static async ValueTask CancelAndDisposeDelayCtsAsync(CancellationTokenSource? cts)
     {
-        lock (_sync)
-            CancelDelayTimerLocked();
-    }
-
-    private void CancelDelayTimerLocked()
-    {
-        var cts = _delayCts;
-        _delayCts = null;
         if (cts is null)
             return;
 
         try
         {
-            cts.Cancel();
+            await cts.CancelAsync().ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
@@ -110,16 +104,40 @@ internal sealed class JournalDurabilityGroupCommit
         cts.Dispose();
     }
 
-    private void CancelWaiter(TaskCompletionSource waiter, CancellationToken cancellationToken)
+    private static void FailBatchWaiters(List<TaskCompletionSource> batch, Exception ex)
+    {
+        foreach (var waiter in batch)
+            _ = waiter.TrySetException(ex);
+    }
+
+    private CancellationTokenSource? TakeDelayCtsLocked()
+    {
+        var cts = _delayCts;
+        _delayCts = null;
+        return cts;
+    }
+
+    private async ValueTask CancelDelayTimerAsync()
+    {
+        CancellationTokenSource? delayCts;
+        lock (_sync)
+            delayCts = TakeDelayCtsLocked();
+
+        await CancelAndDisposeDelayCtsAsync(delayCts).ConfigureAwait(false);
+    }
+
+    private async ValueTask CancelWaiterAsync(TaskCompletionSource waiter, CancellationToken cancellationToken)
     {
         bool removed;
+        CancellationTokenSource? delayCts = null;
         lock (_sync)
         {
             removed = _waiters.Remove(waiter);
-            var cancelDelay = removed && _waiters.Count == 0;
-            if (cancelDelay)
-                CancelDelayTimerLocked();
+            if (removed && _waiters.Count is 0)
+                delayCts = TakeDelayCtsLocked();
         }
+
+        await CancelAndDisposeDelayCtsAsync(delayCts).ConfigureAwait(false);
 
         if (removed)
             _ = waiter.TrySetCanceled(cancellationToken);
@@ -127,7 +145,7 @@ internal sealed class JournalDurabilityGroupCommit
 
     private async Task DrainPendingCommitsAsync(CancellationToken cancellationToken)
     {
-        if (Interlocked.CompareExchange(ref _drainGate, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _drainGate, 1, 0) is not 0)
             return;
 
         try
@@ -135,44 +153,19 @@ internal sealed class JournalDurabilityGroupCommit
             while (true)
             {
                 List<TaskCompletionSource> batch;
+                CancellationTokenSource? delayCts;
                 lock (_sync)
                 {
-                    if (_waiters.Count == 0)
+                    if (_waiters.Count is 0)
                         return;
 
                     batch = _waiters;
                     _waiters = [];
-                    CancelDelayTimerLocked();
+                    delayCts = TakeDelayCtsLocked();
                 }
 
-                try
-                {
-                    await _flushAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (IOException ex)
-                {
-                    foreach (var waiter in batch)
-                        _ = waiter.TrySetException(ex);
-
-                    throw;
-                }
-                catch (ObjectDisposedException ex)
-                {
-                    foreach (var waiter in batch)
-                        _ = waiter.TrySetException(ex);
-
-                    throw;
-                }
-                catch (InvalidOperationException ex)
-                {
-                    foreach (var waiter in batch)
-                        _ = waiter.TrySetException(ex);
-
-                    throw;
-                }
-
-                foreach (var waiter in batch)
-                    _ = waiter.TrySetResult();
+                await CancelAndDisposeDelayCtsAsync(delayCts).ConfigureAwait(false);
+                await FlushBatchAsync(batch, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -187,18 +180,47 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
+    private async Task FlushBatchAsync(List<TaskCompletionSource> batch, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _flushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException ex)
+        {
+            FailBatchWaiters(batch, ex);
+            throw;
+        }
+        catch (ObjectDisposedException ex)
+        {
+            FailBatchWaiters(batch, ex);
+            throw;
+        }
+        catch (InvalidOperationException ex)
+        {
+            FailBatchWaiters(batch, ex);
+            throw;
+        }
+
+        foreach (var waiter in batch)
+            _ = waiter.TrySetResult();
+    }
+
     private async Task ScheduleDelayFlushAsync()
     {
         var delayCts = new CancellationTokenSource();
+        CancellationTokenSource? previous;
         lock (_sync)
         {
-            CancelDelayTimerLocked();
+            previous = TakeDelayCtsLocked();
             _delayCts = delayCts;
         }
 
+        await CancelAndDisposeDelayCtsAsync(previous).ConfigureAwait(false);
+
         try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(_opt.JournalGroupCommitMaxWaitMs), delayCts.Token).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(_opt.JournalGroupCommitMaxWaitMs), _timeProvider, delayCts.Token).ConfigureAwait(false);
             await DrainPendingCommitsAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (delayCts.IsCancellationRequested)
@@ -207,15 +229,15 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (IOException ex)
         {
-            CancelPending(ex);
+            await CancelPendingAsync(ex).ConfigureAwait(false);
         }
         catch (ObjectDisposedException ex)
         {
-            CancelPending(ex);
+            await CancelPendingAsync(ex).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex)
         {
-            CancelPending(ex);
+            await CancelPendingAsync(ex).ConfigureAwait(false);
         }
     }
 }

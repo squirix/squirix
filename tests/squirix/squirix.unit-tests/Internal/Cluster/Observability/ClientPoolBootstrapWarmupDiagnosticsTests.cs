@@ -5,16 +5,12 @@ using Xunit;
 
 namespace Squirix.UnitTests.Internal.Cluster.Observability;
 
-/// <summary>
-/// Tests bootstrap warm-up skip observability.
-/// </summary>
+/// <summary>Tests bootstrap warm-up skip observability.</summary>
 public sealed class ClientPoolBootstrapWarmupDiagnosticsTests
 {
     private const string BootstrapWarmupSkippedInstrumentName = "squirix_client_pool_bootstrap_warmup_skipped_total";
 
-    /// <summary>
-    /// Verifies non-timeout failures classify as connect_failed.
-    /// </summary>
+    /// <summary>Verifies non-timeout failures classify as connect_failed.</summary>
     [Fact]
     public void RecordBootstrapPeerSkippedClassifiesNonTimeoutFailures()
     {
@@ -23,9 +19,7 @@ public sealed class ClientPoolBootstrapWarmupDiagnosticsTests
         Assert.True(sink.HasEvent(BootstrapWarmupSkippedInstrumentName, ("node_id", "peer-dead"), ("reason", "connect_failed")));
     }
 
-    /// <summary>
-    /// Verifies skipped bootstrap peers emit a labeled counter measurement.
-    /// </summary>
+    /// <summary>Verifies skipped bootstrap peers emit a labeled counter measurement.</summary>
     [Fact]
     public void RecordBootstrapPeerSkippedIncrementsSkippedTotalMetric()
     {

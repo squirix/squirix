@@ -12,14 +12,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests strict JSON parsing for durability and mutation payloads.
-/// </summary>
+/// <summary>Tests strict JSON parsing for durability and mutation payloads.</summary>
 public sealed class StrictDurabilityJsonTests : UnitTestBase
 {
-    /// <summary>
-    /// journal envelopes reject duplicate top-level properties instead of choosing one value.
-    /// </summary>
+    /// <summary>journal envelopes reject duplicate top-level properties instead of choosing one value.</summary>
     [Fact]
     public void JournalEnvelopeRejectsDuplicateProperties()
     {
@@ -28,9 +24,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
     }
 
-    /// <summary>
-    /// journal parsing rejects malformed envelopes without an operation.
-    /// </summary>
+    /// <summary>journal parsing rejects malformed envelopes without an operation.</summary>
     [Fact]
     public void JournalEnvelopeRejectsMissingOperation()
     {
@@ -41,9 +35,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         Assert.Contains("exactly one operation", error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// journal parsing rejects unknown durability fields.
-    /// </summary>
+    /// <summary>journal parsing rejects unknown durability fields.</summary>
     [Fact]
     public void JournalEnvelopeRejectsUnknownCriticalFields()
     {
@@ -52,9 +44,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
     }
 
-    /// <summary>
-    /// journal record payloads reject duplicate nested operation properties.
-    /// </summary>
+    /// <summary>journal record payloads reject duplicate nested operation properties.</summary>
     [Fact]
     public void JournalRecordRejectsDuplicateProperties()
     {
@@ -63,9 +53,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
     }
 
-    /// <summary>
-    /// journal parsing rejects malformed operation payloads.
-    /// </summary>
+    /// <summary>journal parsing rejects malformed operation payloads.</summary>
     [Fact]
     public void JournalRecordRejectsMalformedOperation()
     {
@@ -76,36 +64,29 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         Assert.Contains("entryJsonUtf8", error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Manifest files reject duplicate properties instead of choosing one value.
-    /// </summary>
+    /// <summary>Manifest files reject duplicate properties instead of choosing one value.</summary>
     [Fact]
-    public void ManifestRejectsDuplicateProperties()
+    public async Task ManifestRejectsDuplicateProperties()
     {
         using var dir = new TempDirectory("squirix-manifest-strict");
-        WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"currentJournal":2,"nextSequence":3}""");
-        var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
+        await WriteManifestFilesAsync(dir, """{"format":1,"currentJournal":1,"currentJournal":2,"nextSequence":3}""");
+        using var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-        _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
+        _ = await Assert.ThrowsAsync<JsonException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Manifest files reject unknown durability fields.
-    /// </summary>
+    /// <summary>Manifest files reject unknown durability fields.</summary>
     [Fact]
-    public void ManifestRejectsUnknownCriticalFields()
+    public async Task ManifestRejectsUnknownCriticalFields()
     {
         using var dir = new TempDirectory("squirix-manifest-unknown");
-        WriteManifestFiles(dir, """{"format":1,"currentJournal":1,"nextSequence":3,"commitIndex":9}""");
-        var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
+        await WriteManifestFilesAsync(dir, """{"format":1,"currentJournal":1,"nextSequence":3,"commitIndex":9}""");
+        using var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-        _ = Assert.Throws<JsonException>(store.ReadCurrentOrDefault);
+        _ = await Assert.ThrowsAsync<JsonException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Snapshot metadata rejects duplicate top-level properties.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Snapshot metadata rejects duplicate top-level properties.</summary>
     [Fact]
     public async Task SnapshotMetadataRejectsDuplicateProperties()
     {
@@ -115,10 +96,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Snapshot metadata rejects malformed/truncated payloads.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Snapshot metadata rejects malformed/truncated payloads.</summary>
     [Fact]
     public async Task SnapshotMetadataRejectsMalformedPayload()
     {
@@ -130,10 +108,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         Assert.Contains("outcome kind", error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Snapshot metadata rejects unknown top-level fields that affect recovery interpretation.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Snapshot metadata rejects unknown top-level fields that affect recovery interpretation.</summary>
     [Fact]
     public async Task SnapshotMetadataRejectsUnknownCriticalFields()
     {
@@ -143,11 +118,11 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
     }
 
-    private static void WriteManifestFiles(string dir, string json)
+    private static async Task WriteManifestFilesAsync(string dir, string json)
     {
         const string manifestName = $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}";
-        File.WriteAllText(PathKit.Combine(dir, manifestName), json);
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), manifestName + Environment.NewLine);
+        await File.WriteAllTextAsync(PathKit.Combine(dir, manifestName), json, DefaultCancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), manifestName + Environment.NewLine, DefaultCancellationToken);
     }
 
     private static async Task<string> WriteSnapshotFrameAsync(TempDirectory dir, string json)

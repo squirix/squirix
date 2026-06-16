@@ -17,7 +17,6 @@ public sealed class TransportOptionsTests : EndToEndTestBase
     /// <summary>
     /// Verifies <see cref="SquirixOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
     /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task ClientAuthenticatesWithBearerTokenProvider()
     {
@@ -49,7 +48,6 @@ public sealed class TransportOptionsTests : EndToEndTestBase
     /// <summary>
     /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixOptions.BearerTokenProvider" /> is unset.
     /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task ClientFailsWhenJwtRequiredButNotConfigured()
     {

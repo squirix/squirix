@@ -6,15 +6,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Client;
 
-/// <summary>
-/// End-to-end coverage for multi-endpoint client bootstrap connect semantics.
-/// </summary>
+/// <summary>End-to-end coverage for multi-endpoint client bootstrap connect semantics.</summary>
 public sealed class BootstrapConnectTests : EndToEndTestBase
 {
-    /// <summary>
-    /// Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.</summary>
     [Fact]
     public async Task ClientConnectsWhenAnyBootstrapEndpointIsReachable()
     {

@@ -1,9 +1,10 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.Host;
 
-internal sealed class ShutdownSignal : IDisposable
+internal sealed class ShutdownSignal : IAsyncDisposable
 {
     private readonly CancellationTokenSource _cts = new();
 
@@ -14,15 +15,16 @@ internal sealed class ShutdownSignal : IDisposable
 
     public CancellationToken Token => _cts.Token;
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Console.CancelKeyPress -= OnCancelKeyPress;
+        await _cts.CancelAsync().ConfigureAwait(false);
         _cts.Dispose();
     }
 
     private void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
     {
         e.Cancel = true;
-        _cts.Cancel();
+        _ = _cts.CancelAsync();
     }
 }

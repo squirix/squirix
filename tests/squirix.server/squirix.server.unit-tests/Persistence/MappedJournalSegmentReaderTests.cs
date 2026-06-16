@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -14,12 +15,12 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests for the memory-mapped journal reader corruption and lifetime boundaries.
-/// </summary>
+/// <summary>Tests for the memory-mapped journal reader corruption and lifetime boundaries.</summary>
 public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifetime
 {
-    private TempDirectory _dir = null!;
+    private TempDirectory? _dir;
+
+    private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
     /// <summary>
     /// CRC mismatch in a segment throws <see cref="InvalidDataException" /> instead of silently stopping.
@@ -40,7 +41,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             JournalFraming.WriteFrame(stream, BuildPayload(3, "next"));
         }
 
-        _ = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
+        _ = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
     }
 
     /// <summary>
@@ -56,46 +57,40 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             WriteFrameWithCrc(stream, BuildPayload(2, "bad"), 0xDEAD_BEEFu);
         }
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
         Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
     }
 
-    /// <summary>
-    /// A zero-length segment file yields no records.
-    /// </summary>
+    /// <summary>A zero-length segment file yields no records.</summary>
     [Fact]
     public void EmptySegmentFileYieldsNoRecords()
     {
         File.WriteAllBytes(JournalPath(1), []);
 
-        var records = JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray();
+        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
 
         Assert.Empty(records);
     }
 
-    /// <summary>
-    /// A segment that contains only the file header and no frames yields no records.
-    /// </summary>
+    /// <summary>A segment that contains only the file header and no frames yields no records.</summary>
     [Fact]
     public void HeaderOnlySegmentYieldsNoRecords()
     {
         using (var stream = File.Create(JournalPath(1)))
             JournalFraming.WriteFileHeader(stream);
 
-        var records = JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray();
+        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
 
         Assert.Empty(records);
     }
 
-    /// <summary>
-    /// Invalid journal file headers fail replay instead of being treated as an empty segment.
-    /// </summary>
+    /// <summary>Invalid journal file headers fail replay instead of being treated as an empty segment.</summary>
     [Fact]
     public void InvalidHeaderSegmentThrows()
     {
         File.WriteAllBytes(JournalPath(1), "NOPE!"u8.ToArray());
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
 
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
     }
@@ -113,13 +108,11 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             JournalFraming.WriteFrame(stream, "{not-json"u8);
         }
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
         Assert.Contains("JSON corruption", ex.Message, StringComparison.InvariantCulture);
     }
 
-    /// <summary>
-    /// Torn frame tails stop the current segment at the last valid frame.
-    /// </summary>
+    /// <summary>Torn frame tails stop the current segment at the last valid frame.</summary>
     /// <param name="tailKind">The torn-tail variant to append after a valid frame.</param>
     [Theory]
     [InlineData("length")]
@@ -134,40 +127,32 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             WriteTornTail(stream, tailKind);
         }
 
-        var records = JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray();
+        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
 
         var record = Assert.Single(records);
         Assert.Equal(1UL, record.Seq);
         Assert.Equal("ok", record.Put.Item.Key);
     }
 
-    /// <summary>
-    /// A truncated journal file header fails replay.
-    /// </summary>
+    /// <summary>A truncated journal file header fails replay.</summary>
     [Fact]
     public void TruncatedHeaderSegmentThrows()
     {
         File.WriteAllBytes(JournalPath(1), "SW"u8.ToArray());
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(_dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
 
         Assert.Contains("truncated file header", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Removes the journal directory after each test.
-    /// </summary>
-    /// <returns>A completed task.</returns>
+    /// <summary>Removes the journal directory after each test.</summary>
     public ValueTask DisposeAsync()
     {
-        _dir.Dispose();
+        _dir?.Dispose();
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>
-    /// Creates a fresh journal directory before each test.
-    /// </summary>
-    /// <returns>A completed task.</returns>
+    /// <summary>Creates a fresh journal directory before each test.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("squirix-mmf-journal");
@@ -196,7 +181,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
     private static void WriteFrameWithCrc(Stream stream, ReadOnlySpan<byte> payload, uint crc)
     {
         Span<byte> payloadLength = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(payloadLength, (uint)payload.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(payloadLength, payload.Length);
         stream.Write(payloadLength);
         stream.Write(payload);
 
@@ -223,7 +208,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             case "footer":
                 var payload = BuildPayload(2, "tail");
                 Span<byte> footerPayloadLength = stackalloc byte[JournalFraming.FrameHeaderSize];
-                BinaryPrimitives.WriteUInt32LittleEndian(footerPayloadLength, (uint)payload.Length);
+                BinaryPrimitives.WriteInt32LittleEndian(footerPayloadLength, payload.Length);
                 stream.Write(footerPayloadLength);
                 stream.Write(payload);
                 stream.Write([0x01, 0x02]);
@@ -234,5 +219,5 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
         }
     }
 
-    private string JournalPath(int index) => PathKit.Combine(_dir, $"{StorageFilePrefixes.Journal}{index:000000}{StorageFileExtensions.Journal}");
+    private string JournalPath(int index) => PathKit.Combine(Dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 }
