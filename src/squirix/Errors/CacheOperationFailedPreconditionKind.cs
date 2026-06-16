@@ -20,4 +20,9 @@ internal enum CacheOperationFailedPreconditionKind
     /// Explicit insert version is not greater than the stored version (FailedPrecondition detail).
     /// </summary>
     InsertVersionMustExceedCurrent = 2,
+
+    /// <summary>
+    /// Operation id was reused with a different mutation fingerprint (FailedPrecondition detail).
+    /// </summary>
+    OperationIdReuseMismatch = 3,
 }

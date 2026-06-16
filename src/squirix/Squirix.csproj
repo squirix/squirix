@@ -33,6 +33,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Include="..\shared\transport\grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\RpcOperationIdentity.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
 </Project>
