@@ -18,14 +18,12 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
     private readonly Dictionary<string, TestNodeHost> _nodes;
-    private readonly TempDirectory? _rootDataDir;
     private BenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes, TempDirectory? rootDataDir)
+    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes)
     {
         _nodes = nodes;
-        _rootDataDir = rootDataDir;
     }
 
     public async ValueTask DisposeAsync()
@@ -33,18 +31,11 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        try
-        {
-            if (_client is not null)
-                await _client.DisposeAsync().ConfigureAwait(false);
+        if (_client is not null)
+            await _client.DisposeAsync().ConfigureAwait(false);
 
-            foreach (var node in _nodes.Values)
-                await node.DisposeAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            _rootDataDir?.Dispose();
-        }
+        foreach (var node in _nodes.Values)
+            await node.DisposeAsync().ConfigureAwait(false);
     }
 
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
@@ -60,7 +51,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
         var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
-        var root = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
+        var root = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-e2e-benchmarks") : null;
 
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
 
@@ -73,20 +64,20 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
                     : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
-            return new E2EBenchmarkCluster(nodes, root);
+            return new E2EBenchmarkCluster(nodes);
         }
         catch (InvalidOperationException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            root?.Dispose();
+            DirectoryKit.TryDeleteDirectory(root);
             throw;
         }
         catch (IOException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            root?.Dispose();
+            DirectoryKit.TryDeleteDirectory(root);
             throw;
         }
     }

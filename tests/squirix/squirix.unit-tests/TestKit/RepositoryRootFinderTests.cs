@@ -17,8 +17,8 @@ public sealed class RepositoryRootFinderTests
     [Fact]
     public void FindForSourceLayoutReturnsRootWithSolutionAndSourceProbe()
     {
-        var name = Path.GetDirectoryName(typeof(ICache<>).Assembly.Location) ?? string.Empty;
-        var root = RepositoryRootFinder.FindForSourceLayout(typeof(RepositoryRootFinderTests).Assembly, name);
+        var assemblyDirectory = Path.GetDirectoryName(typeof(ICache<>).Assembly.Location) ?? string.Empty;
+        var root = RepositoryRootFinder.FindForSourceLayout(typeof(RepositoryRootFinderTests).Assembly, assemblyDirectory);
 
         AssertRootHasRepositorySolutionFile(root);
         AssertRootHasClientSource(root);

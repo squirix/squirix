@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -112,30 +111,32 @@ public sealed class JournalWriterSnapshotCutReleaseTests : ServerUnitTestBase
         var releaseBuild = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var mutationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var snapshotTask = AsSingleUseTaskAsync(journal.ExecuteSnapshotCutAsync(
-            (BuildStarted: buildStarted, ReleaseBuild: releaseBuild),
-            static (state, _, _) =>
-            {
-                state.BuildStarted.SetResult();
-                return new ValueTask<int>(1);
-            },
-            static async (state, _, barrier, ct) =>
-            {
-                await state.ReleaseBuild.Task.WaitAsync(ct).ConfigureAwait(false);
-                return barrier;
-            },
-            DefaultCancellationToken));
+        var snapshotTask = AsSingleUseTaskAsync(
+            journal.ExecuteSnapshotCutAsync(
+                (BuildStarted: buildStarted, ReleaseBuild: releaseBuild),
+                static (state, _, _) =>
+                {
+                    state.BuildStarted.SetResult();
+                    return new ValueTask<int>(1);
+                },
+                static async (state, _, barrier, ct) =>
+                {
+                    await state.ReleaseBuild.Task.WaitAsync(ct).ConfigureAwait(false);
+                    return barrier;
+                },
+                DefaultCancellationToken));
 
         await buildStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), DefaultCancellationToken);
 
-        var mutationTask = AsSingleUseTaskAsync(journal.ExecuteUnderSnapshotBarrierAsync(
-            async _ =>
-            {
-                mutationEntered.SetResult();
-                await Task.Yield();
-                return 42;
-            },
-            DefaultCancellationToken));
+        var mutationTask = AsSingleUseTaskAsync(
+            journal.ExecuteUnderSnapshotBarrierAsync(
+                async _ =>
+                {
+                    mutationEntered.SetResult();
+                    await Task.Yield();
+                    return 42;
+                },
+                DefaultCancellationToken));
 
         var winner = await Task.WhenAny(mutationTask, Task.Delay(TimeSpan.FromMilliseconds(250), DefaultCancellationToken));
         Assert.Same(mutationTask, winner);
