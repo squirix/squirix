@@ -20,6 +20,8 @@ namespace Squirix.Server.Storage.Snapshot;
 /// Concurrency: ensures at most one snapshot runs at a time using an interlocked flag.
 /// Ordering guarantee vs writes: before taking a snapshot we flush the journal and record seqAtFlush = journal.NextSequence - 1.
 /// The snapshot reflects all effects of operations with Seq less or equal to seqAtFlush. Recovery will replay only operations with Seq > seqAtFlush.
+/// Snapshot cut is two-phase: a brief barrier captures a consistent in-memory view under the journal mutation gate, then serialization and
+/// manifest I/O run outside the gate so large snapshots do not stop-the-world block durable memory applies.
 /// <see cref="SnapshotCompleted" /> is raised only after the journal mutation gate is released so subscribers can safely run maintenance (for example journal compaction) that
 /// re-enters the
 /// writer.
@@ -91,7 +93,8 @@ internal sealed class SnapshotCoordinator<T>
         {
             var snapshotRef = await journal.ExecuteSnapshotCutAsync(
                 (Coordinator: this, Activity: activity, Journal: journal),
-                static (state, seqAtFlush, ct) => state.Coordinator.ExecuteSnapshotCutAsync(seqAtFlush, state.Activity, state.Journal, ct),
+                static (state, _, ct) => state.Coordinator.CaptureSnapshotViewAsync(state.Activity, ct),
+                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, state.Journal, ct),
                 cancellationToken).ConfigureAwait(false);
 
             SnapshotCompleted?.Invoke(this, new SnapshotCompletedEventArgs(snapshotRef));
@@ -118,26 +121,37 @@ internal sealed class SnapshotCoordinator<T>
         }
     }
 
-    private async ValueTask<Manifest.SnapshotRef> ExecuteSnapshotCutAsync(
+    private async ValueTask<CapturedSnapshotView> CaptureSnapshotViewAsync(Activity? currentActivity, CancellationToken cancellationToken)
+    {
+        var items = new List<(CacheKey Key, CacheEntry<T> Entry)>();
+        await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
+                continue;
+
+            items.Add((key, entry));
+        }
+
+        _ = currentActivity?.SetTag("snapshot.items_count", items.Count);
+        return new CapturedSnapshotView(items);
+    }
+
+    private async ValueTask<Manifest.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
+        CapturedSnapshotView captured,
         Activity? currentActivity,
         IJournalCoordinator currentJournal,
         CancellationToken cancellationToken)
     {
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", (long)seqAtFlush);
 
-        var items = new List<(CacheKey Key, object Json)>();
-        await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
+        var items = new List<(CacheKey Key, object Json)>(captured.Items.Count);
+        foreach (var (key, entry) in captured.Items)
         {
-            if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
-                continue;
-
             var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags);
             using var doc = JsonDocument.Parse(payload);
             items.Add((key, doc.RootElement.Clone()));
         }
-
-        _ = currentActivity?.SetTag("snapshot.items_count", items.Count);
 
         var prev = _manifestStore.ReadCurrentOrDefault();
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
@@ -207,4 +221,6 @@ internal sealed class SnapshotCoordinator<T>
         var bytesOk = _opt.SnapshotEveryNBytes > 0 && bytesDelta >= _opt.SnapshotEveryNBytes;
         return timeOk || opsOk || bytesOk;
     }
+
+    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<T> Entry)> Items);
 }

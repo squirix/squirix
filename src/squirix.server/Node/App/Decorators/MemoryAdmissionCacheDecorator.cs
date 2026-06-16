@@ -18,7 +18,7 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly IMemoryUsageAccounting _accounting;
-    private readonly ConcurrentDictionary<CacheKey, byte> _concurrentReplaceAccounting = new();
+    private readonly ConcurrentDictionary<CacheKey, long> _accountedEntryBytes = new();
     private readonly ICacheEntrySizeEstimator<T> _estimator;
     private readonly IMemoryPressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
@@ -234,17 +234,10 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         };
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
         var updated = await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
-        if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value) || !_concurrentReplaceAccounting.TryAdd(keyValue, 0))
+        if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
             return updated;
-        try
-        {
-            AccountReplaceOrInsert(keyValue, existing, replacement);
-        }
-        finally
-        {
-            _ = _concurrentReplaceAccounting.TryRemove(keyValue, out _);
-        }
 
+        AccountReplaceOrInsert(keyValue, existing, replacement);
         return updated;
     }
 
@@ -257,9 +250,18 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         Tags = existing.Tags,
     };
 
-    private void AccountInsert(CacheKey key, CacheEntry<T> entry) => _accounting.AddEntry(_estimator.EstimateBytes(key, entry, false));
+    private void AccountInsert(CacheKey key, CacheEntry<T> entry)
+    {
+        var bytes = _estimator.EstimateBytes(key, entry, false);
+        _accounting.AddEntry(bytes);
+        _accountedEntryBytes[key] = bytes;
+    }
 
-    private void AccountRemove(CacheKey key, CacheEntry<T> entry) => _accounting.RemoveEntry(_estimator.EstimateBytes(key, entry, false));
+    private void AccountRemove(CacheKey key, CacheEntry<T> entry)
+    {
+        _accounting.RemoveEntry(_estimator.EstimateBytes(key, entry, false));
+        _ = _accountedEntryBytes.TryRemove(key, out _);
+    }
 
     private void AccountReplaceOrInsert(CacheKey key, CacheEntry<T>? existing, CacheEntry<T> replacement)
     {
@@ -269,7 +271,19 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return;
         }
 
-        _accounting.ReplaceEntry(_estimator.EstimateBytes(key, existing, false), _estimator.EstimateBytes(key, replacement, false));
+        var newBytes = _estimator.EstimateBytes(key, replacement, false);
+        var baselineBytes = _estimator.EstimateBytes(key, existing, false);
+        while (true)
+        {
+            var accountedBytes = _accountedEntryBytes.GetOrAdd(key, baselineBytes);
+            if (accountedBytes == newBytes)
+                return;
+
+            if (!_accountedEntryBytes.TryUpdate(key, newBytes, accountedBytes))
+                continue;
+            _accounting.ReplaceEntry(accountedBytes, newBytes);
+            return;
+        }
     }
 
     private void AdmitReplaceOrInsert(CacheKey key, CacheEntry<T>? existing, CacheEntry<T> proposed, string operation)
