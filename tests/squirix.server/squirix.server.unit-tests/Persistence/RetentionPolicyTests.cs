@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Unit tests covering automatic retention cleanup of snapshots and journal segments.
 /// </summary>
-public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
 {
     private TempDirectory _dir = null!;
 

@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Focused tests for shared journal frame parsing and classification.
 /// </summary>
-public sealed class JournalFrameReaderTests : ServerUnitTestBase
+public sealed class JournalFrameReaderTests : UnitTestBase
 {
     /// <summary>
     /// Verifies CRC mismatches classify consistently for stream and span paths.

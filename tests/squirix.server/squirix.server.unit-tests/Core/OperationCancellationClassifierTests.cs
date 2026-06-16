@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Characterization tests for <see cref="OperationCancellationClassifier" /> precedence and transport helpers.
 /// </summary>
-public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
+public sealed class OperationCancellationClassifierTests : UnitTestBase
 {
     private const int CallerCanceledOrdinal = (int)CancellationScenarioKind.CallerCanceled;
     private const int OperationDeadlineExceededOrdinal = (int)CancellationScenarioKind.OperationDeadlineExceeded;

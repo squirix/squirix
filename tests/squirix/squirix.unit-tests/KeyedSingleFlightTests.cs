@@ -9,7 +9,7 @@ namespace Squirix.UnitTests;
 /// <summary>
 /// Unit tests for per-key single-flight coordination.
 /// </summary>
-public sealed class KeyedSingleFlightTests
+public sealed class KeyedSingleFlightTests : UnitTestBase
 {
     /// <summary>
     /// Ensures concurrent callers observe the same factory exception.
@@ -24,7 +24,7 @@ public sealed class KeyedSingleFlightTests
 
         var first = RunFailingAsync();
         var second = RunFailingAsync();
-        await Task.Delay(30, TestContext.Current.CancellationToken);
+        await Task.Delay(30, DefaultCancellationToken);
         gate.SetResult();
 
         InvalidOperationException? firstException = null;
@@ -62,7 +62,7 @@ public sealed class KeyedSingleFlightTests
                     await gate.Task.WaitAsync(ct);
                     throw new InvalidOperationException("factory failed");
                 },
-                TestContext.Current.CancellationToken);
+                DefaultCancellationToken);
         }
     }
 
@@ -79,7 +79,7 @@ public sealed class KeyedSingleFlightTests
 
         var first = RunOnceAsync();
         var second = RunOnceAsync();
-        await Task.Delay(30, TestContext.Current.CancellationToken);
+        await Task.Delay(30, DefaultCancellationToken);
         gate.SetResult();
 
         Assert.Equal(1, executions);
@@ -97,7 +97,7 @@ public sealed class KeyedSingleFlightTests
                     await gate.Task.WaitAsync(ct);
                     return 7;
                 },
-                TestContext.Current.CancellationToken);
+                DefaultCancellationToken);
         }
     }
 }

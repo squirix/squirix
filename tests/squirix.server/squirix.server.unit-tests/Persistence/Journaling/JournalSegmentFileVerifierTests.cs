@@ -19,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Verifies read-only journal segment validation outcomes for complete and corrupted segment files.
 /// </summary>
-public sealed class JournalSegmentFileVerifierTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class JournalSegmentFileVerifierTests : UnitTestBase, IAsyncLifetime
 {
     private TempDirectory _dir = null!;
 

@@ -12,7 +12,7 @@ namespace Squirix.E2ETests.Client;
 /// <summary>
 /// End-to-end coverage for <see cref="SquirixOptions" /> transport and auth extension points.
 /// </summary>
-public sealed class TransportOptionsTests : TestBase
+public sealed class TransportOptionsTests : EndToEndTestBase
 {
     /// <summary>
     /// Verifies <see cref="SquirixOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.

@@ -7,8 +7,6 @@ internal static class CacheOperationContract
 {
     internal const string CounterOverflowDetail = "Overflow.";
 
-    internal const string OperationIdRequiredDetail = OperationIdRequiredException.StableDetail;
-
     private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
 
     /// <summary>
@@ -41,7 +39,7 @@ internal static class CacheOperationContract
                                                                                      message.StartsWith(InsertVersionMustExceedCurrentMessagePrefix, StringComparison.Ordinal) &&
                                                                                      message.Contains(", provided=", StringComparison.Ordinal);
 
-    internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredDetail, StringComparison.Ordinal);
+    internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
 
     internal static bool IsOperationIdReuseMismatchMessage(string? message) => string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
 }

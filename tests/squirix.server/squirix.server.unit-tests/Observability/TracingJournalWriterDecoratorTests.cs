@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Verifies <see cref="TracingJournalWriterDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
 /// </summary>
-public sealed class TracingJournalWriterDecoratorTests : ServerUnitTestBase
+public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
 {
     /// <summary>
     /// Append put through the decorator begins a journal put trace scope.

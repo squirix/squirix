@@ -10,7 +10,7 @@ namespace Squirix.E2ETests.Persistence;
 /// <summary>
 /// Integration tests for typed custom values restored through durable restart recovery.
 /// </summary>
-public sealed class DurableTypedValueRestartTests : TestBase
+public sealed class DurableTypedValueRestartTests : EndToEndTestBase
 {
     /// <summary>
     /// Verifies RestartShouldNotRestoreExpiredCustomRecord.

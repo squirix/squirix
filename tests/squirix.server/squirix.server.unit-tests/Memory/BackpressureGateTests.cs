@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Unit tests for node-level backpressure admission control.
 /// </summary>
-public sealed class BackpressureGateTests : ServerUnitTestBase
+public sealed class BackpressureGateTests : UnitTestBase
 {
     private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
     private const string BackpressureQueueDepthInstrumentName = "squirix_backpressure_queue_depth";
@@ -521,17 +521,19 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         if (!decision.IsAccepted)
             return;
 
-        var now = Interlocked.Increment(ref current[0]);
-        UpdateMax(ref observedMax[0], now);
+        using (lease)
+        {
+            var now = Interlocked.Increment(ref current[0]);
+            UpdateMax(ref observedMax[0], now);
 
-        try
-        {
-            await Task.Yield();
-        }
-        finally
-        {
-            _ = Interlocked.Decrement(ref current[0]);
-            lease.Dispose();
+            try
+            {
+                await Task.Yield();
+            }
+            finally
+            {
+                _ = Interlocked.Decrement(ref current[0]);
+            }
         }
     }
 

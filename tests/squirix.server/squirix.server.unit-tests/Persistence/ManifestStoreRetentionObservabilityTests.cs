@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Tests that manifest retention cleanup failures are observable without breaking manifest commits.
 /// </summary>
-public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBase
+public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
 {
     /// <summary>
     /// Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.

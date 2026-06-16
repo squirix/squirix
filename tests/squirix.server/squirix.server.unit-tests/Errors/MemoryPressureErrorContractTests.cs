@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests.Errors;
 /// <summary>
 /// Contract tests for memory-pressure admission mapped through shared error helpers.
 /// </summary>
-public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
+public sealed class MemoryPressureErrorContractTests : UnitTestBase
 {
     /// <summary>
     /// Verifies stable codes across REST and gRPC projections for memory pressure.

@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// Unit tests for cache eviction policies (LRU and FIFO).
 /// Verifies that items are evicted according to the configured capacity and policy.
 /// </summary>
-public sealed class EvictionTests : ServerUnitTestBase
+public sealed class EvictionTests : UnitTestBase
 {
     /// <summary>
     /// Ensures that when <see cref="EvictionPolicyType.Lru" /> is active (default),

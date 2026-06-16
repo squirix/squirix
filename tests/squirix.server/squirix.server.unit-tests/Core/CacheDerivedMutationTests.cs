@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Unit tests for derived cache mutations on the server local cache surface.
 /// </summary>
-public sealed class CacheDerivedMutationTests : ServerUnitTestBase
+public sealed class CacheDerivedMutationTests : UnitTestBase
 {
     /// <summary>
     /// Ensures ClientCache GetOrAddAsync invokes the factory once under concurrency.

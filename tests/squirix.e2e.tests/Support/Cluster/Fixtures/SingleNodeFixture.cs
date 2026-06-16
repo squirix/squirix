@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.Support.Cluster.Fixtures;
 /// </summary>
 [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Instantiated by xUnit via IClassFixture<T>.")]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Test fixture surface must be public for xUnit class fixtures.")]
-public sealed class SingleNodeFixture : IAsyncLifetime
+public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;
     private ISquirixClient? _client;
@@ -22,8 +22,8 @@ public sealed class SingleNodeFixture : IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        _cluster = await HostedCluster.StartSingleNodeAsync(nameof(SingleNodeFixture), cancellationToken: TestContext.Current.CancellationToken);
-        _client = await _cluster.ConnectClientAsync(cancellationToken: TestContext.Current.CancellationToken);
+        _cluster = await HostedCluster.StartSingleNodeAsync(nameof(SingleNodeFixture), cancellationToken: DefaultCancellationToken);
+        _client = await _cluster.ConnectClientAsync(cancellationToken: DefaultCancellationToken);
     }
 
     /// <inheritdoc />

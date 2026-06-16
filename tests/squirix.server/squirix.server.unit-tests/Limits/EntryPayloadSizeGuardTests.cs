@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Limits;
 /// <summary>
 /// Unit tests for <see cref="EntryPayloadSizeGuard" />.
 /// </summary>
-public sealed class EntryPayloadSizeGuardTests : ServerUnitTestBase
+public sealed class EntryPayloadSizeGuardTests : UnitTestBase
 {
     /// <summary>
     /// Checks if an entry below the limit throws.

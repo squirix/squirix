@@ -17,7 +17,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Tests for the memory-mapped journal reader corruption and lifetime boundaries.
 /// </summary>
-public sealed class MappedJournalSegmentReaderTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifetime
 {
     private TempDirectory _dir = null!;
 

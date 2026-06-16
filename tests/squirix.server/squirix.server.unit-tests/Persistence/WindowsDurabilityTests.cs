@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Durability behavior tests for manifest persistence and CURRENT pointer updates.
 /// </summary>
-public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
+public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
 {
     private TempDirectory _dir = null!;
 

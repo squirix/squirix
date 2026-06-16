@@ -7,7 +7,7 @@ namespace Squirix.UnitTests;
 /// <summary>
 /// Covers the public remote-only client factory surface.
 /// </summary>
-public sealed class SquirixClientConnectTests
+public sealed class SquirixClientConnectTests : UnitTestBase
 {
     /// <summary>
     /// Verifies explicit remote mode requires at least one endpoint.
@@ -16,7 +16,7 @@ public sealed class SquirixClientConnectTests
     [Fact]
     public async Task ConnectAsyncOptionsRejectNoEndpoints()
     {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(static () => SquirixClient.ConnectAsync(static _ => { }, TestContext.Current.CancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(static () => SquirixClient.ConnectAsync(static _ => { }, DefaultCancellationToken).AsTask());
 
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -29,7 +29,7 @@ public sealed class SquirixClientConnectTests
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
         var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), TestContext.Current.CancellationToken).AsTask());
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -41,7 +41,7 @@ public sealed class SquirixClientConnectTests
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () => SquirixClient.ConnectAsync("http://127.0.0.1:1", TestContext.Current.CancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static () => SquirixClient.ConnectAsync("http://127.0.0.1:1", DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

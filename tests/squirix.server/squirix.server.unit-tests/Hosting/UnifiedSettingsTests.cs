@@ -11,7 +11,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>
 /// Tests for unified JSON settings discovery and merge helpers.
 /// </summary>
-public sealed class UnifiedSettingsTests : ServerUnitTestBase
+public sealed class UnifiedSettingsTests : UnitTestBase
 {
     /// <summary>
     /// Verifies cluster configuration can be loaded from an explicit <c>Squirix.settings.json</c> path without mutating

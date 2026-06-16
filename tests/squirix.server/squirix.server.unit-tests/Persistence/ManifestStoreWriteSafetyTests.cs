@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Safety tests for <see cref="ManifestStore.Write" /> when <c>CURRENT</c> or on-disk manifests are corrupt.
 /// </summary>
-public sealed class ManifestStoreWriteSafetyTests : ServerUnitTestBase
+public sealed class ManifestStoreWriteSafetyTests : UnitTestBase
 {
     /// <summary>
     /// Verifies monotonic manifest writes advance the index when <c>CURRENT</c> is valid.

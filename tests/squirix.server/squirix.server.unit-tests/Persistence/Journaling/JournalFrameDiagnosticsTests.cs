@@ -8,7 +8,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Focused tests for shared journal frame diagnostics formatting.
 /// </summary>
-public sealed class JournalFrameDiagnosticsTests : ServerUnitTestBase
+public sealed class JournalFrameDiagnosticsTests : UnitTestBase
 {
     /// <summary>
     /// Verifies the shared formatter includes status-specific text and frame offsets.

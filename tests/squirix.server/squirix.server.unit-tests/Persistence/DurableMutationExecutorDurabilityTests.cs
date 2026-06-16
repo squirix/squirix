@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Regression tests for durable journal ordering: fsync before in-memory apply.
 /// </summary>
-public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
+public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
 {
     /// <summary>
     /// Ensures a failed in-memory apply after durable journal is not retried.

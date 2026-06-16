@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Unit tests covering expiration operations: TouchAsync, GetExpirationAsync, and RemoveExpirationAsync.
 /// </summary>
-public sealed class ExpirationOperationsTests : ServerUnitTestBase
+public sealed class ExpirationOperationsTests : UnitTestBase
 {
     /// <summary>
     /// Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.

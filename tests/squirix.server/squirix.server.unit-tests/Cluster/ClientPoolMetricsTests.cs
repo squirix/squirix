@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// <summary>
 /// Tests for ClientPool methods and metrics.
 /// </summary>
-public sealed class ClientPoolMetricsTests : ServerUnitTestBase
+public sealed class ClientPoolMetricsTests : UnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";

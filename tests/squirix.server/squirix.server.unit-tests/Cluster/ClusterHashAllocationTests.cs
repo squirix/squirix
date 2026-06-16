@@ -8,7 +8,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// <summary>
 /// Allocation-focused tests for cluster hashing hot paths.
 /// </summary>
-public sealed class ClusterHashAllocationTests : ServerUnitTestBase
+public sealed class ClusterHashAllocationTests : UnitTestBase
 {
     /// <summary>
     /// Verifies that <c>Sha256Hasher.HashString</c> stays allocation-free for ASCII input on the hot path.

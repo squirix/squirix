@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Serialization;
 /// <summary>
 /// Tests JSON parsing with payloads split across multiple segments.
 /// </summary>
-public sealed class MultiSegmentJsonParsingTests : ServerUnitTestBase
+public sealed class MultiSegmentJsonParsingTests : UnitTestBase
 {
     /// <summary>
     /// Cache entry DTO parsing handles segmented property names and values.

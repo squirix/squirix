@@ -10,7 +10,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Ensures <see cref="JournalWriter" /> exposes the same exclusive-maintenance entry point through <see cref="IExclusiveMaintenanceExecutor" /> used by hosted compaction.
 /// </summary>
-public sealed class JournalWriterExclusiveMaintenanceExecutorTests : ServerUnitTestBase
+public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBase
 {
     /// <summary>
     /// Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct <see cref="JournalWriter" /> call).

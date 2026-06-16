@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// journal segment header validation during recovery and writer repair.
 /// </summary>
-public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
+public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
 {
     /// <summary>
     /// Appending to a segment with an invalid header rewrites a valid file header before new frames.

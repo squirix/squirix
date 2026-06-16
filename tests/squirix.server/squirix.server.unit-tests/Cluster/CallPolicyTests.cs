@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// <summary>
 /// Unit tests for deadline-aware retry and timeout handling in <see cref="CallPolicy" />.
 /// </summary>
-public sealed class CallPolicyTests : ServerUnitTestBase
+public sealed class CallPolicyTests : UnitTestBase
 {
     /// <summary>
     /// Ensures the ambient request deadline caps the overall retry budget.

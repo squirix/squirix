@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.Client;
 /// <summary>
 /// End-to-end coverage for multi-endpoint client bootstrap connect semantics.
 /// </summary>
-public sealed class BootstrapConnectTests : TestBase
+public sealed class BootstrapConnectTests : EndToEndTestBase
 {
     /// <summary>
     /// Verifies public client connect succeeds when only one configured bootstrap endpoint is reachable.

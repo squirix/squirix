@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Verifies journal snapshot cut error paths release the mutation gate.
 /// </summary>
-public sealed class JournalWriterSnapshotCutReleaseTests : ServerUnitTestBase
+public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
 {
     /// <summary>
     /// Verifies journal mutation path is usable after a snapshot cut build phase throws.

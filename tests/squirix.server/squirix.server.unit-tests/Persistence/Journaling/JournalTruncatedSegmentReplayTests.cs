@@ -16,7 +16,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Replay behavior when journal segment bytes end mid-frame or fail CRC / protobuf decode.
 /// </summary>
-public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
+public sealed class JournalTruncatedSegmentReplayTests : UnitTestBase
 {
     /// <summary>
     /// Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.

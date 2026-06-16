@@ -20,7 +20,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>
 /// Verifies outbound cluster mTLS handlers complete TLS handshakes with Kestrel internal listeners.
 /// </summary>
-public sealed class MtlsKestrelHandshakeTests
+public sealed class MtlsKestrelHandshakeTests : UnitTestBase
 {
     /// <summary>
     /// Ensures a trusted peer client certificate can complete TLS against the internal mTLS listener.
@@ -31,14 +31,14 @@ public sealed class MtlsKestrelHandshakeTests
     {
         using var bundle = MtlsTestCertificateFactory.Create();
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
-        await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", TestContext.Current.CancellationToken);
+        await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", DefaultCancellationToken);
 
         Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor, ["node-a"]));
 
         using var tcpClient = new TcpClient();
-        await tcpClient.ConnectAsync("127.0.0.1", internalPort, TestContext.Current.CancellationToken);
+        await tcpClient.ConnectAsync("127.0.0.1", internalPort, DefaultCancellationToken);
         await using var sslStream = new SslStream(tcpClient.GetStream(), false);
-        await host.AuthenticateClientAsync(sslStream, TestContext.Current.CancellationToken);
+        await host.AuthenticateClientAsync(sslStream, DefaultCancellationToken);
 
         Assert.True(sslStream.IsAuthenticated);
         Assert.True(sslStream.RemoteCertificate is not null);

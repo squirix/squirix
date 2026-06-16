@@ -12,7 +12,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// Verifies both relative expiration (<see cref="CacheEntry{T}.Expiration" />) and absolute
 /// expiration (<see cref="CacheEntry{T}.ExpiresUtc" />).
 /// </summary>
-public sealed class CacheExpirationTests : ServerUnitTestBase
+public sealed class CacheExpirationTests : UnitTestBase
 {
     /// <summary>
     /// Verifies AddAsync treats an expired existing entry as absent and inserts a new value.

@@ -9,6 +9,7 @@ using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
@@ -16,7 +17,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>
 /// Verifies the public ASP.NET Core custom-hosting entry point.
 /// </summary>
-public sealed class AspNetCoreHostingExtensionsTests
+public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
 {
     /// <summary>
     /// Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.
@@ -48,8 +49,8 @@ public sealed class AspNetCoreHostingExtensionsTests
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("gRPC", StringComparison.OrdinalIgnoreCase) == true);
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/health", StringComparison.OrdinalIgnoreCase) == true);
 
-        await app.StartAsync(TestContext.Current.CancellationToken);
-        await app.StopAsync(TestContext.Current.CancellationToken);
+        await app.StartAsync(DefaultCancellationToken);
+        await app.StopAsync(DefaultCancellationToken);
     }
 
     /// <summary>

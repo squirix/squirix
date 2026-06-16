@@ -19,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Verifies a failed in-flight journal frame write does not strand later durable frames behind a torn tail (SQU-35).
 /// </summary>
-public sealed class JournalWriterFailedAppendTailTests : ServerUnitTestBase
+public sealed class JournalWriterFailedAppendTailTests : UnitTestBase
 {
     /// <summary>
     /// After a canceled payload write, the torn partial frame is truncated and a later append is replayable.

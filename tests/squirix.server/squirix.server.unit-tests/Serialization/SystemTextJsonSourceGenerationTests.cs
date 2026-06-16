@@ -19,7 +19,7 @@ namespace Squirix.Server.UnitTests.Serialization;
 /// <summary>
 /// Tests for System.Text.Json source-generated metadata used by the default serializer.
 /// </summary>
-public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
+public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 {
     /// <summary>
     /// Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.

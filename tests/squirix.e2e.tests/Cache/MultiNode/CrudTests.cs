@@ -34,8 +34,8 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     {
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
 
-        var a = MultiNodeSupport.CaptureAddAsync(Cluster.CacheA, key, "a");
-        var b = MultiNodeSupport.CaptureAddAsync(Cluster.CacheB, key, "b");
+        var a = MultiNodeSupport.CaptureAddAsync(Cluster.CacheA, key, "a", DefaultCancellationToken);
+        var b = MultiNodeSupport.CaptureAddAsync(Cluster.CacheB, key, "b", DefaultCancellationToken);
 
         var errors = await Task.WhenAll(a, b);
 

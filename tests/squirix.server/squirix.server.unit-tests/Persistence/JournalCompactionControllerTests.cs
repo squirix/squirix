@@ -16,7 +16,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
-public sealed class JournalCompactionControllerTests : ServerUnitTestBase
+public sealed class JournalCompactionControllerTests : UnitTestBase
 {
     /// <summary>
     /// Double dispose does not throw.

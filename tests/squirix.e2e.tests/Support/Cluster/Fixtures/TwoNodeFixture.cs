@@ -10,7 +10,7 @@ namespace Squirix.E2ETests.Support.Cluster.Fixtures;
 /// </summary>
 [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Instantiated by xUnit via IClassFixture<T>.")]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Test fixture surface must be public for xUnit class fixtures.")]
-public sealed class TwoNodeFixture : IAsyncLifetime
+public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;
     private ISquirixClient? _clientA;
@@ -24,10 +24,10 @@ public sealed class TwoNodeFixture : IAsyncLifetime
     /// <inheritdoc />
     public async ValueTask InitializeAsync()
     {
-        _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: TestContext.Current.CancellationToken);
-        _clientA = await _cluster.ConnectClientAsync("nodeA", TestContext.Current.CancellationToken);
-        _clientB = await _cluster.ConnectClientAsync("nodeB", TestContext.Current.CancellationToken);
-        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, TestContext.Current.CancellationToken, false);
+        _cluster = await HostedCluster.StartTwoNodeAsync(nameof(TwoNodeFixture), cancellationToken: DefaultCancellationToken);
+        _clientA = await _cluster.ConnectClientAsync("nodeA", DefaultCancellationToken);
+        _clientB = await _cluster.ConnectClientAsync("nodeB", DefaultCancellationToken);
+        NamedCaches = await TwoNodeNamedCaches<object?>.CreateAsync(_cluster, _clientA, _clientB, DefaultCancellationToken, false);
     }
 
     /// <summary>

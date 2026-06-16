@@ -8,7 +8,7 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Allocation-focused tests for keyed lock striping.
 /// </summary>
-public sealed class KeyedLockStriperAllocationTests : ServerUnitTestBase
+public sealed class KeyedLockStriperAllocationTests : UnitTestBase
 {
     /// <summary>
     /// Verifies that <c>KeyedLockStriper.AcquireAll</c> remains allocation-free on the hot batch path.

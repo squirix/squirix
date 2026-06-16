@@ -16,7 +16,7 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>
 /// Validation coverage for hosted option validators registered under <see cref="SquirixOptionsValidators" />.
 /// </summary>
-public sealed class SquirixOptionsValidatorsTests : ServerUnitTestBase
+public sealed class SquirixOptionsValidatorsTests : UnitTestBase
 {
     /// <summary>
     /// Verifies backpressure validator accepts boundary thresholds at the inclusive limits.

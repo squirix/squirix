@@ -17,7 +17,7 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>
 /// Unit tests for <see cref="MemoryAdmissionCacheDecorator{T}" /> local-owner accounting.
 /// </summary>
-public sealed class MemoryAdmissionCacheDecoratorTests : ServerUnitTestBase
+public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
 {
     private const string CacheName = "orders";
     private const int ConcurrentRaceWidth = 64;

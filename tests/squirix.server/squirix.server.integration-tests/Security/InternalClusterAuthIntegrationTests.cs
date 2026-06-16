@@ -28,7 +28,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
+        var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 

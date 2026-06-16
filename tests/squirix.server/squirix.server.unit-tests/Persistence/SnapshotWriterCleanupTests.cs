@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Ensures failed snapshot writes do not leave stale temporary files.
 /// </summary>
-public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
+public sealed class SnapshotWriterCleanupTests : UnitTestBase
 {
     /// <summary>
     /// Verifies a snapshot writer can create a new final snapshot file.

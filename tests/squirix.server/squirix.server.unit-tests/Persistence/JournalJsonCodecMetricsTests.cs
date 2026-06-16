@@ -13,7 +13,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Tests validating journal JSON codec metrics.
 /// </summary>
-public sealed class JournalJsonCodecMetricsTests : ServerUnitTestBase
+public sealed class JournalJsonCodecMetricsTests : UnitTestBase
 {
     /// <summary>
     /// Ensures failed decode emits error op and duration metric.

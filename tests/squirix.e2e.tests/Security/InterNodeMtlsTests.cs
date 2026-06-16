@@ -17,7 +17,7 @@ namespace Squirix.E2ETests.Security;
 /// <summary>
 /// End-to-end coverage for inter-node mTLS cluster forwarding and failure modes.
 /// </summary>
-public sealed class InterNodeMtlsTests : TestBase
+public sealed class InterNodeMtlsTests : EndToEndTestBase
 {
     /// <summary>
     /// Verifies a client connected to node A forwards owner mutations to node B over trusted inter-node mTLS.
@@ -26,7 +26,7 @@ public sealed class InterNodeMtlsTests : TestBase
     [Fact]
     public async Task ClientOnNodeAForwardsToOwnerNodeBOverMtls()
     {
-        await using var cluster = await MultiNodeSupport.StartTwoNodeNamedCachesAsync<object?>();
+        await using var cluster = await MultiNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-mtls-forward");
         await using var client = await LoopbackConnect.ConnectAsync(cluster.NodeAAddress, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<object?>("orders", DefaultCancellationToken);
@@ -166,7 +166,7 @@ public sealed class InterNodeMtlsTests : TestBase
     [Fact]
     public async Task TwoNodeClusterWithInterNodeMtlsStartsSuccessfully()
     {
-        await using var cluster = await MultiNodeSupport.StartTwoNodeNamedCachesAsync<object?>();
+        await using var cluster = await MultiNodeSupport.StartTwoNodeNamedCachesAsync<object?>(DefaultCancellationToken);
 
         await cluster.CacheA.SetAsync("mtls-startup", "ok", cancellationToken: DefaultCancellationToken);
 

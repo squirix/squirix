@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Tests strict JSON parsing for durability and mutation payloads.
 /// </summary>
-public sealed class StrictDurabilityJsonTests : ServerUnitTestBase
+public sealed class StrictDurabilityJsonTests : UnitTestBase
 {
     /// <summary>
     /// journal envelopes reject duplicate top-level properties instead of choosing one value.

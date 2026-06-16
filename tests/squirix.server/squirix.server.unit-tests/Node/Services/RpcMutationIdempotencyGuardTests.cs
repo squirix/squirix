@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -12,7 +13,7 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>
 /// Unit tests for mutating RPC idempotency guard behavior.
 /// </summary>
-public sealed class RpcMutationIdempotencyGuardTests
+public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 {
     /// <summary>
     /// Ensures unknown operation ids do not produce a replayed response.
@@ -94,7 +95,7 @@ public sealed class RpcMutationIdempotencyGuardTests
                 executions++;
                 return Task.FromResult(new TrySetResponse { Added = true });
             },
-            TestContext.Current.CancellationToken);
+            DefaultCancellationToken);
 
         var second = await coordinator.ExecuteAsync(
             "op-1",
@@ -104,7 +105,7 @@ public sealed class RpcMutationIdempotencyGuardTests
                 executions++;
                 return Task.FromResult(new TrySetResponse { Added = false });
             },
-            TestContext.Current.CancellationToken);
+            DefaultCancellationToken);
 
         Assert.True(first.Added);
         Assert.True(second.Added);
@@ -121,7 +122,7 @@ public sealed class RpcMutationIdempotencyGuardTests
         var guard = new RpcMutationIdempotencyGuard(TimeSpan.FromMilliseconds(50));
         guard.RecordSuccess("op-1", "fp-1", new TrySetResponse { Added = true });
 
-        await Task.Delay(100, TestContext.Current.CancellationToken);
+        await Task.Delay(100, DefaultCancellationToken);
 
         var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
 

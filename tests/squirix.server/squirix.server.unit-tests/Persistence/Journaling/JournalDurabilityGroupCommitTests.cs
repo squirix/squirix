@@ -14,7 +14,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
 /// </summary>
-public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
+public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 {
     /// <summary>
     /// Ensures canceling the only pending waiter leaves the next group commit batch usable.
