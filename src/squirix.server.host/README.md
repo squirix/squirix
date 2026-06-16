@@ -1,6 +1,6 @@
 # squirix.server.tool
 
-Standalone squirix server host (`squirix-server`).
+NuGet global tool package for the **`squirix-server`** CLI (standalone process host).
 
 ```powershell
 dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4

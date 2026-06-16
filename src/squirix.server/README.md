@@ -1,7 +1,7 @@
 # squirix.server
 
-`squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone process host
-lives in the separate `Squirix.Server.Host` project (`squirix-server`).
+`squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone CLI is published
+as **`squirix.server.tool`**; the command is **`squirix-server`** (`Squirix.Server.Host` project).
 
 | Package               | Purpose                                                                               |
 |-----------------------|---------------------------------------------------------------------------------------|
@@ -65,7 +65,7 @@ For options you control in code without a file, use `AddSquirixServer` on a `Web
 
 Integration and smoke tests start nodes through `IntegrationTestBase.StartNodeAsync` or
 `SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to unauthenticated nodes via
-an empty override; pass explicit API keys or JWT settings for auth scenarios. See
+an empty override; pass explicit JWT settings for auth scenarios. See
 [configuration.md](../../docs/configuration.md#in-process-test-hosts).
 
 Validate settings before deploy:
