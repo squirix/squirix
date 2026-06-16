@@ -29,6 +29,7 @@ message SetRequest {
     string cache_name = 1;
     string key = 2;
     Entry entry = 3;
+    string operation_id = 4;
 }
 
 message SetResponse {}
@@ -39,6 +40,7 @@ message SetValueRequest {
     CacheValue value = 3;
     google.protobuf.Timestamp expires_utc = 4;
     google.protobuf.Duration expiration = 5;
+    string operation_id = 6;
 }
 
 message GetRequest {
@@ -63,6 +65,7 @@ message GetValueResponse {
 message RemoveRequest {
     string cache_name = 1;
     string key = 2;
+    string operation_id = 3;
 }
 
 message RemoveResponse {
@@ -74,6 +77,7 @@ message TrySetRequest {
     string cache_name = 1;
     string key = 2;
     Entry entry = 3;
+    string operation_id = 4;
 }
 
 message TrySetResponse {
@@ -86,12 +90,14 @@ message TrySetValueRequest {
     CacheValue value = 3;
     google.protobuf.Timestamp expires_utc = 4;
     google.protobuf.Duration expiration = 5;
+    string operation_id = 6;
 }
 
 message TouchRequest {
     string cache_name = 1;
     string key = 2;
     google.protobuf.Duration expiration = 3;
+    string operation_id = 4;
 }
 
 message TouchResponse {
@@ -101,6 +107,7 @@ message TouchResponse {
 message RemoveExpirationRequest {
     string cache_name = 1;
     string key = 2;
+    string operation_id = 3;
 }
 
 message RemoveExpirationResponse {
@@ -111,6 +118,7 @@ message UpdateValueRequest {
     string cache_name = 1;
     string key = 2;
     CacheValue value = 3;
+    string operation_id = 4;
 }
 
 message UpdateValueResponse {
@@ -134,6 +142,7 @@ message GetOrAddValueRequest {
     CacheValue value = 3;
     google.protobuf.Timestamp expires_utc = 4;
     google.protobuf.Duration expiration = 5;
+    string operation_id = 6;
 }
 
 message GetOrAddValueResponse {

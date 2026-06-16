@@ -8,6 +8,7 @@ using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -73,6 +74,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var setResponse = await clientA.TrySetAsync(
             new TrySetRequest
             {
+                OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
                 Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
@@ -80,44 +82,6 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 
         Assert.True(setResponse.Added);
-    }
-
-    /// <summary>
-    /// Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
-    [Fact]
-    public async Task InterNodeForwardingSucceedsWithoutJwtOnInternalTransport()
-    {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
-
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
-
-        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cluster-forward");
-        const string value = "cluster-forwarded-value";
-
-        using var channelA = CreateGrpcChannel(urlA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var setResponse = await clientA.TrySetAsync(
-            new TrySetRequest
-            {
-                CacheName = "default",
-                Key = key,
-                Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
-            },
-            cancellationToken: DefaultCancellationToken);
-
-        Assert.True(setResponse.Added);
-
-        using var channelB = CreateGrpcChannel(urlB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        var getResponse = await clientB.GetValueAsync(new GetValueRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
-
-        Assert.True(getResponse.Found);
-        Assert.Equal(value, ProtoEx.CacheValueFromGrpcValue<object?>(getResponse.Value, null, null).Value);
     }
 
     /// <summary>
@@ -159,6 +123,45 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>
+    /// Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task InterNodeForwardingSucceedsWithoutJwtOnInternalTransport()
+    {
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cluster-forward");
+        const string value = "cluster-forwarded-value";
+
+        using var channelA = CreateGrpcChannel(urlA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        var setResponse = await clientA.TrySetAsync(
+            new TrySetRequest
+            {
+                OperationId = RpcOperationIdentity.New(),
+                CacheName = "default",
+                Key = key,
+                Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken);
+
+        Assert.True(setResponse.Added);
+
+        using var channelB = CreateGrpcChannel(urlB);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        var getResponse = await clientB.GetValueAsync(new GetValueRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+
+        Assert.True(getResponse.Found);
+        Assert.Equal(value, ProtoEx.CacheValueFromGrpcValue<object?>(getResponse.Value, null, null).Value);
+    }
+
+    /// <summary>
     /// Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.
     /// </summary>
     /// <returns>A task representing the asynchronous test.</returns>
@@ -184,7 +187,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.SetValueAsync(
-                new SetValueRequest { CacheName = "default", Key = "spoofed-owner-write", Value = ProtoEx.CacheValueToGrpcValue("blocked") },
+                new SetValueRequest
+                { OperationId = RpcOperationIdentity.New(), CacheName = "default", Key = "spoofed-owner-write", Value = ProtoEx.CacheValueToGrpcValue("blocked") },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 

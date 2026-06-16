@@ -9,6 +9,14 @@ namespace Squirix.Server.Errors;
 internal static class CacheOperationContractClassifier
 {
     /// <summary>
+    /// When <paramref name="detail" /> matches the operation-id reuse mismatch contract, returns <see langword="true" />.
+    /// </summary>
+    /// <param name="detail">The gRPC status detail string.</param>
+    /// <returns><see langword="true" /> when <paramref name="detail" /> matches the stable reuse mismatch contract.</returns>
+    public static bool IsOperationIdReuseMismatchDetail(string? detail) =>
+        ClassifyFailedPreconditionDetail(detail) == CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
+
+    /// <summary>
     /// When <paramref name="detail" /> matches a stable FailedPrecondition contract, exposes the string used as
     /// the <see cref="InvalidOperationException" /> message (the detail string itself).
     /// </summary>
@@ -18,14 +26,14 @@ internal static class CacheOperationContractClassifier
     public static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string message)
     {
         var kind = ClassifyFailedPreconditionDetail(detail);
-        if (kind == CacheOperationFailedPreconditionKind.None)
+        if (kind == CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent)
         {
-            message = null!;
-            return false;
+            message = detail!;
+            return true;
         }
 
-        message = detail!;
-        return true;
+        message = null!;
+        return false;
     }
 
     /// <summary>
@@ -36,7 +44,10 @@ internal static class CacheOperationContractClassifier
     /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
     private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
     {
-        return CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail) ? CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent
+        if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
+            return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
+
+        return CacheOperationContract.IsOperationIdReuseMismatchMessage(detail) ? CacheOperationFailedPreconditionKind.OperationIdReuseMismatch
             : CacheOperationFailedPreconditionKind.None;
     }
 }

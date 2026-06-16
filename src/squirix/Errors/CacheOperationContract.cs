@@ -7,6 +7,8 @@ internal static class CacheOperationContract
 {
     internal const string CounterOverflowDetail = "Overflow.";
 
+    internal const string OperationIdRequiredDetail = OperationIdRequiredException.StableDetail;
+
     private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
 
     /// <summary>
@@ -15,8 +17,9 @@ internal static class CacheOperationContract
     /// <param name="currentVersion">The current stored version.</param>
     /// <param name="providedVersion">The caller-provided explicit version.</param>
     /// <returns>The message text shared by local mutation and the gRPC contract detail.</returns>
-    public static string InsertVersionMustExceedCurrentMessage(long currentVersion, long providedVersion) =>
-        string.Create(CultureInfo.InvariantCulture, $"{InsertVersionMustExceedCurrentMessagePrefix}{currentVersion}, provided={providedVersion})");
+    public static string InsertVersionMustExceedCurrentMessage(long currentVersion, long providedVersion) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{InsertVersionMustExceedCurrentMessagePrefix}{currentVersion}, provided={providedVersion})");
 
     /// <summary>
     /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
@@ -37,4 +40,8 @@ internal static class CacheOperationContract
     internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
                                                                                      message.StartsWith(InsertVersionMustExceedCurrentMessagePrefix, StringComparison.Ordinal) &&
                                                                                      message.Contains(", provided=", StringComparison.Ordinal);
+
+    internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredDetail, StringComparison.Ordinal);
+
+    internal static bool IsOperationIdReuseMismatchMessage(string? message) => string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
 }

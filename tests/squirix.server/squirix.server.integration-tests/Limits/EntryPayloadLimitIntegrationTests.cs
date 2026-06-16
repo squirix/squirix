@@ -7,6 +7,7 @@ using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Limits;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -41,6 +42,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
             _ = await clientA.TrySetAsync(
                 new TrySetRequest
                 {
+                    OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
                     Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
@@ -79,6 +81,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
             _ = await client.SetAsync(
                 new SetRequest
                 {
+                    OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "grpc-over-limit",
                     Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),

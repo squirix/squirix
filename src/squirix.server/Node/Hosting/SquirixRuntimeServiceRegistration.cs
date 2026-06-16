@@ -46,6 +46,8 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
         _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
         _ = services.AddSingleton<IGrpcCacheOperations<object?>, GrpcCacheOperations<object?>>();
+        _ = services.AddSingleton<RpcMutationIdempotencyGuard>();
+        _ = services.AddSingleton<RpcMutationIdempotencyCoordinator>();
         _ = services.AddSingleton<ICacheApi<object?>>(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(CacheNames.DefaultNamespace));
 
         return services;
