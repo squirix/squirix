@@ -41,6 +41,7 @@
 
     <ItemGroup>
         <Compile Include="..\shared\transport\grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
+        <Compile Include="..\shared\transport\grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
 </Project>

@@ -76,12 +76,18 @@ internal static class DomainTransportErrorMapper
 
         if (CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
             throw new InvalidOperationException(message, ex);
+
+        if (CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
+            throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
     }
 
     private static void ThrowIfInvalidArgumentContract(RpcException ex)
     {
         if (ex.StatusCode != StatusCode.InvalidArgument)
             return;
+
+        if (CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+            throw CacheOperationContract.OperationIdRequired();
 
         throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
     }

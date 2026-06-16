@@ -44,4 +44,14 @@ public enum SquirixErrorCode
     /// Estimated cache memory usage is critical; memory-growing writes are rejected (admission control).
     /// </summary>
     MemoryPressure,
+
+    /// <summary>
+    /// Mutating RPC is missing a required operation identifier.
+    /// </summary>
+    OperationIdRequired,
+
+    /// <summary>
+    /// An operation identifier was reused with a different mutation fingerprint.
+    /// </summary>
+    OperationIdReuseMismatch,
 }

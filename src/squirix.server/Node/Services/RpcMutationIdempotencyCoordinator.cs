@@ -1,0 +1,37 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Google.Protobuf;
+
+namespace Squirix.Server.Node.Services;
+
+/// <summary>
+/// Coordinates replay-or-execute semantics for mutating cache RPC handlers.
+/// </summary>
+internal sealed class RpcMutationIdempotencyCoordinator
+{
+    private readonly RpcMutationIdempotencyGuard _guard;
+
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyGuard guard)
+    {
+        _guard = guard ?? throw new ArgumentNullException(nameof(guard));
+    }
+
+    public async Task<TResponse> ExecuteAsync<TResponse>(
+        string rawOperationId,
+        string fingerprint,
+        Func<CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : IMessage<TResponse>, new()
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+
+        var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
+        if (_guard.TryReplay(operationId, fingerprint, new MessageParser<TResponse>(static () => new TResponse()), out var cached))
+            return cached;
+
+        var response = await execute(cancellationToken).ConfigureAwait(false);
+        _guard.RecordSuccess(operationId, fingerprint, response);
+        return response;
+    }
+}

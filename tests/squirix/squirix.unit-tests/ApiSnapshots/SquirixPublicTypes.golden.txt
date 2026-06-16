@@ -79,6 +79,16 @@ M:Squirix.ICache`1::TouchAsync(System.String,System.DateTimeOffset,System.Thread
 M:Squirix.ICache`1::TouchAsync(System.String,System.TimeSpan,System.Threading.CancellationToken)
 M:Squirix.ICache`1::TryAddAsync(System.String,!!0,Squirix.CacheEntryOptions,System.Threading.CancellationToken)
 M:Squirix.ICache`1::UpdateAsync(System.String,!!0,System.Threading.CancellationToken)
+T:Squirix.OperationIdRequiredException
+F:Squirix.OperationIdRequiredException::StableDetail
+M:Squirix.OperationIdRequiredException::.ctor()
+M:Squirix.OperationIdRequiredException::.ctor(System.String)
+M:Squirix.OperationIdRequiredException::.ctor(System.String,System.Exception)
+T:Squirix.OperationIdReuseMismatchException
+F:Squirix.OperationIdReuseMismatchException::StableDetail
+M:Squirix.OperationIdReuseMismatchException::.ctor()
+M:Squirix.OperationIdReuseMismatchException::.ctor(System.String)
+M:Squirix.OperationIdReuseMismatchException::.ctor(System.String,System.Exception)
 T:Squirix.ISquirixClient
 M:Squirix.ISquirixClient::GetCacheAsync(System.String,System.Threading.CancellationToken)
 T:Squirix.Serialization.ISquirixSerializer
@@ -101,3 +111,5 @@ P:Squirix.SquirixOptions::BearerTokenProvider:System.Func<System.Threading.Cance
 P:Squirix.SquirixOptions::Endpoints:System.Collections.Generic.IList<System.String>.get
 P:Squirix.SquirixOptions::Serializer:Squirix.Serialization.ISquirixSerializer.get
 P:Squirix.SquirixOptions::Serializer:Squirix.Serialization.ISquirixSerializer.set
+T:Squirix.Transport.Grpc.RpcOperationIdentity
+M:Squirix.Transport.Grpc.RpcOperationIdentity::New()

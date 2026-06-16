@@ -5,6 +5,7 @@ using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -59,6 +60,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         _ = await client.TrySetAsync(
             new TrySetRequest
             {
+                OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
                 Entry = new CacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),

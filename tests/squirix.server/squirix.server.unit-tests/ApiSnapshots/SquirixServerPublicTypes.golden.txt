@@ -16,6 +16,11 @@ F:Squirix.Server.Errors.ResourceExhaustedException::StableDetail
 M:Squirix.Server.Errors.ResourceExhaustedException::.ctor()
 M:Squirix.Server.Errors.ResourceExhaustedException::.ctor(System.String)
 M:Squirix.Server.Errors.ResourceExhaustedException::.ctor(System.String,System.Exception)
+T:Squirix.Server.Errors.OperationIdReuseMismatchException
+F:Squirix.Server.Errors.OperationIdReuseMismatchException::StableDetail
+M:Squirix.Server.Errors.OperationIdReuseMismatchException::.ctor()
+M:Squirix.Server.Errors.OperationIdReuseMismatchException::.ctor(System.String)
+M:Squirix.Server.Errors.OperationIdReuseMismatchException::.ctor(System.String,System.Exception)
 T:Squirix.Server.Errors.SquirixErrorCode
 F:Squirix.Server.Errors.SquirixErrorCode::BadRequest
 F:Squirix.Server.Errors.SquirixErrorCode::Conflict
@@ -23,6 +28,8 @@ F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheKey
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheName
 F:Squirix.Server.Errors.SquirixErrorCode::MemoryPressure
 F:Squirix.Server.Errors.SquirixErrorCode::NotFound
+F:Squirix.Server.Errors.SquirixErrorCode::OperationIdRequired
+F:Squirix.Server.Errors.SquirixErrorCode::OperationIdReuseMismatch
 F:Squirix.Server.Errors.SquirixErrorCode::PayloadTooLarge
 F:Squirix.Server.Errors.SquirixErrorCode::TooManyRequests
 T:Squirix.Server.Errors.SquirixException
@@ -101,3 +108,5 @@ P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.get
 P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.set
 P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.get
 P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.set
+T:Squirix.Transport.Grpc.RpcOperationIdentity
+M:Squirix.Transport.Grpc.RpcOperationIdentity::New()

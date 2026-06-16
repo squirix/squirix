@@ -26,6 +26,9 @@ internal static class CacheOperationContractClassifier
         if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
             return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
 
+        if (CacheOperationContract.IsOperationIdReuseMismatchMessage(detail))
+            return CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
+
         return CacheOperationFailedPreconditionKind.None;
     }
 
@@ -41,6 +44,9 @@ internal static class CacheOperationContractClassifier
                                                                                                detail,
                                                                                                CacheOperationContract.CounterOverflowDetail,
                                                                                                StringComparison.Ordinal);
+
+    public static bool IsOperationIdReuseMismatchDetail(string? detail) =>
+        ClassifyFailedPreconditionDetail(detail) == CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
 
     /// <summary>
     /// When <paramref name="detail" /> matches a stable FailedPrecondition contract, exposes the string used as
