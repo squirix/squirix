@@ -6,7 +6,7 @@ using System.Text.Json;
 using FakeItEasy;
 using FakeItEasy.Core;
 using Squirix.Serialization;
-using Squirix.TestKit;
+using Squirix.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.UnitTests.Serialization;

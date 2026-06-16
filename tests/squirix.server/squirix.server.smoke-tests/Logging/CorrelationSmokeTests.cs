@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;

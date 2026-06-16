@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Errors;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;

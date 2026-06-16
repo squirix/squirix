@@ -1,8 +1,9 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Client;
 
 /// <summary>
 /// Covers the public remote-only client factory surface.

@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Xunit;
 

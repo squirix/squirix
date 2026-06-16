@@ -1,7 +1,7 @@
 using System;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Core;
 
 /// <summary>
 /// Unit tests for <see cref="CacheConflictException" />.

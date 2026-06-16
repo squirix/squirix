@@ -34,7 +34,7 @@ using Squirix.Server.TestKit.Networking;
 using Squirix.Server.TestKit.XUnit;
 using Xunit;
 
-namespace Squirix.Server.IntegrationTests;
+namespace Squirix.Server.IntegrationTests.Support;
 
 /// <summary>
 /// Base class for squirix integration tests.

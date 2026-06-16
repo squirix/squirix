@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;

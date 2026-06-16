@@ -4,7 +4,7 @@ using FsCheck;
 using FsCheck.Fluent;
 using JetBrains.Annotations;
 
-namespace Squirix.Server.PropertyTests;
+namespace Squirix.Server.PropertyTests.Cluster;
 
 /// <summary>
 /// Provides FsCheck arbitraries/generators used by the property tests.

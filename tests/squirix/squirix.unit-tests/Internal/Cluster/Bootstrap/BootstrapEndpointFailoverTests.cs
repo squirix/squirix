@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Bootstrap;
+using Squirix.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.UnitTests.Internal.Cluster.Bootstrap;

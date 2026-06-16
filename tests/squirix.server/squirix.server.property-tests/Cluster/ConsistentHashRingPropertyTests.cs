@@ -4,7 +4,7 @@ using FsCheck.Fluent;
 using Squirix.Server.Cluster;
 using Xunit;
 
-namespace Squirix.Server.PropertyTests;
+namespace Squirix.Server.PropertyTests.Cluster;
 
 /// <summary>
 /// Property-based test suite for <see cref="ConsistentHashRing" />.

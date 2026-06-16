@@ -2,26 +2,21 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using JetBrains.Annotations;
-using Squirix.TestKit.IO;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.IntegrationTests.Support;
 
 /// <summary>
-/// Provides a common base for unit tests, offering a default
-/// <see cref="CancellationToken" /> with a 30s timeout and safe disposal.
+/// Base class for squirix integration tests.
+/// Provides helpers for starting nodes, building entries,
+/// and creating test-scoped persistence directories.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
-public abstract class UnitTestBase : IDisposable
+[SuppressMessage("Design", "CA1515", Justification = "xUnit test classes are public, so their shared base class must be at least as visible.")]
+public abstract class IntegrationTestBase : IDisposable
 {
-    static UnitTestBase()
-    {
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", PathKit.GetProcTempPath());
-    }
-
     /// <summary>
-    /// Gets a default <see cref="CancellationToken" /> with a 30s timeout.
-    /// Lazily created and reused per test instance.
+    /// Gets a default <see cref="CancellationToken" /> with a 30s timeout,
+    /// recreated lazily on first access.
     /// </summary>
     protected static CancellationToken DefaultCancellationToken => TestContext.Current.CancellationToken;
 
@@ -38,7 +33,7 @@ public abstract class UnitTestBase : IDisposable
     /// Releases managed resources for derived classes.
     /// </summary>
     /// <param name="disposing">Whether managed resources should be released.</param>
-    [UsedImplicitly]
+    [PublicAPI]
     protected virtual void Dispose(bool disposing)
     {
     }

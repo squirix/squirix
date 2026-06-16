@@ -1,6 +1,6 @@
 using System;
 using Squirix.Internal.Cluster.Observability;
-using Squirix.TestKit;
+using Squirix.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.UnitTests.Internal.Cluster.Observability;

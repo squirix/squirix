@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Limits;

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Cluster;

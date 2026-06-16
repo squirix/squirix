@@ -32,7 +32,7 @@ using Squirix.Server.TestKit.Networking;
 using Squirix.Server.TestKit.XUnit;
 using Xunit;
 
-namespace Squirix.Server.SmokeTests;
+namespace Squirix.Server.SmokeTests.Support;
 
 /// <summary>
 /// Base class for all smoke tests, providing helper methods to start test nodes,

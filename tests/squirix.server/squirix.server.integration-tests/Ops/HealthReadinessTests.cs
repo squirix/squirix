@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
+using Squirix.Server.IntegrationTests.Support;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;

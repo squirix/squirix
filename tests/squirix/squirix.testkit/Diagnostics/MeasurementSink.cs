@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq;
 
-namespace Squirix.TestKit;
+namespace Squirix.TestKit.Diagnostics;
 
 /// <summary>
 /// A simple metrics sink based on <see cref="MeterListener" /> that captures

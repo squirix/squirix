@@ -2,9 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Internal;
+using Squirix.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Internal;
 
 /// <summary>
 /// Unit tests for per-key single-flight coordination.

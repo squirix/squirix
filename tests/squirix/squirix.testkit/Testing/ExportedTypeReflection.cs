@@ -5,7 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
-namespace Squirix.TestKit;
+namespace Squirix.TestKit.Testing;
 
 /// <summary>
 /// Helpers for reflection-based public exported type analysis in tests.

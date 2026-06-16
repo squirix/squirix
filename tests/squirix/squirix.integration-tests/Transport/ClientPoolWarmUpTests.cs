@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.IntegrationTests.Support;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Xunit;

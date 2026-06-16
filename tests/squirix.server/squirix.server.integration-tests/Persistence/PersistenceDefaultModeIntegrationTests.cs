@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Xunit;
 

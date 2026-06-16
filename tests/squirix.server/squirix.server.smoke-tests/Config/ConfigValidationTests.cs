@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.SmokeTests.Support;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Config;

@@ -3,11 +3,11 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Squirix.TestKit;
 using Squirix.TestKit.IO;
+using Squirix.TestKit.Testing;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Architecture;
 
 /// <summary>
 /// v0.1: golden snapshot of exported public API identities for the main <c>Squirix</c> assembly.

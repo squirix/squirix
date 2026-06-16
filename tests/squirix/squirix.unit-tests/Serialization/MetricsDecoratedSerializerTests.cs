@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using FakeItEasy;
 using Squirix.Serialization;
-using Squirix.TestKit;
+using Squirix.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.UnitTests.Serialization;

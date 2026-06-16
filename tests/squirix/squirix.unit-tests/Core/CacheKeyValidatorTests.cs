@@ -1,8 +1,9 @@
 using System;
 using Squirix.Core;
+using Squirix.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Core;
 
 /// <summary>
 /// Tests for centralized cache key validation.

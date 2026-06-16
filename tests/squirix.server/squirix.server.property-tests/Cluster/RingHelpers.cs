@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Squirix.Server.PropertyTests;
+namespace Squirix.Server.PropertyTests.Cluster;
 
 /// <summary>
 /// Miscellaneous helpers for property-based tests around the consistent hashing ring.

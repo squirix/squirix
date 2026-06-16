@@ -4,7 +4,7 @@ using System.Text.Json;
 using Squirix.Runtime;
 using Xunit;
 
-namespace Squirix.UnitTests;
+namespace Squirix.UnitTests.Runtime;
 
 /// <summary>
 /// Unit tests for <see cref="TypedCacheScalarConverter" /> strict conversion rules.

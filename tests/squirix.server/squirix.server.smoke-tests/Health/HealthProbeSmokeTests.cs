@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Xunit;
 

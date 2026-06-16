@@ -6,6 +6,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
