@@ -38,17 +38,6 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
         var executor = new DurableMutationExecutor(journal);
         var applyCalls = 0;
 
-        static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)
-        {
-            _ = cancellationToken;
-            return new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply());
-        }
-
-        async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
-        {
-            await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
-        }
-
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             executor.ExecuteAsync(EvaluateAsync, AppendJournalAsync, ApplyMemoryAsync, DefaultCancellationToken).AsTask());
 
@@ -56,6 +45,17 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
         Assert.Equal(1, applyCalls);
         Assert.Equal(1, journal.AppendedOps);
         return;
+
+        async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
+        {
+            await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, cancellationToken);
+        }
+
+        static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            return new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply());
+        }
 
         ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)
         {

@@ -68,7 +68,7 @@ public static class TestNodeHostFactory
         string nodeId,
         string address,
         (string NodeId, string Address)[] topology,
-        string dataDir,
+        string? dataDir,
         CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
     [SuppressMessage(

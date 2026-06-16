@@ -15,13 +15,11 @@ namespace Squirix.Benchmarks.Support.Cluster;
 /// </summary>
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
-    private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, TempDirectory? dataDir, string endpoint)
+    private BenchmarkNodeScope(TestNodeHost host, string endpoint)
     {
         Host = host;
-        _dataDir = dataDir;
         Endpoint = endpoint;
     }
 
@@ -34,14 +32,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 1)
             return;
 
-        try
-        {
-            await Host.DisposeAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            _dataDir?.Dispose();
-        }
+        await Host.DisposeAsync().ConfigureAwait(false);
     }
 
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, BenchmarkDurabilityMode durabilityMode = BenchmarkDurabilityMode.Ephemeral)
@@ -64,31 +55,31 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         BenchmarkRuntime.EnsureInitialized();
 
         var usePersistence = durabilityMode == BenchmarkDurabilityMode.Persistence;
-        var dataDir = usePersistence ? new TempDirectory("squirix-bench") : null;
+        var dataDir = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-bench") : null;
 
-        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir!, cancellationToken).ConfigureAwait(false)
+        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)
             : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
 
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, dataDir, host.Address);
+                return new BenchmarkNodeScope(host, host.Address);
 
             var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, dataDir, host.Address);
+            return new BenchmarkNodeScope(host, host.Address);
         }
         catch (InvalidOperationException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            DirectoryKit.TryDeleteDirectory(dataDir);
             throw;
         }
         catch (IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            dataDir?.Dispose();
+            DirectoryKit.TryDeleteDirectory(dataDir);
             throw;
         }
     }

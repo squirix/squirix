@@ -41,8 +41,10 @@ public static class DirectoryKit
     /// </remarks>
     /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
     /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
-    public static void TryDeleteDirectory(string dir)
+    public static void TryDeleteDirectory(string? dir)
     {
+        if (string.IsNullOrEmpty(dir))
+            return;
         for (var i = 0; i < 6; i++)
         {
             try
