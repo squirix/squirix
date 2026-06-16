@@ -210,6 +210,9 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="security">
     /// Optional per-node security override. When set, environment variables are not read for auth on this startup.
     /// </param>
+    /// <param name="waitForRecovery">
+    /// When persistence is enabled, blocks host startup until journal replay completes. Set to <see langword="false" /> to exercise non-blocking recovery.
+    /// </param>
     /// <param name="testName">
     /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
     /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
@@ -241,6 +244,7 @@ public abstract class IntegrationTestBase : IDisposable
         BackpressureOptions? backpressureOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
         new Uri(url, UriKind.Absolute),
         peers,
@@ -257,6 +261,7 @@ public abstract class IntegrationTestBase : IDisposable
         backpressureOptions,
         memoryPressureOptions,
         security,
+        waitForRecovery,
         testName);
 
     [SuppressMessage(
@@ -279,6 +284,7 @@ public abstract class IntegrationTestBase : IDisposable
         BackpressureOptions? backpressureOptions = null,
         MemoryPressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
         [CallerMemberName] string? testName = null)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
@@ -315,7 +321,7 @@ public abstract class IntegrationTestBase : IDisposable
                 _ = b.AddFilter("Squirix", LogLevel.Debug);
                 _ = output != null ? b.AddProvider(new XUnitLoggerProvider(output)) : b.AddConsole().AddDebug();
             },
-            true,
+            waitForRecovery,
             snapshotOptions,
             callPolicyFactory,
             configureGrpc,
