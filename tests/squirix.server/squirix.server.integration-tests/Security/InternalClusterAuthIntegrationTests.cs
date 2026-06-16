@@ -194,4 +194,52 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
+
+    /// <summary>
+    /// Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.
+    /// </summary>
+    /// <returns>A task representing the asynchronous test.</returns>
+    [Fact]
+    public async Task TrustedInternalOwnerRpcOnWrongOwnerNodeReturnsStaleOwner()
+    {
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
+        var nodeBUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).Url;
+        var interNodeUrlA = peers.First(static peer => string.Equals(peer.NodeId, "node-a", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+                            throw new InvalidOperationException("Expected inter-node URL for node-a.");
+
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUrlA,
+            new GrpcChannelOptions
+            {
+                HttpHandler = CreateTrustedInterNodeClientHandler("node-b", nodeBUrl, "node-a", peers),
+                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.SetValueAsync(
+                new SetValueRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = key,
+                    Value = ProtoEx.CacheValueToGrpcValue("stale-owner-blocked"),
+                },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
+
+        Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
+        Assert.Contains("owned by 'node-b'", ex.Status.Detail, StringComparison.Ordinal);
+        Assert.Equal("stale-owner", ex.Trailers.GetValue("squirix-error-code"));
+    }
 }

@@ -17,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
@@ -157,6 +158,32 @@ public abstract class IntegrationTestBase : IDisposable
         var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, bootstrapPeer.Url);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor, targetPeerNodeId);
+    }
+
+    /// <summary>
+    /// Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.
+    /// </summary>
+    /// <param name="callerNodeId">Configured node identifier for the presenting peer.</param>
+    /// <param name="callerPrimaryUrl">Primary listen URL for the presenting peer.</param>
+    /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
+    /// <param name="peers">Configured cluster peers.</param>
+    /// <returns>A handler for trusted inter-node mTLS tests.</returns>
+    internal SocketsHttpHandler CreateTrustedInterNodeClientHandler(string callerNodeId, string callerPrimaryUrl, string targetPeerNodeId, Peer[] peers)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(callerNodeId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(callerPrimaryUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
+        var cluster = new ClusterConfig
+        {
+            NodeId = callerNodeId,
+            Url = callerPrimaryUrl,
+            VirtualNodes = 128,
+            Peers = peers,
+        };
+        var (_, material) = MtlsTestContext.ResolveForNode(ref _mtls, cluster, callerPrimaryUrl);
+        return material is not { Enabled: true }
+            ? LoopbackHttp.CreateHandler()
+            : GrpcTransportEndpoints.CreateMtlsHandler(material, targetPeerNodeId);
     }
 
     /// <summary>
