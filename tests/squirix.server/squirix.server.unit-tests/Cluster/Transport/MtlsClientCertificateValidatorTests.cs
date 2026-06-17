@@ -1,75 +1,64 @@
 using System;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>
-/// Unit tests for inbound cluster mTLS client certificate validation.
-/// </summary>
+/// <summary>Unit tests for inbound cluster mTLS client certificate validation.</summary>
 public sealed class MtlsClientCertificateValidatorTests
 {
-    /// <summary>
-    /// Ensures client certificates signed by the cluster CA are accepted.
-    /// </summary>
+    /// <summary>Ensures client certificates signed by the cluster CA are accepted.</summary>
     [Fact]
-    public void ValidateAcceptsCertificateSignedByClusterCa()
+    public async Task ValidateAcceptsCertificateSignedByClusterCa()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
     }
 
-    /// <summary>
-    /// Ensures inbound validation accepts configured remote peer identities only.
-    /// </summary>
+    /// <summary>Ensures inbound validation accepts configured remote peer identities only.</summary>
     [Fact]
-    public void ValidateForConfiguredRemotePeerAcceptsOnlyConfiguredNodeIds()
+    public async Task ValidateForConfiguredRemotePeerAcceptsOnlyConfiguredNodeIds()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-b", "node-c"]));
         Assert.False(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-c"]));
     }
 
-    /// <summary>
-    /// Ensures expected node identity is enforced for peer certificates.
-    /// </summary>
+    /// <summary>Ensures expected node identity is enforced for peer certificates.</summary>
     [Fact]
-    public void ValidateForExpectedNodeIdRejectsMismatchedIdentity()
+    public async Task ValidateForExpectedNodeIdRejectsMismatchedIdentity()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-b"));
         Assert.False(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-c"));
     }
 
-    /// <summary>
-    /// Ensures certificates signed by an untrusted CA are rejected.
-    /// </summary>
+    /// <summary>Ensures certificates signed by an untrusted CA are rejected.</summary>
     [Fact]
-    public void ValidateRejectsCertificateSignedByUntrustedCa()
+    public async Task ValidateRejectsCertificateSignedByUntrustedCa()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var otherCa = CreateStandaloneCa("CN=Other CA");
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(otherCa, "node-b");
 
         Assert.False(MtlsClientCertificateValidator.Validate(peerCertificate, bundle.Ca));
     }
 
-    /// <summary>
-    /// Ensures expired client certificates are rejected.
-    /// </summary>
+    /// <summary>Ensures expired client certificates are rejected.</summary>
     [Fact]
-    public void ValidateRejectsExpiredCertificate()
+    public async Task ValidateRejectsExpiredCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var notBefore = new DateTimeOffset(bundle.Ca.NotBefore.ToUniversalTime());
         var notAfter = notBefore.AddHours(1);
         using var expiredCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b", notBefore, notAfter);
@@ -77,13 +66,11 @@ public sealed class MtlsClientCertificateValidatorTests
         Assert.False(MtlsClientCertificateValidator.Validate(expiredCertificate, bundle.Ca));
     }
 
-    /// <summary>
-    /// Ensures missing client certificates are rejected.
-    /// </summary>
+    /// <summary>Ensures missing client certificates are rejected.</summary>
     [Fact]
-    public void ValidateRejectsMissingClientCertificate()
+    public async Task ValidateRejectsMissingClientCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
 
         Assert.False(MtlsClientCertificateValidator.Validate(null, bundle.Ca));
     }

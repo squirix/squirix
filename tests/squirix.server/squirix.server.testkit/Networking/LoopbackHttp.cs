@@ -3,9 +3,7 @@ using System.Net.Security;
 
 namespace Squirix.Server.TestKit.Networking;
 
-/// <summary>
-/// Configures HTTP clients used by in-process and loopback integration tests so they do not route through a system proxy.
-/// </summary>
+/// <summary>Configures HTTP clients used by in-process and loopback integration tests so they do not route through a system proxy.</summary>
 public static class LoopbackHttp
 {
     /// <summary>

@@ -24,6 +24,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly SnapshotCoordinator<T> _snap;
+    private readonly TimeProvider _timeProvider;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
@@ -35,7 +36,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         IExclusiveMaintenanceExecutor journalMaintenance,
         ManifestStore manifest,
         IOptions<PersistenceOptions> persistence,
-        ClusterConfig cluster)
+        ClusterConfig cluster,
+        TimeProvider? timeProvider = null)
     {
         _log = log;
         _snap = snap;
@@ -44,9 +46,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _nodeId = cluster.NodeId;
         _opt = opt.Value;
         _persistence = persistence.Value;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public bool IsInFlight => Volatile.Read(ref _inFlight) != 0;
+    public bool IsInFlight => Volatile.Read(ref _inFlight) is not 0;
 
     public DateTime LastRunUtc { get; private set; } = DateTime.MinValue;
 
@@ -74,7 +77,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private async Task<AttemptResult> MaybeCompactAsync(Manifest.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
-        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip
 
         try
@@ -82,7 +85,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             if (DateTime.UtcNow - LastRunUtc < _opt.MinGap)
                 return AttemptResult.Skipped;
 
-            var m = _manifest.ReadCurrentOrDefault();
+            var m = await _manifest.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var replayFromSegment = snapshotHint?.ReplayFromJournalSegment ?? m.LastSnapshot?.ReplayFromJournalSegment ?? 0;
             var snapshotIndex = snapshotHint?.Index ?? m.LastSnapshot?.Index ?? 0;
             if (replayFromSegment <= 0 || !TailLargeEnough(replayFromSegment, out var segments, out var bytes))
@@ -146,7 +149,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             }
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", (long)sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", sw.Elapsed.TotalMilliseconds);
         }
 
         LastRunUtc = DateTime.UtcNow;
@@ -167,22 +170,25 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
                 // Jitter next wake-up to avoid thundering herd across nodes
                 var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
-                var jitterMs = (int)Math.Clamp(baseGap.TotalMilliseconds * 0.1, 50, 10_000);
-                var delay = baseGap + TimeSpan.FromMilliseconds(RandomNumberGenerator.GetInt32(-jitterMs, jitterMs));
-                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                var maxJitterMs = Math.Clamp(baseGap.TotalMilliseconds * 0.1, 50d, 10_000d);
+                var jitterOffsetMs = ((RandomNumberGenerator.GetInt32(0, int.MaxValue) * (2d / int.MaxValue)) - 1d) * maxJitterMs;
+                var delay = baseGap + TimeSpan.FromMilliseconds(jitterOffsetMs);
+                await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
 
                 var res = await MaybeCompactAsync(null, cancellationToken).ConfigureAwait(false);
 
-                if (res != AttemptResult.Failed)
+                if (res is not AttemptResult.Failed)
                     continue;
 
                 // Exponential backoff with full jitter
                 ChangeState(CompactionState.BackingOff);
                 var pow = Math.Min(_consecutiveFailures, 10); // cap exponent
                 var maxDelay = TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, pow))); // up to 60s
-                var backoff = TimeSpan.FromMilliseconds(RandomNumberGenerator.GetInt32(0, (int)Math.Max(10, maxDelay.TotalMilliseconds)));
-                LogManager.CompactionBackoff(_log, _consecutiveFailures, (int)backoff.TotalMilliseconds);
-                await Task.Delay(backoff, cancellationToken).ConfigureAwait(false);
+                var maxBackoffMs = Math.Max(10d, maxDelay.TotalMilliseconds);
+                var backoffMs = RandomNumberGenerator.GetInt32(0, int.MaxValue) * (maxBackoffMs / int.MaxValue);
+                var backoff = TimeSpan.FromMilliseconds(backoffMs);
+                LogManager.CompactionBackoff(_log, _consecutiveFailures, Convert.ToInt32(backoffMs));
+                await Task.Delay(backoff, _timeProvider, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -198,7 +204,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private void SubscribeSnapshotCompleted()
     {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) != 0)
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
             return;
 
         _snap.SnapshotCompleted += OnSnapshotCompleted;
@@ -225,7 +231,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     private void UnsubscribeSnapshotCompleted()
     {
-        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) == 0)
+        if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
             return;
 
         _snap.SnapshotCompleted -= OnSnapshotCompleted;

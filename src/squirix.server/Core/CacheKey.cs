@@ -41,6 +41,6 @@ internal readonly record struct CacheKey(string Namespace, string Key) : ICompar
     public int CompareTo(CacheKey other)
     {
         var namespaceComparison = string.Compare(Namespace, other.Namespace, StringComparison.Ordinal);
-        return namespaceComparison != 0 ? namespaceComparison : string.Compare(Key, other.Key, StringComparison.Ordinal);
+        return namespaceComparison is not 0 ? namespaceComparison : string.Compare(Key, other.Key, StringComparison.Ordinal);
     }
 }

@@ -3,9 +3,7 @@ using System.Globalization;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>
-/// Produces PII-safe representations of cache keys for use in structured logs and transport errors.
-/// </summary>
+/// <summary>Produces PII-safe representations of cache keys for use in structured logs and transport errors.</summary>
 internal static class CacheKeySanitizer
 {
     private const int FullDisplayThreshold = 8;

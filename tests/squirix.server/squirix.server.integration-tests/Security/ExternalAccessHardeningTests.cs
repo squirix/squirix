@@ -3,6 +3,7 @@ using System.Net;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
@@ -10,15 +11,10 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies external-access hardening for the primary HTTPS listener.
-/// </summary>
+/// <summary>Verifies external-access hardening for the primary HTTPS listener.</summary>
 public sealed class ExternalAccessHardeningTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Verifies health is served on the primary HTTPS listener.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies health is served on the primary HTTPS listener.</summary>
     [Fact]
     public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
     {
@@ -31,10 +27,7 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies non-loopback primary listeners start when JWT authentication is configured.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies non-loopback primary listeners start when JWT authentication is configured.</summary>
     [Fact]
     public async Task NonLoopbackListenWithJwtSucceeds()
     {
@@ -54,10 +47,7 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies non-loopback primary listeners require authentication.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies non-loopback primary listeners require authentication.</summary>
     [Fact]
     public async Task ProductionExternalUrlRequiresAuthentication()
     {

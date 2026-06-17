@@ -1,8 +1,6 @@
 namespace Squirix.Server;
 
-/// <summary>
-/// Outcome of a cache removal that returns the removed value when successful.
-/// </summary>
+/// <summary>Outcome of a cache removal that returns the removed value when successful.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal readonly struct CacheRemoveResult<T>
 {
@@ -17,16 +15,14 @@ internal readonly struct CacheRemoveResult<T>
         Value = value;
     }
 
-    /// <summary>
-    /// Gets a value indicating whether the key existed and the entry was removed.
-    /// </summary>
+    /// <summary>Gets a value indicating whether the key existed and the entry was removed.</summary>
     public bool Removed { get; }
 
     /// <summary>
-    /// Gets the value that was removed when <see cref="Removed" /> is <c>true</c>. This may be <see langword="null"/> if the entry stored a <see langword="null"/> value.
+    /// Gets the value that was removed when <see cref="Removed" /> is <see langword="true"/>. This may be <see langword="null"/> if the entry stored a <see langword="null"/> value.
     /// </summary>
     /// <remarks>
-    /// When <see cref="Removed" /> is <c>false</c> (key was not present), <see cref="Value" /> is the default of <c>T</c> and must not be used as a removed payload.
+    /// When <see cref="Removed" /> is <see langword="false"/> (key was not present), <see cref="Value" /> is the default of <c>T</c> and must not be used as a removed payload.
     /// </remarks>
     public T? Value { get; }
 }

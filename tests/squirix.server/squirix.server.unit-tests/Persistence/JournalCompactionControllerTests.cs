@@ -16,12 +16,9 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
-public sealed class JournalCompactionControllerTests : ServerUnitTestBase
+public sealed class JournalCompactionControllerTests : UnitTestBase
 {
-    /// <summary>
-    /// Double dispose does not throw.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Double dispose does not throw.</summary>
     [Fact]
     [SuppressMessage("Major Code Smell", "S2699:Tests should include assertions", Justification = "This lifecycle test asserts that the second Dispose call does not throw.")]
     [SuppressMessage("ReSharper", "DisposeOnUsingVariable", Justification = "Dispose must be called two times")]
@@ -29,8 +26,8 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-double");
         var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
-        var manifestStore = new ManifestStore(opt);
-        await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(opt);
+        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
@@ -38,7 +35,6 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     /// <summary>
     /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerNowAsync" /> returns false without waiting.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task TryTriggerNowAsyncReturnsFalseWhenControllerMutexIsUnavailable()
     {
@@ -50,8 +46,8 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
             FlushIntervalMs = 1000,
         };
 
-        var manifestStore = new ManifestStore(opt);
-        await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(opt);
+        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         await journal.AppendPutAsync(CacheKey.Default("gate"), [.. """{"v":{"$t":"s","v":"x"},"ver":1}"""u8], null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
@@ -72,17 +68,14 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         Assert.True(await controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Disposed controller rejects further compaction attempts.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
+    /// <summary>Disposed controller rejects further compaction attempts.</summary>
     [Fact]
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-dispose");
         var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
-        var manifestStore = new ManifestStore(opt);
-        await using var journal = new JournalWriter(opt, new Manifest(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(opt);
+        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 

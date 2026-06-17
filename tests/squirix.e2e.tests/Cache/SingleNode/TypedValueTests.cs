@@ -7,15 +7,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
-/// <summary>
-/// Integration tests for single-node typed custom values through the public cache API.
-/// </summary>
+/// <summary>Integration tests for single-node typed custom values through the public cache API.</summary>
 public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
-    /// <summary>
-    /// Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task AddShouldThrowForExistingCustomRecordOnSingleNode()
     {
@@ -34,10 +29,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(original, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies CustomRecordShouldRoundTripWithEmptyCollections.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies CustomRecordShouldRoundTripWithEmptyCollections.</summary>
     [Fact]
     public async Task CustomRecordShouldRoundTripWithEmptyCollections()
     {
@@ -51,10 +43,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies CustomRecordShouldRoundTripWithNullValueProperty.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies CustomRecordShouldRoundTripWithNullValueProperty.</summary>
     [Fact]
     public async Task CustomRecordShouldRoundTripWithNullValueProperty()
     {
@@ -68,10 +57,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies CustomRecordShouldRoundTripWithUnicodeText.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies CustomRecordShouldRoundTripWithUnicodeText.</summary>
     [Fact]
     public async Task CustomRecordShouldRoundTripWithUnicodeText()
     {
@@ -85,10 +71,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies GetEntryShouldReturnTypedValueAndMetadataOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetEntryShouldReturnTypedValueAndMetadataOnSingleNode.</summary>
     [Fact]
     public async Task GetEntryShouldReturnTypedValueAndMetadataOnSingleNode()
     {
@@ -100,14 +83,11 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         var entry = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.True(entry.Found);
         TypedValueAssertions.AssertProfileEquals(expected, entry.Value!);
-        Assert.True(entry.ExpiresUtc.HasValue);
+        _ = Assert.NotNull(entry.ExpiresUtc);
         Assert.True(entry.ExpiresUtc > DateTime.UtcNow);
     }
 
-    /// <summary>
-    /// Verifies GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode()
     {
@@ -136,10 +116,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.Equal(0, factoryCalls);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode()
     {
@@ -157,10 +134,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies SetAndGetShouldRoundTripCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAndGetShouldRoundTripCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task SetAndGetShouldRoundTripCustomRecordOnSingleNode()
     {
@@ -174,10 +148,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies SetAndGetShouldRoundTripMutableClassOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAndGetShouldRoundTripMutableClassOnSingleNode.</summary>
     [Fact]
     public async Task SetAndGetShouldRoundTripMutableClassOnSingleNode()
     {
@@ -191,10 +162,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertCartEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies TouchShouldUpdateExpirationForCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchShouldUpdateExpirationForCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task TouchShouldUpdateExpirationForCustomRecordOnSingleNode()
     {
@@ -214,10 +182,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode()
     {
@@ -232,10 +197,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(original, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies UpdateShouldPreserveExpirationForCustomRecordOnSingleNode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies UpdateShouldPreserveExpirationForCustomRecordOnSingleNode.</summary>
     [Fact]
     public async Task UpdateShouldPreserveExpirationForCustomRecordOnSingleNode()
     {

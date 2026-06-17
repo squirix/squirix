@@ -4,9 +4,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>
-/// Bounded deterministic entry-size approximation for memory accounting (v0.7.x). Not an exact CLR heap measurement.
-/// </summary>
+/// <summary>Bounded deterministic entry-size approximation for memory accounting (v0.7.x). Not an exact CLR heap measurement.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
@@ -27,7 +25,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += Encoding.UTF8.GetByteCount(key.Namespace);
         n += Encoding.UTF8.GetByteCount(key.Key);
         n += sizeof(long);
-        n += entry.ExpiresUtc.HasValue ? 16 : 0;
+        n += entry.ExpiresUtc is not null ? 16 : 0;
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
@@ -35,7 +33,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
     {
-        if (tags is null || tags.Count == 0)
+        if (tags is null || tags.Count is 0)
             return 0;
 
         long sum = 0;

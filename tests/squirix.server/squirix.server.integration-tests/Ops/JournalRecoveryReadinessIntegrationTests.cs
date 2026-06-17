@@ -8,9 +8,7 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;
 
-/// <summary>
-/// Integration tests for journal recovery readiness and cache behavior during non-blocking recovery.
-/// </summary>
+/// <summary>Integration tests for journal recovery readiness and cache behavior during non-blocking recovery.</summary>
 public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBase
 {
     private const string NodeId = "node_recovery_gate";
@@ -22,7 +20,6 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
     /// Ensures non-blocking recovery keeps <c>/health/ready</c> unhealthy until replay completes,
     /// cache reads stay empty until replay, and durable writes wait for the startup gate.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
     [Fact]
     public async Task NonBlockingRecoveryKeepsReadyUnhealthyUntilGateOpensAndGatesCacheWrites()
     {
@@ -56,12 +53,12 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         Assert.False(beforeReplay.Found);
 
         var writeTask = cache.SetAsync(CacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
-        var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), DefaultCancellationToken));
+        var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
         Assert.NotSame(writeTask, writeStarted);
 
         replayDelay.Release();
 
-        await writeTask.WaitAsync(TimeSpan.FromSeconds(10), DefaultCancellationToken);
+        await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
         await WaitForReadyHealthyAsync(node.Address);
 
         var recovered = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
@@ -88,10 +85,10 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
-            if (await GetReadyStatusCodeAsync(address) == HttpStatusCode.OK)
+            if (await GetReadyStatusCodeAsync(address) is HttpStatusCode.OK)
                 return;
 
-            await Task.Delay(TimeSpan.FromMilliseconds(50), DefaultCancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken);
         }
 
         throw new TimeoutException("Timed out waiting for /health/ready to become healthy.");

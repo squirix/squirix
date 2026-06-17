@@ -9,15 +9,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests CRC mismatch diagnostics on framed snapshot reads.
-/// </summary>
+/// <summary>Tests CRC mismatch diagnostics on framed snapshot reads.</summary>
 public sealed class FrameCodecCorruptionDiagnosticsTests
 {
-    /// <summary>
-    /// Verifies strict frame reads include stable lowercase CRC hex values in the exception message.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies strict frame reads include stable lowercase CRC hex values in the exception message.</summary>
     [Fact]
     public async Task ReadFrameStrictAsyncReportsLowerHexCrcValuesOnMismatch()
     {
@@ -29,7 +24,7 @@ public sealed class FrameCodecCorruptionDiagnosticsTests
 
         await using var ms = new MemoryStream();
         var header = new byte[8];
-        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0, 4), (uint)payload.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0, 4), payload.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4, 4), wrongCrc);
         await ms.WriteAsync(header, CancellationToken.None);
         await ms.WriteAsync(payload, CancellationToken.None);

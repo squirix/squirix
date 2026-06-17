@@ -46,9 +46,7 @@ public sealed class TempEnvironmentVariable : IDisposable
         System.Environment.SetEnvironmentVariable(key, value);
     }
 
-    /// <summary>
-    /// Restores the previous value if the variable was not externally modified since construction.
-    /// </summary>
+    /// <summary>Restores the previous value if the variable was not externally modified since construction.</summary>
     public void Dispose()
     {
         var current = System.Environment.GetEnvironmentVariable(_key);

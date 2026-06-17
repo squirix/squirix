@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix.Internal.Cluster.Reliability;
 
-/// <summary>
-/// Default retry and timeout budgets for the public SDK remote cache client pool.
-/// </summary>
+/// <summary>Default retry and timeout budgets for the public SDK remote cache client pool.</summary>
 /// <remarks>
 /// Bootstrap channel connect uses <see cref="Transport.BootstrapConnectOptions" /> because TLS/handshake
 /// and endpoint probing need a longer budget. Cache RPCs share the same per-attempt budget as the

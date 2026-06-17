@@ -11,9 +11,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Applies memory admission checks before delegating to the inner pipeline on local-owner write paths.
-/// </summary>
+/// <summary>Applies memory admission checks before delegating to the inner pipeline on local-owner write paths.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache<T>
 {

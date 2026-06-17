@@ -7,9 +7,7 @@ namespace Squirix.Server;
 /// Represents a cache item in the server runtime. Contains the typed value, expiration metadata,
 /// and optional extension-facing entry metadata (tags and monotonic version).
 /// </summary>
-/// <typeparam name="T">
-/// The value type stored in the entry. Can be a primitive or a POCO serialized by the configured serializer.
-/// </typeparam>
+/// <typeparam name="T">The value type stored in the entry. Can be a primitive or a POCO serialized by the configured serializer.</typeparam>
 public sealed class CacheEntry<T>
 {
     /// <summary>

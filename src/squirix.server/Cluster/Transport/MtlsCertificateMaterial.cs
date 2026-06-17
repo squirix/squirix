@@ -3,9 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Loaded cluster mTLS certificate material for later transport wiring.
-/// </summary>
+/// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
 internal sealed class MtlsCertificateMaterial : IDisposable
 {
     private MtlsCertificateMaterial()
@@ -20,29 +18,19 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         TrustAnchor = trustAnchor;
     }
 
-    /// <summary>
-    /// Gets a disabled material instance with no loaded certificates.
-    /// </summary>
+    /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
     public static MtlsCertificateMaterial Disabled { get; } = new();
 
-    /// <summary>
-    /// Gets a value indicating whether cluster mTLS material was loaded.
-    /// </summary>
+    /// <summary>Gets a value indicating whether cluster mTLS material was loaded.</summary>
     public bool Enabled { get; }
 
-    /// <summary>
-    /// Gets the local node certificate including its private key.
-    /// </summary>
+    /// <summary>Gets the local node certificate including its private key.</summary>
     internal X509Certificate2? NodeCertificate { get; }
 
-    /// <summary>
-    /// Gets the configured cluster trust root.
-    /// </summary>
+    /// <summary>Gets the configured cluster trust root.</summary>
     internal X509Certificate2? TrustAnchor { get; }
 
-    /// <summary>
-    /// Loads node and trust-anchor certificates from validated options.
-    /// </summary>
+    /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
@@ -76,9 +64,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         TrustAnchor?.Dispose();
     }
 
-    /// <summary>
-    /// Creates enabled material from pre-built test certificates without reloading from disk.
-    /// </summary>
+    /// <summary>Creates enabled material from pre-built test certificates without reloading from disk.</summary>
     /// <param name="nodeCertificate">Local node certificate including its private key.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns>Enabled certificate material for test host overrides.</returns>

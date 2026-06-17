@@ -14,12 +14,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>
 /// Tests for <see cref="JournalDurabilityGroupCommit" /> and durable mutation group-commit integration.
 /// </summary>
-public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
+public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures canceling the only pending waiter leaves the next group commit batch usable.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures canceling the only pending waiter leaves the next group commit batch usable.</summary>
     [Fact]
     public async Task GroupCommitCanceledOnlyWaiterDoesNotPoisonFutureBatch()
     {
@@ -52,10 +49,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         Assert.Equal(1, flushCounter.Value);
     }
 
-    /// <summary>
-    /// Ensures a delayed flush failure fails pending waiters instead of leaving them pending.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures a delayed flush failure fails pending waiters instead of leaving them pending.</summary>
     [Fact]
     public async Task GroupCommitDelayFlushFailureFailsPendingWaiters()
     {
@@ -79,10 +73,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         Assert.Same(flushFailure, secondFailure);
     }
 
-    /// <summary>
-    /// Ensures cancellation of the first waiter does not cancel the shared delayed flush for other waiters.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures cancellation of the first waiter does not cancel the shared delayed flush for other waiters.</summary>
     [Fact]
     public async Task GroupCommitFirstWaiterCancellationDoesNotCancelOtherWaiters()
     {
@@ -117,10 +108,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         Assert.Equal(1, flushCounter.Value);
     }
 
-    /// <summary>
-    /// Ensures group commit still fsyncs before memory apply when enabled.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
     [Fact]
     public async Task GroupCommitFsyncCompletesBeforeMemoryApply()
     {
@@ -134,15 +122,15 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxWaitMs = 2,
             JournalGroupCommitMaxBatch = 8,
         };
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var executor = new DurableMutationExecutor(journal);
         var observedPendingFlushDuringMemoryApply = false;
 
         _ = await executor.ExecuteAsync(
             "default:k",
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), DiscriminatedEntryJsonWriter.BuildEntryJson("v", null, null, 1, null), null, ct); },
+            async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, ct); },
             _ =>
             {
                 observedPendingFlushDuringMemoryApply = journal.IsDurabilityFlushPending;
@@ -154,10 +142,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         Assert.False(journal.IsDurabilityFlushPending);
     }
 
-    /// <summary>
-    /// Ensures concurrent durability waits share one flush when group commit is enabled.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
     public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
     {
@@ -172,15 +157,15 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxBatch = 8,
         };
 
-        var manifestStore = new ManifestStore(options);
-        await using var journal = new JournalWriter(options, manifestStore.ReadCurrentOrDefault(), manifestStore, new JournalStartupGate());
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
 
         var flushProbe = new JournalFlushProbe(journal);
         var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
 
-        await journal.AppendPutAsync(CacheKey.Default("k1"), DiscriminatedEntryJsonWriter.BuildEntryJson("v1", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k1"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v1", null, null, 1, null), null, DefaultCancellationToken);
 
-        await journal.AppendPutAsync(CacheKey.Default("k2"), DiscriminatedEntryJsonWriter.BuildEntryJson("v2", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k2"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v2", null, null, 1, null), null, DefaultCancellationToken);
 
         var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
@@ -196,7 +181,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (!task.IsCompleted && DateTime.UtcNow < deadline)
-            await Task.Delay(TimeSpan.FromMilliseconds(10), DefaultCancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(task.IsCompleted);
     }

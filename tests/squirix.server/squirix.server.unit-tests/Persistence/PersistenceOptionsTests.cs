@@ -46,9 +46,7 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
 
-    /// <summary>
-    /// Verifies lower-bound scalar values remain accepted.
-    /// </summary>
+    /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
     {
@@ -68,9 +66,7 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(1, options.SnapshotRetentionCount);
     }
 
-    /// <summary>
-    /// Verifies local scalar validation rejects non-positive values at assignment time.
-    /// </summary>
+    /// <summary>Verifies local scalar validation rejects non-positive values at assignment time.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
     [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
@@ -87,26 +83,12 @@ public sealed class PersistenceOptionsTests
         Assert.Contains("0", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies JSON binding still applies valid option values through init setters.
-    /// </summary>
+    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """
-                            {
-                              "dataDir": "data",
-                              "journalMaxSegmentMb": 64,
-                              "flushIntervalMs": 20,
-                              "snapshotIntervalSec": 30,
-                              "manifestRetentionCount": 2,
-                              "snapshotRetentionCount": 4,
-                              "strictFsync": true
-                            }
-                            """;
-
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = JsonSerializer.Deserialize<PersistenceOptions>(json, JsonOptions);
-
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
         Assert.Equal(64, options.JournalMaxSegmentMb);

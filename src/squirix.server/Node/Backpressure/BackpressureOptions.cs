@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix.Server.Node.Backpressure;
 
-/// <summary>
-/// Configures node-level admission control for inbound REST and gRPC requests.
-/// </summary>
+/// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
 internal sealed record BackpressureOptions
 {
     public bool Enabled { get; init; } = true;
@@ -71,13 +69,13 @@ internal sealed record BackpressureOptions
 
     private static void ValidateRateLimit(string rateName, int? rate, int? burst)
     {
-        if (rate.HasValue)
+        if (rate is not null)
         {
             var burstName = rateName.Replace("PerSecond", "Burst", StringComparison.Ordinal);
             if (rate.Value <= 0)
                 throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
 
-            if (!burst.HasValue)
+            if (burst is null)
                 throw new InvalidOperationException($"Backpressure {burstName} must be greater than zero when configured.");
 
             var configuredBurst = burst.Value;
@@ -89,7 +87,7 @@ internal sealed record BackpressureOptions
         }
         else
         {
-            if (burst.HasValue)
+            if (burst is not null)
                 throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
         }
     }

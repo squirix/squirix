@@ -13,10 +13,7 @@ public sealed class ClientPoolChannelReuseTests
     private const int LoopIterationCount = 256;
     private static readonly string[] ExpectedNodes = ["node-a", "node-b"];
 
-    /// <summary>
-    /// Repeated lookups for the same node must return the same gRPC client instance.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Repeated lookups for the same node must return the same gRPC client instance.</summary>
     [Fact]
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
@@ -36,10 +33,7 @@ public sealed class ClientPoolChannelReuseTests
             Assert.Same(first, pool.ForNode("node-a"));
     }
 
-    /// <summary>
-    /// Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
     [Fact]
     public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
     {
@@ -56,7 +50,7 @@ public sealed class ClientPoolChannelReuseTests
         var anchor = pool.ForNode("node-a");
 
         for (var i = 0; i < LoopIterationCount; i++)
-            _ = pool.ForNode(i % 2 == 0 ? "node-a" : "node-b");
+            _ = pool.ForNode(i % 2 is 0 ? "node-a" : "node-b");
 
         Assert.Same(anchor, pool.ForNode("node-a"));
         Assert.Equal(2, pool.ActiveClientCount);

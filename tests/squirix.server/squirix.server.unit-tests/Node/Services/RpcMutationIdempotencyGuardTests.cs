@@ -3,20 +3,17 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>
-/// Unit tests for mutating RPC idempotency guard behavior.
-/// </summary>
-public sealed class RpcMutationIdempotencyGuardTests
+/// <summary>Unit tests for mutating RPC idempotency guard behavior.</summary>
+public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures unknown operation ids do not produce a replayed response.
-    /// </summary>
+    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
     [Fact]
     public void TryReplayReturnsFalseWhenOperationIdIsUnknown()
     {
@@ -27,9 +24,7 @@ public sealed class RpcMutationIdempotencyGuardTests
         Assert.Null(response);
     }
 
-    /// <summary>
-    /// Ensures a recorded success can be replayed from the in-memory cache.
-    /// </summary>
+    /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
     [Fact]
     public void RecordSuccessThenTryReplayReturnsCachedResponse()
     {
@@ -40,12 +35,11 @@ public sealed class RpcMutationIdempotencyGuardTests
         var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
 
         Assert.True(replayed);
+        Assert.NotNull(response);
         Assert.True(response.Added);
     }
 
-    /// <summary>
-    /// Ensures reusing an operation id with a different fingerprint throws a typed exception.
-    /// </summary>
+    /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
     [Fact]
     public void ReuseWithDifferentFingerprintThrowsTypedException()
     {
@@ -61,9 +55,7 @@ public sealed class RpcMutationIdempotencyGuardTests
         Assert.Equal(OperationIdReuseMismatchException.StableDetail, ex.Message);
     }
 
-    /// <summary>
-    /// Ensures empty operation ids are rejected with the stable invalid-argument contract.
-    /// </summary>
+    /// <summary>Ensures empty operation ids are rejected with the stable invalid-argument contract.</summary>
     [Fact]
     public void RequireOperationIdRejectsEmptyValue()
     {
@@ -73,10 +65,7 @@ public sealed class RpcMutationIdempotencyGuardTests
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
     }
 
-    /// <summary>
-    /// Ensures the coordinator replays cached responses without re-executing the handler.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
     [Fact]
     public async Task CoordinatorReplaysWithoutReExecutingHandler()
     {
@@ -94,7 +83,7 @@ public sealed class RpcMutationIdempotencyGuardTests
                 executions++;
                 return Task.FromResult(new TrySetResponse { Added = true });
             },
-            TestContext.Current.CancellationToken);
+            DefaultCancellationToken);
 
         var second = await coordinator.ExecuteAsync(
             "op-1",
@@ -104,24 +93,21 @@ public sealed class RpcMutationIdempotencyGuardTests
                 executions++;
                 return Task.FromResult(new TrySetResponse { Added = false });
             },
-            TestContext.Current.CancellationToken);
+            DefaultCancellationToken);
 
         Assert.True(first.Added);
         Assert.True(second.Added);
         Assert.Equal(1, executions);
     }
 
-    /// <summary>
-    /// Ensures expired idempotency records are swept and no longer replay.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
     [Fact]
     public async Task ExpiredRecordsAreNotReplayed()
     {
         var guard = new RpcMutationIdempotencyGuard(TimeSpan.FromMilliseconds(50));
         guard.RecordSuccess("op-1", "fp-1", new TrySetResponse { Added = true });
 
-        await Task.Delay(100, TestContext.Current.CancellationToken);
+        await Task.Delay(100, DefaultCancellationToken);
 
         var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
 

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -6,6 +7,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
@@ -24,7 +26,6 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     /// <summary>
     /// Ensures <c>/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
     [Fact]
     public async Task ReadyDetailsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
     {
@@ -43,7 +44,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
             cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/health/ready/details"), DefaultCancellationToken);
-        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback success, got {(int)loopbackAnonymous.StatusCode} {loopbackAnonymous.ReasonPhrase}");
+        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback success, got {loopbackAnonymous.StatusCode:D} {loopbackAnonymous.ReasonPhrase}");
 
         using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/health/ready/details"))
         {
@@ -51,20 +52,20 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, DefaultCancellationToken);
-            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {(int)loopbackWithJwt.StatusCode} {loopbackWithJwt.ReasonPhrase}");
+            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {loopbackWithJwt.StatusCode:D} {loopbackWithJwt.ReasonPhrase}");
         }
 
-        var remoteAnonymous = await RemoteClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port}/health/ready/details"), DefaultCancellationToken);
+        var remoteAnonymous = await RemoteClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
 
-        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/health/ready/details"))
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"))
         {
             remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
             var remoteInvalidJwt = await RemoteClient.SendAsync(remoteInvalid, DefaultCancellationToken);
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port}/health/ready/details");
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details");
         remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
         var remoteWithJwt = await RemoteClient.SendAsync(remoteValid, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
@@ -74,12 +75,12 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     {
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if (nic.OperationalStatus != OperationalStatus.Up)
+            if (nic.OperationalStatus is not OperationalStatus.Up)
                 continue;
 
             foreach (var address in nic.GetIPProperties().UnicastAddresses)
             {
-                if (address.Address.AddressFamily != AddressFamily.InterNetwork)
+                if (address.Address.AddressFamily is not AddressFamily.InterNetwork)
                     continue;
 
                 if (IPAddress.IsLoopback(address.Address))

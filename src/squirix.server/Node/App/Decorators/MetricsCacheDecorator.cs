@@ -11,9 +11,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Records generic logical cache operation metrics for the surface.
-/// </summary>
+/// <summary>Records generic logical cache operation metrics for the surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
 {

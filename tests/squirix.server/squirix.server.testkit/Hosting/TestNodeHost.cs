@@ -43,28 +43,21 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// </summary>
     public string Address { get; }
 
-    /// <summary>
-    /// Gets the absolute path to the node's data directory created for the test run.
-    /// </summary>
+    /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
 
-    /// <summary>
-    /// Gets a value indicating whether persistence is enabled for the hosted node.
-    /// </summary>
+    /// <summary>Gets a value indicating whether persistence is enabled for the hosted node.</summary>
     public bool PersistenceEnabled { get; }
 
-    /// <summary>
-    /// Gets the root service provider of the hosted application for resolving test dependencies.
-    /// </summary>
+    /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
     public IServiceProvider Services => _app.Services;
 
     /// <summary>
     /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
     /// </summary>
-    /// <returns>A <see cref="ValueTask" /> that completes when disposal finishes.</returns>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         await SuppressObjectDisposedAsync(() => new ValueTask(_app.StopAsync(CancellationToken.None))).ConfigureAwait(false);

@@ -3,9 +3,7 @@ using Grpc.Core;
 
 namespace Squirix.Server.Errors;
 
-/// <summary>
-/// Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.
-/// </summary>
+/// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
 internal static class CacheOperationContractClassifier
 {
     /// <summary>
@@ -14,7 +12,7 @@ internal static class CacheOperationContractClassifier
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches the stable reuse mismatch contract.</returns>
     public static bool IsOperationIdReuseMismatchDetail(string? detail) =>
-        ClassifyFailedPreconditionDetail(detail) == CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
+        ClassifyFailedPreconditionDetail(detail) is CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
 
     /// <summary>
     /// When <paramref name="detail" /> matches a stable FailedPrecondition contract, exposes the string used as
@@ -23,16 +21,16 @@ internal static class CacheOperationContractClassifier
     /// <param name="detail">The gRPC status detail string.</param>
     /// <param name="message">The invalid-operation message when the method returns <see langword="true" />.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches insert-version precondition contracts.</returns>
-    public static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string message)
+    public static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string? message)
     {
         var kind = ClassifyFailedPreconditionDetail(detail);
-        if (kind == CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent)
+        if (kind is CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent)
         {
-            message = detail!;
+            message = detail;
             return true;
         }
 
-        message = null!;
+        message = null;
         return false;
     }
 

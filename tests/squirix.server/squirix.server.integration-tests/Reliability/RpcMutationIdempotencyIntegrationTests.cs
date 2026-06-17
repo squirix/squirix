@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Errors;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
@@ -9,15 +10,12 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Reliability;
 
-/// <summary>
-/// Integration coverage for mutating gRPC idempotency on the live adapter path.
-/// </summary>
+/// <summary>Integration coverage for mutating gRPC idempotency on the live adapter path.</summary>
 public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 {
     /// <summary>
     /// Verifies mutating RPCs without <c>operation_id</c> are rejected at the adapter.
     /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task EmptyOperationIdReturnsInvalidArgument()
     {
@@ -44,10 +42,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
     }
 
-    /// <summary>
-    /// Verifies a duplicate mutating request replays the cached outcome instead of re-applying.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
     [Fact]
     public async Task IdenticalOperationIdReplaysCachedResponse()
     {
@@ -73,10 +68,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         Assert.True(second.Added);
     }
 
-    /// <summary>
-    /// Verifies reusing an operation id with a different mutation fingerprint fails with the stable contract.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies reusing an operation id with a different mutation fingerprint fails with the stable contract.</summary>
     [Fact]
     public async Task ReusedOperationIdWithDifferentFingerprintReturnsFailedPrecondition()
     {

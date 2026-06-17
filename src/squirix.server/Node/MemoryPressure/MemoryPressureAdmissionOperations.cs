@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Bounded operation names for memory admission metrics and diagnostics correlation (low cardinality).
-/// </summary>
+/// <summary>Bounded operation names for memory admission metrics and diagnostics correlation (low cardinality).</summary>
 internal static class MemoryPressureAdmissionOperations
 {
     public const string Add = "add";

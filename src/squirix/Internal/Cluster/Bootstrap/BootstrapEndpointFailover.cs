@@ -7,9 +7,7 @@ using Grpc.Core;
 
 namespace Squirix.Internal.Cluster.Bootstrap;
 
-/// <summary>
-/// Routes single-node remote cache calls across bootstrap endpoints, failing over on transport-level errors.
-/// </summary>
+/// <summary>Routes single-node remote cache calls across bootstrap endpoints, failing over on transport-level errors.</summary>
 internal sealed class BootstrapEndpointFailover
 {
     private readonly Lock _activeIndexGate = new();
@@ -19,7 +17,7 @@ internal sealed class BootstrapEndpointFailover
     public BootstrapEndpointFailover(string[] bootstrapNodeIds, string primaryNodeId)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
-        if (bootstrapNodeIds.Length == 0)
+        if (bootstrapNodeIds.Length is 0)
             throw new ArgumentException("At least one bootstrap node id is required.", nameof(bootstrapNodeIds));
 
         _bootstrapNodeIds = bootstrapNodeIds;

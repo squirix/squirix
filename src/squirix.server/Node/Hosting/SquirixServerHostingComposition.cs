@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -24,20 +26,30 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixServerHostingComposition
 {
-    public static void ConfigureBuilder(WebApplicationBuilder builder, SquirixServerOptions options, SquirixServerExtensionOptions? extensions = null)
+    public static async Task ConfigureBuilderAsync(
+        WebApplicationBuilder builder,
+        SquirixServerOptions options,
+        SquirixServerExtensionOptions? extensions = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(options);
 
         var cluster = SquirixServerConfiguration.ToClusterConfig(options);
-        ConfigureBuilder(builder, cluster, options.WaitForRecovery, persistenceOptionsOverride: ResolvePersistenceOptions(options), extensions: extensions);
+        await ConfigureBuilderAsync(
+            builder,
+            cluster,
+            options.WaitForRecovery,
+            persistenceOptionsOverride: ResolvePersistenceOptions(options),
+            extensions: extensions,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [SuppressMessage(
         "Microsoft.Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
-    public static void ConfigureBuilder(
+    public static async Task ConfigureBuilderAsync(
         WebApplicationBuilder builder,
         ClusterConfig cluster,
         bool waitForRecovery,
@@ -52,12 +64,16 @@ internal static class SquirixServerHostingComposition
         SecurityOptions? securityOptionsOverride = null,
         SquirixServerExtensionOptions? extensions = null,
         MtlsOptions? mtlsOptionsOverride = null,
-        MtlsCertificateMaterial? mtlsMaterialOverride = null)
+        MtlsCertificateMaterial? mtlsMaterialOverride = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
 
-        var persistenceEnabled = persistenceOptionsOverride is not null;
+        var persistence = persistenceOptionsOverride is null
+            ? null
+            : PersistenceOptionsResolver.Resolve(cluster, persistenceOptionsOverride);
+        var persistenceEnabled = persistence is not null;
         var uri = new Uri(cluster.Url);
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
@@ -66,18 +82,19 @@ internal static class SquirixServerHostingComposition
         var mtlsMaterial = mtlsMaterialOverride ?? MtlsCertificateMaterial.Load(mtlsOptions, uri.Port, requiresInterNodeMtls, cluster.NodeId);
         SquirixKestrelConfiguration.ConfigureKestrel(builder, uri, cluster, mtlsOptions, mtlsMaterial);
 
-        _ = builder.Services.AddSquirixValidatedOptions(
+        _ = await builder.Services.AddSquirixValidatedOptionsAsync(
             cluster,
             snapshotOptions,
             backpressureOptions,
-            persistenceOptionsOverride,
+            persistence,
             memoryPressureOptions,
             mtlsOptions,
-            mtlsMaterial);
+            mtlsMaterial,
+            cancellationToken).ConfigureAwait(false);
         _ = builder.Services.AddSquirixRuntimeServices();
         _ = builder.Services.AddSquirixClusterServices(cluster, callPolicyFactory, peerHandlerFactory);
         if (persistenceEnabled)
-            _ = builder.Services.AddSquirixPersistenceServices(waitForRecovery);
+            _ = await builder.Services.AddSquirixPersistenceServicesAsync(persistence!, waitForRecovery, cancellationToken).ConfigureAwait(false);
 
         _ = builder.Services.AddSquirixCachePipeline(extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);

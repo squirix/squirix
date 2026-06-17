@@ -5,15 +5,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
-/// <summary>
-/// Integration tests for single-node public CRUD operations.
-/// </summary>
+/// <summary>Integration tests for single-node public CRUD operations.</summary>
 public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
-    /// <summary>
-    /// Verifies AddAsync(string, T) adds on miss and throws on existing key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
     [Fact]
     public async Task AddAsyncEntryAddsOnMissThrowsOnHit()
     {
@@ -25,10 +20,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies AddAsync with options preserves expiration metadata through the public API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
     public async Task AddAsyncEntryPreservesExpirationThroughPublicApi()
     {
@@ -47,10 +39,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(expiration.Value > TimeSpan.Zero);
     }
 
-    /// <summary>
-    /// Verifies AddAsync(string, T) adds on miss and throws on existing key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
     [Fact]
     public async Task AddAsyncValueAddsOnMissThrowsOnHit()
     {
@@ -62,10 +51,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies AddAsync(string, T) adds on miss and throws on existing key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
     [Fact]
     public async Task AddEntryAddsOnMissThrowsOnHit()
     {
@@ -77,10 +63,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies AddAsync(string, T) adds on miss and throws on existing key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
     [Fact]
     public async Task AddValueAddsOnMissThrowsOnHit()
     {
@@ -92,10 +75,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies the public core transport does not round-trip internal tag metadata.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies the public core transport does not round-trip internal tag metadata.</summary>
     [Fact]
     public async Task GetEntryAsyncDoesNotRoundTripInternalTagMetadata()
     {
@@ -107,10 +87,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(entry.Found);
     }
 
-    /// <summary>
-    /// Verifies GetEntryAsync returns entry or null when missing or expired.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetEntryAsync returns entry or null when missing or expired.</summary>
     [Fact]
     public async Task GetEntryAsyncReturnsEntryOrNull()
     {
@@ -123,14 +100,11 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(e.Found);
         Assert.Equal("v1", e.Value);
 
-        await Task.Delay(Delay90, DefaultCancellationToken);
+        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies GetEntry returns entry with metadata or null when missing or expired.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetEntry returns entry with metadata or null when missing or expired.</summary>
     [Fact]
     public async Task GetEntryReturnsEntryOrNull()
     {
@@ -143,14 +117,11 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(e.Found);
         Assert.Equal("v1", e.Value);
 
-        await Task.Delay(Delay90, DefaultCancellationToken);
+        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetEntryAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies GetValueAsync returns proper flags and value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetValueAsync returns proper flags and value.</summary>
     [Fact]
     public async Task GetValueAsyncReturnsFlagsAndValue()
     {
@@ -164,10 +135,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(hit.Found);
     }
 
-    /// <summary>
-    /// Verifies SetAsync(string, T) upserts unconditionally.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
     [Fact]
     public async Task InsertEntryUpserts()
     {
@@ -178,10 +146,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v2", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies SetAsync(string, T) upserts unconditionally.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
     [Fact]
     public async Task InsertValueUpserts()
     {
@@ -192,10 +157,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v2", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync deletes when present and returns false on miss.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync deletes when present and returns false on miss.</summary>
     [Fact]
     public async Task RemoveAsyncDeletesWhenPresent()
     {
@@ -208,10 +170,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync returns whether a live entry was removed.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync returns whether a live entry was removed.</summary>
     [Fact]
     public async Task RemoveAsyncReturnsFlagAndValue()
     {
@@ -226,10 +185,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync returns the removed entry metadata before deleting the key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync returns the removed entry metadata before deleting the key.</summary>
     [Fact]
     public async Task RemoveAsyncReturnsRemovedEntryMetadata()
     {
@@ -247,10 +203,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync removes a stored null value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredEntryNullValue()
     {
@@ -264,10 +217,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync removes a stored null value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
     [Fact]
     public async Task RemoveAsyncReturnsRemovedForStoredNullValue()
     {
@@ -281,10 +231,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync removes a stored null value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync removes a stored null value.</summary>
     [Fact]
     public async Task RemoveAsyncStoredNullReportsRemoved()
     {
@@ -298,10 +245,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync deletes when present and returns false on miss.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync deletes when present and returns false on miss.</summary>
     [Fact]
     public async Task RemoveDeletesWhenPresent()
     {
@@ -314,10 +258,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies two cache facades for the same name share logical storage before client disposal.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies two cache facades for the same name share logical storage before client disposal.</summary>
     [Fact]
     public async Task RepeatedGetCacheAsyncForSameNameSharesLogicalStorage()
     {
@@ -329,10 +270,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v", (await second.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies SetAsync rejects options that specify both ExpiresAt and Expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAsync rejects options that specify both ExpiresAt and Expiration.</summary>
     [Fact]
     public async Task SetAsyncEntryRejectsBothExpiresUtcAndExpiration()
     {
@@ -351,10 +289,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies SetAsync(string, T) upserts unconditionally.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
     [Fact]
     public async Task SetAsyncEntryUpserts()
     {
@@ -365,10 +300,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v2", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies SetAsync(string, T) upserts unconditionally.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAsync(string, T) upserts unconditionally.</summary>
     [Fact]
     public async Task SetAsyncValueUpserts()
     {
@@ -379,10 +311,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v2", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync with options preserves expiration metadata through the public API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
     public async Task TryAddAsyncEntryPreservesExpirationThroughPublicApi()
     {
@@ -402,10 +331,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(expiration.Value > TimeSpan.Zero);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) returns true on miss and false on hit.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
     public async Task TryAddAsyncEntryRespectsExistence()
     {
@@ -416,10 +342,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) returns true on miss and false on hit.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
     public async Task TryAddAsyncValueRespectsExistence()
     {
@@ -430,10 +353,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) returns true on miss and false on hit.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
     public async Task TryAddEntryRespectsExistence()
     {
@@ -444,10 +364,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync(string, T) returns true on miss and false on hit.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync(string, T) returns true on miss and false on hit.</summary>
     [Fact]
     public async Task TryAddValueRespectsExistence()
     {
@@ -458,10 +375,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryGetValue returns proper flags and value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryGetValue returns proper flags and value.</summary>
     [Fact]
     public async Task TryGetValueReturnsFlagsAndValue()
     {
@@ -475,10 +389,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         Assert.True(found.Found);
     }
 
-    /// <summary>
-    /// Verifies TryRemove returns whether a live entry was removed.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryRemove returns whether a live entry was removed.</summary>
     [Fact]
     public async Task TryRemoveReturnsFlagAndValue()
     {

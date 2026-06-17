@@ -1,8 +1,6 @@
 namespace Squirix.E2ETests.Support.Stress;
 
-/// <summary>
-/// Trait identifiers used to gate stress E2E tests so they are excluded from fast PR runs.
-/// </summary>
+/// <summary>Trait identifiers used to gate stress E2E tests so they are excluded from fast PR runs.</summary>
 internal static class StressCategory
 {
     /// <summary>

@@ -8,19 +8,13 @@ namespace Squirix.Server.TestKit.Hosting;
 /// </summary>
 public sealed class TestNodeSecurityOptions
 {
-    /// <summary>
-    /// Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).
-    /// </summary>
+    /// <summary>Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).</summary>
     public bool JwtAllowHttpMetadata { get; init; }
 
-    /// <summary>
-    /// Gets the JWT audience validation value.
-    /// </summary>
+    /// <summary>Gets the JWT audience validation value.</summary>
     public string? JwtAudience { get; init; }
 
-    /// <summary>
-    /// Gets the OIDC authority URL used for metadata discovery and JWKS validation.
-    /// </summary>
+    /// <summary>Gets the OIDC authority URL used for metadata discovery and JWKS validation.</summary>
     public string? JwtAuthority { get; init; }
 
     /// <summary>
@@ -28,9 +22,7 @@ public sealed class TestNodeSecurityOptions
     /// </summary>
     public string? JwtIssuer { get; init; }
 
-    /// <summary>
-    /// Gets the symmetric JWT signing key, raw text or base64.
-    /// </summary>
+    /// <summary>Gets the symmetric JWT signing key, raw text or base64.</summary>
     public string? JwtSigningKey { get; init; }
 
     internal SecurityOptions ToServerOptions() => new()

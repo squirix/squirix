@@ -12,7 +12,7 @@ namespace Squirix.E2ETests.Support.Stress;
 /// helpers without widening the cache-test surface, while still exercising only the public SDK.
 /// </summary>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
-public abstract class StressTestBase : TestBase
+public abstract class StressTestBase : EndToEndTestBase
 {
     internal static async Task<IReadOnlyList<ISquirixClient>> ConnectClientsAsync(HostedCluster cluster, int count, string nodeId, CancellationToken cancellationToken)
     {
@@ -43,6 +43,6 @@ public abstract class StressTestBase : TestBase
         for (var w = 0; w < writers; w++)
             tasks[w] = writerBody(w);
 
-        await Task.WhenAll(tasks).WaitAsync(budget);
+        await Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
     }
 }

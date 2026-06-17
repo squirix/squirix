@@ -16,9 +16,7 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal static class SquirixKestrelConfiguration
 {
-    /// <summary>
-    /// Configures Kestrel listeners: primary HTTPS for external clients and optional cluster/internal mTLS.
-    /// </summary>
+    /// <summary>Configures Kestrel listeners: primary HTTPS for external clients and optional cluster/internal mTLS.</summary>
     /// <param name="builder">The web application builder.</param>
     /// <param name="uri">The primary HTTPS listen URI.</param>
     /// <param name="cluster">Cluster topology configuration.</param>
@@ -55,9 +53,7 @@ internal static class SquirixKestrelConfiguration
         });
     }
 
-    /// <summary>
-    /// Ensures the node URL uses HTTPS gRPC transport.
-    /// </summary>
+    /// <summary>Ensures the node URL uses HTTPS gRPC transport.</summary>
     /// <param name="cluster">Cluster configuration including the node URL.</param>
     /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
     [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Switch is used to throw exception")]
@@ -71,9 +67,7 @@ internal static class SquirixKestrelConfiguration
         }
     }
 
-    /// <summary>
-    /// Validates an inbound cluster mTLS client certificate against the configured cluster trust root.
-    /// </summary>
+    /// <summary>Validates an inbound cluster mTLS client certificate against the configured cluster trust root.</summary>
     /// <param name="clientCertificate">The presented client certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="remotePeerNodeIds">Configured cluster node identifiers for remote peers.</param>

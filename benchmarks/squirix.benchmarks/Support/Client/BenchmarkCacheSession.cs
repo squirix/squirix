@@ -7,9 +7,7 @@ using Squirix.Benchmarks.Support.Cluster;
 
 namespace Squirix.Benchmarks.Support.Client;
 
-/// <summary>
-/// Owns one connected client and a single cache handle for cache-operation benchmarks.
-/// </summary>
+/// <summary>Owns one connected client and a single cache handle for cache-operation benchmarks.</summary>
 internal sealed class BenchmarkCacheSession : IAsyncDisposable
 {
     private BenchmarkClientLease? _clientLease;
@@ -25,7 +23,7 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         var clientLease = _clientLease;

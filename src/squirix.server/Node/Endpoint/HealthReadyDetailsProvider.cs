@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
@@ -9,9 +11,7 @@ using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Endpoint;
 
-/// <summary>
-/// Builds health-ready diagnostics for REST endpoints.
-/// </summary>
+/// <summary>Builds health-ready diagnostics for REST endpoints.</summary>
 internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
 {
     private readonly ClusterConfig _cluster;
@@ -47,18 +47,18 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     }
 
     /// <inheritdoc />
-    public HealthReadyDetailsSnapshot GetSnapshot()
+    public async Task<HealthReadyDetailsSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        var manifest = _manifestStore.ReadCurrentOrDefault();
+        var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var lastApplied = manifest.LastSnapshot?.LastAppliedSequence ?? 0UL;
         var nextSeq = _journal.NextSequence;
 
-        long journalBacklogOps = 0;
+        ulong journalBacklogOps = 0;
         if (nextSeq > lastApplied)
-            journalBacklogOps = (long)(nextSeq - lastApplied);
+            journalBacklogOps = nextSeq - lastApplied;
 
         double? snapshotAgeSeconds = null;
-        if (manifest.LastSnapshot?.Path != null)
+        if (manifest.LastSnapshot?.Path is not null)
         {
             snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
         }

@@ -6,9 +6,7 @@ using System.Text;
 
 namespace Squirix.E2ETests.Support.Cluster;
 
-/// <summary>
-/// Key ownership helper mirroring server consistent-hash route behavior.
-/// </summary>
+/// <summary>Key ownership helper mirroring server consistent-hash route behavior.</summary>
 internal sealed class KeyOwnerHelper
 {
     private readonly (ulong Hash, string Node)[] _ring;
@@ -23,7 +21,7 @@ internal sealed class KeyOwnerHelper
                 nodes.Add(nodeId);
         }
 
-        if (nodes.Count == 0)
+        if (nodes.Count is 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));
 
         var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
@@ -51,7 +49,7 @@ internal sealed class KeyOwnerHelper
                 keys.Add(candidate);
         }
 
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count} keys owned by '{ownerId}'.");
+        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count.ToString(CultureInfo.InvariantCulture)} keys owned by '{ownerId}'.");
     }
 
     private static ulong HashBytes(ReadOnlySpan<byte> bytes)

@@ -1,13 +1,10 @@
 using Grpc.Core;
-using Squirix.Errors;
 using Squirix.Internal;
 using Xunit;
 
 namespace Squirix.UnitTests.Internal;
 
-/// <summary>
-/// Unit tests for remote RPC error mapping in the public SDK client.
-/// </summary>
+/// <summary>Unit tests for remote RPC error mapping in the public SDK client.</summary>
 public sealed class RemoteRpcErrorMapperTests
 {
     /// <summary>
@@ -16,7 +13,7 @@ public sealed class RemoteRpcErrorMapperTests
     [Fact]
     public void MapsMissingOperationIdToTypedException()
     {
-        var rpc = new RpcException(new Status(StatusCode.InvalidArgument, CacheOperationContract.OperationIdRequiredDetail));
+        var rpc = new RpcException(new Status(StatusCode.InvalidArgument, OperationIdRequiredException.StableDetail));
         var ex = Assert.Throws<OperationIdRequiredException>(() => RemoteRpcErrorMapper.Map(rpc));
         Assert.Same(rpc, ex.InnerException);
     }

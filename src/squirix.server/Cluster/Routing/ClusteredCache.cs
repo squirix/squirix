@@ -6,9 +6,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Cluster.Routing;
 
-/// <summary>
-/// Routes cache operations to the static owner using gRPC on remote peers.
-/// </summary>
+/// <summary>Routes cache operations to the static owner using gRPC on remote peers.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
 {

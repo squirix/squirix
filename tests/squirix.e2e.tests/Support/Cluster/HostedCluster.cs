@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,9 +12,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Support.Cluster;
 
-/// <summary>
-/// Lifecycle wrapper for a started Squirix test cluster (single- or multi-node).
-/// </summary>
+/// <summary>Lifecycle wrapper for a started Squirix test cluster (single- or multi-node).</summary>
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private readonly List<ISquirixClient> _clients = [];
@@ -55,11 +54,8 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     public string GetAddress(string nodeId) => _nodes[nodeId].Address;
 
-    /// <summary>
-    /// Stops and removes one HostedCluster node while leaving other nodes running.
-    /// </summary>
+    /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="nodeId">Node identifier to stop.</param>
-    /// <returns>A task that completes when the node has been stopped.</returns>
     public async ValueTask StopNodeAsync(string nodeId)
     {
         if (!_nodes.Remove(nodeId, out var node))
@@ -70,7 +66,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         for (var i = _clients.Count - 1; i >= 0; i--)
@@ -86,7 +82,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     {
         var scope = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
         var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e");
-        var target = PathKit.Combine(root, $"{scope}__{Environment.ProcessId}", nodeId, Guid.NewGuid().ToString("N"));
+        var target = PathKit.Combine(root, $"{scope}__{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}", nodeId, Guid.NewGuid().ToString("N"));
         _ = Directory.CreateDirectory(target);
         return target;
     }

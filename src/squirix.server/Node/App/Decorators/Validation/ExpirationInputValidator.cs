@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix.Server.Node.App.Decorators.Validation;
 
-/// <summary>
-/// Validates expiration arguments where a strictly positive duration is required (for example touch operations).
-/// </summary>
+/// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
 internal static class ExpirationInputValidator
 {
     /// <summary>

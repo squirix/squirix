@@ -11,9 +11,7 @@ namespace Squirix.Internal.Decorators;
 /// </remarks>
 internal static class OperationCancellationClassifier
 {
-    /// <summary>
-    /// Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.
-    /// </summary>
+    /// <summary>Classifies cancellation for a peer call attempt: caller, operation-effective budget token, and per-attempt composite token.</summary>
     /// <param name="callerToken">The application caller token.</param>
     /// <param name="operationEffectiveToken">Caller linked with optional ambient RPC deadline budget.</param>
     /// <param name="perAttemptCompositeToken">Token from the attempt's linked source (caller plus per-attempt timeout).</param>
@@ -34,9 +32,7 @@ internal static class OperationCancellationClassifier
     /// <returns><see langword="true" /> when <paramref name="operationEffectiveToken" /> is not canceled; otherwise <see langword="false" />.</returns>
     public static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
 
-    /// <summary>
-    /// Classifies linked cancellation sources using explicit token state.
-    /// </summary>
+    /// <summary>Classifies linked cancellation sources using explicit token state.</summary>
     /// <param name="callerCanceled">True when the outer caller token is canceled.</param>
     /// <param name="operationEffectiveCanceled">True when the operation-level effective token is canceled.</param>
     /// <param name="perAttemptScopeCanceled">True when the per-attempt linked source is canceled.</param>

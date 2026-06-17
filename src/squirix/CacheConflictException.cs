@@ -3,9 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix;
 
-/// <summary>
-/// Thrown when a cache mutation conflicts with an existing live entry.
-/// </summary>
+/// <summary>Thrown when a cache mutation conflicts with an existing live entry.</summary>
 public sealed class CacheConflictException : Exception
 {
     /// <summary>
@@ -37,8 +35,6 @@ public sealed class CacheConflictException : Exception
         Key = message;
     }
 
-    /// <summary>
-    /// Gets the conflicting cache key.
-    /// </summary>
+    /// <summary>Gets the conflicting cache key.</summary>
     public string Key { get; private set; } = string.Empty;
 }

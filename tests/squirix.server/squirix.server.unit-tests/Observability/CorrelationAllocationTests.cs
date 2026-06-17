@@ -7,10 +7,8 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Allocation-focused tests for observability scopes.
-/// </summary>
-public sealed class CorrelationAllocationTests : ServerUnitTestBase
+/// <summary>Allocation-focused tests for observability scopes.</summary>
+public sealed class CorrelationAllocationTests : UnitTestBase
 {
     /// <summary>
     /// Verifies that <c>Correlation.BeginStandardScope</c> does not allocate a dictionary on the hot path.

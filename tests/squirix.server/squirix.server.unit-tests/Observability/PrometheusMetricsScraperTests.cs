@@ -5,14 +5,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
-/// <summary>
-/// Unit tests for public HTTP Prometheus scrape export redaction.
-/// </summary>
+/// <summary>Unit tests for public HTTP Prometheus scrape export redaction.</summary>
 public sealed class PrometheusMetricsScraperTests
 {
-    /// <summary>
-    /// Verifies public scrape output omits cache labels and aggregates across cache namespaces.
-    /// </summary>
+    /// <summary>Verifies public scrape output omits cache labels and aggregates across cache namespaces.</summary>
     [Fact]
     public void ScrapePublicOmitsCacheLabelAndAggregatesAcrossNamespaces()
     {
@@ -33,9 +29,7 @@ public sealed class PrometheusMetricsScraperTests
         Assert.DoesNotContain("cache=", body, StringComparison.InvariantCulture);
     }
 
-    /// <summary>
-    /// Verifies public scrape output omits exception_type labels.
-    /// </summary>
+    /// <summary>Verifies public scrape output omits exception_type labels.</summary>
     [Fact]
     public void ScrapePublicOmitsExceptionTypeLabel()
     {

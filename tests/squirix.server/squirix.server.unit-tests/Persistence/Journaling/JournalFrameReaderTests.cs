@@ -12,14 +12,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Focused tests for shared journal frame parsing and classification.
-/// </summary>
-public sealed class JournalFrameReaderTests : ServerUnitTestBase
+/// <summary>Focused tests for shared journal frame parsing and classification.</summary>
+public sealed class JournalFrameReaderTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies CRC mismatches classify consistently for stream and span paths.
-    /// </summary>
+    /// <summary>Verifies CRC mismatches classify consistently for stream and span paths.</summary>
     [Fact]
     public void CrcMismatchIsClassifiedConsistently()
     {
@@ -29,15 +25,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         AssertConsistentStatus(frame, JournalFrameReadStatus.ChecksumMismatch);
     }
 
-    /// <summary>
-    /// Verifies an empty frame source is reported as EOF consistently.
-    /// </summary>
+    /// <summary>Verifies an empty frame source is reported as EOF consistently.</summary>
     [Fact]
     public void EmptyFrameSourceIsHandledConsistently() => AssertConsistentStatus([], JournalFrameReadStatus.EndOfFile);
 
-    /// <summary>
-    /// Verifies multiple valid frames preserve order and offsets when read sequentially.
-    /// </summary>
+    /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
     [Fact]
     public void MultipleValidFramesPreserveOrderAndOffsets()
     {
@@ -73,9 +65,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>
-    /// Verifies oversized declared payload lengths are rejected consistently.
-    /// </summary>
+    /// <summary>Verifies oversized declared payload lengths are rejected consistently.</summary>
     [Fact]
     public void OversizedFrameIsClassifiedConsistently()
     {
@@ -84,9 +74,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         AssertConsistentStatus([.. length], JournalFrameReadStatus.OversizedFrame);
     }
 
-    /// <summary>
-    /// Verifies verifier-facing and mapped-reader-facing frame parsing classify the same corrupted byte streams the same way.
-    /// </summary>
+    /// <summary>Verifies verifier-facing and mapped-reader-facing frame parsing classify the same corrupted byte streams the same way.</summary>
     /// <param name="kind">The corruption variant to classify through both parsing paths.</param>
     [Theory]
     [InlineData("truncated-header")]
@@ -113,9 +101,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         Assert.Equal(streamRead.Status, spanRead.Status);
     }
 
-    /// <summary>
-    /// Verifies trailing bytes after a full frame are classified consistently as a truncated header for the next frame.
-    /// </summary>
+    /// <summary>Verifies trailing bytes after a full frame are classified consistently as a truncated header for the next frame.</summary>
     [Fact]
     public void TrailingBytesAfterLastFrameAreHandledConsistently()
     {
@@ -138,15 +124,13 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
 
         var secondRead = JournalFrameReader.ReadNext(stream, firstRead.NextFrameOffset, out _, out _);
-        var spanRead = JournalFrameReader.ReadNext(bytes.AsSpan((int)firstRead.NextFrameOffset), firstRead.NextFrameOffset);
+        var spanRead = JournalFrameReader.ReadNext(bytes.AsSpan(int.CreateTruncating(firstRead.NextFrameOffset)), firstRead.NextFrameOffset);
 
         Assert.Equal(JournalFrameReadStatus.TruncatedHeader, secondRead.Status);
         Assert.Equal(secondRead.Status, spanRead.Status);
     }
 
-    /// <summary>
-    /// Verifies truncated frame checksum footers classify consistently for stream and span paths.
-    /// </summary>
+    /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>
     [Fact]
     public void TruncatedChecksumIsClassifiedConsistently()
     {
@@ -155,26 +139,20 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         AssertConsistentStatus(frame[..^2], JournalFrameReadStatus.TruncatedChecksum);
     }
 
-    /// <summary>
-    /// Verifies truncated frame headers classify consistently for stream and span paths.
-    /// </summary>
+    /// <summary>Verifies truncated frame headers classify consistently for stream and span paths.</summary>
     [Fact]
     public void TruncatedHeaderIsClassifiedConsistently() => AssertConsistentStatus([0x10, 0x00], JournalFrameReadStatus.TruncatedHeader);
 
-    /// <summary>
-    /// Verifies truncated frame payloads classify consistently for stream and span paths.
-    /// </summary>
+    /// <summary>Verifies truncated frame payloads classify consistently for stream and span paths.</summary>
     [Fact]
     public void TruncatedPayloadIsClassifiedConsistently()
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        AssertConsistentStatus([.. length.ToArray(), (byte)'a', (byte)'b'], JournalFrameReadStatus.TruncatedPayload);
+        AssertConsistentStatus([.. length.ToArray(), .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
     }
 
-    /// <summary>
-    /// Verifies a valid single frame is read successfully and preserves payload bytes.
-    /// </summary>
+    /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
     [Fact]
     public void ValidSingleFrameIsReadSuccessfully()
     {
@@ -233,28 +211,28 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     private static byte[] BuildPayload(ulong sequence, string key)
     {
-        var body = DiscriminatedEntryJsonWriter.BuildEntryJson("value", null, null, 1, null);
-        return RecordCodec.Serialize(
-            new JournalEnvelope
+        var envelope = new JournalEnvelope
+        {
+            Seq = sequence,
+            UnixMs = 123,
+            Put = new Put
             {
-                Seq = sequence,
-                UnixMs = 123,
-                Put = new Put
+                Item = new EntryPair
                 {
-                    Item = new EntryPair
-                    {
-                        Key = key,
-                        Namespace = CacheNames.DefaultNamespace,
-                        EntryJson = ByteString.CopyFrom(body),
-                    },
+                    Key = key,
+                    Namespace = CacheNames.DefaultNamespace,
+                    EntryJson = ByteString.CopyFrom("{\"v\":{\"$t\":\"s\",\"v\":\"value\"},\"ver\":1}"u8.ToArray()),
                 },
-            });
+            },
+        };
+
+        return RecordCodec.Serialize(envelope);
     }
 
     private static byte[] BuildTruncatedPayload()
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        return [.. length.ToArray(), (byte)'a', (byte)'b'];
+        return [.. length.ToArray(), .. "ab"u8];
     }
 }

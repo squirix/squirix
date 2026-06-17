@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Hosting;
@@ -9,6 +11,10 @@ namespace Squirix.Server.Host;
 
 internal static class SquirixServerProcess
 {
+    private const string HelpText = "Squirix.Server.Host\n\n" + "Commands:\n" + "  run [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" +
+                                    "  init [--settings PATH]\n" + "  validate-config --settings PATH [--strict]\n" +
+                                    "  doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]\n" + "  version\n" + "  help\n";
+
     internal static async Task<int> RunAsync(string[] args)
     {
         try
@@ -17,9 +23,9 @@ internal static class SquirixServerProcess
             return command.Name switch
             {
                 "run" => await RunServerAsync(command).ConfigureAwait(false),
-                "init" => Initialize(command),
-                "validate-config" => ValidateConfig(command),
-                "doctor" => Doctor(command),
+                "init" => await InitializeAsync(command).ConfigureAwait(false),
+                "validate-config" => await ValidateConfigAsync(command).ConfigureAwait(false),
+                "doctor" => await DoctorAsync(command).ConfigureAwait(false),
                 "version" => Version(),
                 "help" => Help(),
                 _ => throw new InvalidOperationException($"Unknown command '{command.Name}'. Run 'squirix-server help'."),
@@ -47,55 +53,46 @@ internal static class SquirixServerProcess
         }
     }
 
-    private static int Doctor(SquirixServerCommand command)
+    private static async Task<int> DoctorAsync(SquirixServerCommand command)
     {
-        var options = LoadOptions(command);
-        Console.Out.WriteLine("[Squirix.Server] Doctor");
-        Console.Out.WriteLine($"  Runtime: {Environment.Version}");
-        Console.Out.WriteLine($"  OS: {Environment.OSVersion}");
-        Console.Out.WriteLine($"  Cluster ID: {options.ClusterId}");
-        Console.Out.WriteLine($"  Node ID: {options.NodeId}");
-        Console.Out.WriteLine($"  URL: {options.Url}");
-        Console.Out.WriteLine($"  Peers: {(options.Peers.Count == 0 ? 1 : options.Peers.Count)} configured");
-        Console.Out.WriteLine(SquirixServerConfiguration.IsListenPortAvailable(options.Url) ? "  Listen port: available" : "  Listen port: NOT available (already in use)");
-        WritePersistenceStatus(options);
-        Console.Out.WriteLine("  Configuration: valid");
+        var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync("[Squirix.Server] Doctor").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Runtime: {Environment.Version}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  OS: {Environment.OSVersion}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Cluster ID: {options.ClusterId}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  URL: {options.Url}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count is 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
+                     .ConfigureAwait(false);
+        await Console.Out.WriteLineAsync(
+            SquirixServerConfiguration.IsListenPortAvailable(options.Url) ? "  Listen port: available" : "  Listen port: NOT available (already in use)").ConfigureAwait(false);
+        await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
         return 0;
     }
 
     private static int Help()
     {
-        Console.Out.WriteLine(
-            """
-            Squirix.Server.Host
-
-            Commands:
-              run [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]
-              init [--settings PATH]
-              validate-config --settings PATH [--strict]
-              doctor [--strict] [--persist] [--urls URL] [--data-dir PATH] [--settings PATH]
-              version
-              help
-            """);
+        Console.Out.WriteLine(HelpText);
         return 0;
     }
 
-    private static int Initialize(SquirixServerCommand command)
+    private static async Task<int> InitializeAsync(SquirixServerCommand command)
     {
         var path = command.SettingsPath ?? "Squirix.settings.json";
         if (File.Exists(path))
             throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
 
         File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
-        _ = SquirixServerSettings.Load(path);
-        Console.Out.WriteLine($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}");
+        _ = await SquirixServerSettings.LoadAsync(path, CancellationToken.None).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}").ConfigureAwait(false);
         return 0;
     }
 
-    private static SquirixServerOptions LoadOptions(SquirixServerCommand command)
+    private static async Task<SquirixServerOptions> LoadOptionsAsync(SquirixServerCommand command, CancellationToken cancellationToken = default)
     {
         var settingsPath = ResolveSettingsPath(command);
-        var options = settingsPath is null ? new SquirixServerOptions() : SquirixServerSettings.Load(settingsPath);
+        var options = settingsPath is null ? new SquirixServerOptions() : await SquirixServerSettings.LoadAsync(settingsPath, cancellationToken).ConfigureAwait(false);
         SquirixServerConfiguration.ApplyCommandLineOverrides(options, command.Url, command.DataDirectory, command.Persist);
         return options;
     }
@@ -104,33 +101,45 @@ internal static class SquirixServerProcess
 
     private static async Task<int> RunServerAsync(SquirixServerCommand command)
     {
-        var options = LoadOptions(command);
+        var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
         var builder = WebApplication.CreateBuilder();
-        _ = builder.AddSquirixServer(target => SquirixServerConfiguration.CopyOptions(options, target), null, false);
+        _ = await builder.AddSquirixServerAsync(
+            target => SquirixServerConfiguration.CopyOptions(options, target),
+            loadDiscoveredSettings: false,
+            cancellationToken: CancellationToken.None).ConfigureAwait(false);
         var app = builder.Build();
         await using (app.ConfigureAwait(false))
         {
             _ = app.MapSquirixServer();
 
-            await app.StartAsync().ConfigureAwait(false);
-            WriteRunServerStatus(command, options);
+            await app.StartAsync(app.Lifetime.ApplicationStopping).ConfigureAwait(false);
+            await WriteRunServerStatusAsync(command, options, CancellationToken.None).ConfigureAwait(false);
 
-            using var shutdown = new ShutdownSignal();
-            await app.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
+            var shutdown = new ShutdownSignal();
+            try
+            {
+                await app.WaitForShutdownAsync(shutdown.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                await shutdown.DisposeAsync().ConfigureAwait(false);
+            }
+
             return 0;
         }
     }
 
-    private static int ValidateConfig(SquirixServerCommand command)
+    private static async Task<int> ValidateConfigAsync(SquirixServerCommand command)
     {
         if (command.SettingsPath is null)
             throw new InvalidOperationException("validate-config requires --settings PATH.");
 
-        if (!SquirixServerConfiguration.TryValidateSettingsFile(command.SettingsPath, command.Strict, out var error))
+        var (success, error) = await SquirixServerConfiguration.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
+        if (!success)
             throw new InvalidOperationException(error);
 
         var scope = command.Strict ? "full settings" : "cluster settings";
-        Console.Out.WriteLine($"[Squirix.Server] {scope} valid: {Path.GetFullPath(command.SettingsPath)}");
+        await Console.Out.WriteLineAsync($"[Squirix.Server] {scope} valid: {Path.GetFullPath(command.SettingsPath)}").ConfigureAwait(false);
         return 0;
     }
 
@@ -142,16 +151,16 @@ internal static class SquirixServerProcess
         return 0;
     }
 
-    private static void WritePersistenceStatus(SquirixServerOptions options)
+    private static async Task WritePersistenceStatusAsync(SquirixServerOptions options, CancellationToken cancellationToken)
     {
         if (!options.PersistenceEnabled)
         {
-            Console.Out.WriteLine("  Persistence: disabled");
+            await Console.Out.WriteLineAsync("  Persistence: disabled").ConfigureAwait(false);
             return;
         }
 
         var dataDirectory = options.DataDirectory ?? "<default>";
-        Console.Out.WriteLine($"  Persistence: enabled (data dir: {dataDirectory})");
+        await Console.Out.WriteLineAsync($"  Persistence: enabled (data dir: {dataDirectory})").ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(options.DataDirectory))
             return;
 
@@ -160,33 +169,33 @@ internal static class SquirixServerProcess
         {
             _ = Directory.CreateDirectory(dataDirectoryPath);
             var probe = Path.Join(dataDirectoryPath, ".squirix-doctor-probe");
-            File.WriteAllText(probe, string.Empty);
+            await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
             File.Delete(probe);
-            Console.Out.WriteLine("  Data directory access: writable");
+            await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);
         }
         catch (IOException ex)
         {
-            Console.Out.WriteLine($"  Data directory access: NOT writable ({ex.Message})");
+            await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
         }
         catch (UnauthorizedAccessException ex)
         {
-            Console.Out.WriteLine($"  Data directory access: NOT writable ({ex.Message})");
+            await Console.Out.WriteLineAsync($"  Data directory access: NOT writable ({ex.Message})").ConfigureAwait(false);
         }
     }
 
-    private static void WriteRunServerStatus(SquirixServerCommand command, SquirixServerOptions options)
+    private static async Task WriteRunServerStatusAsync(SquirixServerCommand command, SquirixServerOptions options, CancellationToken cancellationToken)
     {
-        Console.Out.WriteLine("[Squirix.Server] Server is ready.");
-        Console.Out.WriteLine($"  URL: {options.Url}");
-        Console.Out.WriteLine($"  Health endpoint: {options.Url}/health");
-        Console.Out.WriteLine($"  Metrics endpoint: {options.Url}/metrics");
-        Console.Out.WriteLine($"  Node ID: {options.NodeId}");
-        WritePersistenceStatus(options);
-        Console.Out.WriteLine($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}");
-        Console.Out.WriteLine();
-        Console.Out.WriteLine("Client:");
-        Console.Out.WriteLine($"await using var client = await SquirixClient.ConnectAsync(\"{options.Url}\");");
-        Console.Out.WriteLine();
-        Console.Out.WriteLine("Waiting for shutdown (Ctrl+C)...");
+        await Console.Out.WriteLineAsync("[Squirix.Server] Server is ready.").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  URL: {options.Url}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Health endpoint: {options.Url}/health").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Metrics endpoint: {options.Url}/metrics").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Node ID: {options.NodeId}").ConfigureAwait(false);
+        await WritePersistenceStatusAsync(options, cancellationToken).ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync().ConfigureAwait(false);
+        await Console.Out.WriteLineAsync("Client:").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"await using var client = await SquirixClient.ConnectAsync(\"{options.Url}\");").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync().ConfigureAwait(false);
+        await Console.Out.WriteLineAsync("Waiting for shutdown (Ctrl+C)...").ConfigureAwait(false);
     }
 }

@@ -4,9 +4,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Contracts;
 
-/// <summary>
-/// Transport-facing cache API for a single namespace.
-/// </summary>
+/// <summary>Transport-facing cache API for a single namespace.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal interface ICacheApi<T>
 {

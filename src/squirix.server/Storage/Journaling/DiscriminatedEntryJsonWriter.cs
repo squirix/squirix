@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Squirix.Server.Serialization;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -12,34 +13,17 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal static class DiscriminatedEntryJsonWriter
 {
-    public static byte[] BuildEntryJson(object? value, DateTime? expiresUtc, TimeSpan? expiration, long version, IReadOnlyDictionary<string, string>? tags)
+    public static async Task<byte[]> BuildEntryJsonAsync(object? value, DateTime? expiresUtc, TimeSpan? expiration, long version, IReadOnlyDictionary<string, string>? tags)
     {
         using var buffer = new PooledByteBufferWriter();
-        using (var w = new Utf8JsonWriter(buffer))
+        var writer = new Utf8JsonWriter(buffer);
+        try
         {
-            w.WriteStartObject();
-
-            w.WritePropertyName("v");
-            WriteClrWithDiscriminator(w, value);
-
-            if (expiresUtc.HasValue)
-                w.WriteString("expUtc", expiresUtc.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
-
-            if (expiration.HasValue)
-                w.WriteNumber("expirationTicks", expiration.Value.Ticks);
-
-            w.WriteNumber("ver", version);
-
-            if (tags is not null)
-            {
-                w.WritePropertyName("tags");
-                w.WriteStartObject();
-                foreach (var kv in tags)
-                    w.WriteString(kv.Key, kv.Value);
-                w.WriteEndObject();
-            }
-
-            w.WriteEndObject();
+            WriteEntryJson(writer, value, expiresUtc, expiration, version, tags);
+        }
+        finally
+        {
+            await writer.DisposeAsync().ConfigureAwait(false);
         }
 
         return [.. buffer.WrittenSpan];
@@ -121,6 +105,33 @@ internal static class DiscriminatedEntryJsonWriter
         w.WriteString("$t", "d");
         w.WritePropertyName("v");
         w.WriteNumberValue(Convert.ToDouble(value, CultureInfo.InvariantCulture));
+    }
+
+    private static void WriteEntryJson(Utf8JsonWriter w, object? value, DateTime? expiresUtc, TimeSpan? expiration, long version, IReadOnlyDictionary<string, string>? tags)
+    {
+        w.WriteStartObject();
+
+        w.WritePropertyName("v");
+        WriteClrWithDiscriminator(w, value);
+
+        if (expiresUtc is not null)
+            w.WriteString("expUtc", expiresUtc.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+
+        if (expiration is not null)
+            w.WriteNumber("expirationTicks", expiration.Value.Ticks);
+
+        w.WriteNumber("ver", version);
+
+        if (tags is not null)
+        {
+            w.WritePropertyName("tags");
+            w.WriteStartObject();
+            foreach (var kv in tags)
+                w.WriteString(kv.Key, kv.Value);
+            w.WriteEndObject();
+        }
+
+        w.WriteEndObject();
     }
 
     private static void WriteInt64Discriminant(Utf8JsonWriter w, object value)

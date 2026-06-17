@@ -9,9 +9,7 @@ namespace Squirix.UnitTests.Errors;
 /// </summary>
 public sealed class CacheOperationContractClassifierTests
 {
-    /// <summary>
-    /// Insert explicit-version precondition detail classifies as insert-version contract.
-    /// </summary>
+    /// <summary>Insert explicit-version precondition detail classifies as insert-version contract.</summary>
     [Fact]
     public void ClassifyFailedPreconditionDetailMapsInsertVersionMessage()
     {
@@ -19,17 +17,13 @@ public sealed class CacheOperationContractClassifierTests
         Assert.Equal(CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent, CacheOperationContractClassifier.ClassifyFailedPreconditionDetail(detail));
     }
 
-    /// <summary>
-    /// Unrelated FailedPrecondition text does not match stable contracts.
-    /// </summary>
+    /// <summary>Unrelated FailedPrecondition text does not match stable contracts.</summary>
     [Fact]
     public void ClassifyFailedPreconditionDetailReturnsNoneForGenericDetail() => Assert.Equal(
         CacheOperationFailedPreconditionKind.None,
         CacheOperationContractClassifier.ClassifyFailedPreconditionDetail("unrelated precondition"));
 
-    /// <summary>
-    /// Counter overflow uses InvalidArgument with the stable overflow detail constant.
-    /// </summary>
+    /// <summary>Counter overflow uses InvalidArgument with the stable overflow detail constant.</summary>
     [Fact]
     public void IsCounterOverflowRpcFaultMatchesInvalidArgumentWithStableDetail()
     {
@@ -38,9 +32,7 @@ public sealed class CacheOperationContractClassifierTests
         Assert.False(CacheOperationContractClassifier.IsCounterOverflowRpcFault(StatusCode.FailedPrecondition, CacheOperationContract.CounterOverflowDetail));
     }
 
-    /// <summary>
-    /// TryGet returns the original detail string for stable contracts.
-    /// </summary>
+    /// <summary>TryGet returns the original detail string for stable contracts.</summary>
     [Fact]
     public void TryGetFailedPreconditionInvalidOperationMessageReturnsDetailForInsertVersion()
     {
@@ -49,9 +41,7 @@ public sealed class CacheOperationContractClassifierTests
         Assert.Equal(detail, message);
     }
 
-    /// <summary>
-    /// TryGet mirrors Classify for invalid-operation message paths.
-    /// </summary>
+    /// <summary>TryGet mirrors Classify for invalid-operation message paths.</summary>
     [Fact]
     public void TryGetFailedPreconditionInvalidOperationMessageReturnsFalseForNone() =>
         Assert.False(CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage("x", out _));

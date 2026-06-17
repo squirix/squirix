@@ -6,19 +6,15 @@ using System.Text.Json;
 using FakeItEasy;
 using FakeItEasy.Core;
 using Squirix.Serialization;
-using Squirix.TestKit;
+using Squirix.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.UnitTests.Serialization;
 
-/// <summary>
-/// Tests to validate serializer metrics emission (counters, histograms, failures) via SerializationProvider.
-/// </summary>
+/// <summary>Tests to validate serializer metrics emission (counters, histograms, failures) via SerializationProvider.</summary>
 public sealed class SerializerMetricsTests
 {
-    /// <summary>
-    /// Ensures failed deserialization records failures_total with exception_type and appropriate ops_total/error and duration metrics.
-    /// </summary>
+    /// <summary>Ensures failed deserialization records failures_total with exception_type and appropriate ops_total/error and duration metrics.</summary>
     [Fact]
     public void FailureMetricsIncludeExceptionType()
     {
@@ -29,10 +25,10 @@ public sealed class SerializerMetricsTests
         var serializer = A.Fake<ISquirixSerializer>();
 
         _ = A.CallTo(serializer).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).WithReturnType<byte[]>()
-             .ReturnsLazily(call => (byte[])InvokeGeneric(inner, nameof(SystemTextJsonSerializer.SerializeToUtf8Bytes), call)!);
+             .ReturnsLazily(call => InvokeGeneric<byte[]>(inner, nameof(SystemTextJsonSerializer.SerializeToUtf8Bytes), call));
 
         _ = A.CallTo(serializer).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToElement) && call.Method.IsGenericMethod)
-             .WithReturnType<JsonElement>().ReturnsLazily(call => (JsonElement)InvokeGeneric(inner, nameof(SystemTextJsonSerializer.SerializeToElement), call)!);
+             .WithReturnType<JsonElement>().ReturnsLazily(call => InvokeGeneric<JsonElement>(inner, nameof(SystemTextJsonSerializer.SerializeToElement), call));
 
         _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<string>._)).ReturnsLazily((string s) => inner.Deserialize<JsonElement>(s));
         _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<JsonElement>._)).ReturnsLazily((JsonElement el) => inner.Deserialize<JsonElement>(el));
@@ -55,9 +51,7 @@ public sealed class SerializerMetricsTests
         Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", implName)));
     }
 
-    /// <summary>
-    /// Ensures successful serialize/deserialize operations produce ops_total and duration metrics with expected labels.
-    /// </summary>
+    /// <summary>Ensures successful serialize/deserialize operations produce ops_total and duration metrics with expected labels.</summary>
     [Fact]
     public void SuccessMetricsAreRecordedForSerializeAndDeserialize()
     {
@@ -76,13 +70,17 @@ public sealed class SerializerMetricsTests
         Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", "SystemTextJsonSerializer")));
     }
 
-    private static object? InvokeGeneric(SystemTextJsonSerializer inner, string methodName, IFakeObjectCall call)
+    private static TResult InvokeGeneric<TResult>(SystemTextJsonSerializer inner, string methodName, IFakeObjectCall call)
     {
         var arg = call.Arguments[0];
         var argType = arg?.GetType() ?? typeof(object);
         var genericDef = typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance)
                                                          .Single(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase) && m.IsGenericMethodDefinition);
         var gm = genericDef.MakeGenericMethod(argType);
-        return gm.Invoke(inner, [arg]);
+        var result = gm.Invoke(inner, [arg]);
+        if (result is TResult typed)
+            return typed;
+
+        throw new InvalidOperationException($"Expected {typeof(TResult).Name}, got {result?.GetType().Name ?? "null"}.");
     }
 }

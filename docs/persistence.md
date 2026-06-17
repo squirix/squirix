@@ -10,7 +10,7 @@ Durability is **per node** — there is no replication or automatic failover in 
 ASP.NET Core hosting:
 
 ```csharp
-builder.AddSquirixServer(options =>
+await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");

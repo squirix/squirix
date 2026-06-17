@@ -8,13 +8,11 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Adapts the process-local physical cache to the logical namespaced contract.
-/// </summary>
+/// <summary>Adapts the process-local physical cache to the logical namespaced contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
 {
-    private readonly KeyedSingleFlight _getOrAddFlights = new();
+    private readonly KeyedSingleFlight<CacheValueResult<T>> _getOrAddFlights = new();
     private readonly ILocalCacheMutationOperations<T> _mutation;
     private readonly ILocalCacheReadOperations<T> _read;
 

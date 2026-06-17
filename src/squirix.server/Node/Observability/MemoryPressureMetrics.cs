@@ -65,7 +65,7 @@ internal static class MemoryPressureMetrics
 
     private static void EnsureInstrumentsLocked()
     {
-        if (Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is not 0)
             return;
 
         _ = MeterRegistry.Meter.CreateObservableGauge(

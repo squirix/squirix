@@ -2,9 +2,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Recovery and journal replay/logging diagnostics.
-/// </summary>
+/// <summary>Recovery and journal replay/logging diagnostics.</summary>
 internal static partial class LogManager
 {
     [LoggerMessage(EventId = 2004, Level = LogLevel.Error, Message = "Background journal recovery failed.")]

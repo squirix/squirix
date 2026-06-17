@@ -2,21 +2,19 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies JWT authentication when the node is configured with an OIDC authority URL.
-/// </summary>
+/// <summary>Verifies JWT authentication when the node is configured with an OIDC authority URL.</summary>
 public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
 {
     private const string Audience = "squirix-oidc-integration";
 
     /// <summary>Verifies startup fails when an OIDC authority is configured without an audience.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task AuthorityWithoutAudienceFailsStartupOnLoopback()
     {
@@ -28,7 +26,6 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC rejects expired bearer tokens from the mock authority.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcExpiredOidcJwtIsRejected()
     {
@@ -53,7 +50,6 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC rejects malformed bearer tokens when OIDC JWT auth is enabled.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcInvalidOidcJwtIsRejected()
     {
@@ -77,7 +73,6 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC rejects requests without credentials when OIDC JWT auth is enabled.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcMissingOidcJwtIsRejected()
     {
@@ -98,7 +93,6 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC accepts a bearer token signed by the mock authority's JWKS.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcValidOidcJwtSucceeds()
     {
@@ -119,7 +113,6 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies gRPC rejects bearer tokens with an unexpected audience claim.</summary>
-    /// <returns>A task representing the asynchronous test.</returns>
     [Fact]
     public async Task GrpcWrongAudienceOidcJwtIsRejected()
     {

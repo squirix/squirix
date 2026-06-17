@@ -13,9 +13,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class CorrelationScopeBehaviorTests
 {
-    /// <summary>
-    /// Verifies the structured scope contains trace, span, node, and method fields when an activity exists.
-    /// </summary>
+    /// <summary>Verifies the structured scope contains trace, span, node, and method fields when an activity exists.</summary>
     [Fact]
     public void BeginStandardScopeCapturesStructuredFieldsFromActivity()
     {
@@ -35,9 +33,7 @@ public sealed class CorrelationScopeBehaviorTests
         Assert.Equal("Svc/Call", state["rpc.method"]);
     }
 
-    /// <summary>
-    /// Verifies the structured scope omits the rpc method field when it is not provided.
-    /// </summary>
+    /// <summary>Verifies the structured scope omits the rpc method field when it is not provided.</summary>
     [Fact]
     public void BeginStandardScopeOmitsMethodWhenNull()
     {
@@ -77,9 +73,7 @@ public sealed class CorrelationScopeBehaviorTests
             Assert.Equal(1, logger.ScopeDepth);
     }
 
-    /// <summary>
-    /// Verifies nested scopes dispose in stack order so the outer scope remains active after the inner scope ends.
-    /// </summary>
+    /// <summary>Verifies nested scopes dispose in stack order so the outer scope remains active after the inner scope ends.</summary>
     [Fact]
     public void NestedStandardScopesRestoreOuterContext()
     {
@@ -104,7 +98,10 @@ public sealed class CorrelationScopeBehaviorTests
         public IDisposable BeginScope<TState>(TState state)
             where TState : notnull
         {
-            LastScopeState = ((IEnumerable<KeyValuePair<string, object?>>)state).ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+            if (state is not StandardScopeState scopeState)
+                throw new InvalidOperationException("Unexpected scope state shape.");
+
+            LastScopeState = scopeState.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
             return NullScope.Instance;
         }
 
@@ -164,8 +161,8 @@ public sealed class CorrelationScopeBehaviorTests
 
     private sealed class NullScopeLogger : ILogger
     {
-        public IDisposable BeginScope<TState>(TState state)
-            where TState : notnull => null!;
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => false;
 

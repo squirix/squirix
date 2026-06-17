@@ -15,9 +15,7 @@ public sealed class JournalMetricsExporterOptionsTests
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>
-    /// Verifies the minimum positive interval remains accepted.
-    /// </summary>
+    /// <summary>Verifies the minimum positive interval remains accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryInterval()
     {
@@ -26,9 +24,7 @@ public sealed class JournalMetricsExporterOptionsTests
         Assert.Equal(TimeSpan.FromTicks(1), options.Interval);
     }
 
-    /// <summary>
-    /// Verifies non-positive intervals fail at assignment time.
-    /// </summary>
+    /// <summary>Verifies non-positive intervals fail at assignment time.</summary>
     [Fact]
     public void FieldBackedValidationRejectsNonPositiveInterval()
     {
@@ -39,20 +35,12 @@ public sealed class JournalMetricsExporterOptionsTests
         Assert.Contains(TimeSpan.Zero.ToString(), ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies JSON binding still applies valid option values through setters.
-    /// </summary>
+    /// <summary>Verifies JSON binding still applies valid option values through setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedInterval()
     {
-        const string json = """
-                            {
-                              "interval": "00:00:03"
-                            }
-                            """;
-
+        const string json = """{"interval":"00:00:03"}""";
         var options = JsonSerializer.Deserialize<JournalMetricsExporterOptions>(json, JsonOptions);
-
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromSeconds(3), options.Interval);
     }

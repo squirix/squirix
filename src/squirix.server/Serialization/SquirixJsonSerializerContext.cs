@@ -7,9 +7,7 @@ using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Serialization;
 
-/// <summary>
-/// Source-generated JSON metadata for squirix persistence DTOs.
-/// </summary>
+/// <summary>Source-generated JSON metadata for squirix persistence DTOs.</summary>
 [JsonSourceGenerationOptions(
     JsonSerializerDefaults.Web,
     PropertyNameCaseInsensitive = true,

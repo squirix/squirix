@@ -12,9 +12,7 @@ using Xunit;
 
 namespace Squirix.UnitTests.Architecture;
 
-/// <summary>
-/// Architecture rules for the client SDK assembly boundary.
-/// </summary>
+/// <summary>Architecture rules for the client SDK assembly boundary.</summary>
 public sealed class ClientCacheArchitectureTests
 {
     private static readonly string[] BlockedClientRuntimeNamespaces =
@@ -26,9 +24,7 @@ public sealed class ClientCacheArchitectureTests
         "Squirix.Server.Runtime",
     ];
 
-    /// <summary>
-    /// Ensures the client-generated gRPC CLR transport types remain internal and client-only.
-    /// </summary>
+    /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
     [Fact]
     public void ClientAssemblyGrpcTransportTypesShouldRemainInternalClientSurface()
     {
@@ -39,9 +35,7 @@ public sealed class ClientCacheArchitectureTests
         Assert.Null(ClientArchitecture.MainAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService+SquirixCacheServiceBase", false));
     }
 
-    /// <summary>
-    /// Ensures the client assembly does not take dependencies on server-owned runtime namespaces.
-    /// </summary>
+    /// <summary>Ensures the client assembly does not take dependencies on server-owned runtime namespaces.</summary>
     [Fact]
     public void ClientAssemblyShouldNotDependOnServerRuntimeNamespaces()
     {
@@ -53,9 +47,7 @@ public sealed class ClientCacheArchitectureTests
         }
     }
 
-    /// <summary>
-    /// Ensures the client package does not grant the server assembly access to internal SDK types.
-    /// </summary>
+    /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
     [Fact]
     public void ClientAssemblyShouldNotExposeInternalsToSquirixServer()
     {
@@ -65,9 +57,7 @@ public sealed class ClientCacheArchitectureTests
         Assert.DoesNotContain(friendAssemblies, static assemblyName => string.Equals(assemblyName, "Squirix.Server", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Ensures the core package does not reference the server package.
-    /// </summary>
+    /// <summary>Ensures the core package does not reference the server package.</summary>
     [Fact]
     public void ClientAssemblyShouldNotReferenceSquirixServer()
     {
@@ -75,18 +65,15 @@ public sealed class ClientCacheArchitectureTests
         Assert.DoesNotContain("Squirix.Server", references, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.
-    /// </summary>
+    /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Fact]
     public void ClientProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var protobuf = LoadProject("src/squirix/Squirix.csproj").Descendants()
-                                                                .Where(static element => string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
-                                                                .SingleOrDefault(static element => string.Equals(
-                                                                     element.Attribute("Include")?.Value,
-                                                                     @"..\shared\transport\grpc\Protos\SquirixCache.proto",
-                                                                     StringComparison.Ordinal));
+        var protobuf = LoadProject("src/squirix/Squirix.csproj").Descendants().SingleOrDefault(static element =>
+            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
+                element.Attribute("Include")?.Value,
+                @"..\shared\transport\grpc\Protos\SquirixCache.proto",
+                StringComparison.Ordinal));
 
         Assert.NotNull(protobuf);
         Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
@@ -95,9 +82,7 @@ public sealed class ClientCacheArchitectureTests
         Assert.NotNull(ClientArchitecture.MainAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService+SquirixCacheServiceClient", false));
     }
 
-    /// <summary>
-    /// Ensures the client project does not grow server-hosting dependency debt.
-    /// </summary>
+    /// <summary>Ensures the client project does not grow server-hosting dependency debt.</summary>
     [Fact]
     public void ClientProjectShouldNotReferenceServerHostingPackages()
     {
@@ -113,9 +98,7 @@ public sealed class ClientCacheArchitectureTests
         Assert.Empty(serverFrameworkReferences);
     }
 
-    /// <summary>
-    /// Ensures the core project does not depend on the server project.
-    /// </summary>
+    /// <summary>Ensures the core project does not depend on the server project.</summary>
     [Fact]
     public void ClientProjectShouldNotReferenceSquirixServerProject()
     {
@@ -125,14 +108,12 @@ public sealed class ClientCacheArchitectureTests
         Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>
-    /// Ensures the client API describes owner-local atomic batching without exposing topology terminology.
-    /// </summary>
+    /// <summary>Ensures the client API describes owner-local atomic batching without exposing topology terminology.</summary>
     [Fact]
     public void ClientPublicApiShouldNotExposeShardTerminology()
     {
         var offenders = ClientArchitecture.MainAssembly.ExportedTypes.Where(static type => type.FullName is not null && type.FullName.Contains("Shard", StringComparison.Ordinal))
-                                          .Select(static type => type.FullName).OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+                                          .Select(static type => type.FullName).Order(StringComparer.Ordinal).ToArray();
 
         Assert.Empty(offenders);
     }

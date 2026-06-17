@@ -3,6 +3,7 @@
 
 // The file-based release app keeps its options DTO inline so the validator remains directly runnable.
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Xml.Linq;
 
@@ -140,8 +141,8 @@ try
                     options.Configuration,
                     "-NoBuild",
                 ]).ConfigureAwait(false);
-            if (code != 0)
-                throw new InvalidOperationException($"Selected resiliency stress checks failed with exit code {code}.");
+            if (code is not 0)
+                throw new InvalidOperationException($"Selected resiliency stress checks failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -150,12 +151,12 @@ try
         await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
     await StepAsync("Validate package artifacts").ConfigureAwait(false);
-    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly).OrderBy(static path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly).Order(StringComparer.OrdinalIgnoreCase).ToArray();
     if (packages.Length < packageProjects.Length)
         throw new InvalidOperationException($"Expected at least {packageProjects.Length} .nupkg files in {packageOutputPath}.");
 
     foreach (var package in packages)
-        ValidatePackageMetadata(package);
+        await ValidatePackageMetadataAsync(package, CancellationToken.None).ConfigureAwait(false);
 
     await StepAsync("Prepare external package smoke source").ConfigureAwait(false);
     if (Directory.Exists(smokePackageOutputPath))
@@ -179,14 +180,15 @@ try
     var smokeRunCode = await RunDotnetAsync(
         Path.Combine(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
-    if (smokeRunCode != 0)
-        throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode}.");
+    if (smokeRunCode is not 0)
+        throw new InvalidOperationException($"External package smoke failed with exit code {smokeRunCode.ToString(CultureInfo.InvariantCulture)}.");
 
     if (options.IncludeBenchmarks)
     {
         await StepAsync("Build benchmarks").ConfigureAwait(false);
-        await RunDotnetOrThrowAsync(repoRootResolved, ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"])
-           .ConfigureAwait(false);
+        await RunDotnetOrThrowAsync(
+            repoRootResolved,
+            ["build", "benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj", "--configuration", options.Configuration, "--no-restore"]).ConfigureAwait(false);
     }
 
     await output.WriteLineAsync($"Release validation completed. Artifacts: {packageOutputPath}").ConfigureAwait(false);
@@ -314,22 +316,22 @@ static async Task StepAsync(string name)
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
     var code = await RunDotnetAsync(workingDirectory, args).ConfigureAwait(false);
-    if (code != 0)
-        throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code}.");
+    if (code is not 0)
+        throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
 }
 
 static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    using var proc = Process.Start(
-        new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false,
-            Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
-        });
+    var processStartInfo = new ProcessStartInfo
+    {
+        FileName = "dotnet",
+        WorkingDirectory = workingDirectory,
+        UseShellExecute = false,
+        Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
+    };
+    using var proc = Process.Start(processStartInfo);
     if (proc is not null)
-        await proc.WaitForExitAsync().ConfigureAwait(false);
+        await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
 }
@@ -359,38 +361,44 @@ static IReadOnlyList<string> NewPackArguments(string projectPath, string configu
     return args;
 }
 
-static void ValidatePackageMetadata(string packagePath)
+static async Task ValidatePackageMetadataAsync(string packagePath, CancellationToken cancellationToken)
 {
-    using var archive = ZipFile.OpenRead(packagePath);
-    var names = archive.Entries.Select(static e => e.FullName).ToArray();
-    var nuspecName = names.FirstOrDefault(static n => n.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
-    if (string.IsNullOrWhiteSpace(nuspecName))
-        throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
-    if (!names.Contains("README.md", StringComparer.Ordinal))
-        throw new InvalidOperationException($"Package has no README.md: {packagePath}");
-
-    var nuspecEntry = archive.GetEntry(nuspecName) ?? throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
-    using var stream = nuspecEntry.Open();
-    var document = XDocument.Load(stream);
-    var metadata = document.Root?.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "metadata", StringComparison.Ordinal));
-    if (metadata is null)
-        throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
-
-    foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
+    var archive = await ZipFile.OpenReadAsync(packagePath, cancellationToken).ConfigureAwait(false);
+    await using (archive.ConfigureAwait(false))
     {
-        var value = metadata.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.Ordinal))?.Value.Trim();
-        if (string.IsNullOrWhiteSpace(value))
-            throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
+        var names = archive.Entries.Select(static e => e.FullName).ToArray();
+        var nuspecName = names.FirstOrDefault(static n => n.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(nuspecName))
+            throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
+        if (!names.Contains("README.md", StringComparer.Ordinal))
+            throw new InvalidOperationException($"Package has no README.md: {packagePath}");
+
+        var nuspecEntry = archive.GetEntry(nuspecName) ?? throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
+        var stream = await nuspecEntry.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using (stream.ConfigureAwait(false))
+        {
+            var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken).ConfigureAwait(false);
+            var metadata = document.Root?.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "metadata", StringComparison.Ordinal));
+            if (metadata is null)
+                throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
+
+            foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
+            {
+                var value = metadata.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.Ordinal))?.Value.Trim();
+                if (string.IsNullOrWhiteSpace(value))
+                    throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
+            }
+
+            var repository = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "repository", StringComparison.Ordinal));
+            var repositoryUrl = repository?.Attribute("url")?.Value.Trim();
+            if (string.IsNullOrWhiteSpace(repositoryUrl))
+                throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
+
+            var licenseElement = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "license", StringComparison.Ordinal));
+            if (string.IsNullOrWhiteSpace(licenseElement?.Value.Trim()))
+                throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
+        }
     }
-
-    var repository = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "repository", StringComparison.Ordinal));
-    var repositoryUrl = repository?.Attribute("url")?.Value.Trim();
-    if (string.IsNullOrWhiteSpace(repositoryUrl))
-        throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
-
-    var licenseElement = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "license", StringComparison.Ordinal));
-    if (string.IsNullOrWhiteSpace(licenseElement?.Value.Trim()))
-        throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
 }
 
 internal sealed class ReleaseOptions

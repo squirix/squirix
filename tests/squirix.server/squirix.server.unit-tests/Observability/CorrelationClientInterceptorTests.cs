@@ -41,7 +41,7 @@ public sealed class CorrelationClientInterceptorTests
                 _ = req;
                 observed = ctx.Options;
 
-                return CreateCompletedUnaryCall("ok");
+                return CreateCompletedUnaryCallAsync("ok");
             });
 
         var options = Assert.NotNull(observed);
@@ -75,7 +75,7 @@ public sealed class CorrelationClientInterceptorTests
                 _ = req;
                 observed = ctx.Options;
 
-                return CreateCompletedUnaryCall("ok");
+                return CreateCompletedUnaryCallAsync("ok");
             });
 
         var options = Assert.NotNull(observed);
@@ -109,7 +109,7 @@ public sealed class CorrelationClientInterceptorTests
             {
                 _ = req;
                 observed = ctx.Options;
-                return CreateCompletedUnaryCall("ok");
+                return CreateCompletedUnaryCallAsync("ok");
             });
 
         var options = Assert.NotNull(observed);
@@ -119,7 +119,7 @@ public sealed class CorrelationClientInterceptorTests
         Assert.Equal("vendor=value", values[0]);
     }
 
-    private static AsyncUnaryCall<string> CreateCompletedUnaryCall(string response)
+    private static AsyncUnaryCall<string> CreateCompletedUnaryCallAsync(string response)
     {
         return new AsyncUnaryCall<string>(
             Task.FromResult(response),

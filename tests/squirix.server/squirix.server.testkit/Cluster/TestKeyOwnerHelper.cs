@@ -6,13 +6,14 @@ using System.Text;
 
 namespace Squirix.Server.TestKit.Cluster;
 
-/// <summary>
-/// Key ownership helper mirroring server consistent-hash route behavior for multi-node tests.
-/// </summary>
-internal sealed class TestKeyOwnerHelper
+/// <summary>Key ownership helper mirroring server consistent-hash route behavior for multi-node tests.</summary>
+public sealed class TestKeyOwnerHelper
 {
     private readonly (ulong Hash, string Node)[] _ring;
 
+    /// <summary>Initializes a new instance of the <see cref="TestKeyOwnerHelper" /> class.</summary>
+    /// <param name="nodeIds">Node identifiers participating in the ring.</param>
+    /// <param name="virtualNodes">Number of virtual nodes per physical node.</param>
     public TestKeyOwnerHelper(IEnumerable<string> nodeIds, int virtualNodes = 128)
     {
         ArgumentNullException.ThrowIfNull(nodeIds);
@@ -23,7 +24,7 @@ internal sealed class TestKeyOwnerHelper
                 nodes.Add(nodeId);
         }
 
-        if (nodes.Count == 0)
+        if (nodes.Count is 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));
 
         var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
@@ -41,6 +42,11 @@ internal sealed class TestKeyOwnerHelper
         _ring = [.. ring];
     }
 
+    /// <summary>Returns a cache key owned by <paramref name="ownerId" />.</summary>
+    /// <param name="cacheName">Cache name used for routing.</param>
+    /// <param name="ownerId">Expected owning node identifier.</param>
+    /// <param name="prefix">Key prefix used while searching.</param>
+    /// <returns>A key routed to <paramref name="ownerId" />.</returns>
     public string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => FindKeysOwnedBy(cacheName, ownerId, 1, prefix)[0];
 
     private static ulong HashBytes(ReadOnlySpan<byte> bytes)
@@ -89,7 +95,7 @@ internal sealed class TestKeyOwnerHelper
                 keys.Add(candidate);
         }
 
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count} keys owned by '{ownerId}'.");
+        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count.ToString(CultureInfo.InvariantCulture)} keys owned by '{ownerId}'.");
     }
 
     private string GetOwner(string cacheName, string key)

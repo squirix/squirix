@@ -16,9 +16,7 @@ public sealed class PublicApiGoldenSnapshotTests
 {
     private static readonly Assembly ServerAssembly = typeof(SquirixServer).Assembly;
 
-    /// <summary>
-    /// Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.
-    /// </summary>
+    /// <summary>Ensures the on-disk golden snapshot matches the server assembly; fails on unexpected additions or removals.</summary>
     [Fact]
     public void GoldenSnapshotMatchesServerAssemblyExports()
     {
@@ -29,7 +27,7 @@ public sealed class PublicApiGoldenSnapshotTests
 
         var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
         var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-        if (unexpected.Length == 0 && missing.Length == 0)
+        if (unexpected.Length is 0 && missing.Length is 0)
             return;
 
         var sb = new StringBuilder();
@@ -42,15 +40,13 @@ public sealed class PublicApiGoldenSnapshotTests
         Assert.Fail(sb.ToString());
     }
 
-    /// <summary>
-    /// Ensures the server package exposes only the canonical lifetime methods.
-    /// </summary>
+    /// <summary>Ensures the server package exposes only the canonical lifetime methods.</summary>
     [Fact]
     public void ServerShouldExposeOnlyCanonicalLifetimeMethods()
     {
         var methods = typeof(SquirixServer).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                                            .Where(static method => !method.IsSpecialName).Select(static method => method.Name).Distinct(StringComparer.Ordinal)
-                                           .OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+                                           .Order(StringComparer.Ordinal).ToArray();
 
         Assert.Equal(["DisposeAsync", "StartAsync"], methods);
     }

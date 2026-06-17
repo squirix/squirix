@@ -13,9 +13,7 @@ namespace Squirix.E2EBenchmarks.Support.IO;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Utility is shared across benchmark and test tooling.")]
 public static class DirectoryKit
 {
-    /// <summary>
-    /// Creates a new unique temporary directory under the system temp path.
-    /// </summary>
+    /// <summary>Creates a new unique temporary directory under the system temp path.</summary>
     /// <param name="innerDirectory">A subfolder name under the system temp path.</param>
     /// <param name="hint">Optional additional subfolder appended for traceability.</param>
     /// <returns>The absolute path to the created directory.</returns>
@@ -29,9 +27,7 @@ public static class DirectoryKit
         return directory;
     }
 
-    /// <summary>
-    /// Best-effort recursive delete of a directory.
-    /// </summary>
+    /// <summary>Best-effort recursive delete of a directory.</summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>
     /// <remarks>
     /// Performs up to 6 retries on transient <see cref="IOException" /> and

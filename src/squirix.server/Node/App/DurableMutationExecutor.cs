@@ -93,7 +93,7 @@ internal sealed class DurableMutationExecutor
         {
             var decision = await precondition(ct).ConfigureAwait(false);
             if (!decision.ShouldApply)
-                return decision.Result;
+                return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
 
             await appendJournal(ct).ConfigureAwait(false);
             await _journal.AwaitDurabilityCommitAsync(ct).ConfigureAwait(false);
@@ -119,7 +119,7 @@ internal sealed class DurableMutationExecutor
             {
                 _ = _inFlight.TryRemove(conflictKey, out _);
                 state.Admitted = false;
-                return DurableMutationPlan<TResult>.Skip(decision.Result);
+                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false."));
             }
 
             _journal.BeginPendingMemoryApply();

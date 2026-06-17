@@ -86,7 +86,7 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
 
         var relative = Path.GetRelativePath(repoRoot, file);
         var parts = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.None);
-        if (parts.Length == 0 || !scopedTopLevelDirectories.Contains(parts[0]))
+        if (parts.Length is 0 || !scopedTopLevelDirectories.Contains(parts[0]))
             continue;
 
         if (parts.Any(skippedDirectories.Contains))
@@ -137,7 +137,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         foreach (var framework in frameworks)
         {
             var value = framework.Trim();
-            if (value.Length == 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
+            if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
             {
                 continue;
             }

@@ -17,8 +17,8 @@ internal static class JournalFrameReader
         var headerRead = ReadHeader(stream, lengthBytes);
         return headerRead switch
         {
-            0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset, frameOffset),
-            < JournalFraming.FrameHeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset, frameOffset),
+            0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
+            < JournalFraming.FrameHeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
             _ => ReadNextFromValidStreamHeader(stream, frameOffset, lengthBytes, out rentedBuffer, out payloadLength),
         };
     }
@@ -27,8 +27,8 @@ internal static class JournalFrameReader
     {
         return data.Length switch
         {
-            0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset, frameOffset),
-            < JournalFraming.FrameHeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset, frameOffset),
+            0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
+            < JournalFraming.FrameHeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
             _ => ReadNextFromValidSpanHeader(data, frameOffset),
         };
     }
@@ -36,13 +36,13 @@ internal static class JournalFrameReader
     private static int ReadHeader(Stream stream, Span<byte> buffer)
     {
         var read = stream.Read(buffer);
-        if (read == 0)
+        if (read is 0)
             return 0;
 
         while (read < buffer.Length)
         {
             var next = stream.Read(buffer[read..]);
-            if (next == 0)
+            if (next is 0)
                 return read;
 
             read += next;
@@ -53,18 +53,17 @@ internal static class JournalFrameReader
 
     private static JournalFrameReadResult ReadNextFromValidSpanHeader(ReadOnlySpan<byte> data, long frameOffset)
     {
-        var declaredPayloadLength = BinaryPrimitives.ReadUInt32LittleEndian(data[..JournalFraming.FrameHeaderSize]);
-        if (declaredPayloadLength > int.MaxValue)
-            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset, frameOffset);
+        var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(data[..JournalFraming.FrameHeaderSize]);
+        if (payloadLength < 0)
+            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
 
-        var payloadLength = (int)declaredPayloadLength;
         if (data.Length - JournalFraming.FrameHeaderSize < payloadLength)
-            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset, frameOffset);
+            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
 
         var checksumOffset = JournalFraming.FrameHeaderSize + payloadLength;
         if (data.Length - checksumOffset < JournalFraming.FrameFooterSize)
         {
-            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset, frameOffset);
+            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
         }
 
         var payload = data.Slice(JournalFraming.FrameHeaderSize, payloadLength);
@@ -72,11 +71,11 @@ internal static class JournalFrameReader
         var actualChecksum = Crc32C.Compute(payload);
         if (actualChecksum != expectedChecksum)
         {
-            return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset, frameOffset);
+            return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
         }
 
-        var nextFrameOffset = frameOffset + JournalFraming.FrameHeaderSize + declaredPayloadLength + JournalFraming.FrameFooterSize;
-        return new JournalFrameReadResult(JournalFrameReadStatus.Success, frameOffset, nextFrameOffset);
+        var nextFrameOffset = frameOffset + JournalFraming.FrameHeaderSize + payloadLength + JournalFraming.FrameFooterSize;
+        return new JournalFrameReadResult(JournalFrameReadStatus.Success, nextFrameOffset);
     }
 
     private static JournalFrameReadResult ReadNextFromValidStreamHeader(
@@ -89,33 +88,33 @@ internal static class JournalFrameReader
         rentedBuffer = null;
         payloadLength = 0;
 
-        var declaredPayloadLength = BinaryPrimitives.ReadUInt32LittleEndian(lengthBytes);
-        if (declaredPayloadLength > int.MaxValue)
-            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset, frameOffset);
+        var declaredPayloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
+        if (declaredPayloadLength < 0)
+            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
 
-        payloadLength = (int)declaredPayloadLength;
+        payloadLength = declaredPayloadLength;
         var rented = ArrayPool<byte>.Shared.Rent(Math.Max(payloadLength, 1));
         try
         {
             var payload = rented.AsSpan(0, payloadLength);
             if (!TryReadExact(stream, payload))
-                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset, frameOffset);
+                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
 
             Span<byte> checksumBytes = stackalloc byte[JournalFraming.FrameFooterSize];
             if (!TryReadExact(stream, checksumBytes))
-                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset, frameOffset);
+                return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
 
             var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes);
             var actualChecksum = Crc32C.Compute(payload);
             if (actualChecksum != expectedChecksum)
             {
-                return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset, frameOffset);
+                return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
             }
 
             rentedBuffer = rented;
             ArgumentNullException.ThrowIfNull(rentedBuffer);
-            var nextFrameOffset = frameOffset + JournalFraming.FrameHeaderSize + declaredPayloadLength + JournalFraming.FrameFooterSize;
-            return new JournalFrameReadResult(JournalFrameReadStatus.Success, frameOffset, nextFrameOffset);
+            var nextFrameOffset = frameOffset + JournalFraming.FrameHeaderSize + payloadLength + JournalFraming.FrameFooterSize;
+            return new JournalFrameReadResult(JournalFrameReadStatus.Success, nextFrameOffset);
         }
         finally
         {
@@ -129,7 +128,7 @@ internal static class JournalFrameReader
         while (!buffer.IsEmpty)
         {
             var read = stream.Read(buffer);
-            if (read == 0)
+            if (read is 0)
                 return false;
 
             buffer = buffer[read..];

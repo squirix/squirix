@@ -6,9 +6,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Ensures owner-local physical mutations execute only on the owning node.
-/// </summary>
+/// <summary>Ensures owner-local physical mutations execute only on the owning node.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
 {

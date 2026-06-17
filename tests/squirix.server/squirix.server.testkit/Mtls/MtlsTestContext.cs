@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>
-/// Shared cluster CA and per-node mTLS material for multi-node test hosts in one test case.
-/// </summary>
+/// <summary>Shared cluster CA and per-node mTLS material for multi-node test hosts in one test case.</summary>
 public sealed class MtlsTestContext : IDisposable
 {
     private readonly Dictionary<string, int> _internalPortsByNodeId = new(StringComparer.Ordinal);
@@ -31,9 +31,7 @@ public sealed class MtlsTestContext : IDisposable
         _internalPortsByNodeId.Clear();
     }
 
-    /// <summary>
-    /// Builds peer entries for a multi-node topology, including dedicated inter-node URLs.
-    /// </summary>
+    /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
     /// <param name="shared">Shared context for the current test case.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
@@ -54,33 +52,31 @@ public sealed class MtlsTestContext : IDisposable
         return shared.BuildPeers(topology);
     }
 
-    /// <summary>
-    /// Resolves startup overrides for a node, reusing one shared context per test case.
-    /// </summary>
-    /// <param name="shared">Shared context for the current test case.</param>
-    /// <param name="cluster">Cluster topology for the node.</param>
-    /// <param name="url">Primary listen URL for the node.</param>
-    /// <returns>Startup overrides, or <see langword="null"/> values for standalone topology.</returns>
-    internal static (MtlsOptions? Options, MtlsCertificateMaterial? Material) ResolveForNode(ref MtlsTestContext? shared, ClusterConfig cluster, string url)
+    internal static async Task<(MtlsTestContext? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForNodeAsync(
+        MtlsTestContext? shared,
+        ClusterConfig cluster,
+        string url,
+        CancellationToken cancellationToken = default)
     {
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
-            return (null, null);
+            return (shared, null, null);
 
         shared ??= new MtlsTestContext();
-        return shared.Resolve(cluster, url);
+        var (options, material) = await shared.ResolveAsync(cluster, url, cancellationToken).ConfigureAwait(false);
+        return (shared, options, material);
     }
 
-    /// <summary>
-    /// Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.
-    /// </summary>
+    /// <summary>Resolves cluster mTLS startup overrides and outbound handler wiring for a test node profile.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="url">Primary listen URL for the node.</param>
     /// <param name="profile">Requested inter-node mTLS test profile.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options, material, and optional per-peer outbound handler factory.</returns>
-    internal (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) ResolveNodeStartup(
+    internal async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveNodeStartupAsync(
         ClusterConfig cluster,
         string url,
-        MtlsTestNodeProfile profile)
+        MtlsTestNodeProfile profile,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -90,7 +86,7 @@ public sealed class MtlsTestContext : IDisposable
 
         _bundle ??= new MtlsTestBundle();
         var internalPort = GetOrAllocateInternalPort(cluster.NodeId, cluster);
-        var (options, material) = _bundle.CreateNode(cluster.NodeId, internalPort);
+        var (options, material) = await _bundle.CreateNodeAsync(cluster.NodeId, internalPort, cancellationToken).ConfigureAwait(false);
 
         return profile switch
         {
@@ -98,8 +94,8 @@ public sealed class MtlsTestContext : IDisposable
             MtlsTestNodeProfile.NoOutboundClientCertificate => (options, material,
                 peerNodeId => MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor!, peerNodeId)),
             MtlsTestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
-            MtlsTestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, internalPort, material),
-            MtlsTestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, internalPort, material),
+            MtlsTestNodeProfile.UntrustedInboundServerCertificate => await CreateUntrustedInboundServerStartupAsync(cluster.NodeId, internalPort, material, cancellationToken).ConfigureAwait(false),
+            MtlsTestNodeProfile.ExpiredPeerCertificate => await CreateExpiredPeerStartupAsync(cluster.NodeId, internalPort, material, cancellationToken).ConfigureAwait(false),
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
         };
     }
@@ -158,37 +154,40 @@ public sealed class MtlsTestContext : IDisposable
         return peers;
     }
 
-    private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateExpiredPeerStartup(
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> CreateExpiredPeerStartupAsync(
         string nodeId,
         int internalListenPort,
-        MtlsCertificateMaterial material)
+        MtlsCertificateMaterial material,
+        CancellationToken cancellationToken)
     {
         var clusterCa = _bundle!.GetClusterCertificateAuthority();
         var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
-        return CreateMaterialStartup(nodeId, internalListenPort, expiredCertificate, material.TrustAnchor!);
+        return await CreateMaterialStartupAsync(nodeId, internalListenPort, expiredCertificate, material.TrustAnchor!, cancellationToken).ConfigureAwait(false);
     }
 
-    private (MtlsOptions Options, MtlsCertificateMaterial Material, Func<string, HttpMessageHandler> PeerHandlerFactory) CreateMaterialStartup(
+    private async Task<(MtlsOptions Options, MtlsCertificateMaterial Material, Func<string, HttpMessageHandler> PeerHandlerFactory)> CreateMaterialStartupAsync(
         string nodeId,
         int internalListenPort,
         X509Certificate2 nodeCertificate,
-        X509Certificate2 trustAnchor)
+        X509Certificate2 trustAnchor,
+        CancellationToken cancellationToken)
     {
-        var (options, material) = _bundle!.CreateNodeFromCertificate(nodeId, internalListenPort, nodeCertificate);
+        var (options, material) = await _bundle!.CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeCertificate, cancellationToken).ConfigureAwait(false);
         var clientCertificate = TrackCertificate(MtlsTestCertificates.LoadExportableCertificate(nodeCertificate));
         return (options, material, peerNodeId => GrpcTransportEndpoints.CreateMtlsHandler(clientCertificate, trustAnchor, peerNodeId));
     }
 
-    private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateUntrustedInboundServerStartup(
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> CreateUntrustedInboundServerStartupAsync(
         string nodeId,
         int internalListenPort,
-        MtlsCertificateMaterial material)
+        MtlsCertificateMaterial material,
+        CancellationToken cancellationToken)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedServerCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
-        return CreateMaterialStartup(nodeId, internalListenPort, untrustedServerCertificate, material.TrustAnchor!);
+        return await CreateMaterialStartupAsync(nodeId, internalListenPort, untrustedServerCertificate, material.TrustAnchor!, cancellationToken).ConfigureAwait(false);
     }
 
     private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateUntrustedOutboundStartup(
@@ -233,15 +232,17 @@ public sealed class MtlsTestContext : IDisposable
     private X509Certificate2 GetOrCreateUntrustedCertificateAuthority() =>
         _untrustedCertificateAuthority ??= TrackCertificate(MtlsTestCertificates.CreateStandaloneCertificateAuthority());
 
-    /// <summary>
-    /// Creates cluster mTLS startup overrides for the node being started.
-    /// </summary>
+    /// <summary>Creates cluster mTLS startup overrides for the node being started.</summary>
     /// <param name="cluster">Cluster topology for the node.</param>
     /// <param name="url">Primary listen URL for the node.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    private (MtlsOptions? Options, MtlsCertificateMaterial? Material) Resolve(ClusterConfig cluster, string url)
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(
+        ClusterConfig cluster,
+        string url,
+        CancellationToken cancellationToken)
     {
-        var (options, material, _) = ResolveNodeStartup(cluster, url, MtlsTestNodeProfile.Normal);
+        var (options, material, _) = await ResolveNodeStartupAsync(cluster, url, MtlsTestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         return (options, material);
     }
 

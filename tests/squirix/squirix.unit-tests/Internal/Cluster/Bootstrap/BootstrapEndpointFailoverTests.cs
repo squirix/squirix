@@ -2,19 +2,15 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Bootstrap;
+using Squirix.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.UnitTests.Internal.Cluster.Bootstrap;
 
-/// <summary>
-/// Unit tests for bootstrap endpoint failover routing.
-/// </summary>
+/// <summary>Unit tests for bootstrap endpoint failover routing.</summary>
 public sealed class BootstrapEndpointFailoverTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies failover moves active traffic to the next bootstrap endpoint on transport errors.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies failover moves active traffic to the next bootstrap endpoint on transport errors.</summary>
     [Fact]
     public async Task ClientFailsOverAfterSelectedEndpointUnavailable()
     {
@@ -34,10 +30,7 @@ public sealed class BootstrapEndpointFailoverTests : UnitTestBase
         Assert.Equal(2, calls);
     }
 
-    /// <summary>
-    /// Verifies non-transport errors do not trigger bootstrap failover.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies non-transport errors do not trigger bootstrap failover.</summary>
     [Fact]
     public async Task DoesNotFailOverOnApplicationLevelRpcErrors()
     {

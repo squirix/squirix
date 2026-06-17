@@ -24,7 +24,4 @@
         <ProjectReference Include="..\squirix.testkit\Squirix.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix\Squirix.csproj"/>
     </ItemGroup>
-
-    <ItemGroup>
-    </ItemGroup>
 </Project>

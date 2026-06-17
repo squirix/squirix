@@ -7,14 +7,10 @@ using Squirix.Server.Cluster.Transport;
 
 namespace Squirix.Server.TestKit.Mtls;
 
-/// <summary>
-/// Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.
-/// </summary>
+/// <summary>Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.</summary>
 public static class MtlsTestCertificates
 {
-    /// <summary>
-    /// Creates an outbound handler that trusts the cluster CA but does not present a client certificate.
-    /// </summary>
+    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
     /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
@@ -35,9 +31,7 @@ public static class MtlsTestCertificates
         };
     }
 
-    /// <summary>
-    /// Creates a peer certificate signed by the provided test CA.
-    /// </summary>
+    /// <summary>Creates a peer certificate signed by the provided test CA.</summary>
     /// <param name="issuer">Issuing test certificate authority.</param>
     /// <param name="commonName">Peer certificate common name.</param>
     /// <param name="notBefore">Optional validity start.</param>
@@ -58,9 +52,7 @@ public static class MtlsTestCertificates
         return peerPublic.CopyWithPrivateKey(peerKey);
     }
 
-    /// <summary>
-    /// Creates a standalone test certificate authority.
-    /// </summary>
+    /// <summary>Creates a standalone test certificate authority.</summary>
     /// <param name="commonName">Certificate authority distinguished name common name.</param>
     /// <returns>A self-signed test CA certificate.</returns>
     public static X509Certificate2 CreateStandaloneCertificateAuthority(string commonName = "CN=Squirix E2E Untrusted Test CA")
@@ -73,9 +65,7 @@ public static class MtlsTestCertificates
         return caRequest.CreateSelfSigned(notBefore, notAfter);
     }
 
-    /// <summary>
-    /// Loads an exportable certificate copy suitable for Schannel client and server authentication.
-    /// </summary>
+    /// <summary>Loads an exportable certificate copy suitable for Schannel client and server authentication.</summary>
     /// <param name="certificate">Source certificate with private key.</param>
     /// <returns>Exportable certificate copy.</returns>
     internal static X509Certificate2 LoadExportableCertificate(X509Certificate2 certificate) =>

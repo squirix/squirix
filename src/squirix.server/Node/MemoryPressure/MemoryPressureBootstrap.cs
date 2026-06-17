@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Utils;
 
@@ -8,14 +10,13 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// </summary>
 internal static class MemoryPressureBootstrap
 {
-    /// <summary>
-    /// Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.
-    /// </summary>
+    /// <summary>Loads memory pressure settings using the same settings file discovery as cluster bootstrap, then applies environment overrides.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Loaded settings before RAM budget resolution.</returns>
-    public static UnresolvedMemoryPressureOptions Load()
+    public static async Task<UnresolvedMemoryPressureOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         var baseline = new UnresolvedMemoryPressureOptions();
-        _ = UnifiedSettings.TryMergeMemoryPressureFromFile(baseline, out var fileMerged);
+        var (_, fileMerged) = await UnifiedSettings.TryMergeMemoryPressureFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);
         return ApplyEnvironment(fileMerged);
     }
 
@@ -24,15 +25,15 @@ internal static class MemoryPressureBootstrap
         var result = options;
 
         var maxBytes = EnvVariables.ReadInt64("SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES");
-        if (maxBytes.HasValue)
+        if (maxBytes is not null)
             result = result with { MaxEstimatedCacheBytes = maxBytes.Value };
 
         var high = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT");
-        if (high.HasValue)
+        if (high is not null)
             result = result with { HighPressureThresholdPercent = high.Value };
 
         var critical = EnvVariables.ReadInt("SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT");
-        if (critical.HasValue)
+        if (critical is not null)
             result = result with { CriticalPressureThresholdPercent = critical.Value };
 
         return result;

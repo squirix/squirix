@@ -5,9 +5,7 @@ using Squirix.Server.Errors;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// In-memory deduplication cache for mutating cache RPC outcomes.
-/// </summary>
+/// <summary>In-memory deduplication cache for mutating cache RPC outcomes.</summary>
 internal sealed class RpcMutationIdempotencyGuard
 {
     private readonly ConcurrentDictionary<string, StoredRpcOutcome> _records = new(StringComparer.Ordinal);
@@ -18,7 +16,7 @@ internal sealed class RpcMutationIdempotencyGuard
         _retention = retention ?? TimeSpan.FromMinutes(15);
     }
 
-    public bool TryReplay<TResponse>(string operationId, string fingerprint, MessageParser<TResponse> parser, out TResponse response)
+    public bool TryReplay<TResponse>(string operationId, string fingerprint, MessageParser<TResponse> parser, out TResponse? response)
         where TResponse : IMessage<TResponse>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
@@ -29,7 +27,7 @@ internal sealed class RpcMutationIdempotencyGuard
 
         if (!_records.TryGetValue(operationId, out var stored))
         {
-            response = default!;
+            response = default;
             return false;
         }
 

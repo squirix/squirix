@@ -17,9 +17,7 @@ public sealed class SquirixOptions
     /// </summary>
     public Func<CancellationToken, ValueTask<string>>? BearerTokenProvider { get; set; }
 
-    /// <summary>
-    /// Gets bootstrap Squirix server endpoints used by remote clients.
-    /// </summary>
+    /// <summary>Gets bootstrap Squirix server endpoints used by remote clients.</summary>
     /// <remarks>
     ///     <para>
     ///     Endpoints must be interchangeable views of the same logical service (HA standby or load-balanced front door),

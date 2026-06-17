@@ -7,9 +7,7 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// </summary>
 internal sealed class GcMemoryBudgetProvider : IMemoryBudgetProvider
 {
-    /// <summary>
-    /// Gets the shared provider for production bootstrap and settings validation.
-    /// </summary>
+    /// <summary>Gets the shared provider for production bootstrap and settings validation.</summary>
     internal static GcMemoryBudgetProvider Instance { get; } = new();
 
     /// <inheritdoc />

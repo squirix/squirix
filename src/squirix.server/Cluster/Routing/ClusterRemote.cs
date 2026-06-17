@@ -40,9 +40,9 @@ internal sealed class ClusterRemote<T>
                 async ct => await client.GetAsync(new GetRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
 
-            return response.Entry.MapFromProto<T>();
+            return await response.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
         {
             return null;
         }
@@ -79,7 +79,7 @@ internal sealed class ClusterRemote<T>
                 cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
-        return new CacheValueResult<T>(true, ProtoEx.CacheValueFromGrpcValue<T>(response.Value, null, null).Value);
+        return new CacheValueResult<T>(true, (await ProtoEx.CacheValueFromGrpcValueAsync<T>(response.Value, null, null).ConfigureAwait(false)).Value);
     }
 
     public async ValueTask<bool> RemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -152,7 +152,9 @@ internal sealed class ClusterRemote<T>
             async ct => await client.GetValueAsync(new GetValueRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? new CacheValueResult<T>(true, ProtoEx.CacheValueFromGrpcValue<T>(response.Value, null, null).Value) : new CacheValueResult<T>(false, default);
+        return response.Found
+            ? new CacheValueResult<T>(true, (await ProtoEx.CacheValueFromGrpcValueAsync<T>(response.Value, null, null).ConfigureAwait(false)).Value)
+            : new CacheValueResult<T>(false, default);
     }
 
     public async ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -167,7 +169,9 @@ internal sealed class ClusterRemote<T>
         if (!response.Removed)
             return new CacheRemoveResult<T>(false, default);
 
-        var previous = response.PreviousValue is null ? default : new RpcEntry { Value = response.PreviousValue }.MapFromProto<T>().Value;
+        var previous = response.PreviousValue is null
+            ? default
+            : (await new RpcEntry { Value = response.PreviousValue }.MapFromProtoAsync<T>().ConfigureAwait(false)).Value;
         return new CacheRemoveResult<T>(true, previous);
     }
 

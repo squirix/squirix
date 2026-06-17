@@ -2,14 +2,10 @@ using System;
 
 namespace Squirix.Server.TestKit.Testing;
 
-/// <summary>
-/// Helpers for measuring allocations in tests.
-/// </summary>
+/// <summary>Helpers for measuring allocations in tests.</summary>
 public static class AllocationTestHelper
 {
-    /// <summary>
-    /// Measures allocated bytes for an action using warmup and repeated iterations.
-    /// </summary>
+    /// <summary>Measures allocated bytes for an action using warmup and repeated iterations.</summary>
     /// <param name="action">The action to measure.</param>
     /// <param name="warmupIterations">Warmup iteration count.</param>
     /// <param name="measuredIterations">Measured iteration count.</param>

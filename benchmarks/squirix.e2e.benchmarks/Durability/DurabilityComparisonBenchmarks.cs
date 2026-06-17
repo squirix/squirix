@@ -8,9 +8,7 @@ using Squirix.E2EBenchmarks.Scenarios;
 
 namespace Squirix.E2EBenchmarks.Durability;
 
-/// <summary>
-/// Focused durability comparison benchmarks on a fixed single-node scenario.
-/// </summary>
+/// <summary>Focused durability comparison benchmarks on a fixed single-node scenario.</summary>
 [BenchmarkCategory("e2e", "durability")]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 [SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
@@ -19,9 +17,7 @@ public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
     /// <inheritdoc />
     public override IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDurabilityComparisonMatrix();
 
-    /// <summary>
-    /// Measures GetValueAsync hit throughput.
-    /// </summary>
+    /// <summary>Measures GetValueAsync hit throughput.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("read")]
@@ -31,9 +27,7 @@ public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
             Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Measures SetAsync throughput for new keys.
-    /// </summary>
+    /// <summary>Measures SetAsync throughput for new keys.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>
     [Benchmark(OperationsPerInvoke = BatchSize)]
     [BenchmarkCategory("write")]

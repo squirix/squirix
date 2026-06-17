@@ -6,15 +6,10 @@ using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>
-/// Integration tests for typed custom values routed through a two-node public cache API cluster.
-/// </summary>
+/// <summary>Integration tests for typed custom values routed through a two-node public cache API cluster.</summary>
 public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
-    /// <summary>
-    /// Verifies GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes.</summary>
     [Fact]
     public async Task GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes()
     {
@@ -37,10 +32,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         TypedValueAssertions.AssertProfileEquals(expected, reread.Value!);
     }
 
-    /// <summary>
-    /// Verifies LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.</summary>
     [Fact]
     public async Task LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
     {
@@ -55,10 +47,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.</summary>
     [Fact]
     public async Task RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
     {
@@ -73,10 +62,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>
-    /// Verifies RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes.</summary>
     [Fact]
     public async Task RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes()
     {
@@ -89,10 +75,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         Assert.False((await cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies SetAndGetShouldRoundTripCustomRecordAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAndGetShouldRoundTripCustomRecordAcrossTwoNodes.</summary>
     [Fact]
     public async Task SetAndGetShouldRoundTripCustomRecordAcrossTwoNodes()
     {
@@ -113,10 +96,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         TypedValueAssertions.AssertProfileEquals(nodeBValue, nodeBResult.Value!);
     }
 
-    /// <summary>
-    /// Verifies SetAndGetShouldRoundTripMutableClassAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies SetAndGetShouldRoundTripMutableClassAcrossTwoNodes.</summary>
     [Fact]
     public async Task SetAndGetShouldRoundTripMutableClassAcrossTwoNodes()
     {
@@ -137,10 +117,7 @@ public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(
         TypedValueAssertions.AssertCartEquals(nodeBValue, nodeBResult.Value!);
     }
 
-    /// <summary>
-    /// Verifies UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes.</summary>
     [Fact]
     public async Task UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes()
     {

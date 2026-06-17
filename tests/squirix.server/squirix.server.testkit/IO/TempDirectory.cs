@@ -3,9 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace Squirix.Server.TestKit.IO;
 
-/// <summary>
-/// RAII wrapper that creates a guarded temp directory and deletes it on dispose.
-/// </summary>
+/// <summary>RAII wrapper that creates a guarded temp directory and deletes it on dispose.</summary>
 public sealed class TempDirectory : IDisposable
 {
     /// <summary>
@@ -18,9 +16,7 @@ public sealed class TempDirectory : IDisposable
         Path = DirectoryKit.CreateTempDirectory(innerDirectory, hint);
     }
 
-    /// <summary>
-    /// Gets the absolute path to the created directory.
-    /// </summary>
+    /// <summary>Gets the absolute path to the created directory.</summary>
     public string Path { get; }
 
     /// <summary>

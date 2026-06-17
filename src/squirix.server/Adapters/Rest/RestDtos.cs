@@ -113,7 +113,7 @@ internal static class RestDtos
     internal sealed class HealthReadyDetailsResponse
     {
         public HealthReadyDetailsResponse(
-            long journalBacklogOps,
+            ulong journalBacklogOps,
             double? snapshotAgeSeconds,
             bool snapshotInFlight,
             HealthCompactionDetails compaction,
@@ -139,7 +139,7 @@ internal static class RestDtos
         public HealthCoordinationDetails Coordination { get; }
 
         [JsonPropertyName("journalBacklogOps")]
-        public long JournalBacklogOps { get; }
+        public ulong JournalBacklogOps { get; }
 
         public HealthMemoryPressureDetails MemoryPressure { get; }
 

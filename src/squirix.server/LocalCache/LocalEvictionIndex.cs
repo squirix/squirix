@@ -5,9 +5,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>
-/// Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).
-/// </summary>
+/// <summary>Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).</summary>
 internal sealed class LocalEvictionIndex
 {
     private readonly Lock _lock = new();
@@ -20,9 +18,7 @@ internal sealed class LocalEvictionIndex
         _options = options;
     }
 
-    /// <summary>
-    /// Gets the bounded capacity limit when configured.
-    /// </summary>
+    /// <summary>Gets the bounded capacity limit when configured.</summary>
     internal int? BoundedCapacity => _options.Capacity;
 
     internal void TouchExisting(CacheKey key)
@@ -82,7 +78,7 @@ internal sealed class LocalEvictionIndex
 
         lock (_lock)
         {
-            if (_meta.Count == 0)
+            if (_meta.Count is 0)
                 return false;
 
             var candidate = _options.Policy switch

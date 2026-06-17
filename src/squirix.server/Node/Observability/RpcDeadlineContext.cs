@@ -36,7 +36,7 @@ internal static class RpcDeadlineContext
         if (deadlineUtc is null || deadlineUtc == DateTime.MaxValue || deadlineUtc == DateTime.MinValue)
             return null;
 
-        return deadlineUtc.Value.Kind == DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
+        return deadlineUtc.Value.Kind is DateTimeKind.Utc ? deadlineUtc.Value : deadlineUtc.Value.ToUniversalTime();
     }
 
     private sealed class Scope : IDisposable

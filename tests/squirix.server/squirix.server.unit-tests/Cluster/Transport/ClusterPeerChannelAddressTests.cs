@@ -9,9 +9,7 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 /// </summary>
 public sealed class ClusterPeerChannelAddressTests
 {
-    /// <summary>
-    /// Ensures pooled cluster clients fall back to the local internal listen port when no inter-node URL is configured.
-    /// </summary>
+    /// <summary>Ensures pooled cluster clients fall back to the local internal listen port when no inter-node URL is configured.</summary>
     [Fact]
     public void ResolveUsesConfiguredInternalListenPortWhenInterNodeUrlMissing()
     {
@@ -22,9 +20,7 @@ public sealed class ClusterPeerChannelAddressTests
         Assert.Equal("https://127.0.0.1:6101/", address);
     }
 
-    /// <summary>
-    /// Ensures pooled cluster clients prefer the configured inter-node URL when mTLS is enabled.
-    /// </summary>
+    /// <summary>Ensures pooled cluster clients prefer the configured inter-node URL when mTLS is enabled.</summary>
     [Fact]
     public void ResolveUsesInterNodeUrlWhenConfigured()
     {
@@ -40,9 +36,7 @@ public sealed class ClusterPeerChannelAddressTests
         Assert.Equal("https://localhost:6202", address);
     }
 
-    /// <summary>
-    /// Ensures pooled cluster clients use the primary peer URL when inter-node mTLS is disabled.
-    /// </summary>
+    /// <summary>Ensures pooled cluster clients use the primary peer URL when inter-node mTLS is disabled.</summary>
     [Fact]
     public void ResolveUsesPrimaryUrlWhenInterNodeMtlsDisabled()
     {

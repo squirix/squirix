@@ -15,10 +15,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class ItemsGaugeReporterServiceTests
 {
-    /// <summary>
-    /// Verifies observable gauge measurements, empty-cache reporting, error propagation, and hosted lifecycle hooks.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies observable gauge measurements, empty-cache reporting, error propagation, and hosted lifecycle hooks.</summary>
     [Fact]
     public async Task ObservableGaugeReflectsStatsAndPropagatesErrors()
     {

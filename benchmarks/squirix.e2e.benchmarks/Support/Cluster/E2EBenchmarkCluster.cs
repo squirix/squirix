@@ -12,9 +12,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
-/// <summary>
-/// Owns real Squirix nodes for an end-to-end benchmark scenario.
-/// </summary>
+/// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
     private readonly Dictionary<string, TestNodeHost> _nodes;
@@ -28,7 +26,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         if (_client is not null)
@@ -41,7 +39,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         BenchmarkRuntime.EnsureInitialized();
-        var nodeIds = topology == BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
+        var nodeIds = topology is BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
         var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
             addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri().AbsoluteUri;
@@ -50,7 +48,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
         for (var i = 0; i < nodeIds.Length; i++)
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
-        var usePersistence = durabilityMode == E2EBenchmarkDurabilityMode.Persistence;
+        var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
         var root = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-e2e-benchmarks") : null;
 
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);

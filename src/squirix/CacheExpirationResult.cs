@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix;
 
-/// <summary>
-/// Outcome of a cache expiration lookup.
-/// </summary>
+/// <summary>Outcome of a cache expiration lookup.</summary>
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
 /// <param name="HasExpiration">Indicates whether the live entry has an expiration.</param>
 /// <param name="Expiration">The remaining expiration when the live entry has expiration.</param>

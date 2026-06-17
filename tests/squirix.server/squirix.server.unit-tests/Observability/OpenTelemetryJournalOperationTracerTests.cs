@@ -33,9 +33,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         Assert.False(Assert.IsType<bool>(activity.GetTagItem("journal.group_commit")));
     }
 
-    /// <summary>
-    /// Ensures unset durability settings do not emit durability span tags.
-    /// </summary>
+    /// <summary>Ensures unset durability settings do not emit durability span tags.</summary>
     [Fact]
     public void BeginOmitsDurabilityTagsWhenContextValuesAreNull()
     {
@@ -57,9 +55,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         return activity;
     }
 
-    /// <summary>
-    /// Enables sampling so the Squirix activity source returns a non-null activity.
-    /// </summary>
+    /// <summary>Enables sampling so the Squirix activity source returns a non-null activity.</summary>
     private static ActivityListener CreateSquirixSamplingListener()
     {
         var listener = new ActivityListener

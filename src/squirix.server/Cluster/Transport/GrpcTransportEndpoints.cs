@@ -5,20 +5,14 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Validates and configures gRPC transport endpoints for server-to-server transport.
-/// </summary>
+/// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
 internal static class GrpcTransportEndpoints
 {
-    /// <summary>
-    /// Creates the default HTTP handler for HTTPS gRPC channels.
-    /// </summary>
+    /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
     /// <returns>A handler suitable for secure gRPC transport.</returns>
     public static HttpMessageHandler CreateChannelHandler() => new SocketsHttpHandler();
 
-    /// <summary>
-    /// Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.
-    /// </summary>
+    /// <summary>Creates an outbound cluster mTLS HTTP handler that presents the local node certificate.</summary>
     /// <param name="material">Loaded cluster mTLS certificate material.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
     /// <returns>A handler configured for inter-node mutual TLS.</returns>
@@ -34,9 +28,7 @@ internal static class GrpcTransportEndpoints
         return CreateMtlsHandler(material.NodeCertificate, material.TrustAnchor, expectedPeerNodeId);
     }
 
-    /// <summary>
-    /// Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.
-    /// </summary>
+    /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
     /// <param name="clientCertificate">Client certificate presented to the peer.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
@@ -60,9 +52,7 @@ internal static class GrpcTransportEndpoints
         };
     }
 
-    /// <summary>
-    /// Validates a peer server certificate against the configured cluster trust root.
-    /// </summary>
+    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
     /// <param name="serverCertificate">The presented peer server certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>

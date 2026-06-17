@@ -67,7 +67,8 @@ while (argIndex < argv.Length)
 var repoRoot = ResolveRepoRoot();
 for (var iteration = 1; iteration <= iterations; iteration++)
 {
-    await output.WriteLineAsync($"Iteration {iteration}/{iterations}").ConfigureAwait(false);
+    await output.WriteLineAsync(
+        $"Iteration {iteration.ToString(CultureInfo.InvariantCulture)}/{iterations.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     foreach (var run in runs)
     {
         await output.WriteLineAsync($"Running {run.Label}").ConfigureAwait(false);
@@ -84,9 +85,13 @@ for (var iteration = 1; iteration <= iterations; iteration++)
         if (noBuild)
             list.Add("--no-build");
 
-        var code = await RunDotnetAsync(repoRoot, list).ConfigureAwait(false);
-        if (code != 0)
-            return await FailAsync($"Failed: {run.Label} on iteration {iteration}.", code).ConfigureAwait(false);
+        var code = await RunDotnetAsync(repoRoot, list, CancellationToken.None).ConfigureAwait(false);
+        if (code is not 0)
+        {
+            return await FailAsync(
+                $"Failed: {run.Label} on iteration {iteration.ToString(CultureInfo.InvariantCulture)}.",
+                code).ConfigureAwait(false);
+        }
     }
 }
 
@@ -112,7 +117,7 @@ static string ResolveRepoRoot()
     return Environment.CurrentDirectory;
 }
 
-static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
     using var proc = Process.Start(new ProcessStartInfo
     {
@@ -122,7 +127,7 @@ static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> arg
         Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
     });
     if (proc is not null)
-        await proc.WaitForExitAsync().ConfigureAwait(false);
+        await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
 }

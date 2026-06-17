@@ -18,12 +18,6 @@ internal static class JournalFraming
     /// <summary>Gets the on-disk segment file magic (four ASCII bytes).</summary>
     internal static ReadOnlySpan<byte> Magic => "SJRN"u8;
 
-    public static bool TryReadAndValidateHeader(Stream stream)
-    {
-        Span<byte> header = stackalloc byte[FileHeaderSize];
-        return StreamEx.TryReadExact(stream, header) && IsSegmentHeaderValid(header);
-    }
-
     public static void WriteFileHeader(Stream stream)
     {
         stream.Write(Magic);
@@ -33,7 +27,7 @@ internal static class JournalFraming
     public static void WriteFrame(Stream stream, ReadOnlySpan<byte> payload)
     {
         Span<byte> lenBuf = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32LittleEndian(lenBuf, (uint)payload.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(lenBuf, payload.Length);
         stream.Write(lenBuf);
         stream.Write(payload);
 
@@ -44,7 +38,7 @@ internal static class JournalFraming
     }
 
     internal static InvalidDataException CreateTruncatedHeaderException(long fileLength) =>
-        new(string.Create(CultureInfo.InvariantCulture, $"journal segment has a truncated file header ({fileLength} bytes)."));
+        new($"journal segment has a truncated file header ({fileLength.ToString(CultureInfo.InvariantCulture)} bytes).");
 
     /// <summary>
     /// Throws when a non-empty segment file does not contain a valid journal header.
