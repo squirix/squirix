@@ -379,9 +379,7 @@ internal sealed class JournalWriter : IJournalCoordinator
     private static async Task PrepareActiveSegmentForSequenceScanAsync(Manifest manifest, PersistenceOptions options, CancellationToken cancellationToken)
     {
         var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var path = PathEx.Combine(
-            options.DataDir,
-            $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        var path = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         if (!File.Exists(path))
             return;
 
