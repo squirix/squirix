@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Composition-layer admission gate for memory-growing cache writes under critical pressure (v0.7.3).
-/// </summary>
+/// <summary>Composition-layer admission gate for memory-growing cache writes under critical pressure (v0.7.3).</summary>
 internal interface IMemoryPressureGate
 {
     /// <summary>

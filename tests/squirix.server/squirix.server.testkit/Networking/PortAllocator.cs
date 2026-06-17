@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -52,17 +53,13 @@ public sealed class PortAllocator : IDisposable
         _next = _start + (CreateProcessOffset() % _rangeSize) - 1;
     }
 
-    /// <summary>
-    /// Allocates a currently free port within the allocator’s configured inclusive range.
-    /// </summary>
+    /// <summary>Allocates a currently free port within the allocator’s configured inclusive range.</summary>
     /// <param name="maxAttempts">
     /// The maximum number of candidate ports to try before giving up. Higher values increase the
     /// likelihood of finding a free port at the cost of additional probing. The default is 3,000.
     /// </param>
     /// <returns>The port number that appeared free at the time of probing.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if no free port can be reserved within the attempt budget.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">Thrown if no free port can be reserved within the attempt budget.</exception>
     /// <remarks>
     ///     <para>
     ///     The method first reserves the candidate port within the current process (to avoid duplicate
@@ -106,7 +103,7 @@ public sealed class PortAllocator : IDisposable
             _ = Reserved.TryRemove(candidate, out _);
         }
 
-        throw new InvalidOperationException($"Failed to allocate a free port in range {_start}-{_endInclusive} after {maxAttempts} attempts.");
+        throw new InvalidOperationException($"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
     }
 
     /// <inheritdoc />

@@ -1,5 +1,6 @@
 #:property PublishAot=false
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -39,12 +40,12 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Combine(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
-var corePackCode = await RunDotnetAsync(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
-if (corePackCode != 0)
+var corePackCode = await RunDotnetAsync(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (corePackCode is not 0)
     return corePackCode;
 
-var serverPackCode = await RunDotnetAsync(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir]).ConfigureAwait(false);
-if (serverPackCode != 0)
+var serverPackCode = await RunDotnetAsync(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (serverPackCode is not 0)
     return serverPackCode;
 
 if (!HasClientPackage(packageDir))
@@ -62,7 +63,7 @@ if (!HasServerPackage(packageDir))
 var sampleDir = Path.Combine(repoRoot, "samples", "external-package-smoke");
 var settingsPath = Path.Combine(sampleDir, "Squirix.settings.json");
 var hadSettings = File.Exists(settingsPath);
-var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath).ConfigureAwait(false) : null;
+var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath, CancellationToken.None).ConfigureAwait(false) : null;
 
 try
 {
@@ -70,12 +71,12 @@ try
     for (var attempt = 1; attempt <= maxAttempts; attempt++)
     {
         var port = GetFreeTcpPort();
-        var url = $"https://127.0.0.1:{port}";
+        var url = $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
         var json = BuildSettingsJson(url);
-        await File.WriteAllTextAsync(settingsPath, json).ConfigureAwait(false);
+        await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
 
-        var exitCode = await RunDotnetAsync(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"]).ConfigureAwait(false);
-        if (exitCode == 0 || attempt == maxAttempts)
+        var exitCode = await RunDotnetAsync(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
+        if (exitCode is 0 || attempt == maxAttempts)
             return exitCode;
     }
 
@@ -85,7 +86,7 @@ finally
 {
     if (settingsBackup is not null)
     {
-        await File.WriteAllBytesAsync(settingsPath, settingsBackup).ConfigureAwait(false);
+        await File.WriteAllBytesAsync(settingsPath, settingsBackup, CancellationToken.None).ConfigureAwait(false);
     }
     else if (File.Exists(settingsPath))
     {
@@ -123,7 +124,10 @@ static int GetFreeTcpPort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    return ((IPEndPoint)listener.LocalEndpoint).Port;
+    if (listener.LocalEndpoint is not IPEndPoint endpoint)
+        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
+
+    return endpoint.Port;
 }
 
 static string ResolveRepoRoot()
@@ -161,7 +165,7 @@ static bool HasServerPackage(string directory)
     return Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).Any();
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
     var startInfo = new ProcessStartInfo
     {
@@ -181,6 +185,6 @@ static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<str
         return 1;
     }
 
-    await proc.WaitForExitAsync().ConfigureAwait(false);
+    await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
     return proc.ExitCode;
 }

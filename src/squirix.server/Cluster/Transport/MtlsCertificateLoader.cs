@@ -4,14 +4,10 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Loads cluster mTLS certificates from explicit file paths.
-/// </summary>
+/// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
 internal static class MtlsCertificateLoader
 {
-    /// <summary>
-    /// Ensures the node certificate chains to the configured cluster trust root.
-    /// </summary>
+    /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
     /// <param name="nodeCertificate">The node certificate.</param>
     /// <param name="trustAnchor">The configured cluster CA.</param>
     public static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
@@ -36,9 +32,7 @@ internal static class MtlsCertificateLoader
         throw new InvalidOperationException(chainFailureMessage);
     }
 
-    /// <summary>
-    /// Ensures the node certificate common name matches the configured cluster node identifier.
-    /// </summary>
+    /// <summary>Ensures the node certificate common name matches the configured cluster node identifier.</summary>
     /// <param name="nodeCertificate">The node certificate.</param>
     /// <param name="nodeId">Configured local cluster node identifier.</param>
     public static void EnsureNodeCertificateMatchesNodeId(X509Certificate2 nodeCertificate, string nodeId)
@@ -53,9 +47,7 @@ internal static class MtlsCertificateLoader
         throw new InvalidOperationException($"Cluster mTLS node certificate identity '{certificateNodeId}' does not match configured NodeId '{nodeId}'.");
     }
 
-    /// <summary>
-    /// Loads the local node certificate and private key.
-    /// </summary>
+    /// <summary>Loads the local node certificate and private key.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <returns>The loaded node certificate.</returns>
     public static X509Certificate2 LoadNodeCertificate(MtlsOptions options)
@@ -71,9 +63,7 @@ internal static class MtlsCertificateLoader
         return certificate.HasPrivateKey ? certificate : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
     }
 
-    /// <summary>
-    /// Loads the cluster trust root certificate.
-    /// </summary>
+    /// <summary>Loads the cluster trust root certificate.</summary>
     /// <param name="caPath">Path to the PEM-encoded CA certificate.</param>
     /// <returns>The loaded trust anchor.</returns>
     public static X509Certificate2 LoadTrustAnchor(string caPath) => X509CertificateLoader.LoadCertificateFromFile(caPath);

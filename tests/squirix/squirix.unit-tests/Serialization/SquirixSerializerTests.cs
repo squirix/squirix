@@ -8,14 +8,10 @@ using Xunit;
 
 namespace Squirix.UnitTests.Serialization;
 
-/// <summary>
-/// Tests for the default and configurable serializer infrastructure used by squirix.
-/// </summary>
+/// <summary>Tests for the default and configurable serializer infrastructure used by squirix.</summary>
 public sealed class SquirixSerializerTests
 {
-    /// <summary>
-    /// Creates a scoped serializer instance and verifies SerializeToUtf8Bytes(string) was called.
-    /// </summary>
+    /// <summary>Creates a scoped serializer instance and verifies SerializeToUtf8Bytes(string) was called.</summary>
     [Fact]
     public void CreateWithInstanceUsesProvidedSerializer()
     {
@@ -32,9 +28,7 @@ public sealed class SquirixSerializerTests
         A.CallTo(() => customSerializer.Serialize(A<Stream>._, A<string>._)).MustNotHaveHappened();
     }
 
-    /// <summary>
-    /// Creates a scoped serializer instance and verifies Deserialize(string) is used.
-    /// </summary>
+    /// <summary>Creates a scoped serializer instance and verifies Deserialize(string) is used.</summary>
     [Fact]
     public void CreateWithOptionsUsesProvidedSerializer()
     {
@@ -60,14 +54,12 @@ public sealed class SquirixSerializerTests
                 return false;
 
             var parameters = method.GetParameters();
-            return parameters.Length == 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
+            return parameters.Length is 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
         });
         Assert.False(called);
     }
 
-    /// <summary>
-    /// Ensures the default serializer host exposes the System.Text.Json implementation.
-    /// </summary>
+    /// <summary>Ensures the default serializer host exposes the System.Text.Json implementation.</summary>
     [Fact]
     public void DefaultInstanceIsSystemTextJson() => Assert.IsType<MetricsDecoratedSerializer>(SerializationProvider.Instance);
 }

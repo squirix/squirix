@@ -16,9 +16,7 @@ internal static class PathEx
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    /// <summary>
-    /// Resolves a relative path under a trusted root directory and rejects paths that escape the root.
-    /// </summary>
+    /// <summary>Resolves a relative path under a trusted root directory and rejects paths that escape the root.</summary>
     /// <param name="rootDirectory">Trusted root directory.</param>
     /// <param name="relativePath">Relative path to resolve under <paramref name="rootDirectory" />.</param>
     /// <returns>The canonical absolute path inside <paramref name="rootDirectory" />.</returns>
@@ -56,9 +54,7 @@ internal static class PathEx
         return fullPath.StartsWith(root, PathComparison) ? fullPath : throw new ArgumentException("Path escapes the configured root directory.", nameof(relativePath));
     }
 
-    /// <summary>
-    /// Resolves relative path segments under a trusted root directory and rejects paths that escape the root.
-    /// </summary>
+    /// <summary>Resolves relative path segments under a trusted root directory and rejects paths that escape the root.</summary>
     /// <param name="rootDirectory">Trusted root directory.</param>
     /// <param name="segments">Relative path segments to resolve.</param>
     /// <returns>The canonical absolute path inside <paramref name="rootDirectory" />.</returns>
@@ -73,7 +69,7 @@ internal static class PathEx
         ArgumentNullException.ThrowIfNull(rootDirectory);
         ArgumentNullException.ThrowIfNull(segments);
 
-        if (segments.Length == 0)
+        if (segments.Length is 0)
         {
             throw new ArgumentException("At least one path segment must be supplied.", nameof(segments));
         }

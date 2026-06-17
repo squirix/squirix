@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Cluster;
 using Squirix.Server.TestKit.Limits;
@@ -13,15 +14,10 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Limits;
 
-/// <summary>
-/// Integration coverage for fixed entry payload size limits (issue #2).
-/// </summary>
+/// <summary>Integration coverage for fixed entry payload size limits (issue #2).</summary>
 public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.</summary>
     [Fact]
     public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwner()
     {
@@ -33,7 +29,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit");
-        var value = EntryLimitKit.CreateStringValueExceedingEntryLimit();
+        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
 
         using var channelA = CreateGrpcChannel(urlA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
@@ -61,10 +57,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
     [Fact]
     public async Task GrpcInsertAboveLimitReturnsResourceExhaustedAndDoesNotPersist()
     {
@@ -74,7 +67,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var value = EntryLimitKit.CreateStringValueExceedingEntryLimit();
+        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {

@@ -8,9 +8,7 @@ using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
-/// <summary>
-/// Reads cache values through the server-side gRPC adapter pipeline without HTTP/2 or the public client SDK.
-/// </summary>
+/// <summary>Reads cache values through the server-side gRPC adapter pipeline without HTTP/2 or the public client SDK.</summary>
 public sealed class BenchmarkNodeReadSurface
 {
     private readonly ICacheApi<object?> _cacheApi;
@@ -35,9 +33,7 @@ public sealed class BenchmarkNodeReadSurface
         return new BenchmarkNodeReadSurface(operations.ForCache(cacheName));
     }
 
-    /// <summary>
-    /// Reads an existing string value through the full server decorator stack.
-    /// </summary>
+    /// <summary>Reads an existing string value through the full server decorator stack.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The stored value when present; otherwise <see langword="null" />.</returns>

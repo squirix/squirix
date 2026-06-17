@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
@@ -13,50 +14,47 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>
-/// Replay behavior when journal segment bytes end mid-frame or fail CRC / protobuf decode.
-/// </summary>
-public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
+/// <summary>Replay behavior when journal segment bytes end mid-frame or fail CRC / protobuf decode.</summary>
+public sealed class JournalTruncatedSegmentReplayTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.
-    /// </summary>
+    /// <summary>Verifies replay failure reporting is non-destructive: reading malformed frames does not mutate segment bytes.</summary>
     [Fact]
-    public void ReadAllOnMalformedFrameDoesNotMutateSegmentFile()
+    public async Task ReadAllOnMalformedFrameDoesNotMutateSegmentFile()
     {
         using var dir = new TempDirectory("squirix-journal-readonly-failure");
-        var env = BuildPutEnvelope(1UL, "k", "v");
+        var env = await BuildPutEnvelopeAsync(1UL, "k", "v");
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        WriteSegmentWithFrames(path, [env]);
+        await WriteSegmentWithFramesAsync(path, [env]);
 
-        var original = File.ReadAllBytes(path);
-        var bytes = (byte[])original.Clone();
+        var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        var bytes = new byte[original.Length];
+        Array.Copy(original, bytes, original.Length);
         bytes[^1] ^= 0xFF;
-        File.WriteAllBytes(path, bytes);
-        var mutatedBeforeRead = File.ReadAllBytes(path);
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+        var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
 
         _ = Assert.Throws<InvalidDataException>(() =>
         {
             foreach (var unused in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
                 _ = unused;
         });
-        Assert.Equal(mutatedBeforeRead, File.ReadAllBytes(path));
+        Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
     }
 
     /// <summary>
     /// CRC mismatch throws <see cref="InvalidDataException" /> to surface corruption.
     /// </summary>
     [Fact]
-    public void ReadAllThrowsOnCrcMismatch()
+    public async Task ReadAllThrowsOnCrcMismatch()
     {
         using var dir = new TempDirectory("squirix-journal-badcrc");
-        var env = BuildPutEnvelope(1UL, "k", "v");
+        var env = await BuildPutEnvelopeAsync(1UL, "k", "v");
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        WriteSegmentWithFrames(path, [env]);
+        await WriteSegmentWithFramesAsync(path, [env]);
 
-        var bytes = File.ReadAllBytes(path);
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
-        File.WriteAllBytes(path, bytes);
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
         var ex = Assert.Throws<InvalidDataException>(() =>
         {
@@ -68,19 +66,17 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
     }
 
-    /// <summary>
-    /// Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).
-    /// </summary>
+    /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>
     [Fact]
-    public void ReadAllYieldsFirstFrameWhenSecondFrameCrcIsTruncated()
+    public async Task ReadAllYieldsFirstFrameWhenSecondFrameCrcIsTruncated()
     {
         using var dir = new TempDirectory("squirix-journal-trunc");
-        var first = BuildPutEnvelope(1UL, "k1", "a");
-        var second = BuildPutEnvelope(2UL, "k2", "b");
+        var first = await BuildPutEnvelopeAsync(1UL, "k1", "a");
+        var second = await BuildPutEnvelopeAsync(2UL, "k2", "b");
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        WriteSegmentWithFrames(path, [first, second]);
+        await WriteSegmentWithFramesAsync(path, [first, second]);
 
-        using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
         {
             fs.SetLength(fs.Length - 1);
         }
@@ -94,9 +90,9 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         Assert.Equal("k1", list[0].Put.Item.Key);
     }
 
-    private static JournalEnvelope BuildPutEnvelope(ulong seq, string key, string value)
+    private static async Task<JournalEnvelope> BuildPutEnvelopeAsync(ulong seq, string key, string value)
     {
-        var body = DiscriminatedEntryJsonWriter.BuildEntryJson(value, null, null, 1, null);
+        var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
         return new JournalEnvelope
         {
             Seq = seq,
@@ -113,9 +109,9 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         };
     }
 
-    private static void WriteSegmentWithFrames(string path, IReadOnlyList<JournalEnvelope> envelopes)
+    private static async Task WriteSegmentWithFramesAsync(string path, IReadOnlyList<JournalEnvelope> envelopes)
     {
-        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         JournalFraming.WriteFileHeader(stream);
         foreach (var envelope in envelopes)
         {
@@ -123,6 +119,6 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
             JournalFraming.WriteFrame(stream, payload);
         }
 
-        stream.Flush(true);
+        await stream.FlushAsync(DefaultCancellationToken);
     }
 }

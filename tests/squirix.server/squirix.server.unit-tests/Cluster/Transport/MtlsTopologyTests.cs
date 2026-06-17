@@ -4,14 +4,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
-/// <summary>
-/// Unit tests for topology-driven inter-node mTLS requirements.
-/// </summary>
+/// <summary>Unit tests for topology-driven inter-node mTLS requirements.</summary>
 public sealed class MtlsTopologyTests
 {
-    /// <summary>
-    /// Ensures remote peer node identifiers exclude the local node.
-    /// </summary>
+    /// <summary>Ensures remote peer node identifiers exclude the local node.</summary>
     [Fact]
     public void GetRemotePeerNodeIdsReturnsOnlyRemotePeers()
     {
@@ -27,9 +23,7 @@ public sealed class MtlsTopologyTests
         Assert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster));
     }
 
-    /// <summary>
-    /// Ensures a standalone node with only the local peer does not require inter-node mTLS.
-    /// </summary>
+    /// <summary>Ensures a standalone node with only the local peer does not require inter-node mTLS.</summary>
     [Fact]
     public void RequiresInterNodeMtlsReturnsFalseForStandaloneTopology()
     {
@@ -38,9 +32,7 @@ public sealed class MtlsTopologyTests
         Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
 
-    /// <summary>
-    /// Ensures a multi-node topology with remote peers requires inter-node mTLS.
-    /// </summary>
+    /// <summary>Ensures a multi-node topology with remote peers requires inter-node mTLS.</summary>
     [Fact]
     public void RequiresInterNodeMtlsReturnsTrueWhenRemotePeersAreConfigured()
     {

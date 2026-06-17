@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -13,9 +14,7 @@ namespace Squirix.Server.TestKit.IO;
 /// </summary>
 public static class DirectoryKit
 {
-    /// <summary>
-    /// Safely creates a directory with strict validation and guardrails.
-    /// </summary>
+    /// <summary>Safely creates a directory with strict validation and guardrails.</summary>
     /// <param name="path">Target directory path (relative or absolute).</param>
     /// <param name="baseDir">
     /// Optional base directory that constrains <paramref name="path" />. If provided and
@@ -40,9 +39,7 @@ public static class DirectoryKit
     /// Thrown when a regular file exists at the target path, a symlink/junction is detected while forbidden,
     /// or other I/O errors occur during creation/cleanup.
     /// </exception>
-    /// <exception cref="PathTooLongException">
-    /// May be thrown by underlying file APIs if the path exceeds platform limits.
-    /// </exception>
+    /// <exception cref="PathTooLongException">May be thrown by underlying file APIs if the path exceeds platform limits.</exception>
     /// <remarks>
     ///     <para>
     ///     Behavior overview:
@@ -89,15 +86,11 @@ public static class DirectoryKit
         CreateOrCleanTargetDirectory(full, ensureEmpty, forbidSymlinks);
     }
 
-    /// <summary>
-    /// Creates a new unique temporary directory under the system temp path.
-    /// </summary>
+    /// <summary>Creates a new unique temporary directory under the system temp path.</summary>
     /// <param name="innerDirectory">
     /// A subfolder name under <see cref="Path.GetTempPath()" /> used to group related temp directories.
     /// </param>
-    /// <param name="hint">
-    /// Optional additional subfolder (e.g., calling member name) appended for easier traceability in test logs.
-    /// </param>
+    /// <param name="hint">Optional additional subfolder (e.g., calling member name) appended for easier traceability in test logs.</param>
     /// <returns>The absolute path to the created directory.</returns>
     /// <remarks>
     /// The created path is of the form:
@@ -116,10 +109,9 @@ public static class DirectoryKit
         return d;
     }
 
-    /// <summary>
-    /// Best-effort recursive delete of a directory.
-    /// </summary>
+    /// <summary>Best-effort recursive delete of a directory.</summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <remarks>
     /// Performs up to 6 retries on transient <see cref="IOException" /> and
     /// <see cref="UnauthorizedAccessException" /> (common on Windows due to file locks).
@@ -128,6 +120,11 @@ public static class DirectoryKit
     /// </remarks>
     /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
     /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
+    public static Task TryDeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => TryDeleteDirectoryCoreAsync(dir, cancellationToken);
+
+    /// <summary>Best-effort recursive delete of a directory.</summary>
+    /// <param name="dir">Path to the directory to delete recursively.</param>
+    /// <remarks>Prefer <see cref="TryDeleteDirectoryAsync" /> in async code paths.</remarks>
     public static void TryDeleteDirectory(string dir)
     {
         for (var i = 0; i < 6; i++)
@@ -139,13 +136,38 @@ public static class DirectoryKit
 
                 return;
             }
-            catch (IOException)
+            catch (IOException) when (i < 5)
             {
-                Thread.Sleep(25 * (i + 1));
+                // Retry after transient delete failure.
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException) when (i < 5)
             {
-                Thread.Sleep(25 * (i + 1));
+                // Retry after transient access failure.
+            }
+        }
+
+        if (Directory.Exists(dir))
+            Directory.Delete(dir, true);
+    }
+
+    private static async Task TryDeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < 6; i++)
+        {
+            try
+            {
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, true);
+
+                return;
+            }
+            catch (IOException) when (i < 5)
+            {
+                await Task.Delay(25 * (i + 1), cancellationToken).ConfigureAwait(false);
+            }
+            catch (UnauthorizedAccessException) when (i < 5)
+            {
+                await Task.Delay(25 * (i + 1), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -157,7 +179,6 @@ public static class DirectoryKit
     {
         // Delete contents (not the root). Retry a few times for Windows file locks.
         const int retries = 3;
-        const int delayMs = 80;
 
         for (var attempt = 0; attempt < retries; attempt++)
         {
@@ -184,11 +205,11 @@ public static class DirectoryKit
             }
             catch (IOException) when (attempt < retries - 1)
             {
-                Thread.Sleep(delayMs);
+                // Retry after transient cleanup failure.
             }
             catch (UnauthorizedAccessException) when (attempt < retries - 1)
             {
-                Thread.Sleep(delayMs);
+                // Retry after transient access failure.
             }
         }
     }
@@ -224,7 +245,7 @@ public static class DirectoryKit
         // Walk from base (if provided) or drive root towards the target, checking each existing segment.
         var start = baseFull ?? Path.GetPathRoot(full)!;
         var relative = full[start.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (relative.Length == 0)
+        if (relative.Length is 0)
             return;
 
         var parts = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
@@ -275,7 +296,7 @@ public static class DirectoryKit
 
         try
         {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
         }
         catch (IOException)
         {
@@ -303,7 +324,8 @@ public static class DirectoryKit
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+        var equals = prefix.Equals("COM", StringComparison.Ordinal) || prefix.Equals("LPT", StringComparison.Ordinal);
+        return equals && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static string? PrepareBaseFullPath(string? baseDir, bool forbidSymlinks)
@@ -364,7 +386,7 @@ public static class DirectoryKit
         foreach (var rawSeg in segments)
         {
             var seg = rawSeg.Trim();
-            if (seg.Length == 0)
+            if (seg.Length is 0)
                 throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
             // Windows-only constraints

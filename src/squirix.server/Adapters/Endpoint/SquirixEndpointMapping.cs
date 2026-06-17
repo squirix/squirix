@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -27,7 +28,7 @@ internal static class SquirixEndpointMapping
 
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{mtlsOptions.InternalListenPort}").AllowAnonymous();
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{mtlsOptions.InternalListenPort.ToString(CultureInfo.InvariantCulture)}").AllowAnonymous();
         return app;
     }
 }

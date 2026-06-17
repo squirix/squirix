@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace Squirix.Server.TestKit.Auth;
 
@@ -12,11 +13,18 @@ public sealed class TestJwtCredentials
     /// <param name="issuer">JWT issuer claim value.</param>
     /// <param name="audience">JWT audience claim value.</param>
     public TestJwtCredentials(byte[] signingKey, string issuer, string audience)
+        : this(signingKey.AsSpan(), issuer, audience)
     {
-        ArgumentNullException.ThrowIfNull(signingKey);
+    }
 
-        _signingKey = CopySigningKey(signingKey);
-        Base64SigningKey = Convert.ToBase64String(signingKey);
+    /// <summary>Initializes a new instance of the <see cref="TestJwtCredentials" /> class.</summary>
+    /// <param name="signingKey">Symmetric HMAC signing key bytes.</param>
+    /// <param name="issuer">JWT issuer claim value.</param>
+    /// <param name="audience">JWT audience claim value.</param>
+    private TestJwtCredentials(ReadOnlySpan<byte> signingKey, string issuer, string audience)
+    {
+        _signingKey = signingKey.ToArray();
+        Base64SigningKey = Convert.ToBase64String(_signingKey);
         Issuer = issuer;
         Audience = audience;
     }
@@ -32,12 +40,5 @@ public sealed class TestJwtCredentials
 
     /// <summary>Gets an independent copy of the raw symmetric signing key bytes.</summary>
     /// <returns>Raw symmetric signing key bytes.</returns>
-    public byte[] GetSigningKey() => CopySigningKey(_signingKey);
-
-    private static byte[] CopySigningKey(byte[] signingKey)
-    {
-        var copy = new byte[signingKey.Length];
-        Array.Copy(signingKey, copy, signingKey.Length);
-        return copy;
-    }
+    public byte[] GetSigningKey() => _signingKey.ToArray();
 }

@@ -5,14 +5,10 @@ using System.Linq;
 
 namespace Squirix.Server.TestKit.IO;
 
-/// <summary>
-/// Lightweight file utilities intended for resilient test and tooling scenarios.
-/// </summary>
+/// <summary>Lightweight file utilities intended for resilient test and tooling scenarios.</summary>
 public static class FileKit
 {
-    /// <summary>
-    /// Determines whether a file exists at the provided path after validating the file path shape.
-    /// </summary>
+    /// <summary>Determines whether a file exists at the provided path after validating the file path shape.</summary>
     /// <param name="path">Absolute or relative file path to validate and inspect.</param>
     /// <returns><see langword="true" /> when a regular file exists at the validated path; otherwise <see langword="false" />.</returns>
     /// <exception cref="ArgumentException">
@@ -21,9 +17,7 @@ public static class FileKit
     /// </exception>
     public static bool Exists(string? path) => File.Exists(ValidateAndGetFullPath(path));
 
-    /// <summary>
-    /// Writes the specified text to a file after validating the file path and ensuring the parent directory exists.
-    /// </summary>
+    /// <summary>Writes the specified text to a file after validating the file path and ensuring the parent directory exists.</summary>
     /// <param name="path">Absolute or relative file path to create or overwrite.</param>
     /// <param name="contents">Text content to write.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="contents" /> is <see langword="null" />.</exception>
@@ -55,7 +49,8 @@ public static class FileKit
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+        return (string.Equals(prefix, "COM", StringComparison.Ordinal) || string.Equals(prefix, "LPT", StringComparison.Ordinal)) &&
+               int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static string ValidateAndGetFullPath(string? path)
@@ -90,7 +85,7 @@ public static class FileKit
         foreach (var rawSeg in segments)
         {
             var seg = rawSeg.Trim();
-            if (seg.Length == 0)
+            if (seg.Length is 0)
                 throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
             if (OperatingSystem.IsWindows())

@@ -2,9 +2,11 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Grpc.Core;
 using Squirix;
 using Squirix.Server;
@@ -29,8 +31,8 @@ Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
 try
 {
     _ = Directory.CreateDirectory(demoRoot);
-    var endpoint = $"https://127.0.0.1:{NextFreePort()}";
-    WriteSettingsFile(demoRoot, endpoint);
+    var endpoint = $"https://127.0.0.1:{NextFreePort().ToString(CultureInfo.InvariantCulture)}";
+    await WriteSettingsFileAsync(demoRoot, endpoint, cancellationToken).ConfigureAwait(false);
     Directory.SetCurrentDirectory(demoRoot);
 
     var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -113,7 +115,7 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
     {
         try
         {
-            var key = $"load:{RandomNumberGenerator.GetInt32(0, 2048):D4}";
+            var key = $"load:{RandomNumberGenerator.GetInt32(0, 2048).ToString("D4", CultureInfo.InvariantCulture)}";
             if (RandomNumberGenerator.GetInt32(0, 10) < 7)
             {
                 await cache.SetAsync(
@@ -161,28 +163,36 @@ static int NextFreePort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+    if (listener.LocalEndpoint is not IPEndPoint localEndpoint)
+        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
+
+    var port = localEndpoint.Port;
     listener.Stop();
     return port;
 }
 
-static void WriteSettingsFile(string directory, string endpoint)
+static async Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
 {
-    var settings = $$"""
+    var settings = new
+    {
+        Squirix = new
         {
-          "Squirix": {
-            "Cluster": {
-              "NodeId": "runner",
-              "Url": "{{endpoint}}",
-              "Peers": [
+            Cluster = new
+            {
+                NodeId = "runner",
+                Url = endpoint,
+                Peers = new[]
                 {
-                  "NodeId": "runner",
-                  "Url": "{{endpoint}}"
-                }
-              ]
-            }
-          }
-        }
-        """;
-    File.WriteAllText(Path.Join(directory, "Squirix.settings.json"), settings);
+                    new
+                    {
+                        NodeId = "runner",
+                        Url = endpoint,
+                    },
+                },
+            },
+        },
+    };
+
+    var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+    await File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken).ConfigureAwait(false);
 }

@@ -12,9 +12,7 @@ internal sealed class CapturingHeadersInterceptor : Interceptor
 {
     private volatile Metadata? _last;
 
-    /// <summary>
-    /// Gets the last captured request metadata headers.
-    /// </summary>
+    /// <summary>Gets the last captured request metadata headers.</summary>
     public Metadata? LastRequestHeaders => _last;
 
     /// <inheritdoc />

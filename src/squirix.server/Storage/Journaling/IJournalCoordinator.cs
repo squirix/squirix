@@ -5,9 +5,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>
-/// Journal append and durability coordination surface for key-value mutations.
-/// </summary>
+/// <summary>Journal append and durability coordination surface for key-value mutations.</summary>
 internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceExecutor, IAsyncDisposable
 {
     event EventHandler? OnAppended;

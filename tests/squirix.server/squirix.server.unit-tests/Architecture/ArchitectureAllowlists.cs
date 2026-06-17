@@ -1,8 +1,6 @@
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// Centralized namespace allowlists for naming-convention architecture rules.
-/// </summary>
+/// <summary>Centralized namespace allowlists for naming-convention architecture rules.</summary>
 internal static class ArchitectureAllowlists
 {
     /// <summary>

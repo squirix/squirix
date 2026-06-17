@@ -2,14 +2,10 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Resolves cluster mTLS options from process environment variables.
-/// </summary>
+/// <summary>Resolves cluster mTLS options from process environment variables.</summary>
 internal static class MtlsOptionsResolver
 {
-    /// <summary>
-    /// Loads cluster mTLS options from environment variables.
-    /// </summary>
+    /// <summary>Loads cluster mTLS options from environment variables.</summary>
     /// <returns>Resolved options.</returns>
     public static MtlsOptions ResolveFromEnvironment() => new()
     {

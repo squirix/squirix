@@ -210,9 +210,6 @@ jobs:
             -   name: Restore
                 run: dotnet restore squirix.slnx
 
-            -   name: Verify .NET 10 Baseline
-                run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
-
             -   name: Verify Whitespace
                 run: git diff --check
 

@@ -2,9 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Benchmarks.Payload;
 
-/// <summary>
-/// Payload sizes used to compare serialization overhead across typical and near-limit entries.
-/// </summary>
+/// <summary>Payload sizes used to compare serialization overhead across typical and near-limit entries.</summary>
 [SuppressMessage(
     "Maintainability",
     "CA1515:Consider making public types internal",

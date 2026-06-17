@@ -23,10 +23,10 @@ if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
     return 1;
 }
 
-var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase)
                      .ToArray();
 
-if (files.Length == 0)
+if (files.Length is 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
     return 1;
@@ -36,18 +36,19 @@ foreach (var file in files)
 {
     var name = Path.GetFileName(file);
     await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
-    using var proc = Process.Start(new ProcessStartInfo
+    var processStartInfo = new ProcessStartInfo
     {
         FileName = "dotnet",
         Arguments = $"run --file \"{file}\" -- --help",
         WorkingDirectory = Directory.GetParent(toolsDir)?.FullName ?? Environment.CurrentDirectory,
         UseShellExecute = false,
-    });
+    };
+    using var proc = Process.Start(processStartInfo);
 
     if (proc is not null)
-        await proc.WaitForExitAsync().ConfigureAwait(false);
+        await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
-    if (proc is null || proc.ExitCode != 0)
+    if (proc is null || proc.ExitCode is not 0)
         return proc?.ExitCode ?? 1;
 }
 

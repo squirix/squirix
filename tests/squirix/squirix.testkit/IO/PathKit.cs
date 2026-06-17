@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -21,9 +22,7 @@ public static class PathKit
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
     private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
-    /// <summary>
-    /// Combines path segments into a single path, optionally sanitizing each segment first.
-    /// </summary>
+    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
@@ -66,12 +65,10 @@ public static class PathKit
             startTicks = DateTime.UtcNow.Ticks;
         }
 
-        return $"pid{Environment.ProcessId}-start{startTicks}";
+        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    /// <summary>
-    /// Combines path segments into a single path, optionally sanitizing each segment first.
-    /// </summary>
+    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="sanitize">
     /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
     /// before combining.
@@ -83,7 +80,7 @@ public static class PathKit
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        if (paths.Length == 0)
+        if (paths.Length is 0)
             return string.Empty;
 
         var segments = new List<string>(paths.Length);
@@ -125,7 +122,7 @@ public static class PathKit
 
     private static string JoinSegments(List<string> segments)
     {
-        if (segments.Count == 0)
+        if (segments.Count is 0)
             return string.Empty;
 
         var sb = new StringBuilder(segments[0]);

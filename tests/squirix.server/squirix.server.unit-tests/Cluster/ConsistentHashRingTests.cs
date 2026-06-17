@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit.Testing;
@@ -13,9 +14,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// </summary>
 public sealed class ConsistentHashRingTests
 {
-    /// <summary>
-    /// Verifies cache route owner lookup does not materialize a route-key string on the steady hot path.
-    /// </summary>
+    /// <summary>Verifies cache route owner lookup does not materialize a route-key string on the steady hot path.</summary>
     [Fact]
     public void CacheRouteComponentOwnerLookupDoesNotAllocateRouteKeyString()
     {
@@ -34,15 +33,13 @@ public sealed class ConsistentHashRingTests
                     hits++;
             }
 
-            if (hits != 10_000)
+            if (hits is not 10_000)
                 throw new InvalidOperationException("Unreachable: expected 10_000 owner hits.");
         });
         Assert.Equal(0, allocated);
     }
 
-    /// <summary>
-    /// Verifies allocation-light cache route lookups preserve the materialized route-key ownership contract.
-    /// </summary>
+    /// <summary>Verifies allocation-light cache route lookups preserve the materialized route-key ownership contract.</summary>
     /// <param name="cacheName">The cache name to route.</param>
     /// <param name="key">The user key to route.</param>
     [Theory]
@@ -72,9 +69,7 @@ public sealed class ConsistentHashRingTests
         }
     }
 
-    /// <summary>
-    /// Verifies cache routing callers must hash the canonical route key rather than the raw user key.
-    /// </summary>
+    /// <summary>Verifies cache routing callers must hash the canonical route key rather than the raw user key.</summary>
     [Fact]
     public void CacheRouteKeyCanSelectDifferentOwnerThanRawUserKey()
     {
@@ -84,7 +79,7 @@ public sealed class ConsistentHashRingTests
 
         for (var i = 0; i < 10_000; i++)
         {
-            var key = $"route-key:{i}";
+            var key = $"route-key:{i.ToString(CultureInfo.InvariantCulture)}";
             var routeKey = $"{canonicalCacheName.Length}:{canonicalCacheName}{'\x1F'}{key}";
             if (string.Equals(ring.GetOwner(key), ring.GetOwner(routeKey), StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -124,12 +119,12 @@ public sealed class ConsistentHashRingTests
         const int keys = 20_000;
 
         for (var i = 0; i < keys; i++)
-            counts[ring.GetOwner($"key:{i}")]++;
+            counts[ring.GetOwner($"key:{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
-        var expected = keys / (double)nodes.Length;
+        var expected = 1.0 * keys / nodes.Length;
         var maxDev = counts.Values.Max(c => Math.Abs(c - expected) / expected);
 
-        Assert.True(maxDev <= 0.20, $"Distribution deviation too high: {maxDev:P1}");
+        Assert.True(maxDev <= 0.20, $"Distribution deviation too high: {maxDev.ToString("P1", CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>
@@ -149,15 +144,15 @@ public sealed class ConsistentHashRingTests
 
         for (var i = 0; i < keys; i++)
         {
-            var k = $"k:{i}";
+            var k = $"k:{i.ToString(CultureInfo.InvariantCulture)}";
             if (!string.Equals(ring1.GetOwner(k), ring2.GetOwner(k), StringComparison.OrdinalIgnoreCase))
                 moved++;
         }
 
-        var ratio = moved / (double)keys;
+        var ratio = 1.0 * moved / keys;
 
         // In theory ~1/(n+1) ≈ 25% for adding a 4th node; allow up to 35% to be safe.
-        Assert.True(ratio <= 0.35, $"Too many keys moved: {ratio:P1}");
+        Assert.True(ratio <= 0.35, $"Too many keys moved: {ratio.ToString("P1", CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>

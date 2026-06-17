@@ -10,9 +10,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Benchmarks.Support.Cluster;
 
-/// <summary>
-/// Owns one in-process Squirix node used as the remote server for client SDK benchmarks.
-/// </summary>
+/// <summary>Owns one in-process Squirix node used as the remote server for client SDK benchmarks.</summary>
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
     private int _disposed;
@@ -29,7 +27,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         await Host.DisposeAsync().ConfigureAwait(false);
@@ -54,7 +52,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         BenchmarkRuntime.EnsureInitialized();
 
-        var usePersistence = durabilityMode == BenchmarkDurabilityMode.Persistence;
+        var usePersistence = durabilityMode is BenchmarkDurabilityMode.Persistence;
         var dataDir = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-bench") : null;
 
         var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false)

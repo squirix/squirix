@@ -1,24 +1,22 @@
+using System.Threading.Tasks;
 using Squirix.Server.Limits;
 
 namespace Squirix.Server.TestKit.Limits;
 
-/// <summary>
-/// Helpers for constructing entry payloads near fixed size limits in tests.
-/// </summary>
+/// <summary>Helpers for constructing entry payloads near fixed size limits in tests.</summary>
 public static class EntryLimitKit
 {
-    /// <summary>
-    /// Returns the largest string payload whose discriminated entry JSON fits the fixed server entry limit.
-    /// </summary>
+    /// <summary>Returns the largest string payload whose discriminated entry JSON fits the fixed server entry limit.</summary>
     /// <returns>A near-limit string value for benchmarks and integration tests.</returns>
-    public static string CreateNearLimitDiscriminatedStringValue() => CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes);
+    public static Task<string> CreateNearLimitDiscriminatedStringValueAsync() =>
+        CreateStringValueAtMostSerializedBytesAsync(SquirixEntryLimits.MaxEntrySizeBytes);
 
     /// <summary>
     /// Returns the largest string payload whose discriminated entry JSON is at most <paramref name="maxSerializedBytes" />.
     /// </summary>
     /// <param name="maxSerializedBytes">Maximum allowed discriminated JSON byte length.</param>
     /// <returns>A string value whose serialized entry size is within the limit.</returns>
-    public static string CreateStringValueAtMostSerializedBytes(int maxSerializedBytes)
+    public static async Task<string> CreateStringValueAtMostSerializedBytesAsync(int maxSerializedBytes)
     {
         var low = 0;
         var high = maxSerializedBytes;
@@ -26,7 +24,7 @@ public static class EntryLimitKit
         while (low < high)
         {
             var mid = low + ((high - low + 1) / 2);
-            if (MeasureStringPayload(mid) <= maxSerializedBytes)
+            if (await MeasureStringPayloadAsync(mid).ConfigureAwait(false) <= maxSerializedBytes)
                 low = mid;
             else
                 high = mid - 1;
@@ -39,8 +37,9 @@ public static class EntryLimitKit
     /// Returns the smallest string payload whose discriminated entry JSON exceeds <see cref="SquirixEntryLimits.MaxEntrySizeBytes" />.
     /// </summary>
     /// <returns>A string value guaranteed to exceed the entry limit once serialized.</returns>
-    public static string CreateStringValueExceedingEntryLimit() => new('x', CreateStringValueAtMostSerializedBytes(SquirixEntryLimits.MaxEntrySizeBytes).Length + 1);
+    public static async Task<string> CreateStringValueExceedingEntryLimitAsync() =>
+        new('x', (await CreateStringValueAtMostSerializedBytesAsync(SquirixEntryLimits.MaxEntrySizeBytes).ConfigureAwait(false)).Length + 1);
 
-    private static int MeasureStringPayload(int stringLength) =>
-        EntryPayloadSizeGuard.MeasureSerializedBytes(new CacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
+    private static Task<int> MeasureStringPayloadAsync(int stringLength) =>
+        EntryPayloadSizeGuard.MeasureSerializedBytesAsync(new CacheEntry<object?> { Value = new string('x', stringLength), Version = 1 });
 }

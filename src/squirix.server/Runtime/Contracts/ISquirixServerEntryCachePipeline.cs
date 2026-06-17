@@ -3,9 +3,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>
-/// Entry-aware logical cache pipeline surface available to integrations.
-/// </summary>
+/// <summary>Entry-aware logical cache pipeline surface available to integrations.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeline<T>
 {

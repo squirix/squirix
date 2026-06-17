@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -20,8 +21,8 @@ internal static class Program
         _ = Directory.CreateDirectory(testRoot);
         Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
 
-        var endpoint = $"https://localhost:{NextFreePort()}";
-        WriteSettings("external-smoke", endpoint);
+        var endpoint = $"https://localhost:{NextFreePort().ToString(CultureInfo.InvariantCulture)}";
+        await WriteSettingsAsync("external-smoke", endpoint, CancellationToken.None).ConfigureAwait(false);
         _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
         var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
 
@@ -35,7 +36,10 @@ internal static class Program
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        if (listener.LocalEndpoint is not IPEndPoint endpoint)
+            throw new InvalidOperationException("Failed to resolve local TCP listener endpoint.");
+
+        return endpoint.Port;
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
@@ -64,7 +68,7 @@ internal static class Program
         }
     }
 
-    private static void WriteSettings(string nodeId, string url)
+    private static async Task WriteSettingsAsync(string nodeId, string url, CancellationToken cancellationToken)
     {
         var settings = new
         {
@@ -87,6 +91,6 @@ internal static class Program
             },
         };
 
-        File.WriteAllText("Squirix.settings.json", JsonSerializer.Serialize(settings));
+        await File.WriteAllTextAsync("Squirix.settings.json", JsonSerializer.Serialize(settings), cancellationToken).ConfigureAwait(false);
     }
 }

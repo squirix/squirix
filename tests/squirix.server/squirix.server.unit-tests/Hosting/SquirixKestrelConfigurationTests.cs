@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
@@ -9,18 +11,14 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>
-/// Unit tests for Kestrel HTTPS and cluster mTLS listener configuration.
-/// </summary>
+/// <summary>Unit tests for Kestrel HTTPS and cluster mTLS listener configuration.</summary>
 public sealed class SquirixKestrelConfigurationTests
 {
-    /// <summary>
-    /// Ensures enabled cluster mTLS can configure a dedicated internal listener.
-    /// </summary>
+    /// <summary>Ensures enabled cluster mTLS can configure a dedicated internal listener.</summary>
     [Fact]
-    public void ConfigureKestrelWithMtlsBuildsInternalListener()
+    public async Task ConfigureKestrelWithMtlsBuildsInternalListener()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var primaryPort = ListenPortPool.ServerUnitTests.AllocatePort();
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
         var options = new MtlsOptions
@@ -35,23 +33,21 @@ public sealed class SquirixKestrelConfigurationTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = $"https://localhost:{primaryPort}",
+            Url = $"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}",
             Peers =
             [
-                new Peer { NodeId = "node-a", Url = $"https://localhost:{primaryPort}" },
+                new Peer { NodeId = "node-a", Url = $"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}" },
                 new Peer { NodeId = "node-b", Url = "https://localhost:6002" },
             ],
         };
 
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{primaryPort}"), cluster, options, material);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}"), cluster, options, material);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         Assert.NotNull(app);
     }
 
-    /// <summary>
-    /// Ensures disabled cluster mTLS keeps the primary HTTPS listener configuration buildable.
-    /// </summary>
+    /// <summary>Ensures disabled cluster mTLS keeps the primary HTTPS listener configuration buildable.</summary>
     [Fact]
     public void ConfigureKestrelWithStandaloneTopologyBuildsPrimaryListenerOnly()
     {
@@ -64,19 +60,17 @@ public sealed class SquirixKestrelConfigurationTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = $"https://localhost:{port}",
-            Peers = [new Peer { NodeId = "node-a", Url = $"https://localhost:{port}" }],
+            Url = $"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}",
+            Peers = [new Peer { NodeId = "node-a", Url = $"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}" }],
         };
 
-        SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{port}"), cluster, options, material);
+        SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"), cluster, options, material);
 
         using var app = builder.Build();
         Assert.NotNull(app);
     }
 
-    /// <summary>
-    /// Ensures plaintext HTTP cluster URLs are rejected.
-    /// </summary>
+    /// <summary>Ensures plaintext HTTP cluster URLs are rejected.</summary>
     [Fact]
     public void EnsureHttpsTransportRejectsPlaintextHttpUrl()
     {
@@ -91,25 +85,21 @@ public sealed class SquirixKestrelConfigurationTests
         Assert.Contains("HTTPS", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures the Kestrel validation helper delegates to cluster trust-root validation.
-    /// </summary>
+    /// <summary>Ensures the Kestrel validation helper delegates to cluster trust-root validation.</summary>
     [Fact]
-    public void ValidateClientCertificateAcceptsCertificateSignedByClusterCa()
+    public async Task ValidateClientCertificateAcceptsCertificateSignedByClusterCa()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(peerCertificate, bundle.Ca, ["node-b"]));
     }
 
-    /// <summary>
-    /// Ensures the Kestrel validation helper rejects missing client certificates.
-    /// </summary>
+    /// <summary>Ensures the Kestrel validation helper rejects missing client certificates.</summary>
     [Fact]
-    public void ValidateClientCertificateRejectsMissingCertificate()
+    public async Task ValidateClientCertificateRejectsMissingCertificate()
     {
-        using var bundle = MtlsTestCertificateFactory.Create();
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
 
         Assert.False(SquirixKestrelConfiguration.ValidateClientCertificate(null, bundle.Ca, ["node-b"]));
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
@@ -15,9 +16,7 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.TestKit.Auth;
 
-/// <summary>
-/// In-process OIDC authority that serves discovery metadata and JWKS for JWT bearer tests.
-/// </summary>
+/// <summary>In-process OIDC authority that serves discovery metadata and JWKS for JWT bearer tests.</summary>
 public sealed class MockOidcAuthority : IAsyncDisposable
 {
     private static readonly PortAllocator PortPool = new(
@@ -50,7 +49,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     public static async Task<MockOidcAuthority> StartAsync(CancellationToken cancellationToken = default)
     {
         var port = PortPool.Allocate();
-        var authorityUrl = $"http://127.0.0.1:{port}";
+        var authorityUrl = $"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
         var signingKey = RSA.Create(2048);
         const string keyId = "mock-oidc-key";
 
@@ -121,7 +120,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        await _app.StopAsync().ConfigureAwait(false);
+        await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _app.DisposeAsync().ConfigureAwait(false);
         _signingKey.Dispose();
     }

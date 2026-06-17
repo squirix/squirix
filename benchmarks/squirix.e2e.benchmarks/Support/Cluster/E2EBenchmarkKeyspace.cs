@@ -4,9 +4,7 @@ using Squirix.E2EBenchmarks.Scenarios;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
 
-/// <summary>
-/// Precomputed benchmark keyspace for hits, misses, unique writes, and owner-aware routing.
-/// </summary>
+/// <summary>Precomputed benchmark keyspace for hits, misses, unique writes, and owner-aware routing.</summary>
 internal sealed class E2EBenchmarkKeyspace
 {
     private const int HotKeyCount = 16;
@@ -33,7 +31,7 @@ internal sealed class E2EBenchmarkKeyspace
 
     internal static E2EBenchmarkKeyspace Create(string cacheName, BenchmarkTopology topology)
     {
-        if (topology == BenchmarkTopology.SingleNode)
+        if (topology is BenchmarkTopology.SingleNode)
             return CreateSequential("single", LargeKeyCount, HotKeyCount);
 
         var owner = new E2EBenchmarkKeyOwner(["nodeA", "nodeB"]);

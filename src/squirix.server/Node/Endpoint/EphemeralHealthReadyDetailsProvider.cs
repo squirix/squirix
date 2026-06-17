@@ -1,13 +1,13 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Endpoint;
 
-/// <summary>
-/// Builds health-ready diagnostics when persistence is disabled.
-/// </summary>
+/// <summary>Builds health-ready diagnostics when persistence is disabled.</summary>
 internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
 {
     private readonly ClusterConfig _cluster;
@@ -28,7 +28,7 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
     }
 
     /// <inheritdoc />
-    public HealthReadyDetailsSnapshot GetSnapshot()
+    public Task<HealthReadyDetailsSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
         var compaction = new HealthCompactionSnapshot("Idle", null, false);
         var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
@@ -52,16 +52,17 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
             _memoryAccounting.RejectedWriteCount,
             true);
 
-        return new HealthReadyDetailsSnapshot
-        {
-            JournalBacklogOps = 0,
-            SnapshotAgeSeconds = null,
-            SnapshotInFlight = false,
-            Compaction = compaction,
-            ClientPool = clientPool,
-            Coordination = coordination,
-            MemoryPressure = memoryPressure,
-            RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
-        };
+        return Task.FromResult(
+            new HealthReadyDetailsSnapshot
+            {
+                JournalBacklogOps = 0,
+                SnapshotAgeSeconds = null,
+                SnapshotInFlight = false,
+                Compaction = compaction,
+                ClientPool = clientPool,
+                Coordination = coordination,
+                MemoryPressure = memoryPressure,
+                RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
+            });
     }
 }

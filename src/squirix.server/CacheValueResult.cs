@@ -18,16 +18,14 @@ internal readonly struct CacheValueResult<T>
         Value = value;
     }
 
-    /// <summary>
-    /// Gets a value indicating whether the key was found.
-    /// </summary>
+    /// <summary>Gets a value indicating whether the key was found.</summary>
     public bool Found { get; }
 
     /// <summary>
-    /// Gets the stored value when <see cref="Found" /> is <c>true</c>. This may be <see langword="null"/> when a present entry explicitly stores a <see langword="null"/> value.
+    /// Gets the stored value when <see cref="Found" /> is <see langword="true"/>. This may be <see langword="null"/> when a present entry explicitly stores a <see langword="null"/> value.
     /// </summary>
     /// <remarks>
-    /// When <see cref="Found" /> is <c>false</c> (key missing or expired), <see cref="Value" /> is the default of <c>T</c> and must not be used to infer storage.
+    /// When <see cref="Found" /> is <see langword="false"/> (key missing or expired), <see cref="Value" /> is the default of <c>T</c> and must not be used to infer storage.
     /// </remarks>
     public T? Value { get; }
 }

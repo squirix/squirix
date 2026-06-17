@@ -1,8 +1,6 @@
 namespace Squirix.Server;
 
-/// <summary>
-/// Applies the default replacement rules for entry-based update factories.
-/// </summary>
+/// <summary>Applies the default replacement rules for entry-based update factories.</summary>
 internal static class CacheEntryUpdatePolicy
 {
     internal static CacheEntry<T> PreserveExpirationWhenNotSpecified<T>(CacheEntry<T> replacement, CacheEntry<T> existing)

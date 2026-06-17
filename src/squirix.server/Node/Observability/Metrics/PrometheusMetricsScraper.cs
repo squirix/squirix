@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Text;
@@ -135,7 +136,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
         public ReadOnlySpan<KeyValuePair<string, object?>> Tags => _tags;
 
-        public override bool Equals(object? obj) => obj is TagSet other && Equals(other);
+        public override bool Equals([NotNullWhen(true)] object? obj) => obj is TagSet other && Equals(other);
 
         public override int GetHashCode()
         {

@@ -15,43 +15,36 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Ensures failed snapshot writes do not leave stale temporary files.
-/// </summary>
-public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
+/// <summary>Ensures failed snapshot writes do not leave stale temporary files.</summary>
+public sealed class SnapshotWriterCleanupTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies a snapshot writer can create a new final snapshot file.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
     [Fact]
     public async Task WriteAsyncCreatesNewSnapshotWhenFinalFileDoesNotExist()
     {
         using var dir = new TempDirectory("squirix-snap-writer-create");
         var writer = new SnapshotWriter(dir);
 
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntryJsonElement("first"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), await BuildEntryJsonElementAsync("first"))], DefaultCancellationToken);
 
         Assert.True(File.Exists(path));
         Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    /// <summary>
-    /// Verifies a failed finalize leaves the previous final snapshot intact and removes the temporary file.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies a failed finalize leaves the previous final snapshot intact and removes the temporary file.</summary>
     [Fact]
     public async Task WriteAsyncFailedFinalizeKeepsPreviousSnapshot()
     {
         using var dir = new TempDirectory("squirix-snap-writer-finalize-fail");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), await BuildEntryJsonElementAsync("old"))], DefaultCancellationToken);
 
+        var replacement = await BuildEntryJsonElementAsync("new");
         var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
         _ = await Assert.ThrowsAnyAsync<IOException>(() => failingWriter.WriteAsync(
             1,
-            [(CacheKey.Default("replacement"), BuildEntryJsonElement("new"))],
+            [(CacheKey.Default("replacement"), replacement)],
             DefaultCancellationToken));
 
         Assert.True(File.Exists(path));
@@ -59,10 +52,7 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    /// <summary>
-    /// Verifies a snapshot write failure removes the temporary file.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies a snapshot write failure removes the temporary file.</summary>
     [Fact]
     public async Task WriteAsyncRemovesTmpWhenSerializationFails()
     {
@@ -74,18 +64,15 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    /// <summary>
-    /// Verifies a snapshot writer replaces an existing final snapshot without leaving the path absent after success.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the test.</returns>
+    /// <summary>Verifies a snapshot writer replaces an existing final snapshot without leaving the path absent after success.</summary>
     [Fact]
     public async Task WriteAsyncReplacesExistingSnapshotWithoutPreDelete()
     {
         using var dir = new TempDirectory("squirix-snap-writer-replace");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), BuildEntryJsonElement("old"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), await BuildEntryJsonElementAsync("old"))], DefaultCancellationToken);
 
-        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), BuildEntryJsonElement("new"))], DefaultCancellationToken);
+        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), await BuildEntryJsonElementAsync("new"))], DefaultCancellationToken);
 
         Assert.Equal(path, rewrittenPath);
         Assert.True(File.Exists(path));
@@ -93,16 +80,14 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    private static JsonElement BuildEntryJsonElement(object? value)
+    private static async Task<JsonElement> BuildEntryJsonElementAsync(object? value)
     {
-        var bytes = DiscriminatedEntryJsonWriter.BuildEntryJson(value, null, null, 1, null);
+        var bytes = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
         using var doc = JsonDocument.Parse(bytes);
         return doc.RootElement.Clone();
     }
 
-    /// <summary>
-    /// Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.
-    /// </summary>
+    /// <summary>Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.</summary>
     private static IEnumerable<(CacheKey Key, object Entry)> FailingItems() => EnumerateThenFail();
 
     private static IEnumerable<(CacheKey Key, object Entry)> EnumerateThenFail()
@@ -117,7 +102,7 @@ public sealed class SnapshotWriterCleanupTests : ServerUnitTestBase
         await foreach (var (key, _) in SnapshotReader.ReadEntriesAsync<object?>(path, cancellationToken: CancellationToken.None))
             keys.Add(key.Key);
 
-        return [.. keys.OrderBy(static x => x, StringComparer.Ordinal)];
+        return [.. keys.Order(StringComparer.Ordinal)];
     }
 
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations

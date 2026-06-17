@@ -8,18 +8,14 @@ using BenchmarkDotNet.Validators;
 
 namespace Squirix.E2EBenchmarks.Config;
 
-/// <summary>
-/// BenchmarkDotNet configuration for end-to-end benchmarks.
-/// </summary>
+/// <summary>BenchmarkDotNet configuration for end-to-end benchmarks.</summary>
 [SuppressMessage(
     "Maintainability",
     "CA1515:Consider making public types internal",
     Justification = "Shared E2E benchmark configuration is consumed by public benchmark entry points.")]
 public static class SquirixE2EBenchmarkConfig
 {
-    /// <summary>
-    /// Creates the common end-to-end benchmark configuration.
-    /// </summary>
+    /// <summary>Creates the common end-to-end benchmark configuration.</summary>
     /// <returns>The configured BenchmarkDotNet <see cref="IConfig" /> instance.</returns>
     public static IConfig Create() => DefaultConfig.Instance.AddJob(CreateJob()).AddDiagnoser(MemoryDiagnoser.Default).AddExporter(JsonExporter.Full)
                                                    .WithOptions(ConfigOptions.DisableOptimizationsValidator).WithOptions(ConfigOptions.JoinSummary)

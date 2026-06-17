@@ -2,23 +2,19 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Grpc;
 
-/// <summary>
-/// Thin smoke coverage for OIDC authority JWT authentication on gRPC cache RPCs.
-/// </summary>
+/// <summary>Thin smoke coverage for OIDC authority JWT authentication on gRPC cache RPCs.</summary>
 public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
 {
     private const string Audience = "squirix-oidc-smoke";
 
-    /// <summary>
-    /// Ensures gRPC cache RPCs accept a valid OIDC bearer token and reject missing credentials.
-    /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
+    /// <summary>Ensures gRPC cache RPCs accept a valid OIDC bearer token and reject missing credentials.</summary>
     [Fact]
     public async Task CacheRpcAcceptsValidOidcJwtAndRejectsMissingAuth()
     {

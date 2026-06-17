@@ -1,20 +1,16 @@
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Persistence;
 
-/// <summary>
-/// Integration tests for the default ephemeral hosting mode.
-/// </summary>
+/// <summary>Integration tests for the default ephemeral hosting mode.</summary>
 public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Ensures cache operations work in the default ephemeral mode.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Ensures cache operations work in the default ephemeral mode.</summary>
     [Fact]
     public async Task DefaultModeSupportsCacheOperations()
     {
@@ -29,10 +25,7 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         Assert.Equal("value", value);
     }
 
-    /// <summary>
-    /// Ensures default startup does not create WAL, manifest, or snapshot files.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Ensures default startup does not create WAL, manifest, or snapshot files.</summary>
     [Fact]
     public async Task DefaultStartupDoesNotCreatePersistenceFiles()
     {

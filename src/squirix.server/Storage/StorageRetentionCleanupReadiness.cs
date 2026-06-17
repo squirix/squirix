@@ -4,9 +4,7 @@ using System.Threading;
 
 namespace Squirix.Server.Storage;
 
-/// <summary>
-/// Tracks persistent retention cleanup failures for readiness degradation.
-/// </summary>
+/// <summary>Tracks persistent retention cleanup failures for readiness degradation.</summary>
 internal sealed class StorageRetentionCleanupReadiness : IRetentionCleanupReadinessStatus
 {
     private readonly int _consecutiveWriteFailureThreshold;

@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Controls whether RecoveryService blocks host startup until recovery completes.
-/// </summary>
+/// <summary>Controls whether RecoveryService blocks host startup until recovery completes.</summary>
 internal sealed class RecoveryOptions
 {
     /// <summary>

@@ -5,9 +5,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.LocalCache;
 
-/// <summary>
-/// Mutating operations for the process-local physical cache store.
-/// </summary>
+/// <summary>Mutating operations for the process-local physical cache store.</summary>
 /// <typeparam name="T">The stored value type.</typeparam>
 internal interface ILocalCacheMutationOperations<T>
 {

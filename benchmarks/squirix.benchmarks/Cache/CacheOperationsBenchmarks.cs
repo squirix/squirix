@@ -7,9 +7,7 @@ using Squirix.Benchmarks.Support.Cluster;
 
 namespace Squirix.Benchmarks.Cache;
 
-/// <summary>
-/// Phase-3 remote cache operation benchmarks over a single long-lived client session.
-/// </summary>
+/// <summary>Phase-3 remote cache operation benchmarks over a single long-lived client session.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
@@ -24,14 +22,10 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Measures single-key <c>AddAsync</c> with a freshly generated key per call.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the add finishes.</returns>
     [Benchmark]
     public Task AddNewKeyAsync() => SharedCache.AddAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None);
 
-    /// <summary>
-    /// Measures existence checks against a deliberately missing key across many iterations.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when all lookups finish.</returns>
+    /// <summary>Measures existence checks against a deliberately missing key across many iterations.</summary>
     [Benchmark(OperationsPerInvoke = CheapBatch)]
     public async Task ContainsMissingBatchedAsync()
     {
@@ -44,10 +38,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     [IterationSetup(Targets = [nameof(ContainsMissingBatchedAsync), nameof(RemoveMissingBatchedAsync)])]
     public async Task EnsureMissingAbsentAsync() => _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
 
-    /// <summary>
-    /// Measures repeated reads against a pre-seeded key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when repeated reads finish.</returns>
+    /// <summary>Measures repeated reads against a pre-seeded key.</summary>
     [Benchmark]
     public async Task GetExistingValueAsync()
     {
@@ -58,7 +49,6 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Batches lightweight <c>SetAsync</c> calls to amortize per-iteration BenchmarkDotNet overhead.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when all inserts finish.</returns>
     [Benchmark(OperationsPerInvoke = LightBatch)]
     public async Task InsertNewKeyBatchedAsync()
     {
@@ -66,10 +56,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
             await SharedCache.SetAsync(Guid.NewGuid().ToString("N"), "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Measures removals against keys that remain absent despite repeated optimistic deletes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when all remove attempts finish.</returns>
+    /// <summary>Measures removals against keys that remain absent despite repeated optimistic deletes.</summary>
     [Benchmark(OperationsPerInvoke = CheapBatch)]
     public async Task RemoveMissingBatchedAsync()
     {
@@ -77,9 +64,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
             _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Opens the node, client, cache session, and seeds baseline keys.
-    /// </summary>
+    /// <summary>Opens the node, client, cache session, and seeds baseline keys.</summary>
     /// <returns>A task that completes after benchmark resources are ready.</returns>
     [GlobalSetup]
     public async Task StartCacheSessionAsync()
@@ -90,9 +75,7 @@ public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
         _ = await SharedCache.RemoveAsync(MissingKey, CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Disposes the cache session and stops the benchmark node.
-    /// </summary>
+    /// <summary>Disposes the cache session and stops the benchmark node.</summary>
     /// <returns>A task that completes after benchmark resources are disposed.</returns>
     [GlobalCleanup]
     public async Task StopCacheSessionAsync()

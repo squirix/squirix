@@ -13,10 +13,7 @@ namespace Squirix.Server.UnitTests.Adapters.Grpc;
 /// </summary>
 public sealed class ResourceExhaustedExceptionInterceptorTests
 {
-    /// <summary>
-    /// Verifies non-squirix exceptions in streaming path pass through unchanged.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies non-squirix exceptions in streaming path pass through unchanged.</summary>
     [Fact]
     public async Task ServerStreamingNonSquirixExceptionPassesThrough()
     {
@@ -29,10 +26,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
             static (_, _, _) => throw new InvalidOperationException("boom")));
     }
 
-    /// <summary>
-    /// Verifies streaming resource exhaustion maps to gRPC ResourceExhausted.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies streaming resource exhaustion maps to gRPC ResourceExhausted.</summary>
     [Fact]
     public async Task ServerStreamingResourceExhaustedMapsToRpcResourceExhausted()
     {
@@ -48,10 +42,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
         Assert.Equal(ResourceExhaustedException.StableDetail, ex.Status.Detail);
     }
 
-    /// <summary>
-    /// Verifies successful server-streaming handlers pass through without remapping.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies successful server-streaming handlers pass through without remapping.</summary>
     [Fact]
     public async Task ServerStreamingSuccessfulCallPassesThrough()
     {
@@ -71,10 +62,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
         Assert.True(invoked);
     }
 
-    /// <summary>
-    /// Verifies cancellation is not masked as resource exhaustion.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies cancellation is not masked as resource exhaustion.</summary>
     [Fact]
     public async Task UnaryOperationCanceledPassesThrough()
     {
@@ -89,7 +77,6 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
     /// <summary>
     /// Verifies <see cref="ResourceExhaustedException" /> maps to gRPC ResourceExhausted with stable diagnostic detail.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task UnaryResourceExhaustedMapsToRpcResourceExhausted()
     {
@@ -107,7 +94,6 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
     /// <summary>
     /// Verifies existing <see cref="RpcException" /> is not wrapped again.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task UnaryRpcExceptionPassesThroughUnchanged()
     {
@@ -122,7 +108,6 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
     /// <summary>
     /// Verifies non-resource <see cref="SquirixException" /> maps through the shared deterministic error mapper.
     /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
     [Fact]
     public async Task UnarySquirixExceptionMapsToMappedRpcStatus()
     {
@@ -137,10 +122,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
         Assert.Equal("version conflict", ex.Status.Detail);
     }
 
-    /// <summary>
-    /// Verifies successful unary responses are passed through unchanged.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies successful unary responses are passed through unchanged.</summary>
     [Fact]
     public async Task UnarySuccessfulResponsePassesThrough()
     {
@@ -151,10 +133,7 @@ public sealed class ResourceExhaustedExceptionInterceptorTests
         Assert.Equal("ok", response);
     }
 
-    /// <summary>
-    /// Verifies synchronous throw in unary handler body is still mapped.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies synchronous throw in unary handler body is still mapped.</summary>
     [Fact]
     public async Task UnarySynchronousThrowBeforeAwaitIsMapped()
     {

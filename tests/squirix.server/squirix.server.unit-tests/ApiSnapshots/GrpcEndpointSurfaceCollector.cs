@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -8,23 +11,21 @@ using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.Server.UnitTests.ApiSnapshots;
 
-/// <summary>
-/// Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.
-/// </summary>
+/// <summary>Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.</summary>
 internal static class GrpcEndpointSurfaceCollector
 {
     /// <summary>
     /// Builds a production-like host and returns sorted gRPC method identities (<c>ServiceName/MethodName</c>).
     /// </summary>
     /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
-    internal static string[] CollectProductionGrpcMethods()
+    internal static async Task<string[]> CollectProductionGrpcMethodsAsync()
     {
-        using var app = BuildProductionHost();
+        await using var app = await BuildProductionHostAsync();
         _ = app.MapSquirixServer();
         return CollectGrpcMethods(app);
     }
 
-    private static WebApplication BuildProductionHost()
+    private static async Task<WebApplication> BuildProductionHostAsync()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
@@ -33,15 +34,21 @@ internal static class GrpcEndpointSurfaceCollector
                 EnvironmentName = "Production",
             });
 
-        _ = builder.AddSquirixServer(options => options.Url = new Uri($"https://localhost:{port}"), loadDiscoveredSettings: false);
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            loadDiscoveredSettings: false,
+            cancellationToken: CancellationToken.None);
 
         return builder.Build();
     }
 
     private static string[] CollectGrpcMethods(WebApplication app)
     {
+        if (app is not IEndpointRouteBuilder routeBuilder)
+            throw new InvalidOperationException("Web application does not expose endpoint data sources.");
+
         var methods = new List<string>();
-        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(static source => source.Endpoints);
+        var endpoints = routeBuilder.DataSources.SelectMany(static source => source.Endpoints);
         foreach (var endpoint in endpoints)
         {
             var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
@@ -54,6 +61,6 @@ internal static class GrpcEndpointSurfaceCollector
             methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
         }
 
-        return [.. methods.OrderBy(static method => method, StringComparer.Ordinal)];
+        return [.. methods.Order(StringComparer.Ordinal)];
     }
 }

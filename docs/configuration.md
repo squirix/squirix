@@ -16,9 +16,9 @@ Search order:
 In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
 See [containerization.md](containerization.md) for dev and release image layouts.
 
-The standalone `squirix-server` host, `builder.AddSquirixServer(...)`, and `SquirixServer.StartAsync()` load
+The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
 `Squirix:Cluster` through `SquirixServerConfiguration` when a settings file is discovered or supplied. `StartAsync()`
-then hosts the node through the same `AddSquirixServer` / `MapSquirixServer` pipeline as the standalone executable.
+then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline as the standalone executable.
 Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged from the same settings file at runtime
 when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
 `SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
@@ -87,8 +87,8 @@ Example fragment:
 
 ## Cluster settings
 
-`Squirix:Cluster` is loaded by `SquirixServerConfiguration` for the standalone host, `AddSquirixServer(...)`, and
-`SquirixServer.StartAsync()`.
+`Squirix:Cluster` is loaded by `SquirixServerConfiguration` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
+standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 
 | Field            | Type   | Default                                | Validation                                                                                                                           |
 | ---------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -136,7 +136,7 @@ so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS por
 
 ## Hosting options (`SquirixServerOptions`)
 
-Configure these through `builder.AddSquirixServer(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
+Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
 | Field                       | Type   | Default | Validation                                                                 |
@@ -151,7 +151,7 @@ host accepts `--persist`; `--data-dir` requires `--persist`.
 Example:
 
 ```csharp
-builder.AddSquirixServer(options =>
+await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
     options.Url = new Uri("https://localhost:5001");
@@ -179,8 +179,8 @@ during startup.
 ## Node settings file (`Squirix.settings.json`)
 
 The sections below are **not** properties on `SquirixServerOptions`. They are loaded from the same settings file at node
-startup (standalone `squirix-server`, `AddSquirixServer` with discovered settings, or `SquirixServer.StartAsync`). Use
-`squirix-server validate-config --strict` to validate optional sections together with cluster settings.
+startup (standalone `squirix-server`, `AddSquirixServerAsync` with discovered settings, or `SquirixServer.StartAsync`).
+Use `squirix-server validate-config --strict` to validate optional sections together with cluster settings.
 
 ### Persistence
 

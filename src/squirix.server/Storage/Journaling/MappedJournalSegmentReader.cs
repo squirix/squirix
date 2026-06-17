@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -86,16 +87,16 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
                 return false;
 
             var read = JournalFrameReader.ReadNext(_stream, _offset, out var buffer, out var payloadLength);
-            if (read.Status == JournalFrameReadStatus.EndOfFile)
+            if (read.Status is JournalFrameReadStatus.EndOfFile)
                 return false;
 
-            if (read.Status != JournalFrameReadStatus.Success)
+            if (read.Status is not JournalFrameReadStatus.Success)
             {
                 if (buffer is not null)
                     ArrayPool<byte>.Shared.Return(buffer);
 
                 if (ShouldThrowOnReadFailure(read.Status, _tolerateTruncatedTail))
-                    throw new InvalidDataException($"journal segment corruption at offset {_offset}: {read.Status}.");
+                    throw new InvalidDataException($"journal segment corruption at offset {_offset.ToString(CultureInfo.InvariantCulture)}: {read.Status}.");
 
                 return Stop();
             }
@@ -103,7 +104,7 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
             try
             {
                 if (buffer is null)
-                    throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset}.");
+                    throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
 
                 Current = RecordCodec.Deserialize(buffer.AsSpan(0, payloadLength));
                 _offset = read.NextFrameOffset;
@@ -111,7 +112,7 @@ internal sealed class MappedJournalSegmentReader : IEnumerable<JournalEnvelope>
             }
             catch (JsonException ex)
             {
-                throw new InvalidDataException($"journal segment JSON corruption at offset {_offset}.", ex);
+                throw new InvalidDataException($"journal segment JSON corruption at offset {_offset.ToString(CultureInfo.InvariantCulture)}.", ex);
             }
             finally
             {

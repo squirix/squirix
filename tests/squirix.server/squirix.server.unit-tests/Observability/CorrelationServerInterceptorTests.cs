@@ -15,10 +15,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class CorrelationServerInterceptorTests
 {
-    /// <summary>
-    /// Verifies the server interceptor creates an activity when no incoming correlation headers exist.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies the server interceptor creates an activity when no incoming correlation headers exist.</summary>
     [Fact]
     public async Task ServerInterceptorCreatesActivityWhenHeadersAreMissing()
     {
@@ -36,10 +33,7 @@ public sealed class CorrelationServerInterceptorTests
         Assert.False(string.IsNullOrEmpty(observedTraceId));
     }
 
-    /// <summary>
-    /// Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.</summary>
     [Fact]
     public async Task ServerInterceptorIgnoresInvalidOrEmptyCorrelationHeaders()
     {
@@ -63,10 +57,7 @@ public sealed class CorrelationServerInterceptorTests
         Assert.False(string.IsNullOrEmpty(observedTraceId));
     }
 
-    /// <summary>
-    /// Verifies an incoming valid traceparent propagates the trace id onto the server activity.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies an incoming valid traceparent propagates the trace id onto the server activity.</summary>
     [Fact]
     public async Task ServerInterceptorPropagatesIncomingTraceParent()
     {
@@ -95,10 +86,7 @@ public sealed class CorrelationServerInterceptorTests
         Assert.Equal("vendor=value", observed.TraceStateString);
     }
 
-    /// <summary>
-    /// Verifies interceptor scope disposal restores the previous ambient activity after the call completes.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when assertions pass.</returns>
+    /// <summary>Verifies interceptor scope disposal restores the previous ambient activity after the call completes.</summary>
     [Fact]
     public async Task ServerInterceptorRestoresPreviousActivityAfterCall()
     {

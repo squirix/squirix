@@ -4,14 +4,10 @@ using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Shared admission sizing helpers for journal-fronted caches.
-/// </summary>
+/// <summary>Shared admission sizing helpers for journal-fronted caches.</summary>
 internal static class MemoryAdmissionJournalExtensions
 {
-    /// <summary>
-    /// Computes non-negative net growth for a replace/upsert style mutation using the same estimator inputs as accounting.
-    /// </summary>
+    /// <summary>Computes non-negative net growth for a replace/upsert style mutation using the same estimator inputs as accounting.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>
     /// <param name="key">The cache key.</param>
     /// <param name="existing">The existing entry, if any.</param>

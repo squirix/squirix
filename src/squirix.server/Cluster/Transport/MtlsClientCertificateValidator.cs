@@ -5,14 +5,10 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Validates inbound and outbound inter-node certificates against the cluster trust root and node identity.
-/// </summary>
+/// <summary>Validates inbound and outbound inter-node certificates against the cluster trust root and node identity.</summary>
 internal static class MtlsClientCertificateValidator
 {
-    /// <summary>
-    /// Validates a peer certificate against the configured cluster CA.
-    /// </summary>
+    /// <summary>Validates a peer certificate against the configured cluster CA.</summary>
     /// <param name="clientCertificate">The presented peer certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <returns><see langword="true" /> when the certificate chains to the cluster trust root and is time-valid.</returns>
@@ -23,9 +19,7 @@ internal static class MtlsClientCertificateValidator
         return clientCertificate is not null && ValidateTrustChain(clientCertificate, trustAnchor);
     }
 
-    /// <summary>
-    /// Validates a peer certificate against the cluster CA and one of the configured remote peer node identifiers.
-    /// </summary>
+    /// <summary>Validates a peer certificate against the cluster CA and one of the configured remote peer node identifiers.</summary>
     /// <param name="peerCertificate">The presented peer certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="allowedRemotePeerNodeIds">Configured remote peer node identifiers.</param>
@@ -49,9 +43,7 @@ internal static class MtlsClientCertificateValidator
         return false;
     }
 
-    /// <summary>
-    /// Validates a peer certificate against the cluster CA and an expected node identifier.
-    /// </summary>
+    /// <summary>Validates a peer certificate against the cluster CA and an expected node identifier.</summary>
     /// <param name="peerCertificate">The presented peer certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedNodeId">Configured cluster node identifier for the remote peer.</param>

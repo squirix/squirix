@@ -14,9 +14,7 @@ namespace Squirix.Server.Storage;
 /// </summary>
 internal static class FrameCodec
 {
-    /// <summary>
-    /// Reads a single frame and converts the validated payload while the backing buffer is owned by this method.
-    /// </summary>
+    /// <summary>Reads a single frame and converts the validated payload while the backing buffer is owned by this method.</summary>
     /// <param name="s">The source stream to read from.</param>
     /// <param name="payloadReader">A synchronous reader invoked only when the frame payload is complete and the CRC matches.</param>
     /// <param name="cancellationToken">A token to observe while the read operations are in progress.</param>
@@ -24,9 +22,7 @@ internal static class FrameCodec
     /// <returns>
     /// <c>Ok = true</c> with the converted result when a full, valid frame was read; otherwise, <c>Ok = false</c>.
     /// </returns>
-    /// <remarks>
-    /// The payload memory is invalid after this method returns because it is backed by a pooled buffer.
-    /// </remarks>
+    /// <remarks>The payload memory is invalid after this method returns because it is backed by a pooled buffer.</remarks>
     public static async ValueTask<(bool Ok, T? Result)> ReadFrameAsync<T>(Stream s, Func<ReadOnlyMemory<byte>, T> payloadReader, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(payloadReader);
@@ -36,16 +32,16 @@ internal static class FrameCodec
         if (r is 0 or < 8)
             return (false, default);
 
-        var len = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0, 4));
+        var len = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(0, 4));
         var exp = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4, 4));
 
         // Sanity cap to avoid absurd rentals when a file is corrupted
-        const uint maxFrameBytes = 1u << 30; // 1 GiB
-        if (len > maxFrameBytes)
+        const int maxFrameBytes = 1 << 30; // 1 GiB
+        if (len is < 0 or > maxFrameBytes)
             return (false, default);
 
-        var rented = ArrayPool<byte>.Shared.Rent((int)len);
-        var payload = rented.AsMemory(0, (int)len);
+        var rented = ArrayPool<byte>.Shared.Rent(len);
+        var payload = rented.AsMemory(0, len);
         try
         {
             r = await ReadExactlyOrDefaultAsync(s, payload, cancellationToken).ConfigureAwait(false);
@@ -67,21 +63,21 @@ internal static class FrameCodec
 
         var header = new byte[8];
         var r = await ReadExactlyOrDefaultAsync(s, header, cancellationToken).ConfigureAwait(false);
-        if (r == 0)
+        if (r is 0)
             return (false, default);
 
         if (r < header.Length)
             throw new InvalidDataException("Snapshot frame header is truncated.");
 
-        var len = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(0, 4));
+        var len = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(0, 4));
         var exp = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4, 4));
 
-        const uint maxFrameBytes = 1u << 30; // 1 GiB
-        if (len > maxFrameBytes)
+        const int maxFrameBytes = 1 << 30; // 1 GiB
+        if (len is < 0 or > maxFrameBytes)
             throw new InvalidDataException("Snapshot frame length exceeds the supported maximum.");
 
-        var rented = ArrayPool<byte>.Shared.Rent((int)len);
-        var payload = rented.AsMemory(0, (int)len);
+        var rented = ArrayPool<byte>.Shared.Rent(len);
+        var payload = rented.AsMemory(0, len);
         try
         {
             r = await ReadExactlyOrDefaultAsync(s, payload, cancellationToken).ConfigureAwait(false);
@@ -109,9 +105,7 @@ internal static class FrameCodec
     /// The payload bytes to write. The 32-bit little-endian <c>len</c> field is the length of this payload,
     /// and the 32-bit little-endian <c>crc32c</c> field is computed over the payload using the Castagnoli polynomial.
     /// </param>
-    /// <param name="cancellationToken">
-    /// A token to observe while the write operations are in progress.
-    /// </param>
+    /// <param name="cancellationToken">A token to observe while the write operations are in progress.</param>
     /// <returns>
     /// A <see cref="ValueTask" /> that completes when both the 8-byte header and the payload have been written.
     /// </returns>
@@ -148,7 +142,7 @@ internal static class FrameCodec
     {
         // Header = 8 bytes: len (LE) + crc32c (LE)
         var header = new byte[8];
-        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0, 4), (uint)payload.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0, 4), payload.Length);
         var crc = Crc32C.Compute(payload.Span);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4, 4), crc);
 
@@ -156,9 +150,7 @@ internal static class FrameCodec
         await s.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Reads exactly 'buf.Length' bytes unless EOF occurs. Returns the number of bytes actually read.
-    /// </summary>
+    /// <summary>Reads exactly 'buf.Length' bytes unless EOF occurs. Returns the number of bytes actually read.</summary>
     private static async Task<int> ReadExactlyOrDefaultAsync(Stream s, byte[] buf, CancellationToken cancellationToken) =>
         await ReadExactlyOrDefaultAsync(s, buf.AsMemory(), cancellationToken).ConfigureAwait(false);
 
@@ -168,7 +160,7 @@ internal static class FrameCodec
         while (need > 0)
         {
             var n = await s.ReadAsync(buf.Slice(off, need), cancellationToken).ConfigureAwait(false);
-            if (n == 0)
+            if (n is 0)
                 break;
 
             off += n;

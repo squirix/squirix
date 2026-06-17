@@ -1,31 +1,28 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit.Auth;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies public HTTP Prometheus scrape redacts identifying labels.
-/// </summary>
+/// <summary>Verifies public HTTP Prometheus scrape redacts identifying labels.</summary>
 public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Verifies authenticated scrape output does not expose raw cache namespace names.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies authenticated scrape output does not expose raw cache namespace names.</summary>
     [Fact]
     public async Task AuthenticatedMetricsScrapeOmitsCacheNamespaceNames()
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://127.0.0.1:{mainPort}";
+        var url = $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}";
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
         var credentials = TestJwtHelper.CreateRandomCredentials();

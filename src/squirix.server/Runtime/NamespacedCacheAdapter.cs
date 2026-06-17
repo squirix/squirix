@@ -5,9 +5,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Runtime;
 
-/// <summary>
-/// Delegates logical namespaced cache operations through the runtime contract.
-/// </summary>
+/// <summary>Delegates logical namespaced cache operations through the runtime contract.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class NamespacedCacheAdapter<T> : ILogicalNamespacedCache<T>
 {

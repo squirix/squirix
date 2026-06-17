@@ -6,9 +6,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Reports readiness based on journal startup recovery completion.
-/// </summary>
+/// <summary>Reports readiness based on journal startup recovery completion.</summary>
 internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 {
     private readonly JournalStartupGate _journalStartupGate;

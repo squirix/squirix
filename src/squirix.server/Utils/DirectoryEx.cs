@@ -2,16 +2,15 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Squirix.Server.Utils;
 
 internal static class DirectoryEx
 {
-    /// <summary>
-    /// Safely creates a directory with strict validation and returns its normalized absolute path.
-    /// </summary>
+    /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
-    /// The target directory path. May be relative or absolute. Must not be <see langword="null"/>, empty, or whitespace,
+    /// The target directory path. May be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
     /// and must not contain invalid characters or wildcards.
     /// </param>
     /// <param name="baseDir">
@@ -19,17 +18,11 @@ internal static class DirectoryEx
     /// the resulting target must reside within this base directory (the method throws otherwise).
     /// If <paramref name="baseDir" /> does not exist, it is created.
     /// </param>
-    /// <param name="ensureEmpty">
-    /// When <c>true</c>, and the target directory already exists, its contents are removed recursively
-    /// (fails for roots and when forbidden symlinks are encountered).
-    /// </param>
     /// <param name="forbidSymlinks">
-    /// When <c>true</c> (default), forbids symbolic links/junctions both in the parent chain and at the
-    /// target directory; the method throws if a link is detected. When <c>false</c>, link checks are skipped.
+    /// When <see langword="true" /> (default), forbids symbolic links/junctions both in the parent chain and at the
+    /// target directory; the method throws if a link is detected. When <see langword="false" />, link checks are skipped.
     /// </param>
-    /// <returns>
-    /// The normalized absolute path of the created (or already existing) directory.
-    /// </returns>
+    /// <returns>The normalized absolute path of the created (or already existing) directory.</returns>
     /// <exception cref="ArgumentException">
     /// Thrown if <paramref name="path" /> (or <paramref name="baseDir" /> when provided) is empty or contains invalid characters.
     /// </exception>
@@ -38,8 +31,7 @@ internal static class DirectoryEx
     /// </exception>
     /// <exception cref="IOException">
     /// Thrown if a file exists at the target path, a forbidden symlink/junction is detected (when
-    /// <paramref name="forbidSymlinks" /> is <c>true</c>), the target resolves to a link after creation,
-    /// or when attempting to clean a filesystem root.
+    /// <paramref name="forbidSymlinks" /> is <see langword="true" />), or the target resolves to a link after creation.
     /// </exception>
     /// <remarks>
     ///     <para>
@@ -47,39 +39,58 @@ internal static class DirectoryEx
     ///     (1) validates inputs; (2) resolves an absolute path (combining with <paramref name="baseDir" /> or current working directory
     ///     for relative inputs); (3) ensures the target is within <paramref name="baseDir" /> if provided;
     ///     (4) validates path segments (e.g., on Windows: reserved names like <c>CON</c>, <c>PRN</c>, trailing dot/space);
-    ///     (5) optionally checks for symlinks/junctions; (6) creates the directory or cleans it if it already exists
-    ///     and <paramref name="ensureEmpty" /> is <c>true</c>.
+    ///     (5) optionally checks for symlinks/junctions; (6) creates the directory when it does not exist.
     ///     </para>
     ///     <para>
     ///     This routine minimizes directory traversal and link attacks by rejecting targets that escape the base directory
     ///     and, by default, forbidding symlinks. Use the returned path immediately for subsequent operations.
+    ///     To create and optionally clean an existing directory, use <see cref="CreateDirectoryAsync" />.
     ///     </para>
     /// </remarks>
-    public static string CreateDirectory(string path, string? baseDir = null, bool ensureEmpty = false, bool forbidSymlinks = true)
+    public static string CreateDirectory(string path, string? baseDir = null, bool forbidSymlinks = true)
     {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
+        var full = ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks);
+        if (!Directory.Exists(full))
+        {
+            _ = Directory.CreateDirectory(full);
 
-        ValidateNoInvalidChars(path);
+            if (!forbidSymlinks)
+                return full;
+            var created = new DirectoryInfo(full);
+            if (IsSymlink(created))
+                throw new IOException($"Created directory resolved to a symlink/junction: '{full}'.");
 
-        var baseFull = PrepareBaseDirectory(baseDir, forbidSymlinks);
-        var full = ResolveFullPath(path, baseFull);
+            return full;
+        }
 
-        if (baseFull is not null && !IsSubPathOf(full, baseFull))
-            throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
+        if (!forbidSymlinks)
+            return full;
+        var existing = new DirectoryInfo(full);
+        if (IsSymlink(existing))
+            throw new IOException($"Target directory is a symlink/junction: '{full}'.");
 
-        ValidateSegments(full);
-
-        if (forbidSymlinks)
-            EnsureNoSymlinksInChain(full, baseFull);
-
-        if (File.Exists(full))
-            throw new IOException($"A file already exists at '{full}'.");
-
-        return EnsureDirectoryReady(full, ensureEmpty, forbidSymlinks);
+        return full;
     }
 
-    private static void CleanDirectoryContents(string dir, bool forbidSymlinks)
+    /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
+    /// <param name="path">The target directory path.</param>
+    /// <param name="baseDir">Optional base directory used to resolve a relative <paramref name="path" />.</param>
+    /// <param name="ensureEmpty">When <see langword="true" />, deletes existing contents of an already-present directory.</param>
+    /// <param name="forbidSymlinks">When <see langword="true" />, forbids symbolic links/junctions in the path chain.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The normalized absolute path of the created (or already existing) directory.</returns>
+    public static async Task<string> CreateDirectoryAsync(
+        string path,
+        string? baseDir = null,
+        bool ensureEmpty = false,
+        bool forbidSymlinks = true,
+        CancellationToken cancellationToken = default)
+    {
+        var full = ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks);
+        return await EnsureDirectoryReadyAsync(full, ensureEmpty, forbidSymlinks, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
         // Delete contents (not the root). Retry a few times for Windows file locks.
         const int retries = 3;
@@ -110,16 +121,16 @@ internal static class DirectoryEx
             }
             catch (IOException) when (attempt < retries - 1)
             {
-                Thread.Sleep(delayMs);
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
             catch (UnauthorizedAccessException) when (attempt < retries - 1)
             {
-                Thread.Sleep(delayMs);
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
-    private static string EnsureDirectoryReady(string full, bool ensureEmpty, bool forbidSymlinks)
+    private static async Task<string> EnsureDirectoryReadyAsync(string full, bool ensureEmpty, bool forbidSymlinks, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(full))
         {
@@ -149,7 +160,7 @@ internal static class DirectoryEx
         if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
             throw new IOException("Refusing to clean a filesystem root.");
 
-        CleanDirectoryContents(full, forbidSymlinks);
+        await CleanDirectoryContentsAsync(full, forbidSymlinks, cancellationToken).ConfigureAwait(false);
         return full;
     }
 
@@ -158,7 +169,7 @@ internal static class DirectoryEx
         // Walk from base (if provided) or drive root towards the target, checking each existing segment.
         var start = baseFull ?? Path.GetPathRoot(full)!;
         var relative = full[start.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (relative.Length == 0)
+        if (relative.Length is 0)
             return;
 
         var parts = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
@@ -167,7 +178,7 @@ internal static class DirectoryEx
         // Trimming trailing separators can turn a root-only path into an empty string
         // (for example "/" on Unix). PathEx.Combine cannot start from empty, so when
         // trimming empties a non-empty start, preserve the original root as the seed.
-        var cur = trimmedStart.Length == 0 && start.Length > 0 ? start : trimmedStart;
+        var cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
 
         foreach (var p in parts)
         {
@@ -214,7 +225,7 @@ internal static class DirectoryEx
 
         try
         {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
         }
         catch (IOException)
         {
@@ -245,7 +256,8 @@ internal static class DirectoryEx
             return false;
 
         var prefix = name[..3].ToUpperInvariant();
-        return prefix is "COM" or "LPT" && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
+        var equals = prefix.Equals("COM", StringComparison.Ordinal) || prefix.Equals("LPT", StringComparison.Ordinal);
+        return equals && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
     }
 
     private static string? PrepareBaseDirectory(string? baseDir, bool forbidSymlinks)
@@ -271,6 +283,30 @@ internal static class DirectoryEx
 
     private static string ResolveFullPath(string path, string? baseFull) =>
         Path.GetFullPath(Path.IsPathRooted(path) ? path : PathEx.Combine(baseFull ?? Environment.CurrentDirectory, path));
+
+    private static string ResolveValidatedDirectoryPath(string path, string? baseDir, bool forbidSymlinks)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
+
+        ValidateNoInvalidChars(path);
+
+        var baseFull = PrepareBaseDirectory(baseDir, forbidSymlinks);
+        var full = ResolveFullPath(path, baseFull);
+
+        if (baseFull is not null && !IsSubPathOf(full, baseFull))
+            throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
+
+        ValidateSegments(full);
+
+        if (forbidSymlinks)
+            EnsureNoSymlinksInChain(full, baseFull);
+
+        if (File.Exists(full))
+            throw new IOException($"A file already exists at '{full}'.");
+
+        return full;
+    }
 
     private static void TryMakeWritable(string file)
     {
@@ -309,7 +345,7 @@ internal static class DirectoryEx
         foreach (var rawSeg in segments)
         {
             var seg = rawSeg.Trim();
-            if (seg.Length == 0)
+            if (seg.Length is 0)
                 throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
 
             // Windows-only constraints

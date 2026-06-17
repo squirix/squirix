@@ -3,9 +3,7 @@ using Squirix.Server.LocalCache;
 
 namespace Squirix.Server.IntegrationTests.Support;
 
-/// <summary>
-/// Registers delayed durable replay for recovery integration tests.
-/// </summary>
+/// <summary>Registers delayed durable replay for recovery integration tests.</summary>
 internal static class RecoveryReplayTestRegistration
 {
     internal static void AddDelayedReplay(IServiceCollection services, RecoveryReplayDelaySignal signal)

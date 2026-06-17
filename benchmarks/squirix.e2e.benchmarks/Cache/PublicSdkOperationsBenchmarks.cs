@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -10,9 +11,7 @@ using Squirix.E2EBenchmarks.Support.Runtime;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
-/// <summary>
-/// Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.
-/// </summary>
+/// <summary>Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
@@ -36,10 +35,7 @@ public class PublicSdkOperationsBenchmarks
     private ICache<string>? _squirix;
     private int _writeOffset;
 
-    /// <summary>
-    /// Stops benchmark dependencies.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when cleanup is finished.</returns>
+    /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
     public async Task CleanupAsync()
     {
@@ -53,7 +49,6 @@ public class PublicSdkOperationsBenchmarks
     /// <summary>
     /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on existing keys, so the factory must stay cold.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task GetOrAddExistingValueBatchedAsync()
     {
@@ -68,7 +63,6 @@ public class PublicSdkOperationsBenchmarks
     /// <summary>
     /// Calls <see cref="ICache{T}.GetOrAddAsync" /> on new unique keys, so the factory and insert path are measured.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is populated.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task GetOrAddMissingValueBatchedAsync()
     {
@@ -76,15 +70,12 @@ public class PublicSdkOperationsBenchmarks
         var offset = Interlocked.Add(ref _getOrAddMissingOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
         {
-            var result = await cache.GetOrAddAsync($"get-or-add:{offset + i:D10}", CreateValueAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var result = await cache.GetOrAddAsync($"get-or-add:{(offset + i).ToString("D10", CultureInfo.InvariantCulture)}", CreateValueAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result.Value ?? string.Empty);
         }
     }
 
-    /// <summary>
-    /// Runs a deterministic 90 percent read / 10 percent write public SDK workload.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the mixed batch is finished.</returns>
+    /// <summary>Runs a deterministic 90 percent read / 10 percent write public SDK workload.</summary>
     [Benchmark(OperationsPerInvoke = MixedBatch)]
     public async Task MixedReadWriteBatchedAsync()
     {
@@ -93,9 +84,9 @@ public class PublicSdkOperationsBenchmarks
         var writes = 0;
         for (var i = 0; i < MixedBatch; i++)
         {
-            if (i % 10 == 0)
+            if (i % 10 is 0)
             {
-                await cache.SetAsync($"mixed-write:{writeOffset + writes:D10}", $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await cache.SetAsync($"mixed-write:{(writeOffset + writes).ToString("D10", CultureInfo.InvariantCulture)}", $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
                 writes++;
                 continue;
             }
@@ -107,19 +98,17 @@ public class PublicSdkOperationsBenchmarks
     /// <summary>
     /// Overwrites existing keys through the public <c>SetAsync</c> API.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task OverwriteExistingValueBatchedAsync()
     {
         var cache = _squirix!;
         for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync(_existingKeys[i], $"overwrite:{Environment.TickCount64}:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_existingKeys[i], $"overwrite:{Environment.TickCount64.ToString(CultureInfo.InvariantCulture)}:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Reads existing keys through <see cref="ICache{T}.GetValueAsync" />.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadExistingValueBatchedAsync()
     {
@@ -131,10 +120,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Reads live values that carry expiration metadata.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads live values that carry expiration metadata.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadLiveExpiringValueBatchedAsync()
     {
@@ -146,7 +132,6 @@ public class PublicSdkOperationsBenchmarks
     /// <summary>
     /// Reads known-missing keys through <see cref="ICache{T}.GetValueAsync" />.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
     [Benchmark(OperationsPerInvoke = ReadBatch)]
     public async Task ReadMissingValueBatchedAsync()
     {
@@ -158,10 +143,7 @@ public class PublicSdkOperationsBenchmarks
         }
     }
 
-    /// <summary>
-    /// Starts benchmark dependencies and seeds baseline keys.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when setup is finished.</returns>
+    /// <summary>Starts benchmark dependencies and seeds baseline keys.</summary>
     [GlobalSetup]
     public async Task SetupAsync()
     {
@@ -178,14 +160,13 @@ public class PublicSdkOperationsBenchmarks
     /// <summary>
     /// Writes new unique keys through the public <c>SetAsync</c> API.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is written.</returns>
     [Benchmark(OperationsPerInvoke = WriteBatch)]
     public async Task WriteNewValueBatchedAsync()
     {
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync($"write:{offset + i:D10}", $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync($"write:{(offset + i).ToString("D10", CultureInfo.InvariantCulture)}", $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
@@ -199,8 +180,8 @@ public class PublicSdkOperationsBenchmarks
 
         for (var i = 0; i < KeyCount; i++)
         {
-            await cache.SetAsync(_existingKeys[i], $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await cache.SetAsync(_expiringKeys[i], $"expiring:{i:D5}", new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_existingKeys[i], $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_expiringKeys[i], $"expiring:{i.ToString("D5", CultureInfo.InvariantCulture)}", new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -208,9 +189,9 @@ public class PublicSdkOperationsBenchmarks
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _existingKeys[i] = $"existing:{i:D5}";
-            _missingKeys[i] = $"missing:{i:D5}";
-            _expiringKeys[i] = $"expiring:{i:D5}";
+            _existingKeys[i] = $"existing:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _missingKeys[i] = $"missing:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _expiringKeys[i] = $"expiring:{i.ToString("D5", CultureInfo.InvariantCulture)}";
         }
     }
 }

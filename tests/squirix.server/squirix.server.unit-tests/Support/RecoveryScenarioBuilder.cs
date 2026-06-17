@@ -3,12 +3,11 @@ using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
+using Xunit;
 
 namespace Squirix.Server.UnitTests.Support;
 
-/// <summary>
-/// Owns common recovery test infrastructure for focused journal and manifest scenarios.
-/// </summary>
+/// <summary>Owns common recovery test infrastructure for focused journal and manifest scenarios.</summary>
 internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
 {
     private bool _disposed;
@@ -21,24 +20,16 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
         Cache = new PhysicalCache<object?>();
     }
 
-    /// <summary>
-    /// Gets the cache populated by recovery.
-    /// </summary>
+    /// <summary>Gets the cache populated by recovery.</summary>
     internal PhysicalCache<object?> Cache { get; }
 
-    /// <summary>
-    /// Gets the scenario data directory.
-    /// </summary>
+    /// <summary>Gets the scenario data directory.</summary>
     internal string DataDir { get; }
 
-    /// <summary>
-    /// Gets the scenario manifest store.
-    /// </summary>
+    /// <summary>Gets the scenario manifest store.</summary>
     internal ManifestStore ManifestStore { get; }
 
-    /// <summary>
-    /// Gets the scenario persistence options.
-    /// </summary>
+    /// <summary>Gets the scenario persistence options.</summary>
     private PersistenceOptions Persistence { get; }
 
     /// <inheritdoc />
@@ -48,13 +39,12 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
             return;
 
         _disposed = true;
+        ManifestStore.Dispose();
         await Cache.DisposeAsync();
-        DirectoryKit.TryDeleteDirectory(DataDir);
+        await DirectoryKit.TryDeleteDirectoryAsync(DataDir, TestContext.Current.CancellationToken);
     }
 
-    /// <summary>
-    /// Creates a recovery scenario with an owned temporary data directory.
-    /// </summary>
+    /// <summary>Creates a recovery scenario with an owned temporary data directory.</summary>
     /// <param name="prefix">Temporary directory prefix.</param>
     /// <returns>A configured recovery scenario.</returns>
     internal static RecoveryScenarioBuilder Create(string prefix) => new(DirectoryKit.CreateTempDirectory(prefix));

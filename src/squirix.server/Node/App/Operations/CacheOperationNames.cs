@@ -1,8 +1,6 @@
 namespace Squirix.Server.Node.App.Operations;
 
-/// <summary>
-/// Stable, low-cardinality logical cache operation names shared across operational sinks (metrics, tracing, and similar).
-/// </summary>
+/// <summary>Stable, low-cardinality logical cache operation names shared across operational sinks (metrics, tracing, and similar).</summary>
 internal static class CacheOperationNames
 {
     internal const string Add = "add";

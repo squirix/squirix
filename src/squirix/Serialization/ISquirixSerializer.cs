@@ -4,9 +4,7 @@ using System.Text.Json;
 
 namespace Squirix.Serialization;
 
-/// <summary>
-/// Abstraction over serialization used by Squirix components.
-/// </summary>
+/// <summary>Abstraction over serialization used by Squirix components.</summary>
 public interface ISquirixSerializer
 {
     /// <summary>
@@ -41,25 +39,19 @@ public interface ISquirixSerializer
     /// <returns>Deserialized value.</returns>
     T? Deserialize<T>(Stream payload);
 
-    /// <summary>
-    /// Serializes a value into the provided destination stream.
-    /// </summary>
+    /// <summary>Serializes a value into the provided destination stream.</summary>
     /// <typeparam name="T">Value type.</typeparam>
     /// <param name="destination">Stream that receives the serialized payload.</param>
     /// <param name="value">Value to serialize.</param>
     void Serialize<T>(Stream destination, T? value);
 
-    /// <summary>
-    /// Serializes a value into a JsonElement without allocating intermediate strings.
-    /// </summary>
+    /// <summary>Serializes a value into a JsonElement without allocating intermediate strings.</summary>
     /// <typeparam name="T">Value type.</typeparam>
     /// <param name="value">Value to serialize.</param>
     /// <returns>JsonElement representing the value.</returns>
     JsonElement SerializeToElement<T>(T? value);
 
-    /// <summary>
-    /// Serializes a value to a UTF-8 byte array.
-    /// </summary>
+    /// <summary>Serializes a value to a UTF-8 byte array.</summary>
     /// <typeparam name="T">Value type.</typeparam>
     /// <param name="value">Value to serialize.</param>
     /// <returns>Serialized payload.</returns>

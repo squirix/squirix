@@ -4,9 +4,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>
-/// Basic logical cache pipeline surface available to integrations.
-/// </summary>
+/// <summary>Basic logical cache pipeline surface available to integrations.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 public interface ISquirixServerCachePipeline<T>
 {

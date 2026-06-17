@@ -1,19 +1,15 @@
 using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support.Cluster.Fixtures;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
-/// <summary>
-/// Integration tests for single-node expiration, Touch, and RemoveExpiration semantics.
-/// </summary>
+/// <summary>Integration tests for single-node expiration, Touch, and RemoveExpiration semantics.</summary>
 public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
-    /// <summary>
-    /// Verifies AddAsync with immediate expiration reports success but does not leave a live key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync with immediate expiration reports success but does not leave a live key.</summary>
     [Fact]
     public async Task AddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
     {
@@ -32,10 +28,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies AddAsync treats an expired key as absent and inserts a new value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies AddAsync treats an expired key as absent and inserts a new value.</summary>
     [Fact]
     public async Task AddAsyncTreatsExpiredKeyAsAbsent()
     {
@@ -50,17 +43,14 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
 
         await cache.AddAsync("k", "new", cancellationToken: DefaultCancellationToken);
 
         Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies GetExpirationAsync returns remaining expiration for expiring entries and null for persistent or missing ones.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetExpirationAsync returns remaining expiration for expiring entries and null for persistent or missing ones.</summary>
     [Fact]
     public async Task GetExpirationAsyncReturnsRemainingOrNull()
     {
@@ -79,7 +69,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(remaining1.Value <= expiration);
 
         // Wait until expiry -> null
-        await Task.Delay(TimeSpan.FromMilliseconds(140), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(140), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetExpirationAsync("k1", DefaultCancellationToken)).HasExpiration);
 
         // Persistent entry -> null
@@ -87,10 +77,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("k2", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies GetExpiration (sync) returns remaining expiration for expiring entries and null for persistent or missing ones.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetExpiration (sync) returns remaining expiration for expiring entries and null for persistent or missing ones.</summary>
     [Fact]
     public async Task GetExpirationReturnsRemainingOrNull()
     {
@@ -106,17 +93,14 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(remaining1.Value > TimeSpan.Zero);
         Assert.True(remaining1.Value <= expiration);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(140), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(140), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetExpirationAsync("k1", DefaultCancellationToken)).HasExpiration);
 
         await cache.SetAsync("k2", "v2", cancellationToken: DefaultCancellationToken);
         Assert.False((await cache.GetExpirationAsync("k2", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies GetValueAsync reflects presence and expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetValueAsync reflects presence and expiration.</summary>
     [Fact]
     public async Task GetValueAsyncReflectsPresenceAndExpiration()
     {
@@ -127,14 +111,11 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         await cache.SetAsync("k1", "v", new CacheEntryOptions { Expiration = Delay60 }, DefaultCancellationToken);
         Assert.True((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
 
-        await Task.Delay(Delay90, DefaultCancellationToken);
+        await Task.Delay(Delay90, TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies GetValue returns value on hit and null after expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies GetValue returns value on hit and null after expiration.</summary>
     [Fact]
     public async Task GetValueHonorsPresenceAndExpiration()
     {
@@ -143,14 +124,11 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         await cache.SetAsync("k1", "v1", new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(250) }, DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(320), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(320), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies expired entries are treated as missing by RemoveAsync.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies expired entries are treated as missing by RemoveAsync.</summary>
     [Fact]
     public async Task RemoveAsyncTreatsExpiredEntryAsMissing()
     {
@@ -165,17 +143,14 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(150), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(150), TimeProvider.System, DefaultCancellationToken);
 
         var removed = await cache.RemoveAsync("k", DefaultCancellationToken);
 
         Assert.False(removed);
     }
 
-    /// <summary>
-    /// Verifies RemoveAsync on an expired key returns false and does not resurrect or expose the expired value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveAsync on an expired key returns false and does not resurrect or expose the expired value.</summary>
     [Fact]
     public async Task RemoveAsyncTreatsExpiredKeyAsMissing()
     {
@@ -190,16 +165,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False(await cache.RemoveAsync("k", DefaultCancellationToken));
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync returns false and removes an already expired entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync returns false and removes an already expired entry.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncOnExpiredEntryReturnsFalseAndMakesKeyMissing()
     {
@@ -214,16 +186,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(90), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(90), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncOnNonExpiringKeyReturnsFalseAndKeepsKeyLive()
     {
@@ -236,10 +205,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("k", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration and keeps the entry beyond the original expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync removes expiration and keeps the entry beyond the original expiration.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncRemovesExpiration()
     {
@@ -253,10 +219,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("k1", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync returns false for missing and already persistent entries and true when expiration is removed.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync returns false for missing and already persistent entries and true when expiration is removed.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncReportsStatusForMissingPersistentAndExpiringEntries()
     {
@@ -280,10 +243,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("expiring", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync returns false for a missing key and an already non-expiring live key through the public API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync returns false for a missing key and an already non-expiring live key through the public API.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseForMissingKeyAndPersistentKeyThroughPublicApi()
     {
@@ -296,10 +256,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.Equal("v", (await cache.GetValueAsync("persistent", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncReturnsFalseWhenAlreadyPersistent()
     {
@@ -320,10 +277,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("k", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync treats an expired key as missing.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync treats an expired key as missing.</summary>
     [Fact]
     public async Task RemoveExpirationAsyncTreatsExpiredKeyAsMissing()
     {
@@ -338,16 +292,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False(await cache.RemoveExpirationAsync("k", DefaultCancellationToken));
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies RemoveExpirationAsync removes expiration and keeps the entry beyond the original expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies RemoveExpirationAsync removes expiration and keeps the entry beyond the original expiration.</summary>
     [Fact]
     public async Task RemoveExpirationRemovesExpiration()
     {
@@ -361,10 +312,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetExpirationAsync("k1", DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>
-    /// Verifies value-based SetAsync applies relative expiration options to the stored entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies value-based SetAsync applies relative expiration options to the stored entry.</summary>
     [Fact]
     public async Task SetAsyncValueOptionsApplyRelativeExpiration()
     {
@@ -385,15 +333,12 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(expiration.Expiration > TimeSpan.Zero);
         Assert.True(expiration.Expiration <= TimeSpan.FromMilliseconds(250));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(350), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(350), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.</summary>
     [Fact]
     public async Task SetAsyncValueShouldNotDropExpirationWhenOverwritingExistingExpiringEntry()
     {
@@ -415,10 +360,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(expiration.Value > TimeSpan.Zero);
     }
 
-    /// <summary>
-    /// Verifies TouchAsync extends the expiration window when the key exists.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync extends the expiration window when the key exists.</summary>
     [Fact]
     public async Task TouchAsyncExtendsExpiration()
     {
@@ -439,7 +381,6 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
     /// Verifies TouchAsync extends expiration for an entry inserted with expiration through the public API.
     /// Ensures the key remains available past the original expiration after a successful touch.
     /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous unit test.</returns>
     [Fact]
     public async Task TouchAsyncExtendsExpirationInsertedEntryThroughPublicApi()
     {
@@ -454,19 +395,16 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(60, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(60), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(await cache.TouchAsync("k", TimeSpan.FromMilliseconds(500), DefaultCancellationToken));
 
-        await Task.Delay(320, DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(320), TimeProvider.System, DefaultCancellationToken);
 
         Assert.Equal("v", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TouchAsync extends expiration for an existing public cache entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    /// <summary>Verifies TouchAsync extends expiration for an existing public cache entry.</summary>
     [Fact]
     public async Task TouchAsyncExtendsExpirationThroughPublicApi()
     {
@@ -480,19 +418,16 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
                 ExpiresAt = new DateTimeOffset(originalExpiresUtc, TimeSpan.Zero),
             },
             DefaultCancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(50), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken);
         Assert.True(await cache.TouchAsync("k", TimeSpan.FromSeconds(2), DefaultCancellationToken));
 
         var touched = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.True(touched.Found);
         Assert.Equal("v", touched.Value);
-        Assert.True(touched.ExpiresUtc > originalExpiresUtc, $"expected touched expiry after {originalExpiresUtc:O}, actual {touched.ExpiresUtc:O}");
+        Assert.True(touched.ExpiresUtc > originalExpiresUtc, $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
     }
 
-    /// <summary>
-    /// Verifies TouchAsync returns false and removes an already expired entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
     [Fact]
     public async Task TouchAsyncOnExpiredEntryReturnsFalseAndMakesKeyMissing()
     {
@@ -507,16 +442,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(90), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(90), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False(await cache.TouchAsync("k", TimeSpan.FromSeconds(1), DefaultCancellationToken));
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies TouchAsync on a non-expiring key adds expiration and keeps the value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
     [Fact]
     public async Task TouchAsyncOnNonExpiringKeyAddsExpirationAndKeepsValue()
     {
@@ -533,10 +465,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.Equal("v", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TouchAsync rejects non-positive expiration without mutating the existing expiration.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync rejects non-positive expiration without mutating the existing expiration.</summary>
     [Fact]
     public async Task TouchAsyncRejectsNonPositiveExpirationWithoutChangingExistingExpiration()
     {
@@ -564,10 +493,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.Equal("v", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TouchAsync returns false for a missing key through the public API.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync returns false for a missing key through the public API.</summary>
     [Fact]
     public async Task TouchAsyncReturnsFalseForMissingKeyThroughPublicApi()
     {
@@ -576,10 +502,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False(await cache.TouchAsync("missing", TimeSpan.FromSeconds(1), DefaultCancellationToken));
     }
 
-    /// <summary>
-    /// Verifies TouchAsync treats an expired key as missing and does not resurrect it.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TouchAsync treats an expired key as missing and does not resurrect it.</summary>
     [Fact]
     public async Task TouchAsyncTreatsExpiredKeyAsMissingAndDoesNotResurrect()
     {
@@ -594,16 +517,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False(await cache.TouchAsync("k", TimeSpan.FromMinutes(1), DefaultCancellationToken));
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies Touch (sync) extends the expiration window when the key exists.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies Touch (sync) extends the expiration window when the key exists.</summary>
     [Fact]
     public async Task TouchExtendsExpiration()
     {
@@ -618,10 +538,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.Equal("v", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
     [Fact]
     public async Task TryAddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
     {
@@ -641,10 +558,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>
-    /// Verifies TryAddAsync treats an expired key as absent and inserts a new value.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies TryAddAsync treats an expired key as absent and inserts a new value.</summary>
     [Fact]
     public async Task TryAddAsyncTreatsExpiredKeyAsAbsent()
     {
@@ -659,16 +573,13 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
             },
             DefaultCancellationToken);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(300), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(await cache.TryAddAsync("k", "new", cancellationToken: DefaultCancellationToken));
         Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
-    /// <summary>
-    /// Verifies value-based TryAddAsync applies absolute expiration options to the stored entry.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> representing the asynchronous test.</returns>
+    /// <summary>Verifies value-based TryAddAsync applies absolute expiration options to the stored entry.</summary>
     [Fact]
     public async Task TryAddAsyncValueOptionsApplyAbsoluteExpiration()
     {
@@ -693,7 +604,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(expiration.Expiration > TimeSpan.Zero);
         Assert.True(expiration.Expiration <= expiresAt - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1));
 
-        await Task.Delay(TimeSpan.FromSeconds(3), DefaultCancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(3), TimeProvider.System, DefaultCancellationToken);
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }

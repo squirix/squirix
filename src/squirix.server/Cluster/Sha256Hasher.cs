@@ -11,6 +11,10 @@ namespace Squirix.Server.Cluster;
 /// </summary>
 internal sealed class Sha256Hasher : IHash
 {
+    private const byte RouteKeySeparator = 58; // ASCII ':'
+
+    private static ReadOnlySpan<byte> DecimalDigitUtf8 => "0123456789"u8;
+
     public ulong HashCacheRouteKey(string cacheName, string key)
     {
         ArgumentNullException.ThrowIfNull(cacheName);
@@ -23,7 +27,7 @@ internal sealed class Sha256Hasher : IHash
         {
             var buffer = rented.AsSpan(0, byteCount);
             var written = WriteNonNegativeIntUtf8(cacheName.Length, buffer);
-            buffer[written++] = (byte)':';
+            buffer[written++] = RouteKeySeparator;
             written += Encoding.UTF8.GetBytes(cacheName.AsSpan(), buffer[written..]);
             buffer[written++] = 0x1F;
             written += Encoding.UTF8.GetBytes(key.AsSpan(), buffer[written..]);
@@ -37,7 +41,7 @@ internal sealed class Sha256Hasher : IHash
 
     public ulong HashString(string text)
     {
-        if (text.Length == 0)
+        if (text.Length is 0)
             return Hash([]);
 
         var byteCount = Encoding.UTF8.GetByteCount(text);
@@ -78,7 +82,7 @@ internal sealed class Sha256Hasher : IHash
         var digits = CountDigits(value);
         for (var i = digits - 1; i >= 0; i--)
         {
-            destination[i] = (byte)('0' + (value % 10));
+            destination[i] = DecimalDigitUtf8[value % 10];
             value /= 10;
         }
 

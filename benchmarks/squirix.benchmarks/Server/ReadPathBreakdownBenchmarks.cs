@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -15,9 +16,7 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Benchmarks.Server;
 
-/// <summary>
-/// Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).
-/// </summary>
+/// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
@@ -39,17 +38,11 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private GetValueRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
 
-    /// <summary>
-    /// Stops benchmark dependencies.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when cleanup is finished.</returns>
+    /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
     public async Task CleanupAsync() => await DisposeAsync().ConfigureAwait(false);
 
-    /// <summary>
-    /// Starts an in-process node and seeds keys for breakdown reads.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when setup is finished.</returns>
+    /// <summary>Starts an in-process node and seeds keys for breakdown reads.</summary>
     [GlobalSetup]
     public async Task SetupAsync()
     {
@@ -68,10 +61,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         await SeedNodeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Reads through the client pool and call policy, but without the public cache facade.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through the client pool and call policy, but without the public cache facade.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "ClientPool + CallPolicy GetValue, no public facade")]
     public async Task SquirixClientPoolPolicyReadBatchedAsync()
     {
@@ -97,10 +87,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
     public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
     {
@@ -109,10 +96,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _consumer.Consume(await cache.GetValueFoundAsync(_keys[i], CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
     public async Task SquirixGrpcTransportFoundOnlyReusedRequestBatchedAsync()
     {
@@ -125,10 +109,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Reads through generated gRPC stubs only, without the public Squirix client SDK stack.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC transport + server pipeline, no SDK")]
     public async Task SquirixGrpcTransportReadBatchedAsync()
     {
@@ -137,10 +118,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _consumer.Consume(await cache.GetValueOrDefaultAsync(_keys[i], CancellationToken.None).ConfigureAwait(false) ?? string.Empty);
     }
 
-    /// <summary>
-    /// Reads through the public Squirix client SDK against the same node used by raw gRPC rows.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through the public Squirix client SDK against the same node used by raw gRPC rows.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Public SDK GetValue, same node as raw gRPC")]
     public async Task SquirixPublicSdkReadBatchedAsync()
     {
@@ -149,10 +127,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _consumer.Consume((await cache.GetValueAsync(_keys[i], CancellationToken.None).ConfigureAwait(false)).Value ?? string.Empty);
     }
 
-    /// <summary>
-    /// Reads through the server-side adapter pipeline without HTTP/2 or the public client SDK.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is read.</returns>
+    /// <summary>Reads through the server-side adapter pipeline without HTTP/2 or the public client SDK.</summary>
     [Benchmark(Baseline = true, OperationsPerInvoke = ReadBatch, Description = "Server decorator pipeline only, no network")]
     public async Task SquirixServerPipelineReadBatchedAsync()
     {
@@ -194,7 +169,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private void SeedKeys()
     {
         for (var i = 0; i < KeyCount; i++)
-            _keys[i] = $"key:{i:D5}";
+            _keys[i] = $"key:{i.ToString("D5", CultureInfo.InvariantCulture)}";
     }
 
     private async Task SeedNodeAsync()
@@ -206,7 +181,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             for (var i = 0; i < KeyCount; i++)
             {
                 var key = _keys[i];
-                await cache.SetAsync(key, $"value:{i:D5}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await cache.SetAsync(key, $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
         }
     }

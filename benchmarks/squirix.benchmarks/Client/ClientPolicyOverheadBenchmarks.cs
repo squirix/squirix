@@ -10,9 +10,7 @@ using Squirix.Internal.Cluster.Reliability;
 
 namespace Squirix.Benchmarks.Client;
 
-/// <summary>
-/// Isolates client-side reliability and bootstrap wrappers without gRPC transport.
-/// </summary>
+/// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
@@ -24,10 +22,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     private BootstrapEndpointFailover? _failover;
     private CallPolicy? _policy;
 
-    /// <summary>
-    /// Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
+    /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapAndCallPolicyCompletedValueTaskBatchedAsync()
     {
@@ -40,10 +35,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.
-    /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
+    /// <summary>Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatchedAsync()
     {
@@ -62,7 +54,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// <summary>
     /// Runs through <see cref="BootstrapEndpointFailover" /> only.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapFailoverCompletedValueTaskBatchedAsync()
     {
@@ -74,7 +65,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// <summary>
     /// Runs through <see cref="CallPolicy" /> only.
     /// </summary>
-    /// <returns>A <see cref="Task" /> that completes when the batch is done.</returns>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task CallPolicyCompletedValueTaskBatchedAsync()
     {
@@ -83,10 +73,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             _consumer.Consume(await policy.ExecuteAsync(static ct => CompletedValueTaskAsync(ct), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>
-    /// Releases benchmark resources.
-    /// </summary>
-    /// <returns>A <see cref="ValueTask" /> that completes when cleanup is done.</returns>
+    /// <summary>Releases benchmark resources.</summary>
     [GlobalCleanup]
     public ValueTask CleanupAsync() => DisposeAsync();
 
@@ -100,9 +87,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             _consumer.Consume(42);
     }
 
-    /// <summary>
-    /// Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.
-    /// </summary>
+    /// <summary>Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public void QueueWaitMetricObserveBatched()
     {
@@ -110,9 +95,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             CallPolicyMetrics.QueueWaitSeconds.Observe("node-a", TimeSpan.Zero);
     }
 
-    /// <summary>
-    /// Creates reusable wrapper instances.
-    /// </summary>
+    /// <summary>Creates reusable wrapper instances.</summary>
     [GlobalSetup]
     public void Setup()
     {

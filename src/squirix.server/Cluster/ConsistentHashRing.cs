@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
 
-/// <summary>
-/// Immutable consistent hashing ring with virtual nodes (vnodes).
-/// </summary>
+/// <summary>Immutable consistent hashing ring with virtual nodes (vnodes).</summary>
 internal sealed class ConsistentHashRing : INodeLocator
 {
     private readonly IHash _hash;
@@ -21,7 +20,7 @@ internal sealed class ConsistentHashRing : INodeLocator
         _hash = hash ?? new Sha256Hasher();
 
         var distinct = EnumerableHelper.GetDistinct(nodes);
-        if (distinct.Length == 0)
+        if (distinct.Length is 0)
             throw new ArgumentException("At least one node must be provided.", nameof(nodes));
 
         var list = new List<(ulong Hash, string Node)>(checked(distinct.Length * virtualNodes));
@@ -29,7 +28,7 @@ internal sealed class ConsistentHashRing : INodeLocator
         {
             for (var i = 0; i < virtualNodes; i++)
             {
-                var key = $"{node}#{i}";
+                var key = $"{node}#{i.ToString(CultureInfo.InvariantCulture)}";
                 var h = _hash.HashString(key);
                 list.Add((h, node));
             }

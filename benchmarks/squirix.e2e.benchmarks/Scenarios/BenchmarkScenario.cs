@@ -4,18 +4,14 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.E2EBenchmarks.Scenarios;
 
-/// <summary>
-/// A stable benchmark scenario descriptor shown in BenchmarkDotNet output.
-/// </summary>
+/// <summary>A stable benchmark scenario descriptor shown in BenchmarkDotNet output.</summary>
 /// <param name="Topology">The end-to-end topology.</param>
 /// <param name="ValueShape">The cache value shape.</param>
 /// <param name="DurabilityMode">The durability mode.</param>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark scenario record is part of public benchmark parameterization.")]
 public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValueShape ValueShape, E2EBenchmarkDurabilityMode DurabilityMode)
 {
-    /// <summary>
-    /// Creates the default diagnostic scenario matrix.
-    /// </summary>
+    /// <summary>Creates the default diagnostic scenario matrix.</summary>
     /// <returns>The default scenario matrix.</returns>
     public static IReadOnlyList<BenchmarkScenario> CreateDefaultMatrix()
     {
@@ -55,9 +51,7 @@ public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValu
         return scenarios;
     }
 
-    /// <summary>
-    /// Creates the focused single-node durability comparison matrix.
-    /// </summary>
+    /// <summary>Creates the focused single-node durability comparison matrix.</summary>
     /// <returns>The durability comparison scenario matrix.</returns>
     public static IReadOnlyList<BenchmarkScenario> CreateDurabilityComparisonMatrix() =>
     [

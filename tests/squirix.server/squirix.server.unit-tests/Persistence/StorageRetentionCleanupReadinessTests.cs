@@ -12,9 +12,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// </summary>
 public sealed class StorageRetentionCleanupReadinessTests
 {
-    /// <summary>
-    /// Ensures a single failed write does not degrade readiness under the strict default thresholds.
-    /// </summary>
+    /// <summary>Ensures a single failed write does not degrade readiness under the strict default thresholds.</summary>
     [Fact]
     public void SingleFailedWriteDoesNotDegradeReadiness()
     {
@@ -27,9 +25,7 @@ public sealed class StorageRetentionCleanupReadinessTests
         Assert.Equal(1, readiness.RecentFailureCount);
     }
 
-    /// <summary>
-    /// Ensures consecutive failed writes degrade readiness once the configured threshold is reached.
-    /// </summary>
+    /// <summary>Ensures consecutive failed writes degrade readiness once the configured threshold is reached.</summary>
     [Fact]
     public void ConsecutiveFailedWritesDegradeReadiness()
     {
@@ -45,9 +41,7 @@ public sealed class StorageRetentionCleanupReadinessTests
         Assert.Equal(3, readiness.ConsecutiveWriteFailures);
     }
 
-    /// <summary>
-    /// Ensures a successful write resets the consecutive failure counter.
-    /// </summary>
+    /// <summary>Ensures a successful write resets the consecutive failure counter.</summary>
     [Fact]
     public void SuccessfulWriteResetsConsecutiveFailures()
     {
@@ -62,9 +56,7 @@ public sealed class StorageRetentionCleanupReadinessTests
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
     }
 
-    /// <summary>
-    /// Ensures enough failures inside the sliding window degrade readiness even when they are not consecutive writes.
-    /// </summary>
+    /// <summary>Ensures enough failures inside the sliding window degrade readiness even when they are not consecutive writes.</summary>
     [Fact]
     public void WindowFailureCountDegradesReadiness()
     {
@@ -80,10 +72,7 @@ public sealed class StorageRetentionCleanupReadinessTests
         Assert.Equal(3, readiness.RecentFailureCount);
     }
 
-    /// <summary>
-    /// Ensures the readiness health check reports unhealthy when retention cleanup is degraded.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Ensures the readiness health check reports unhealthy when retention cleanup is degraded.</summary>
     [Fact]
     public async Task HealthCheckReportsUnhealthyWhenRetentionCleanupIsDegraded()
     {

@@ -16,9 +16,7 @@ public sealed class MemoryPressureOptionsTests
         PropertyNameCaseInsensitive = true,
     };
 
-    /// <summary>
-    /// Verifies default threshold values match the contract.
-    /// </summary>
+    /// <summary>Verifies default threshold values match the contract.</summary>
     [Fact]
     public void DefaultsMatchContract()
     {
@@ -28,9 +26,7 @@ public sealed class MemoryPressureOptionsTests
         Assert.Equal(95, resolved.CriticalPressureThresholdPercent);
     }
 
-    /// <summary>
-    /// Verifies local threshold boundaries remain accepted before cross-property validation runs.
-    /// </summary>
+    /// <summary>Verifies local threshold boundaries remain accepted before cross-property validation runs.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsThresholdBoundaries()
     {
@@ -47,9 +43,7 @@ public sealed class MemoryPressureOptionsTests
         Assert.Equal(100, options.CriticalPressureThresholdPercent);
     }
 
-    /// <summary>
-    /// Verifies a critical threshold above 100 is rejected.
-    /// </summary>
+    /// <summary>Verifies a critical threshold above 100 is rejected.</summary>
     [Fact]
     public void FieldBackedValidationRejectsCriticalThresholdAboveOneHundred()
     {
@@ -60,9 +54,7 @@ public sealed class MemoryPressureOptionsTests
         Assert.Contains("101", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies a non-positive high threshold is rejected.
-    /// </summary>
+    /// <summary>Verifies a non-positive high threshold is rejected.</summary>
     [Fact]
     public void FieldBackedValidationRejectsHighThresholdOutOfRange()
     {
@@ -73,9 +65,7 @@ public sealed class MemoryPressureOptionsTests
         Assert.Contains("0", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies non-positive byte limits are rejected.
-    /// </summary>
+    /// <summary>Verifies non-positive byte limits are rejected.</summary>
     /// <param name="maxBytes">Invalid limit value.</param>
     [Theory]
     [InlineData(0)]
@@ -90,22 +80,12 @@ public sealed class MemoryPressureOptionsTests
         Assert.Contains(maxBytes.ToString(CultureInfo.InvariantCulture), ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Verifies JSON binding still applies valid option values through init setters.
-    /// </summary>
+    /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """
-                            {
-                              "maxEstimatedCacheBytes": 4096,
-                              "highPressureThresholdPercent": 60,
-                              "criticalPressureThresholdPercent": 90
-                            }
-                            """;
-
+        const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
         var options = JsonSerializer.Deserialize<MemoryPressureOptions>(json, JsonOptions);
-
         Assert.NotNull(options);
         options.Validate();
         Assert.Equal(4096, options.MaxEstimatedCacheBytes);
@@ -129,9 +109,7 @@ public sealed class MemoryPressureOptionsTests
         Assert.Null(ex);
     }
 
-    /// <summary>
-    /// Verifies the high threshold must be strictly less than the critical threshold.
-    /// </summary>
+    /// <summary>Verifies the high threshold must be strictly less than the critical threshold.</summary>
     [Fact]
     public void ValidateRejectsHighNotStrictlyBelowCritical()
     {

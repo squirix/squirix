@@ -4,9 +4,7 @@ using Squirix.Server.Adapters.Rest;
 
 namespace Squirix.Server.Adapters.Endpoint.Rest;
 
-/// <summary>
-/// Source-generated JSON metadata for public REST and health response DTOs.
-/// </summary>
+/// <summary>Source-generated JSON metadata for public REST and health response DTOs.</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(RestDtos.RestIncrementResponse))]
 [JsonSerializable(typeof(RestDtos.RestErrorResponse))]

@@ -3,9 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Options for the journal metrics exporter background service.
-/// </summary>
+/// <summary>Options for the journal metrics exporter background service.</summary>
 internal sealed class JournalMetricsExporterOptions
 {
     public JournalMetricsExporterOptions()

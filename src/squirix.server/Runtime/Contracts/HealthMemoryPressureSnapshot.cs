@@ -1,8 +1,6 @@
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>
-/// Memory-pressure subsection of health-ready diagnostics.
-/// </summary>
+/// <summary>Memory-pressure subsection of health-ready diagnostics.</summary>
 internal readonly record struct HealthMemoryPressureSnapshot(
     string State,
     long MaxEstimatedCacheBytes,

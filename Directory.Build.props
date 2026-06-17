@@ -13,6 +13,7 @@
         <AnalysisLevel>latest</AnalysisLevel>
         <AnalysisMode>All</AnalysisMode>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <MeziantouAnalysisMode>all-errors</MeziantouAnalysisMode>
     </PropertyGroup>
 
     <ItemGroup>

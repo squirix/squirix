@@ -7,9 +7,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Hosting;
 
-/// <summary>
-/// Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.
-/// </summary>
+/// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
 internal static class SquirixClusterConnectionSecurity
 {
     public static bool IsTrustedInternalOwnerCall(ServerCallContext context, ClusterConfig cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)

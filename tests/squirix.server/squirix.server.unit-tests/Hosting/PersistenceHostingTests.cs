@@ -1,22 +1,21 @@
 using System;
+using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>
-/// Covers persistence opt-in hosting behavior.
-/// </summary>
-public sealed class PersistenceHostingTests
+/// <summary>Covers persistence opt-in hosting behavior.</summary>
+public sealed class PersistenceHostingTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures data directory without persistence is rejected.
-    /// </summary>
+    /// <summary>Ensures data directory without persistence is rejected.</summary>
     [Fact]
     public void DataDirectoryWithoutPersistenceIsRejected()
     {
@@ -26,11 +25,9 @@ public sealed class PersistenceHostingTests
         Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures the default host does not register persistence services.
-    /// </summary>
+    /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]
-    public void DefaultHostingDoesNotRegisterPersistenceOptions()
+    public async Task DefaultHostingDoesNotRegisterPersistenceOptions()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
@@ -39,9 +36,12 @@ public sealed class PersistenceHostingTests
                 EnvironmentName = "Development",
             });
 
-        _ = builder.AddSquirixServer(options => options.Url = new Uri($"https://localhost:{port}"), loadDiscoveredSettings: false);
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            loadDiscoveredSettings: false,
+            cancellationToken: DefaultCancellationToken);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         Assert.Null(app.Services.GetService<PersistenceOptions>());
     }
 
@@ -49,7 +49,7 @@ public sealed class PersistenceHostingTests
     /// Ensures <see cref="SquirixServerOptions.UsePersistence" /> registers persistence options.
     /// </summary>
     [Fact]
-    public void UsePersistenceRegistersPersistenceOptions()
+    public async Task UsePersistenceRegistersPersistenceOptions()
     {
         var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
@@ -59,15 +59,16 @@ public sealed class PersistenceHostingTests
                 EnvironmentName = "Development",
             });
 
-        _ = builder.AddSquirixServer(
+        _ = await builder.AddSquirixServerAsync(
             options =>
             {
-                options.Url = new Uri($"https://localhost:{port}");
+                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
                 options.UsePersistence(dataDir);
             },
-            loadDiscoveredSettings: false);
+            loadDiscoveredSettings: false,
+            cancellationToken: DefaultCancellationToken);
 
-        using var app = builder.Build();
+        await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         Assert.Equal(dataDir, persistence.DataDir);
 

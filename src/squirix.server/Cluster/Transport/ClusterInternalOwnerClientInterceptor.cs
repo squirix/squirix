@@ -5,9 +5,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Cluster.Transport;
 
-/// <summary>
-/// Marks outbound cluster owner-routing gRPC calls for trusted inter-node authentication.
-/// </summary>
+/// <summary>Marks outbound cluster owner-routing gRPC calls for trusted inter-node authentication.</summary>
 internal sealed class ClusterInternalOwnerClientInterceptor : Interceptor
 {
     public override AsyncUnaryCall<TResponse> AsyncUnaryCall<TRequest, TResponse>(

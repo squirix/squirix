@@ -6,15 +6,11 @@ using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks;
 
-/// <summary>
-/// Entry point for running the BenchmarkDotNet benchmark suite in this assembly.
-/// </summary>
+/// <summary>Entry point for running the BenchmarkDotNet benchmark suite in this assembly.</summary>
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet entry point must remain public.")]
 public static class Program
 {
-    /// <summary>
-    /// Discovers and executes benchmarks in the current assembly.
-    /// </summary>
+    /// <summary>Discovers and executes benchmarks in the current assembly.</summary>
     /// <param name="args">
     /// Command-line arguments passed through to BenchmarkDotNet (e.g., <c>--filter</c>).
     /// </param>
@@ -23,7 +19,7 @@ public static class Program
         ArgumentNullException.ThrowIfNull(args);
         BenchmarkRuntime.EnsureInitialized();
 
-        if (args.Length == 0)
+        if (args.Length is 0)
             args = ["--filter", "*"];
 
         var artifacts = Environment.GetEnvironmentVariable("BDN_ARTIFACTS");

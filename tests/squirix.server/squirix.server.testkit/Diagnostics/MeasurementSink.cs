@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Linq;
 
 namespace Squirix.Server.TestKit.Diagnostics;
@@ -33,12 +34,10 @@ public sealed class MeasurementSink : IDisposable
         _listener.Start();
     }
 
-    /// <summary>
-    /// Determines whether a measurement event with the specified instrument name and tags has been observed.
-    /// </summary>
+    /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
     /// <param name="expectedTags">Expected tag key/value pairs that must be present on the measurement.</param>
-    /// <returns><c>true</c> if a matching event was captured; otherwise, <c>false</c>.</returns>
+    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
     public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags) => _events.Any(e =>
         string.Equals(e.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(e.Tags, expectedTags));
 
@@ -60,7 +59,7 @@ public sealed class MeasurementSink : IDisposable
         foreach (var (k, v) in expected)
         {
             if (!tags.Any(t => string.Equals(t.Key, k, StringComparison.OrdinalIgnoreCase) &&
-                               string.Equals(t.Value?.ToString() ?? string.Empty, v, StringComparison.OrdinalIgnoreCase)))
+                               TagValueEquals(t.Value, v)))
             {
                 return false;
             }
@@ -68,4 +67,12 @@ public sealed class MeasurementSink : IDisposable
 
         return true;
     }
+
+    private static bool TagValueEquals(object? tagValue, string expected) =>
+        tagValue switch
+        {
+            null => string.IsNullOrEmpty(expected),
+            string s => string.Equals(s, expected, StringComparison.OrdinalIgnoreCase),
+            _ => string.Equals(Convert.ToString(tagValue, CultureInfo.InvariantCulture), expected, StringComparison.OrdinalIgnoreCase),
+        };
 }

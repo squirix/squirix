@@ -3,9 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Squirix.E2ETests.Support.Stress;
 
-/// <summary>
-/// Immutable description of a stress workload: writer count, per-writer operation count, and a hard time budget.
-/// </summary>
+/// <summary>Immutable description of a stress workload: writer count, per-writer operation count, and a hard time budget.</summary>
 [StructLayout(LayoutKind.Auto)]
 internal readonly struct StressLoadProfile
 {

@@ -1,8 +1,6 @@
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>
-/// Starts trace scopes for journal writer operations.
-/// </summary>
+/// <summary>Starts trace scopes for journal writer operations.</summary>
 internal interface IJournalOperationTracer
 {
     /// <summary>

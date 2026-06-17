@@ -25,7 +25,7 @@ internal sealed class MemoryPressureStateEvaluator : IMemoryPressureStateEvaluat
             return MemoryPressureState.Normal;
 
         var limit = _options.MaxEstimatedCacheBytes;
-        var usedPercent = (double)estimatedCacheBytes / limit * 100.0;
+        var usedPercent = 1.0 * estimatedCacheBytes / limit * 100.0;
         if (usedPercent < _options.HighPressureThresholdPercent)
             return MemoryPressureState.Normal;
 

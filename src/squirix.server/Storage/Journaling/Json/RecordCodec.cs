@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using Google.Protobuf;
 using Squirix.Server.Node.Observability;
@@ -57,7 +58,7 @@ internal static class RecordCodec
             UnixMs = dto.UnixMs,
         };
 
-        if (dto.Put != null)
+        if (dto.Put is not null)
         {
             env.Put = new Put
             {
@@ -72,19 +73,19 @@ internal static class RecordCodec
             return env;
         }
 
-        if (dto.Remove != null)
+        if (dto.Remove is not null)
         {
             env.Remove = new Remove { Key = dto.Remove.Key, Namespace = dto.Remove.Namespace ?? string.Empty };
             return env;
         }
 
-        if (dto.RemoveExpiration != null)
+        if (dto.RemoveExpiration is not null)
         {
             env.RemoveExpiration = new RemoveExpiration { Key = dto.RemoveExpiration.Key, Namespace = dto.RemoveExpiration.Namespace ?? string.Empty };
             return env;
         }
 
-        if (dto.TouchExpiration != null)
+        if (dto.TouchExpiration is not null)
         {
             env.TouchExpiration = new TouchExpiration
             {
@@ -209,8 +210,8 @@ internal static class RecordCodec
         if (dto.TouchExpiration is not null)
             opCount++;
 
-        if (opCount != 1)
-            throw new JsonException($"journal envelope must contain exactly one operation, but found {opCount}.");
+        if (opCount is not 1)
+            throw new JsonException($"journal envelope must contain exactly one operation, but found {opCount.ToString(CultureInfo.InvariantCulture)}.");
 
         if (dto.Put is not null)
             ValidatePut(dto.Put);

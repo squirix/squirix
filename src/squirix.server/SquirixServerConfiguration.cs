@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Serialization;
@@ -11,14 +14,12 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Loads and maps canonical Squirix server node configuration for hosting entry points.
-/// </summary>
+/// <summary>Loads and maps canonical Squirix server node configuration for hosting entry points.</summary>
 public static class SquirixServerConfiguration
 {
-    /// <summary>
-    /// Applies command-line overrides used by the standalone server host.
-    /// </summary>
+    private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
+    /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
@@ -28,20 +29,21 @@ public static class SquirixServerConfiguration
         ArgumentNullException.ThrowIfNull(options);
 
         if (url is not null)
+        {
             ApplyCommandLineOverrides(options, new Uri(url, UriKind.Absolute), dataDirectory, persist);
+        }
         else
-            ApplyCommandLineOverrides(options, (Uri?)null, dataDirectory, persist);
+        {
+            Uri? noUrl = null;
+            ApplyCommandLineOverrides(options, noUrl, dataDirectory, persist);
+        }
     }
 
-    /// <summary>
-    /// Applies runtime defaults after file or callback configuration.
-    /// </summary>
+    /// <summary>Applies runtime defaults after file or callback configuration.</summary>
     /// <param name="options">Server options to update.</param>
     public static void ApplyRuntimeDefaults(SquirixServerOptions options) => ArgumentNullException.ThrowIfNull(options);
 
-    /// <summary>
-    /// Copies validated options into a target instance.
-    /// </summary>
+    /// <summary>Copies validated options into a target instance.</summary>
     /// <param name="source">Source options.</param>
     /// <param name="target">Target options.</param>
     public static void CopyOptions(SquirixServerOptions source, SquirixServerOptions target)
@@ -66,20 +68,25 @@ public static class SquirixServerConfiguration
         target.Peers = peers;
     }
 
-    /// <summary>
-    /// Creates hosting options from an optional settings file and configuration callback.
-    /// </summary>
+    /// <summary>Creates hosting options from an optional settings file and configuration callback.</summary>
     /// <param name="configure">Optional callback applied after the settings file baseline.</param>
     /// <param name="settingsPath">Optional explicit settings path.</param>
     /// <param name="loadDiscoveredSettings">When <see langword="true" />, loads a discovered settings file before the callback.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
-    public static SquirixServerOptions CreateHostingOptions(Action<SquirixServerOptions>? configure = null, string? settingsPath = null, bool loadDiscoveredSettings = true)
+    public static async Task<SquirixServerOptions> CreateHostingOptionsAsync(
+        Action<SquirixServerOptions>? configure = null,
+        string? settingsPath = null,
+        bool loadDiscoveredSettings = true,
+        CancellationToken cancellationToken = default)
     {
         SquirixServerOptions options;
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path is not null ? LoadFromFile(path) : new SquirixServerOptions();
+            options = path is not null
+                ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false)
+                : new SquirixServerOptions();
         }
         else
         {
@@ -135,32 +142,40 @@ public static class SquirixServerConfiguration
     /// Loads <c>Squirix:Cluster</c> from a settings file and validates the result.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The validated server options.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the file is missing, invalid, or fails validation.</exception>
-    public static SquirixServerOptions LoadFromFile(string settingsFilePath) =>
-        !TryLoadFromFile(settingsFilePath, out var options, out var error) ? throw new InvalidOperationException(error) : options;
+    public static async Task<SquirixServerOptions> LoadFromFileAsync(string settingsFilePath, CancellationToken cancellationToken = default)
+    {
+        var (success, options, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        if (!success)
+            throw new InvalidOperationException(error);
 
-    /// <summary>
-    /// Loads settings from the discovered settings file or creates ephemeral local defaults.
-    /// </summary>
+        return options ?? throw new InvalidOperationException("Settings file did not produce cluster options.");
+    }
+
+    /// <summary>Loads settings from the discovered settings file or creates ephemeral local defaults.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validated server options.</returns>
-    public static SquirixServerOptions LoadOrCreateDefault()
+    public static async Task<SquirixServerOptions> LoadOrCreateDefaultAsync(CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
-        if (path is not null && TryLoadFromFile(path, out var options, out _))
-            return options;
+        if (path is not null)
+        {
+            var (success, options, _) = await TryLoadFromFileAsync(path, cancellationToken).ConfigureAwait(false);
+            if (success && options is not null)
+                return options;
+        }
 
         var port = NextFreePort();
         return new SquirixServerOptions
         {
             NodeId = "node",
-            Url = new Uri($"https://localhost:{port}"),
+            Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
         };
     }
 
-    /// <summary>
-    /// Resolves a settings file path from an explicit path or the standard discovery order.
-    /// </summary>
+    /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
     public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath ?? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"]);
@@ -169,49 +184,42 @@ public static class SquirixServerConfiguration
     /// Attempts to load <c>Squirix:Cluster</c> from a settings file.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
-    /// <param name="options">The validated options when the method succeeds.</param>
-    /// <param name="error">Validation or parse error text when the method fails.</param>
-    /// <returns><see langword="true" /> when loading and validation succeed.</returns>
-    public static bool TryLoadFromFile(string settingsFilePath, out SquirixServerOptions options, out string? error)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c>Success</c> is <see langword="true" /> when loading and validation succeed,
+    /// <c>Options</c> holds the validated options, and <c>Error</c> holds failure text when applicable.
+    /// </returns>
+    public static async Task<(bool Success, SquirixServerOptions? Options, string? Error)> TryLoadFromFileAsync(
+        string settingsFilePath,
+        CancellationToken cancellationToken = default)
     {
-        options = null!;
-        error = null;
         if (!File.Exists(settingsFilePath))
-        {
-            error = $"Settings file does not exist: {Path.GetFullPath(settingsFilePath)}";
-            return false;
-        }
+            return (false, null, $"Settings file does not exist: {Path.GetFullPath(settingsFilePath)}");
 
         try
         {
-            using var document = JsonDocument.Parse(
-                File.ReadAllText(settingsFilePath),
-                new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+            var bytes = await File.ReadAllBytesAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+            using var document = JsonDocument.Parse(bytes, JsonOptions);
             var root = document.RootElement;
             if (root.TryGetProperty("Squirix", out var squirix))
                 root = squirix;
             if (!root.TryGetProperty("Cluster", out var cluster))
-            {
-                error = "Settings file must define Squirix.Cluster.";
-                return false;
-            }
+                return (false, null, "Settings file must define Squirix.Cluster.");
 
-            options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
-                      throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
+            var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
+                          throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
             if (ClusterTopologyValidator.TryValidate(options, out var failures))
-                return true;
-            error = string.Join(Environment.NewLine, failures);
-            return false;
+                return (true, options, null);
+
+            return (false, null, string.Join(Environment.NewLine, failures));
         }
         catch (JsonException ex)
         {
-            error = ex.Message;
-            return false;
+            return (false, null, ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            error = ex.Message;
-            return false;
+            return (false, null, ex.Message);
         }
     }
 
@@ -220,37 +228,40 @@ public static class SquirixServerConfiguration
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
     /// <param name="strict">When <see langword="true" />, also validates <c>MemoryPressure</c> and <c>PrometheusMetrics</c> sections.</param>
-    /// <param name="error">Validation or parse error text when the method fails.</param>
-    /// <returns><see langword="true" /> when validation succeeds.</returns>
-    public static bool TryValidateSettingsFile(string settingsFilePath, bool strict, out string? error)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c>Success</c> is <see langword="true" /> when validation succeeds and <c>Error</c> holds failure text when applicable.
+    /// </returns>
+    public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(
+        string settingsFilePath,
+        bool strict,
+        CancellationToken cancellationToken = default)
     {
-        if (!TryLoadFromFile(settingsFilePath, out _, out error))
-            return false;
+        var (success, _, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        if (!success)
+            return (false, error);
 
         if (!strict)
-            return true;
+            return (true, null);
 
         var failures = new List<string>();
-        UnifiedSettings.ValidateOptionalSections(settingsFilePath, failures);
-        if (failures.Count == 0)
-            return true;
+        await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
+        if (failures.Count is 0)
+            return (true, null);
 
-        error = string.Join(Environment.NewLine, failures);
-        return false;
+        return (false, string.Join(Environment.NewLine, failures));
     }
 
-    /// <summary>
-    /// Maps validated server options to internal cluster configuration.
-    /// </summary>
+    /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
+    internal static ClusterConfig ToClusterConfig(SquirixServerOptions? options)
     {
         ArgumentNullException.ThrowIfNull(options);
         ClusterTopologyValidator.Validate(options);
 
-        var peers = new Peer[options.Peers.Count == 0 ? 1 : options.Peers.Count];
-        if (options.Peers.Count == 0)
+        var peers = new Peer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
+        if (options.Peers.Count is 0)
         {
             peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url.AbsoluteUri };
         }
@@ -273,9 +284,7 @@ public static class SquirixServerConfiguration
         };
     }
 
-    /// <summary>
-    /// Aligns the local peer URL with the node URL after command-line overrides.
-    /// </summary>
+    /// <summary>Aligns the local peer URL with the node URL after command-line overrides.</summary>
     /// <param name="options">Server options to update.</param>
     private static void AlignLocalPeerWithNodeUrl(SquirixServerOptions options)
     {
@@ -294,9 +303,7 @@ public static class SquirixServerConfiguration
         }
     }
 
-    /// <summary>
-    /// Applies command-line overrides used by the standalone server host.
-    /// </summary>
+    /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
@@ -323,7 +330,10 @@ public static class SquirixServerConfiguration
         try
         {
             listener.Start();
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
+            if (listener.LocalEndpoint is not IPEndPoint endpoint)
+                throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
+
+            return endpoint.Port;
         }
         finally
         {

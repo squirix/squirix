@@ -4,9 +4,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>
-/// Logical namespaced cache surface for the node pipeline.
-/// </summary>
+/// <summary>Logical namespaced cache surface for the node pipeline.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal interface ILogicalNamespacedCache<T>
 {

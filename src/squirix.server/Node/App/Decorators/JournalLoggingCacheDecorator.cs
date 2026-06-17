@@ -8,9 +8,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Appends journal records for local-owner core mutations.
-/// </summary>
+/// <summary>Appends journal records for local-owner core mutations.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -101,7 +99,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return;
         }
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null);
+        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null).ConfigureAwait(false);
         var cacheKey = new CacheKey(cacheName, key);
         _ = await _durableMutations.ExecuteAsync(
             cacheKey.ToString(),
@@ -162,7 +160,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (existing is null)
             return false;
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(value, existing.ExpiresUtc, existing.Expiration, existing.Version, null);
+        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, existing.ExpiresUtc, existing.Expiration, existing.Version, null).ConfigureAwait(false);
         var cacheKey = new CacheKey(cacheName, key);
         return await _durableMutations.ExecuteAsync(
             cacheKey.ToString(),
@@ -179,11 +177,11 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (!IsLocalOwner(cacheName, key))
             return await _inner.TryAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-        var payload = DiscriminatedEntryJsonWriter.BuildEntryJson(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null);
+        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, null).ConfigureAwait(false);
         var cacheKey = new CacheKey(cacheName, key);
         return await _durableMutations.ExecuteAsync(
             cacheKey.ToString(),
-            async ct => await _inner.ContainsAsync(cacheName, key, ct).ConfigureAwait(false) ? new DurableMutationCondition<bool>(false, false)
+            async ct => await _inner.ContainsAsync(cacheName, key, ct).ConfigureAwait(false) ? DurableMutationCondition<bool>.Skip(false)
                 : DurableMutationCondition<bool>.Apply(),
             ct => _journal.AppendPutAsync(cacheKey, payload, null, ct),
             ct => _inner.TryAddAsync(cacheName, key, entry, ct),

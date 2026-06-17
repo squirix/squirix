@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -9,9 +10,7 @@ using static Squirix.Server.Adapters.Rest.RestDtos;
 
 namespace Squirix.Server.Adapters.Rest;
 
-/// <summary>
-/// Defines health endpoints exposed by squirix.
-/// </summary>
+/// <summary>Defines health endpoints exposed by squirix.</summary>
 internal static class HttpEndpointEx
 {
     extension(IEndpointRouteBuilder app)
@@ -33,12 +32,12 @@ internal static class HttpEndpointEx
             _ = app.MapGet("/health", static () => Results.Ok("OK"));
             _ = app.MapGet(
                 "/health/ready/details",
-                static (HttpContext ctx, IHealthReadyDetailsProvider provider) =>
+                static async (HttpContext ctx, IHealthReadyDetailsProvider provider, CancellationToken cancellationToken) =>
                 {
                     if (!SquirixMetricsConnectionSecurity.IsRequestAuthorized(ctx))
                         return Results.Unauthorized();
 
-                    var snapshot = provider.GetSnapshot();
+                    var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
                     var compaction = new HealthCompactionDetails(snapshot.Compaction.State, snapshot.Compaction.LastRunUtc, snapshot.Compaction.InFlight);
                     var clientPool = new HealthClientPoolDetails(snapshot.ClientPool.Enabled, snapshot.ClientPool.PeerCount);
                     var coordination = new HealthCoordinationDetails(

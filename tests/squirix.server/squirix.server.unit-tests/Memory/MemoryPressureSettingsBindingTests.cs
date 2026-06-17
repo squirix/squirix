@@ -1,16 +1,16 @@
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
-/// <summary>
-/// Tests JSON merge and configuration binding for memory pressure settings.
-/// </summary>
-public sealed class MemoryPressureSettingsBindingTests
+/// <summary>Tests JSON merge and configuration binding for memory pressure settings.</summary>
+public sealed class MemoryPressureSettingsBindingTests : UnitTestBase
 {
     private static readonly JsonSerializerOptions CamelWriteOptions = new()
     {
@@ -29,13 +29,7 @@ public sealed class MemoryPressureSettingsBindingTests
     [Fact]
     public void JsonDeserializeMemoryPressureSettingsBindsThresholdFields()
     {
-        const string json = """
-                            {
-                              "highPressureThresholdPercent": 72,
-                              "criticalPressureThresholdPercent": 91
-                            }
-                            """;
-
+        const string json = """{"highPressureThresholdPercent":72,"criticalPressureThresholdPercent":91}""";
         var section = JsonSerializer.Deserialize<MemoryPressureSettings>(json, CaseInsensitiveReadOptions);
         Assert.NotNull(section);
         var merged = section.MergeInto(new UnresolvedMemoryPressureOptions());
@@ -44,9 +38,7 @@ public sealed class MemoryPressureSettingsBindingTests
         Assert.Equal(91, resolved.CriticalPressureThresholdPercent);
     }
 
-    /// <summary>
-    /// Verifies System.Text.Json round-trip preserves option values (same shape as JSON configuration files).
-    /// </summary>
+    /// <summary>Verifies System.Text.Json round-trip preserves option values (same shape as JSON configuration files).</summary>
     [Fact]
     public void JsonSerializerRoundTripBindsOptionNames()
     {
@@ -104,25 +96,17 @@ public sealed class MemoryPressureSettingsBindingTests
     }
 
     /// <summary>
-    /// Verifies <see cref="UnifiedSettings.TryMergeMemoryPressureFromFile" /> reads the <c>MemoryPressure</c> section.
+    /// Verifies <see cref="UnifiedSettings.TryMergeMemoryPressureFromFileAsync" /> reads the <c>MemoryPressure</c> section.
     /// </summary>
     [Fact]
-    public void UnifiedSettingsMergesMemoryPressureSectionFromFile()
+    public async Task UnifiedSettingsMergesMemoryPressureSectionFromFile()
     {
         using var dir = new TempDirectory("squirix-mp-settings-merge");
-        const string json = """
-                            {
-                              "Squirix": {
-                                "MemoryPressure": {
-                                  "maxEstimatedCacheBytes": 1000
-                                }
-                              }
-                            }
-                            """;
+        const string json = """{"Squirix":{"MemoryPressure":{"maxEstimatedCacheBytes":1000}}}""";
         var path = PathKit.Combine(dir, "Squirix.settings.json");
-        File.WriteAllText(path, json);
-        var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
-        Assert.True(ok);
+        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
+        var (found, merged) = await UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePathAsync(path, new UnresolvedMemoryPressureOptions(), DefaultCancellationToken);
+        Assert.True(found);
         var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
         Assert.Equal(1000L, resolved.MaxEstimatedCacheBytes);
     }
@@ -131,24 +115,14 @@ public sealed class MemoryPressureSettingsBindingTests
     /// Verifies unified settings merge includes optional threshold properties under <c>MemoryPressure</c>.
     /// </summary>
     [Fact]
-    public void UnifiedSettingsMergesThresholdsFromFile()
+    public async Task UnifiedSettingsMergesThresholdsFromFile()
     {
         using var dir = new TempDirectory("squirix-mp-settings-thresholds");
-        const string json = """
-                            {
-                              "Squirix": {
-                                "MemoryPressure": {
-                                  "maxEstimatedCacheBytes": 5000,
-                                  "highPressureThresholdPercent": 70,
-                                  "criticalPressureThresholdPercent": 88
-                                }
-                              }
-                            }
-                            """;
+        const string json = """{"Squirix":{"MemoryPressure":{"maxEstimatedCacheBytes":5000,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":88}}}""";
         var path = PathKit.Combine(dir, "Squirix.settings.json");
-        File.WriteAllText(path, json);
-        var ok = UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePath(path, new UnresolvedMemoryPressureOptions(), out var merged);
-        Assert.True(ok);
+        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
+        var (found, merged) = await UnifiedSettings.TryMergeMemoryPressureFromSettingsFilePathAsync(path, new UnresolvedMemoryPressureOptions(), DefaultCancellationToken);
+        Assert.True(found);
         var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(20_000));
         Assert.Equal(5000L, resolved.MaxEstimatedCacheBytes);
         Assert.Equal(70, resolved.HighPressureThresholdPercent);

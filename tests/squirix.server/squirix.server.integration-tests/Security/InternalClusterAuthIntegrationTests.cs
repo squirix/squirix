@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Cluster;
@@ -14,21 +15,16 @@ using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
-/// <summary>
-/// Verifies external JWT auth and internal cluster mTLS auth remain separated.
-/// </summary>
+/// <summary>Verifies external JWT auth and internal cluster mTLS auth remain separated.</summary>
 public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Verifies an external caller cannot spoof internal owner-routing metadata without trusted cluster mTLS.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies an external caller cannot spoof internal owner-routing metadata without trusted cluster mTLS.</summary>
     [Fact]
     public async Task ExternalClientCannotSpoofInternalOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
+        var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
@@ -50,10 +46,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies external JWT auth on the primary listener does not need to propagate to inter-node forwarding.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies external JWT auth on the primary listener does not need to propagate to inter-node forwarding.</summary>
     [Fact]
     public async Task ExternalJwtAuthSucceedsWhileClusterForwardingUsesInternalMtls()
     {
@@ -84,10 +77,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.True(setResponse.Added);
     }
 
-    /// <summary>
-    /// Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
     [Fact]
     public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
     {
@@ -105,7 +95,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             interNodeUrl,
             new GrpcChannelOptions
             {
-                HttpHandler = CreateClusterCaTrustingHandlerWithoutClientCertificate("node-b", peers),
+                HttpHandler = await CreateClusterCaTrustingHandlerWithoutClientCertificateAsync("node-b", peers, DefaultCancellationToken),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             });
@@ -122,10 +112,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable, $"Expected unauthenticated or unavailable, got {ex.StatusCode}.");
     }
 
-    /// <summary>
-    /// Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.</summary>
     [Fact]
     public async Task InterNodeForwardingSucceedsWithoutJwtOnInternalTransport()
     {
@@ -158,13 +145,10 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var getResponse = await clientB.GetValueAsync(new GetValueRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
 
         Assert.True(getResponse.Found);
-        Assert.Equal(value, ProtoEx.CacheValueFromGrpcValue<object?>(getResponse.Value, null, null).Value);
+        Assert.Equal(value, (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
     }
 
-    /// <summary>
-    /// Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
     [Fact]
     public async Task MultiNodeExternalClientCannotSpoofInternalOwnerHeader()
     {
@@ -195,10 +179,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
-    /// <summary>
-    /// Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
     [Fact]
     public async Task TrustedInternalOwnerRpcOnWrongOwnerNodeReturnsStaleOwner()
     {
@@ -218,7 +199,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             interNodeUrlA,
             new GrpcChannelOptions
             {
-                HttpHandler = CreateTrustedInterNodeClientHandler("node-b", nodeBUrl, "node-a", peers),
+                HttpHandler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, DefaultCancellationToken),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             });

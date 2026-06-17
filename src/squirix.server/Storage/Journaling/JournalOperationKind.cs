@@ -1,8 +1,6 @@
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>
-/// Identifies a journal writer operation for distributed tracing.
-/// </summary>
+/// <summary>Identifies a journal writer operation for distributed tracing.</summary>
 internal enum JournalOperationKind
 {
     /// <summary>A remove journal record.</summary>

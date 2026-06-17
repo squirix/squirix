@@ -6,14 +6,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Security;
 
-/// <summary>
-/// Unit tests for metrics endpoint loopback-or-authenticated access control.
-/// </summary>
+/// <summary>Unit tests for metrics endpoint loopback-or-authenticated access control.</summary>
 public sealed class MetricsLoopbackOrAuthenticatedFilterTests
 {
-    /// <summary>
-    /// Verifies loopback clients can scrape metrics without authentication.
-    /// </summary>
+    /// <summary>Verifies loopback clients can scrape metrics without authentication.</summary>
     [Fact]
     public void IsRequestAuthorizedAllowsLoopbackWithoutAuthentication()
     {
@@ -28,9 +24,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
         Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 
-    /// <summary>
-    /// Verifies remote authenticated clients can scrape metrics.
-    /// </summary>
+    /// <summary>Verifies remote authenticated clients can scrape metrics.</summary>
     [Fact]
     public void IsRequestAuthorizedAllowsRemoteWhenAuthenticated()
     {
@@ -46,9 +40,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
         Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
     }
 
-    /// <summary>
-    /// Verifies remote unauthenticated clients are rejected.
-    /// </summary>
+    /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
     [Fact]
     public void IsRequestAuthorizedRejectsRemoteWithoutAuthentication()
     {

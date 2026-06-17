@@ -1,10 +1,9 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Core;
 
-/// <summary>
-/// Canonical logical cache name for routing, journal namespaces, scan, watch, and tag invalidation after public validation.
-/// </summary>
+/// <summary>Canonical logical cache name for routing, journal namespaces, scan, watch, and tag invalidation after public validation.</summary>
 internal readonly struct CacheName : IEquatable<CacheName>
 {
     private CacheName(string canonical)
@@ -12,9 +11,7 @@ internal readonly struct CacheName : IEquatable<CacheName>
         Canonical = canonical;
     }
 
-    /// <summary>
-    /// Gets the canonical string used consistently across routing, persistence keys, and observability.
-    /// </summary>
+    /// <summary>Gets the canonical string used consistently across routing, persistence keys, and observability.</summary>
     public string Canonical { get; }
 
     public static bool operator ==(CacheName left, CacheName right)
@@ -46,7 +43,7 @@ internal readonly struct CacheName : IEquatable<CacheName>
         return new CacheName(NormalizeUnvalidated(validated));
     }
 
-    public override bool Equals(object? obj) => obj is CacheName other && Equals(other);
+    public override bool Equals([NotNullWhen(true)] object? obj) => obj is CacheName other && Equals(other);
 
     public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Canonical);
 

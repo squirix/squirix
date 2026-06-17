@@ -5,9 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Squirix.E2ETests.Support.Auth;
 
-/// <summary>
-/// Creates JWT credentials for authenticated E2E scenarios.
-/// </summary>
+/// <summary>Creates JWT credentials for authenticated E2E scenarios.</summary>
 internal static class JwtHelper
 {
     public static string CreateBearerToken(JwtCredentials credentials)

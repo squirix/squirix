@@ -1,8 +1,6 @@
 namespace Squirix.Server.Core;
 
-/// <summary>
-/// Trusted normalization for cache namespaces read from journal, snapshots, and other persisted payloads.
-/// </summary>
+/// <summary>Trusted normalization for cache namespaces read from journal, snapshots, and other persisted payloads.</summary>
 internal static class PersistedCacheNamespace
 {
     /// <summary>

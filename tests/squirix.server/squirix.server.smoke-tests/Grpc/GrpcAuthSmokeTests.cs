@@ -2,23 +2,19 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Grpc;
 
-/// <summary>
-/// Smoke tests verifying JWT auth on gRPC cache RPCs when credentials are configured.
-/// </summary>
+/// <summary>Smoke tests verifying JWT auth on gRPC cache RPCs when credentials are configured.</summary>
 public sealed class GrpcAuthSmokeTests : SmokeTestBase
 {
     private const string InvalidBearerToken = "invalid.jwt.token";
 
-    /// <summary>
-    /// Ensures gRPC cache RPCs reject missing and invalid JWT credentials and accept a valid bearer token.
-    /// </summary>
-    /// <returns>A task representing the asynchronous smoke test.</returns>
+    /// <summary>Ensures gRPC cache RPCs reject missing and invalid JWT credentials and accept a valid bearer token.</summary>
     [Fact]
     public async Task CacheRpcRejectsMissingAndInvalidJwtAndAcceptsValidJwtWhenConfigured()
     {

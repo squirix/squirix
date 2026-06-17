@@ -20,9 +20,7 @@ public sealed class PrometheusMetricsSettingsTests
         Assert.Null(settings.Path);
     }
 
-    /// <summary>
-    /// Verifies init-only properties are settable (as JSON deserialization requires).
-    /// </summary>
+    /// <summary>Verifies init-only properties are settable (as JSON deserialization requires).</summary>
     [Fact]
     public void InitPropertiesAreSettable()
     {

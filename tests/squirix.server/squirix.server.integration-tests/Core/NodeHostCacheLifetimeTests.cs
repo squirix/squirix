@@ -2,20 +2,16 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Core;
 
-/// <summary>
-/// Verifies that test node hosts own runtime resources and service resolution after shutdown is deterministic.
-/// </summary>
+/// <summary>Verifies that test node hosts own runtime resources and service resolution after shutdown is deterministic.</summary>
 public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
 {
-    /// <summary>
-    /// Resolving cache APIs through a disposed host fails deterministically.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Resolving cache APIs through a disposed host fails deterministically.</summary>
     [Fact]
     public async Task AfterHostDisposedResolvingCacheThrows()
     {
@@ -27,10 +23,7 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
         _ = Assert.IsType<ObjectDisposedException>(ex);
     }
 
-    /// <summary>
-    /// After the host stops, resolving runtime services from its provider fails deterministically.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>After the host stops, resolving runtime services from its provider fails deterministically.</summary>
     [Fact]
     public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
     {

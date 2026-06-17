@@ -1,8 +1,6 @@
 namespace Squirix.Internal.Cluster.Observability;
 
-/// <summary>
-/// Metrics for serialization operations.
-/// </summary>
+/// <summary>Metrics for serialization operations.</summary>
 internal static class SerializerMetrics
 {
     public static readonly Counter3Labels FailuresTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_serializer_failures_total"), "op", "exception_type", "impl");

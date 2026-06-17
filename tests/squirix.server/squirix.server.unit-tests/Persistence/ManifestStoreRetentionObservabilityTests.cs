@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Diagnostics;
@@ -10,28 +11,24 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>
-/// Tests that manifest retention cleanup failures are observable without breaking manifest commits.
-/// </summary>
-public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBase
+/// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
+public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.
-    /// </summary>
+    /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public void WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("journal-retention-delete-failure");
         var staleJournalSegment = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
         var currentJournalPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}");
-        File.WriteAllText(staleJournalSegment, "stale journal");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal");
-        File.WriteAllText(currentJournalPath, "current journal");
+        await File.WriteAllTextAsync(staleJournalSegment, "stale journal", DefaultCancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}"), "obsolete journal", DefaultCancellationToken);
+        await File.WriteAllTextAsync(currentJournalPath, "current journal", DefaultCancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
-        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
-        store.Write(
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
+        await store.WriteAsync(
             new Manifest
             {
                 CurrentJournal = 3,
@@ -43,11 +40,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 3,
                 },
-            });
+            },
+            DefaultCancellationToken);
 
         Assert.True(File.Exists(currentJournalPath));
         Assert.True(File.Exists(staleJournalSegment));
-        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("journal_segment", StringComparison.OrdinalIgnoreCase));
         Assert.True(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
@@ -57,11 +55,9 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         RestoreNormalAttributes(staleJournalSegment);
     }
 
-    /// <summary>
-    /// Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.
-    /// </summary>
+    /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
     [Fact]
-    public void RepeatedRetentionFailuresDegradeReadinessWithoutBreakingWrites()
+    public async Task RepeatedRetentionFailuresDegradeReadinessWithoutBreakingWrites()
     {
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-readiness");
@@ -74,14 +70,14 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         };
         var readiness = new StorageRetentionCleanupReadiness(options);
         var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-        File.WriteAllText(staleManifest, "{}");
-        var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
+        await File.WriteAllTextAsync(staleManifest, "{}", DefaultCancellationToken);
+        using var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
 
-        store.Write(new Manifest { CurrentJournal = 1 });
+        await store.WriteAsync(new Manifest { CurrentJournal = 1 }, DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
-        store.Write(new Manifest { CurrentJournal = 2 });
+        await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken);
         Assert.True(readiness.IsDegraded);
         Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
@@ -90,28 +86,26 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
             File.SetAttributes(stale, FileAttributes.Normal);
     }
 
-    /// <summary>
-    /// Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.
-    /// </summary>
+    /// <summary>Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.</summary>
     [Fact]
-    public void WriteSucceedsWhenManifestRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsWhenManifestRetentionDeleteFailsAndFailureIsObservable()
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-delete-failure");
         var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
         var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
-        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
-        store.Write(new Manifest { CurrentJournal = 1 });
-        store.Write(new Manifest { CurrentJournal = 2 });
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
+        await store.WriteAsync(new Manifest { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken);
 
         Assert.True(File.Exists(staleManifest));
-        store.Write(new Manifest { CurrentJournal = 3 });
+        await store.WriteAsync(new Manifest { CurrentJournal = 3 }, DefaultCancellationToken);
 
         var latest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
         Assert.True(File.Exists(latest));
         Assert.True(File.Exists(staleManifest));
-        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("manifest", StringComparison.OrdinalIgnoreCase));
         Assert.True(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",
@@ -125,26 +119,24 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
         }
     }
 
-    /// <summary>
-    /// Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.
-    /// </summary>
+    /// <summary>Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public void WriteSucceedsWhenSnapshotRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsWhenSnapshotRetentionDeleteFailsAndFailureIsObservable()
     {
         using var sink = new MeasurementSink("Squirix");
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("snapshot-retention-delete-failure");
         var staleSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}");
         var currentSnapshot = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}");
-        File.WriteAllText(staleSnapshot, "stale snapshot");
-        File.WriteAllText(currentSnapshot, "current snapshot");
+        await File.WriteAllTextAsync(staleSnapshot, "stale snapshot", DefaultCancellationToken);
+        await File.WriteAllTextAsync(currentSnapshot, "current snapshot", DefaultCancellationToken);
         var options = new PersistenceOptions
         {
             DataDir = dir,
             SnapshotRetentionCount = 1,
         };
-        var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
-        store.Write(
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
+        await store.WriteAsync(
             new Manifest
             {
                 CurrentJournal = 2,
@@ -156,11 +148,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : ServerUnitTestBas
                     LastAppliedSequence = 20,
                     ReplayFromJournalSegment = 2,
                 },
-            });
+            },
+            DefaultCancellationToken);
 
         Assert.True(File.Exists(currentSnapshot));
         Assert.True(File.Exists(staleSnapshot));
-        Assert.Contains(logger.Entries, static entry => entry.Level == LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(logger.Entries, static entry => entry.Level is LogLevel.Warning && entry.Message.Contains("snapshot", StringComparison.OrdinalIgnoreCase));
         Assert.True(
             sink.HasEvent(
                 "squirix_storage_retention_delete_failures_total",

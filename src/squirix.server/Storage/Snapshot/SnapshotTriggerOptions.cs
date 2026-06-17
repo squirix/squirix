@@ -49,8 +49,8 @@ internal sealed class SnapshotTriggerOptions
     }
 
     /// <summary>
-    /// Gets a value indicating whether snapshot triggering is enabled. When <c>false</c>, all snapshot decisions are disabled regardless of thresholds.
-    /// Default is <c>true</c>.
+    /// Gets a value indicating whether snapshot triggering is enabled. When <see langword="false"/>, all snapshot decisions are disabled regardless of thresholds.
+    /// Default is <see langword="true"/>.
     /// </summary>
     public bool Enabled { get; init; } = true;
 

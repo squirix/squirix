@@ -3,7 +3,7 @@ using System.IO;
 using System.Text.Json;
 using FakeItEasy;
 using Squirix.Serialization;
-using Squirix.TestKit;
+using Squirix.TestKit.Diagnostics;
 using Xunit;
 
 namespace Squirix.UnitTests.Serialization;
@@ -13,9 +13,7 @@ namespace Squirix.UnitTests.Serialization;
 /// </summary>
 public sealed class MetricsDecoratedSerializerTests
 {
-    /// <summary>
-    /// Verifies the decorator forwards to the inner serializer without changing serialized bytes or deserialized values.
-    /// </summary>
+    /// <summary>Verifies the decorator forwards to the inner serializer without changing serialized bytes or deserialized values.</summary>
     [Fact]
     public void DecoratedSerializerMatchesInnerPayloadAndValue()
     {
@@ -34,9 +32,7 @@ public sealed class MetricsDecoratedSerializerTests
         Assert.Equal(expectedElement.GetRawText(), actualElement.GetRawText());
     }
 
-    /// <summary>
-    /// Verifies deserialize failure records error ops, failure counter, and preserves the thrown exception type.
-    /// </summary>
+    /// <summary>Verifies deserialize failure records error ops, failure counter, and preserves the thrown exception type.</summary>
     [Fact]
     public void DeserializeFailureRecordsErrorMetrics()
     {
@@ -51,9 +47,7 @@ public sealed class MetricsDecoratedSerializerTests
         Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "deserialize"), ("exception_type", "JsonException"), ("impl", impl)));
     }
 
-    /// <summary>
-    /// Verifies successful serialize and deserialize paths record ok counters and durations.
-    /// </summary>
+    /// <summary>Verifies successful serialize and deserialize paths record ok counters and durations.</summary>
     [Fact]
     public void SerializeAndDeserializeSuccessRecordMetrics()
     {
@@ -73,9 +67,7 @@ public sealed class MetricsDecoratedSerializerTests
         Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "ok"), ("impl", impl)));
     }
 
-    /// <summary>
-    /// Verifies serialize failure records error metrics when the inner serializer throws.
-    /// </summary>
+    /// <summary>Verifies serialize failure records error metrics when the inner serializer throws.</summary>
     [Fact]
     public void SerializeFailureRecordsErrorMetrics()
     {

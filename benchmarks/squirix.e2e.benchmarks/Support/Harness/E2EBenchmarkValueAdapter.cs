@@ -7,9 +7,7 @@ using Squirix.E2EBenchmarks.Support.Cluster;
 
 namespace Squirix.E2EBenchmarks.Support.Harness;
 
-/// <summary>
-/// Factory for typed value adapters used by parameterized benchmarks.
-/// </summary>
+/// <summary>Factory for typed value adapters used by parameterized benchmarks.</summary>
 internal static class E2EBenchmarkValueAdapter
 {
     internal static async Task<IE2EBenchmarkValueAdapter> CreateAsync(E2EBenchmarkCluster cluster, BenchmarkValueShape shape, string cacheName, CancellationToken cancellationToken)

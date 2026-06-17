@@ -1,23 +1,21 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Support.Cluster;
-using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>
-/// Per-test cluster startup and routing helpers for multi-node public API tests.
-/// </summary>
+/// <summary>Per-test cluster startup and routing helpers for multi-node public API tests.</summary>
 internal static class MultiNodeSupport
 {
-    internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value)
+    internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value, CancellationToken cancellationToken)
     {
         try
         {
-            await cache.AddAsync(key, value, cancellationToken: TestContext.Current.CancellationToken);
+            await cache.AddAsync(key, value, cancellationToken: cancellationToken);
             return null;
         }
         catch (RpcException ex)
@@ -42,14 +40,14 @@ internal static class MultiNodeSupport
 
     internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
 
-    internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>([CallerMemberName] string testName = "")
+    internal static async Task<TwoNodeNamedCaches<T>> StartTwoNodeNamedCachesAsync<T>(CancellationToken cancellationToken, [CallerMemberName] string testName = "")
     {
-        var cluster = await HostedCluster.StartTwoNodeAsync(testName, cancellationToken: TestContext.Current.CancellationToken);
+        var cluster = await HostedCluster.StartTwoNodeAsync(testName, cancellationToken: cancellationToken);
         try
         {
-            var clientA = await cluster.ConnectClientAsync("nodeA", TestContext.Current.CancellationToken);
-            var clientB = await cluster.ConnectClientAsync("nodeB", TestContext.Current.CancellationToken);
-            return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, TestContext.Current.CancellationToken);
+            var clientA = await cluster.ConnectClientAsync("nodeA", cancellationToken);
+            var clientB = await cluster.ConnectClientAsync("nodeB", cancellationToken);
+            return await TwoNodeNamedCaches<T>.CreateAsync(cluster, clientA, clientB, cancellationToken);
         }
         catch (InvalidOperationException)
         {

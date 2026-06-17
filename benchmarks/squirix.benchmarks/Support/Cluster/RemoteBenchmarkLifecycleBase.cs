@@ -8,9 +8,7 @@ using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks.Support.Cluster;
 
-/// <summary>
-/// Shared BenchmarkDotNet lifecycle for benchmarks that talk to an in-process node over the remote client SDK.
-/// </summary>
+/// <summary>Shared BenchmarkDotNet lifecycle for benchmarks that talk to an in-process node over the remote client SDK.</summary>
 [InProcess]
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class RemoteBenchmarkLifecycleBase
@@ -23,9 +21,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// </summary>
     protected ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
 
-    /// <summary>
-    /// Connects a client and disposes it before returning.
-    /// </summary>
+    /// <summary>Connects a client and disposes it before returning.</summary>
     /// <returns>A task that completes after the client is disposed.</returns>
     protected async Task ConnectAndDisposeClientAsync()
     {
@@ -34,9 +30,7 @@ public abstract class RemoteBenchmarkLifecycleBase
         await lease.DisposeAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Connects a client, resolves a cache handle, then disposes the client.
-    /// </summary>
+    /// <summary>Connects a client, resolves a cache handle, then disposes the client.</summary>
     /// <param name="cacheName">Cache name.</param>
     /// <returns>A task that completes after the cache handle is resolved and the client is disposed.</returns>
     protected async Task GetCacheHandleAndDisposeAsync(string cacheName)
@@ -67,9 +61,7 @@ public abstract class RemoteBenchmarkLifecycleBase
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Opens a long-lived client and cache session on the benchmark node.
-    /// </summary>
+    /// <summary>Opens a long-lived client and cache session on the benchmark node.</summary>
     /// <param name="cacheName">Cache name.</param>
     /// <returns>A task that completes after the shared cache session is opened.</returns>
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _cacheSession which StopSharedCache disposes.")]

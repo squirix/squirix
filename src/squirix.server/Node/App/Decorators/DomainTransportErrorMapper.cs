@@ -27,9 +27,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// </remarks>
 internal static class DomainTransportErrorMapper
 {
-    /// <summary>
-    /// Applies domain transport error mapping and always throws (never returns normally).
-    /// </summary>
+    /// <summary>Applies domain transport error mapping and always throws (never returns normally).</summary>
     /// <param name="ex">The gRPC transport exception from the inner pipeline.</param>
     /// <param name="cancellationToken">The caller cancellation token for the logical operation.</param>
     /// <remarks>
@@ -71,7 +69,7 @@ internal static class DomainTransportErrorMapper
 
     private static void ThrowIfFailedPreconditionContract(RpcException ex)
     {
-        if (ex.StatusCode != StatusCode.FailedPrecondition)
+        if (ex.StatusCode is not StatusCode.FailedPrecondition)
             return;
 
         if (CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
@@ -83,7 +81,7 @@ internal static class DomainTransportErrorMapper
 
     private static void ThrowIfInvalidArgumentContract(RpcException ex)
     {
-        if (ex.StatusCode != StatusCode.InvalidArgument)
+        if (ex.StatusCode is not StatusCode.InvalidArgument)
             return;
 
         if (CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
@@ -94,7 +92,7 @@ internal static class DomainTransportErrorMapper
 
     private static void ThrowIfPayloadTooLargeContract(RpcException ex)
     {
-        if (ex.StatusCode != StatusCode.ResourceExhausted)
+        if (ex.StatusCode is not StatusCode.ResourceExhausted)
             return;
 
         var detail = ex.Status.Detail;

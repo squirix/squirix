@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Text.Json;
 
 namespace Squirix.Server.Storage;
@@ -25,16 +24,7 @@ internal sealed class StoredJsonPayload
     /// </summary>
     /// <param name="element">The JSON element to capture.</param>
     /// <returns>A payload owning a copy of the element UTF-8 bytes.</returns>
-    public static StoredJsonPayload FromElement(JsonElement element)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            element.WriteTo(writer);
-        }
-
-        return new StoredJsonPayload(buffer.WrittenSpan);
-    }
+    public static StoredJsonPayload FromElement(JsonElement element) => new(JsonSerializer.SerializeToUtf8Bytes(element));
 
     public void WriteTo(Utf8JsonWriter writer)
     {

@@ -28,7 +28,7 @@ internal static class ClusterTopologyValidator
             static peer => (peer.NodeId, peer.Url),
             options.Peers);
 
-        if (failures.Count == 0)
+        if (failures.Count is 0)
         {
             errors = [];
             return true;
@@ -60,7 +60,7 @@ internal static class ClusterTopologyValidator
             },
             options.Peers);
 
-        if (failures.Count == 0)
+        if (failures.Count is 0)
         {
             errors = [];
             return true;
@@ -124,7 +124,7 @@ internal static class ClusterTopologyValidator
 
         var peerIds = new HashSet<string>(StringComparer.Ordinal);
         var peerUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var localNodePresent = peers.Count == 0;
+        var localNodePresent = peers.Count is 0;
         for (var i = 0; i < peers.Count; i++)
         {
             var peer = peers[i];

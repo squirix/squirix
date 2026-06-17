@@ -10,9 +10,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Records bounded logical cache operation spans for the surface.
-/// </summary>
+/// <summary>Records bounded logical cache operation spans for the surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {

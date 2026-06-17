@@ -1,22 +1,18 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.IntegrationTests.Support;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Xunit;
 
 namespace Squirix.IntegrationTests.Transport;
 
-/// <summary>
-/// Client-only transport integration coverage for cluster peer pool warm-up.
-/// </summary>
+/// <summary>Client-only transport integration coverage for cluster peer pool warm-up.</summary>
 public sealed class ClientPoolWarmUpTests : IntegrationTestBase
 {
     private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
-    /// <summary>
-    /// Verifies warm-up fails when no bootstrap endpoint can be reached.
-    /// </summary>
-    /// <returns>A task that completes when the test finishes.</returns>
+    /// <summary>Verifies warm-up fails when no bootstrap endpoint can be reached.</summary>
     [Fact]
     public async Task WarmUpFailsFastWhenPeerEndpointIsUnreachable()
     {

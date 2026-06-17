@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
-/// <summary>
-/// Resolved runtime memory pressure configuration.
-/// </summary>
+/// <summary>Resolved runtime memory pressure configuration.</summary>
 internal sealed record MemoryPressureOptions
 {
     public MemoryPressureOptions()
@@ -43,9 +41,7 @@ internal sealed record MemoryPressureOptions
         }
     }
 
-    /// <summary>
-    /// Gets the maximum estimated cache size in bytes used for pressure thresholds.
-    /// </summary>
+    /// <summary>Gets the maximum estimated cache size in bytes used for pressure thresholds.</summary>
     public long MaxEstimatedCacheBytes
     {
         get;

@@ -25,51 +25,33 @@ public sealed class ListenPortPool
         _allocator = new PortAllocator(regionStart, regionEndInclusive);
     }
 
-    /// <summary>
-    /// Gets the port pool for end-to-end BenchmarkDotNet hosts.
-    /// </summary>
+    /// <summary>Gets the port pool for end-to-end BenchmarkDotNet hosts.</summary>
     public static ListenPortPool EndToEndBenchmarks { get; } = new(HostPortRegion.EndToEndBenchmarks);
 
-    /// <summary>
-    /// Gets the port pool for end-to-end SDK test hosts.
-    /// </summary>
+    /// <summary>Gets the port pool for end-to-end SDK test hosts.</summary>
     public static ListenPortPool EndToEndTests { get; } = new(HostPortRegion.EndToEndTests);
 
-    /// <summary>
-    /// Gets the port pool for server smoke test hosts.
-    /// </summary>
+    /// <summary>Gets the port pool for server smoke test hosts.</summary>
     public static ListenPortPool SmokeTests { get; } = new(HostPortRegion.SmokeTests);
 
-    /// <summary>
-    /// Gets the port pool for server integration test hosts.
-    /// </summary>
+    /// <summary>Gets the port pool for server integration test hosts.</summary>
     public static ListenPortPool IntegrationTests { get; } = new(HostPortRegion.IntegrationTests);
 
-    /// <summary>
-    /// Gets the port pool for in-process server pipeline benchmarks.
-    /// </summary>
+    /// <summary>Gets the port pool for in-process server pipeline benchmarks.</summary>
     public static ListenPortPool ServerBenchmarks { get; } = new(HostPortRegion.ServerBenchmarks);
 
-    /// <summary>
-    /// Gets the port pool for server unit tests that bind HTTPS listeners.
-    /// </summary>
+    /// <summary>Gets the port pool for server unit tests that bind HTTPS listeners.</summary>
     public static ListenPortPool ServerUnitTests { get; } = new(HostPortRegion.ServerUnitTests);
 
-    /// <summary>
-    /// Reserves the next free port from this pool.
-    /// </summary>
+    /// <summary>Reserves the next free port from this pool.</summary>
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
 
-    /// <summary>
-    /// Reserves the next free port and returns a loopback HTTPS listen URI.
-    /// </summary>
+    /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", AllocatePort()).Uri;
 
-    /// <summary>
-    /// Reserves the next free port and returns a canonical loopback HTTPS listen URL.
-    /// </summary>
+    /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public string NextHttpAddress() => ListenUrls.CanonicalAuthority(NextHttpUri());
 }
