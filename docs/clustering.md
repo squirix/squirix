@@ -10,12 +10,6 @@ or automatic rebalancing in v0.1.
 
 Example settings discovery and validation: [configuration.md](configuration.md).
 
-Admin endpoints help inspect placement (Development, or `SQUIRIX_ADMIN_ENABLED=true` in Production/Docker):
-
-- `GET /admin/whoami` — local node identity
-- `GET /admin/owner/{key}` — owner node for a key
-- `GET /admin/ring` — consistent-hash ring shape
-
 ## Client bootstrap endpoints
 
 Applications connect with one or more bootstrap URLs in `SquirixOptions.Endpoints`. These URLs are an **HA front door**
@@ -49,13 +43,18 @@ Full semantics: [consistency.md](consistency.md).
 
 Docker Compose examples with two nodes: [containerization.md](containerization.md).
 
+Remote peers require inter-node mTLS at startup (cluster CA, per-node certificate with `CN` equal to `NodeId`, internal
+listener port). External
+application clients still authenticate with JWT on the primary listener. Full guidance:
+[security/inter-node-mtls.md](security/inter-node-mtls.md).
+
 From the **host**, bootstrap clients at the published HTTPS ports (`https://localhost:5001`,
-`https://localhost:5002`) with the compose API key. Inside the Docker network, nodes use service DNS names and container
+`https://localhost:5002`) with the compose JWT settings. Inside the Docker network, nodes use service DNS names and container
 port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
 Before changing topology in containers, validate settings:
 
-```powershell
+```bash
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 

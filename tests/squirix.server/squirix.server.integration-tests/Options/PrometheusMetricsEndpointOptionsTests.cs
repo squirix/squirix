@@ -25,10 +25,7 @@ public sealed class PrometheusMetricsEndpointOptionsTests
             o.Path = "/original";
         });
 
-        _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o =>
-        {
-            o.Path = "/overridden";
-        });
+        _ = services.PostConfigure<PrometheusMetricsEndpointOptions>(static o => { o.Path = "/overridden"; });
 
         using var provider = services.BuildServiceProvider();
         var resolved = provider.GetRequiredService<IOptions<PrometheusMetricsEndpointOptions>>().Value;

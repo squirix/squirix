@@ -19,18 +19,16 @@ internal sealed class MemoryPressureStateEvaluator : IMemoryPressureStateEvaluat
     /// <inheritdoc />
     public MemoryPressureState Evaluate(long estimatedCacheBytes)
     {
-        if (estimatedCacheBytes < 0)
-            throw new ArgumentOutOfRangeException(nameof(estimatedCacheBytes), estimatedCacheBytes, "Estimated cache bytes cannot be negative.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(estimatedCacheBytes, 0);
 
-        if (!_options.Enabled)
+        if (estimatedCacheBytes == 0)
             return MemoryPressureState.Normal;
 
         var limit = _options.MaxEstimatedCacheBytes;
-        if (limit is null or <= 0 || estimatedCacheBytes == 0)
+        var usedPercent = 1.0 * estimatedCacheBytes / limit * 100.0;
+        if (usedPercent < _options.HighPressureThresholdPercent)
             return MemoryPressureState.Normal;
 
-        var usedPercent = (double)estimatedCacheBytes / limit.Value * 100.0;
-        return usedPercent < _options.HighPressureThresholdPercent ? MemoryPressureState.Normal :
-            usedPercent < _options.CriticalPressureThresholdPercent ? MemoryPressureState.High : MemoryPressureState.Critical;
+        return usedPercent < _options.CriticalPressureThresholdPercent ? MemoryPressureState.High : MemoryPressureState.Critical;
     }
 }

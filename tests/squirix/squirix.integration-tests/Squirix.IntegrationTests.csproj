@@ -13,6 +13,7 @@
         <PackageReference Include="xunit.v3.assert"/>
         <PackageReference Include="xunit.runner.visualstudio"/>
         <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -22,8 +23,5 @@
     <ItemGroup>
         <ProjectReference Include="..\squirix.testkit\Squirix.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix\Squirix.csproj"/>
-    </ItemGroup>
-
-    <ItemGroup>
     </ItemGroup>
 </Project>

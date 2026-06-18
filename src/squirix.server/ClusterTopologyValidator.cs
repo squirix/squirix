@@ -23,11 +23,12 @@ internal static class ClusterTopologyValidator
             options.NodeId,
             options.Url,
             options.VirtualNodes,
+            options.PersistenceEnabled,
             options.DataDirectory,
             static peer => (peer.NodeId, peer.Url),
             options.Peers);
 
-        if (failures.Count == 0)
+        if (failures.Count is 0)
         {
             errors = [];
             return true;
@@ -50,6 +51,7 @@ internal static class ClusterTopologyValidator
             options.NodeId,
             nodeUri,
             options.VirtualNodes,
+            true,
             null,
             static peer =>
             {
@@ -58,7 +60,7 @@ internal static class ClusterTopologyValidator
             },
             options.Peers);
 
-        if (failures.Count == 0)
+        if (failures.Count is 0)
         {
             errors = [];
             return true;
@@ -88,6 +90,7 @@ internal static class ClusterTopologyValidator
         string? nodeId,
         Uri? nodeUrl,
         int virtualNodes,
+        bool persistenceEnabled,
         string? dataDirectory,
         Func<TPeer, (string? NodeId, Uri? Url)> readPeer,
         IReadOnlyList<TPeer> peers)
@@ -106,17 +109,22 @@ internal static class ClusterTopologyValidator
                 break;
         }
 
-        if (dataDirectory is { Length: > MaxDataDirectoryLength })
-            failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
-        if (dataDirectory is not null && string.IsNullOrWhiteSpace(dataDirectory))
-            failures.Add("DataDirectory cannot be empty or whitespace.");
+        if (!persistenceEnabled && dataDirectory is not null)
+            failures.Add("DataDirectory requires persistence. Call UsePersistence() or pass --persist.");
+        if (persistenceEnabled)
+        {
+            if (dataDirectory is { Length: > MaxDataDirectoryLength })
+                failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
+            if (dataDirectory is not null && string.IsNullOrWhiteSpace(dataDirectory))
+                failures.Add("DataDirectory cannot be empty or whitespace.");
+        }
 
         if (peers.Count > MaxPeers)
             failures.Add($"Peers cannot contain more than {MaxPeers} entries.");
 
         var peerIds = new HashSet<string>(StringComparer.Ordinal);
         var peerUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var localNodePresent = peers.Count == 0;
+        var localNodePresent = peers.Count is 0;
         for (var i = 0; i < peers.Count; i++)
         {
             var peer = peers[i];
@@ -147,7 +155,7 @@ internal static class ClusterTopologyValidator
 
     private static void ValidateUrl(List<string> failures, Uri? value, string name)
     {
-        if (value is null || !value.IsAbsoluteUri || value.Scheme != Uri.UriSchemeHttps)
+        if (value is null || !value.IsAbsoluteUri || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             failures.Add($"{name} must be an absolute https URI.");
             return;
@@ -157,7 +165,10 @@ internal static class ClusterTopologyValidator
             failures.Add($"{name} cannot exceed {MaxUrlLength} characters.");
         if (string.IsNullOrWhiteSpace(value.Host))
             failures.Add($"{name} must include a host.");
-        if (!string.IsNullOrEmpty(value.UserInfo) || value.AbsolutePath != "/" || !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
+        if (!string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) ||
+            !string.IsNullOrEmpty(value.Fragment))
+        {
             failures.Add($"{name} must be an origin URI without credentials, path, query, or fragment.");
+        }
     }
 }

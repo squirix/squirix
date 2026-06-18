@@ -1,7 +1,8 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
@@ -12,35 +13,45 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixPersistenceServiceRegistration
 {
-    public static IServiceCollection AddSquirixPersistenceServices(this IServiceCollection services, bool waitForRecovery)
+    public static async Task<IServiceCollection> AddSquirixPersistenceServicesAsync(
+        this IServiceCollection services,
+        PersistenceOptions persistence,
+        bool waitForRecovery,
+        CancellationToken cancellationToken = default)
     {
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<PersistenceOptions>>().Value);
+        ArgumentNullException.ThrowIfNull(persistence);
 
-        _ = services.AddSingleton(static sp => new ManifestStore(sp.GetRequiredService<PersistenceOptions>(), sp.GetRequiredService<ILogger<ManifestStore>>()));
-        _ = services.AddSingleton(static _ => new JournalStartupGate(false));
+        RegisterPersistenceRuntime(services, await PersistenceRuntime.CreateAsync(persistence, cancellationToken).ConfigureAwait(false));
+        RegisterPersistenceHostedServices(services, waitForRecovery);
+        return services;
+    }
+
+    private static void RegisterPersistenceRuntime(IServiceCollection services, PersistenceRuntime runtime)
+    {
+        _ = services.AddSingleton(runtime);
+        _ = services.AddSingleton(runtime.Retention);
+        _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
+        _ = services.AddSingleton(runtime.ManifestStore);
+        _ = services.AddSingleton(runtime.Gate);
+        _ = services.AddSingleton(runtime.JournalWriter);
+        _ = services.AddSingleton(static sp => sp.GetRequiredService<JournalWriterSingleton>().Writer);
         _ = services.AddHealthChecks().AddCheck<JournalRecoveryReadinessHealthCheck>("journal_recovery", HealthStatus.Unhealthy, ["ready"])
-                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"]);
+                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"])
+                    .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton(static sp =>
-        {
-            var persistence = sp.GetRequiredService<PersistenceOptions>();
-            var ms = sp.GetRequiredService<ManifestStore>();
-            var manifest = ms.ReadCurrentOrDefault();
-            return new JournalWriter(persistence, manifest, ms, sp.GetRequiredService<JournalStartupGate>());
-        });
         _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalWriterDecorator(
             sp.GetRequiredService<JournalWriter>(),
             sp.GetRequiredService<IJournalOperationTracer>()));
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalWriter>());
         _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
-        _ = services.AddSingleton<JournalReader>();
 
         _ = services.AddSingleton<ISnapshotWriter>(static sp => new SnapshotWriter(sp.GetRequiredService<PersistenceOptions>().DataDir));
         _ = services.AddSingleton<SnapshotReader>();
-
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<SnapshotTriggerOptions>>().Value);
         _ = services.AddSingleton<SnapshotCoordinator<object?>>();
+    }
 
+    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool waitForRecovery)
+    {
         _ = services.AddSingleton(new RecoveryOptions { BlockOnStart = waitForRecovery });
         _ = services.AddHostedService<RecoveryService<object?>>();
         _ = services.AddSingleton<SnapshotTriggerService<object?>>();
@@ -51,8 +62,5 @@ internal static class SquirixPersistenceServiceRegistration
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddSingleton<JournalCompactionController>();
         _ = services.AddHostedService<JournalMetricsExporterService>();
-        _ = services.AddHostedService<MemoryPressureMetricsService>();
-
-        return services;
     }
 }

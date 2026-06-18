@@ -27,9 +27,7 @@ namespace Squirix.Server.Node.App.Decorators;
 /// </remarks>
 internal static class DomainTransportErrorMapper
 {
-    /// <summary>
-    /// Applies domain transport error mapping and always throws (never returns normally).
-    /// </summary>
+    /// <summary>Applies domain transport error mapping and always throws (never returns normally).</summary>
     /// <param name="ex">The gRPC transport exception from the inner pipeline.</param>
     /// <param name="cancellationToken">The caller cancellation token for the logical operation.</param>
     /// <remarks>
@@ -69,9 +67,32 @@ internal static class DomainTransportErrorMapper
             cancellationToken.ThrowIfCancellationRequested();
     }
 
+    private static void ThrowIfFailedPreconditionContract(RpcException ex)
+    {
+        if (ex.StatusCode is not StatusCode.FailedPrecondition)
+            return;
+
+        if (CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
+            throw new InvalidOperationException(message, ex);
+
+        if (CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
+            throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
+    }
+
+    private static void ThrowIfInvalidArgumentContract(RpcException ex)
+    {
+        if (ex.StatusCode is not StatusCode.InvalidArgument)
+            return;
+
+        if (CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+            throw CacheOperationContract.OperationIdRequired();
+
+        throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
+    }
+
     private static void ThrowIfPayloadTooLargeContract(RpcException ex)
     {
-        if (ex.StatusCode != StatusCode.ResourceExhausted)
+        if (ex.StatusCode is not StatusCode.ResourceExhausted)
             return;
 
         var detail = ex.Status.Detail;
@@ -79,22 +100,5 @@ internal static class DomainTransportErrorMapper
             return;
 
         throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
-    }
-
-    private static void ThrowIfFailedPreconditionContract(RpcException ex)
-    {
-        if (ex.StatusCode != StatusCode.FailedPrecondition)
-            return;
-
-        if (CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
-            throw new InvalidOperationException(message, ex);
-    }
-
-    private static void ThrowIfInvalidArgumentContract(RpcException ex)
-    {
-        if (ex.StatusCode != StatusCode.InvalidArgument)
-            return;
-
-        throw new ArgumentException(ex.Status.Detail, ex);
     }
 }

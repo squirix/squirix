@@ -3,9 +3,7 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Instruments for logical cache operation metrics.
-/// </summary>
+/// <summary>Instruments for logical cache operation metrics.</summary>
 internal static class CacheMetrics
 {
     private static readonly Histogram<double> OperationDurationSeconds = MeterRegistry.Meter.CreateHistogram<double>(

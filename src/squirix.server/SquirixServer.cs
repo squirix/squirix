@@ -6,7 +6,7 @@ namespace Squirix.Server;
 
 /// <summary>
 /// Convenience entry point for starting and owning a Squirix server host in tests and samples.
-/// Production deployments typically use <see cref="SquirixServerAspNetCoreExtensions.AddSquirixServer" /> or the standalone host tool.
+/// Production deployments typically use <see cref="SquirixServerAspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
 /// </summary>
 public sealed class SquirixServer : IAsyncDisposable
 {
@@ -17,22 +17,16 @@ public sealed class SquirixServer : IAsyncDisposable
         _handle = handle ?? throw new ArgumentNullException(nameof(handle));
     }
 
-    /// <summary>
-    /// Starts the Squirix server host runtime using discovered settings or ephemeral defaults.
-    /// </summary>
+    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A server host lifetime handle.</returns>
     public static ValueTask<SquirixServer> StartAsync(CancellationToken cancellationToken = default) => StartAsync(null, cancellationToken);
 
-    /// <summary>
-    /// Ends this server host handle and releases the owned server application.
-    /// </summary>
+    /// <summary>Ends this server host handle and releases the owned server application.</summary>
     /// <returns>A task that completes when the server host is disposed.</returns>
     public ValueTask DisposeAsync() => _handle.DisposeAsync();
 
-    /// <summary>
-    /// Starts the Squirix server host runtime using discovered settings or ephemeral defaults.
-    /// </summary>
+    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A server host lifetime handle.</returns>

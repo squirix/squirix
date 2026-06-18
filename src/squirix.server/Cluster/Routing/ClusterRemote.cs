@@ -6,6 +6,7 @@ using Grpc.Core;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Utils;
+using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.Entry;
 
@@ -26,12 +27,8 @@ internal sealed class ClusterRemote<T>
 
     public async ValueTask<bool> ContainsAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
     {
-        var client = _clients.ForNode(owner);
-        var response = await Policy(owner).ExecuteAsync<ContainsResponse>(
-            async ct => await client.ContainsAsync(new ContainsRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Exists;
+        var result = await TryGetValueAsync(owner, cacheName, key, cancellationToken).ConfigureAwait(false);
+        return result.Found;
     }
 
     public async ValueTask<CacheEntry<T>?> GetEntryAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -43,12 +40,109 @@ internal sealed class ClusterRemote<T>
                 async ct => await client.GetAsync(new GetRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
 
-            return response.Entry.MapFromProto<T>();
+            return await response.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
         }
-        catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
         {
             return null;
         }
+    }
+
+    public async ValueTask<TimeSpan?> GetExpirationAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var response = await Policy(owner).ExecuteAsync<GetExpirationResponse>(
+            async ct => await client.GetExpirationAsync(new GetExpirationRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        if (!response.Found)
+            return null;
+
+        return response.HasExpiration ? response.Remaining.ToTimeSpan() : null;
+    }
+
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<GetOrAddValueResponse>(
+            async ct => await client.GetOrAddValueAsync(
+                new GetOrAddValueRequest
+                {
+                    OperationId = operationId,
+                    CacheName = cacheName,
+                    Key = key,
+                    Value = ProtoEx.CacheValueToGrpcValue(entry.Value),
+                    ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
+                    Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+                },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return new CacheValueResult<T>(true, (await ProtoEx.CacheValueFromGrpcValueAsync<T>(response.Value, null, null).ConfigureAwait(false)).Value);
+    }
+
+    public async ValueTask<bool> RemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<RemoveResponse>(
+            async ct => await client.RemoveAsync(new RemoveRequest { OperationId = operationId, CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync
+                                    .ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Removed;
+    }
+
+    public async ValueTask<bool> RemoveExpirationAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<RemoveExpirationResponse>(
+            async ct => await client.RemoveExpirationAsync(new RemoveExpirationRequest { OperationId = operationId, CacheName = cacheName, Key = key }, cancellationToken: ct)
+                                    .ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Found;
+    }
+
+    public async ValueTask SetAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        _ = await Policy(owner).ExecuteAsync<SetResponse>(
+            async ct =>
+            {
+                var setRequest = new SetRequest { OperationId = operationId, CacheName = cacheName, Key = key, Entry = entry.MapToProto() };
+                return await client.SetAsync(setRequest, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> TouchAsync(string owner, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<TouchResponse>(
+            async ct => await client.TouchAsync(
+                new TouchRequest { OperationId = operationId, CacheName = cacheName, Key = key, Expiration = Duration.FromTimeSpan(expiration) },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Found;
+    }
+
+    public async ValueTask<bool> TryAddAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<TrySetResponse>(
+            async ct => await client.TrySetAsync(
+                new TrySetRequest { OperationId = operationId, CacheName = cacheName, Key = key, Entry = entry.MapToProto() },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Added;
     }
 
     public async ValueTask<CacheValueResult<T>> TryGetValueAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
@@ -58,75 +152,40 @@ internal sealed class ClusterRemote<T>
             async ct => await client.GetValueAsync(new GetValueRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? new CacheValueResult<T>(true, ProtoEx.CacheValueFromGrpcValue<T>(response.Value, null, null).Value) : new CacheValueResult<T>(false, default);
-    }
-
-    public async ValueTask SetAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var client = _clients.ForNode(owner);
-        _ = await Policy(owner).ExecuteAsync<InsertResponse>(
-            async ct =>
-            {
-                var insertRequest = new InsertRequest { CacheName = cacheName, Key = key, Entry = entry.MapToProto() };
-                return await client.InsertAsync(insertRequest, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask<bool> RemoveExpirationAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var client = _clients.ForNode(owner);
-        var response = await Policy(owner).ExecuteAsync<RemoveExpirationResponse>(
-            async ct => await client.RemoveExpirationAsync(new RemoveExpirationRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Found;
-    }
-
-    public async ValueTask<bool> RemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        var client = _clients.ForNode(owner);
-        var response = await Policy(owner).ExecuteAsync<RemoveResponse>(
-            async ct => await client.RemoveAsync(new RemoveRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Removed;
-    }
-
-    public async ValueTask<bool> TouchAsync(string owner, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
-    {
-        var client = _clients.ForNode(owner);
-        var response = await Policy(owner).ExecuteAsync<TouchResponse>(
-            async ct => await client.TouchAsync(new TouchRequest { CacheName = cacheName, Key = key, Expiration = Duration.FromTimeSpan(expiration) }, cancellationToken: ct)
-                                    .ResponseAsync.ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Found;
-    }
-
-    public async ValueTask<bool> TryAddAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        var client = _clients.ForNode(owner);
-        var response = await Policy(owner).ExecuteAsync<TryInsertResponse>(
-            async ct => await client.TryInsertAsync(new TryInsertRequest { CacheName = cacheName, Key = key, Entry = entry.MapToProto() }, cancellationToken: ct).ResponseAsync
-                                    .ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Inserted;
+        return response.Found
+            ? new CacheValueResult<T>(true, (await ProtoEx.CacheValueFromGrpcValueAsync<T>(response.Value, null, null).ConfigureAwait(false)).Value)
+            : new CacheValueResult<T>(false, default);
     }
 
     public async ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
     {
         var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
         var response = await Policy(owner).ExecuteAsync<RemoveResponse>(
-            async ct => await client.RemoveAsync(new RemoveRequest { CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            async ct => await client.RemoveAsync(new RemoveRequest { OperationId = operationId, CacheName = cacheName, Key = key }, cancellationToken: ct).ResponseAsync
+                                    .ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
         if (!response.Removed)
             return new CacheRemoveResult<T>(false, default);
 
-        var previous = response.PreviousValue is null ? default : new RpcEntry { Value = response.PreviousValue }.MapFromProto<T>().Value;
+        var previous = response.PreviousValue is null
+            ? default
+            : (await new RpcEntry { Value = response.PreviousValue }.MapFromProtoAsync<T>().ConfigureAwait(false)).Value;
         return new CacheRemoveResult<T>(true, previous);
+    }
+
+    public async ValueTask<bool> UpdateAsync(string owner, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        var client = _clients.ForNode(owner);
+        var operationId = RpcOperationIdentity.New();
+        var response = await Policy(owner).ExecuteAsync<UpdateValueResponse>(
+            async ct => await client.UpdateValueAsync(
+                new UpdateValueRequest { OperationId = operationId, CacheName = cacheName, Key = key, Value = ProtoEx.CacheValueToGrpcValue(value) },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Updated;
     }
 
     private ICallPolicy Policy(string owner) => _clients.PolicyFor(owner);

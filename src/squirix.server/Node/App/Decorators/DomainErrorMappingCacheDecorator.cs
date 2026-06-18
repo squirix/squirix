@@ -34,20 +34,23 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
     public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.GetExpirationAsync(cacheName, key, ct), cancellationToken);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithMappingAsync(ct => _inner.GetOrAddAsync(cacheName, key, entry, ct), cancellationToken);
+
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.GetValueAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        WithMappingAsync(ct => _inner.RemoveAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        WithMappingAsync(ct => _inner.RemoveExpirationAsync(cacheName, key, ct), cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.SetAsync(cacheName, key, value, ct), cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.SetAsync(cacheName, key, entry, ct), cancellationToken);
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithMappingAsync(ct => _inner.RemoveExpirationAsync(cacheName, key, ct), cancellationToken);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithMappingAsync(ct => _inner.RemoveAsync(cacheName, key, ct), cancellationToken);
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.TouchAsync(cacheName, key, expiration, ct), cancellationToken);
@@ -63,6 +66,9 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
 
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithMappingAsync(ct => _inner.TryRemoveAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        WithMappingAsync(ct => _inner.UpdateAsync(cacheName, key, value, ct), cancellationToken);
 
     private static async ValueTask WithMappingAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
@@ -85,7 +91,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
         catch (RpcException ex)
         {
             DomainTransportErrorMapper.Map(ex, cancellationToken);
-            return default!;
+            return default;
         }
     }
 }

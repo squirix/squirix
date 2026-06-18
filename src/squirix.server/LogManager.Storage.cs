@@ -4,9 +4,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Compaction and journal storage lifecycle logs.
-/// </summary>
+/// <summary>Compaction and journal storage lifecycle logs.</summary>
 internal static partial class LogManager
 {
     [LoggerMessage(EventId = 1002, Level = LogLevel.Warning, Message = "Compaction backoff after {Failures} failures: delaying {DelayMs} ms")]

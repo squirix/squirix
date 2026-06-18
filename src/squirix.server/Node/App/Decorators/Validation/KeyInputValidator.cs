@@ -3,9 +3,7 @@ using Squirix.Server.Core;
 
 namespace Squirix.Server.Node.App.Decorators.Validation;
 
-/// <summary>
-/// Validates logical cache key strings before operations reach the inner pipeline.
-/// </summary>
+/// <summary>Validates logical cache key strings before operations reach the inner pipeline.</summary>
 internal static class KeyInputValidator
 {
     /// <summary>

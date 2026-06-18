@@ -45,28 +45,38 @@ internal static class ClusterRuntimeServiceRegistration
             return services;
         }
 
-        /// <summary>
-        /// Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.
-        /// </summary>
+        /// <summary>Registers static topology node location, gRPC client pool, and shared cluster-side singletons used by the node host.</summary>
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="callPolicyFactory">Optional per-endpoint call policy factory; defaults to a conservative remote policy.</param>
-        /// <param name="httpHandlerOverride">Optional HTTP handler override for pooled gRPC channels.</param>
+        /// <param name="peerHandlerFactory">Optional per-peer HTTP handler factory for pooled gRPC channels.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
-        public IServiceCollection AddSquirixClusterServices(ClusterConfig cluster, Func<string, CallPolicy>? callPolicyFactory, HttpMessageHandler? httpHandlerOverride)
+        public IServiceCollection AddSquirixClusterServices(
+            ClusterConfig cluster,
+            Func<string, CallPolicy>? callPolicyFactory,
+            Func<string, HttpMessageHandler>? peerHandlerFactory)
         {
             _ = services.AddSingleton(new ConsistentHashNodeLocator(GetPeerNodeIds(cluster), cluster.VirtualNodes));
             _ = services.AddSingleton<INodeLocator>(static sp => sp.GetRequiredService<ConsistentHashNodeLocator>());
             _ = services.AddSingleton<INodeOwnershipResolver, NodeOwnershipResolver>();
-            _ = services.AddSingleton<INodeEndpointIdentity, NodeEndpointIdentity>();
-            _ = services.AddSingleton<IAdminClusterDiagnostics, AdminClusterDiagnosticsService>();
             _ = services.AddSingleton<Correlation.ClientInterceptor>();
             _ = services.AddSingleton<Correlation.ServerInterceptor>();
+            _ = services.AddSingleton<ClusterInternalOwnerClientInterceptor>();
             _ = services.AddSingleton<IdempotencyStore>();
-            _ = services.AddSingleton<IClientPool>(sp => new ClientPool(
-                cluster.Peers,
-                callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),
-                httpHandlerOverride,
-                sp.GetRequiredService<Correlation.ClientInterceptor>()));
+            _ = services.AddSingleton<IClientPool>(sp =>
+            {
+                var material = sp.GetRequiredService<MtlsCertificateMaterial>();
+                var mtlsOptions = sp.GetRequiredService<MtlsOptions>();
+                var interNodeMtlsEnabled = material.Enabled;
+                return new ClientPool(
+                    cluster.Peers,
+                    callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),
+                    peerHandlerFactory,
+                    sp.GetRequiredService<Correlation.ClientInterceptor>(),
+                    internalOwnerInterceptor: interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
+                    mtlsOptions: mtlsOptions,
+                    mtlsMaterial: material,
+                    interNodeMtlsEnabled: interNodeMtlsEnabled);
+            });
 
             return services;
 

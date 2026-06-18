@@ -5,14 +5,10 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// Architecture rules for canonical cache name boundaries, validation ownership, and placement of routing versus local watch infrastructure.
-/// </summary>
+/// <summary>Architecture rules for canonical cache name boundaries, validation ownership, and placement of routing versus local watch infrastructure.</summary>
 public sealed class CacheNameBoundaryArchitectureTests
 {
-    /// <summary>
-    /// Ensures key routing, runtime, watch hub, and validation decorator types remain in their intended namespaces (NetArchTest-backed placement checks).
-    /// </summary>
+    /// <summary>Ensures key routing, runtime, watch hub, and validation decorator types remain in their intended namespaces (NetArchTest-backed placement checks).</summary>
     [Fact]
     public void ArchitectureRulesUseNetArchTestWherePossible()
     {

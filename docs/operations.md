@@ -6,7 +6,7 @@ Build, test, limitations, and roadmap for squirix 0.1.0 preview.
 
 Prerequisite: .NET SDK as pinned in [`global.json`](../global.json) (minimum **10.0.203**).
 
-```powershell
+```bash
 dotnet restore squirix.slnx
 dotnet build squirix.slnx --configuration Release
 dotnet dev-certs https --trust

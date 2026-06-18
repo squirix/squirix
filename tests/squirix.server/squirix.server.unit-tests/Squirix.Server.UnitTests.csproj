@@ -9,6 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
         <PackageReference Include="NetArchTest.Rules"/>
         <PackageReference Include="FakeItEasy"/>
         <PackageReference Include="xunit.v3"/>
@@ -23,11 +24,12 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="ApiSnapshots\SquirixRestEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
         <Content Include="ApiSnapshots\SquirixServerPublicTypes.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Include="ApiSnapshots\SquirixGrpcEndpointSurface.golden.txt" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\squirix\squirix.testkit\Squirix.TestKit.csproj"/>
         <ProjectReference Include="..\squirix.server.testkit\Squirix.Server.TestKit.csproj"/>
         <ProjectReference Include="..\..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>

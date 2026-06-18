@@ -48,7 +48,7 @@ internal static class BackpressureMetrics
             Observers[observerId] = entry;
         }
 
-        if (Interlocked.Exchange(ref _registered, 1) != 0)
+        if (Interlocked.Exchange(ref _registered, 1) is not 0)
             return new ObserverRegistration(observerId);
 
         _ = MeterRegistry.Meter.CreateObservableGauge(
@@ -137,7 +137,7 @@ internal static class BackpressureMetrics
 
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            if (Interlocked.Exchange(ref _disposed, 1) is not 0)
                 return;
 
             lock (ObserverGate)

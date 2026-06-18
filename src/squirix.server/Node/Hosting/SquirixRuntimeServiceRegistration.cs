@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Squirix.Server.Adapters.Grpc;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Contracts;
@@ -18,21 +17,17 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixRuntimeServiceRegistration
 {
-    public static IServiceCollection AddSquirixRuntimeServices(this IServiceCollection services, CacheRuntimeOptions? runtimeOptions)
+    public static IServiceCollection AddSquirixRuntimeServices(this IServiceCollection services)
     {
         _ = services.AddSingleton<RemoteInvocationContextService>();
         _ = services.AddSingleton<IRemoteInvocationScopeFactory>(static sp => sp.GetRequiredService<RemoteInvocationContextService>());
         _ = services.AddSingleton<IRemoteInvocationState>(static sp => sp.GetRequiredService<RemoteInvocationContextService>());
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<ClusterConfig>>().Value);
         _ = services.AddSingleton<ISquirixSerializer>(static _ => SerializationProvider.Instance);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<BackpressureOptions>>().Value);
         _ = services.AddSingleton<IBackpressureGate, BackpressureGate>();
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<IOptions<MemoryPressureOptions>>().Value);
         _ = services.AddSingleton<IMemoryPressureStateEvaluator, MemoryPressureStateEvaluator>();
         _ = services.AddSingleton<MemoryUsageAccounting>();
         _ = services.AddSingleton<IMemoryUsageAccounting>(static sp => sp.GetRequiredService<MemoryUsageAccounting>());
         _ = services.AddSingleton<IMemoryPressureGate>(static sp => new MemoryPressureGate(
-            sp.GetRequiredService<IOptions<MemoryPressureOptions>>(),
             sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<ClusterConfig>().NodeId));
@@ -44,13 +39,15 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<ILocalCacheMutationOperations<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>()));
+        _ = services.AddHostedService<MemoryPressureMetricsService>();
         _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
 
-        _ = services.AddSingleton(runtimeOptions ?? new CacheRuntimeOptions());
         _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
         _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
         _ = services.AddSingleton<IGrpcCacheOperations<object?>, GrpcCacheOperations<object?>>();
+        _ = services.AddSingleton<RpcMutationIdempotencyGuard>();
+        _ = services.AddSingleton<RpcMutationIdempotencyCoordinator>();
         _ = services.AddSingleton<ICacheApi<object?>>(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(CacheNames.DefaultNamespace));
 
         return services;

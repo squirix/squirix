@@ -6,9 +6,7 @@ using Squirix.Internal;
 
 namespace Squirix;
 
-/// <summary>
-/// Entry point to connect to Squirix servers and get typed cache instances.
-/// </summary>
+/// <summary>Entry point to connect to Squirix servers and get typed cache instances.</summary>
 public sealed class SquirixClient : ISquirixClient
 {
     private readonly IRemoteClientSession _remoteSession;
@@ -20,9 +18,7 @@ public sealed class SquirixClient : ISquirixClient
         _remoteSession = remoteSession ?? throw new ArgumentNullException(nameof(remoteSession));
     }
 
-    /// <summary>
-    /// Connects to a Squirix server endpoint.
-    /// </summary>
+    /// <summary>Connects to a Squirix server endpoint.</summary>
     /// <param name="endpoint">The Squirix server endpoint URL.</param>
     /// <param name="cancellationToken">Cancellation token for client warm-up.</param>
     /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
@@ -32,9 +28,7 @@ public sealed class SquirixClient : ISquirixClient
         return ConnectAsync(options => options.Endpoints.Add(endpoint), cancellationToken);
     }
 
-    /// <summary>
-    /// Connects to Squirix server bootstrap endpoints using client-only options.
-    /// </summary>
+    /// <summary>Connects to Squirix server bootstrap endpoints using client-only options.</summary>
     /// <remarks>
     /// At least one configured endpoint must be reachable; additional endpoints provide transport failover.
     /// See <see cref="SquirixOptions.Endpoints" /> for HA semantics.
@@ -59,7 +53,7 @@ public sealed class SquirixClient : ISquirixClient
     /// <returns>A <see cref="ValueTask" /> that completes when disposal finishes.</returns>
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) != 0)
+        if (Interlocked.CompareExchange(ref _disposeOnce, 1, 0) is not 0)
             return;
 
         _disposed = true;
@@ -71,9 +65,7 @@ public sealed class SquirixClient : ISquirixClient
     /// </summary>
     /// <typeparam name="T">The value type stored in the cache.</typeparam>
     /// <param name="cacheName">The logical cache name to access.</param>
-    /// <param name="cancellationToken">
-    /// A cancellation token used during cache resolution.
-    /// </param>
+    /// <param name="cancellationToken">A cancellation token used during cache resolution.</param>
     /// <returns>A non-owning <see cref="ICache{T}" /> facade for the specified cache name.</returns>
     public ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken = default)
     {

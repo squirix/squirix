@@ -7,9 +7,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Applies public/runtime cache operation validation before admission, metrics, journal, and mutation.
-/// </summary>
+/// <summary>Applies public/runtime cache operation validation before admission, metrics, journal, and mutation.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -20,21 +18,21 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public async ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
-        EnsureValueWithinLimit(value, 1);
-        return _inner.AddAsync(cacheName, key, value, cancellationToken);
+        await EnsureValueWithinLimitAsync(value, 1).ConfigureAwait(false);
+        await _inner.AddAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
-        EnsureEntryWithinLimit(entry);
+        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        return _inner.AddAsync(cacheName, key, entry, cancellationToken);
+        await _inner.AddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<bool> ContainsAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -58,28 +56,20 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.GetExpirationAsync(cacheName, key, cancellationToken);
     }
 
+    public async ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        OperationInputValidator<T>.ValidateEntry(entry);
+        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+    }
+
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.GetValueAsync(cacheName, key, cancellationToken);
-    }
-
-    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
-    {
-        KeyInputValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        EnsureValueWithinLimit(value, 1);
-        return _inner.SetAsync(cacheName, key, value, cancellationToken);
-    }
-
-    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        KeyInputValidator.Validate(key, nameof(key));
-        OperationInputValidator<T>.ValidateEntry(entry);
-        EnsureEntryWithinLimit(entry);
-        cancellationToken.ThrowIfCancellationRequested();
-        return _inner.SetAsync(cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -96,6 +86,23 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
     }
 
+    public async ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        await EnsureValueWithinLimitAsync(value, 1).ConfigureAwait(false);
+        await _inner.SetAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        OperationInputValidator<T>.ValidateEntry(entry);
+        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        await _inner.SetAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+    }
+
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
@@ -104,21 +111,21 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.TouchAsync(cacheName, key, expiration, cancellationToken);
     }
 
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
-        EnsureValueWithinLimit(value, 1);
-        return _inner.TryAddAsync(cacheName, key, value, cancellationToken);
+        await EnsureValueWithinLimitAsync(value, 1).ConfigureAwait(false);
+        return await _inner.TryAddAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
-        EnsureEntryWithinLimit(entry);
+        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        return _inner.TryAddAsync(cacheName, key, entry, cancellationToken);
+        return await _inner.TryAddAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -135,7 +142,16 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.TryRemoveAsync(cacheName, key, cancellationToken);
     }
 
-    private static void EnsureEntryWithinLimit(CacheEntry<T> entry) => EntryPayloadSizeGuard.EnsureWithinLimit(entry);
+    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        await EnsureValueWithinLimitAsync(value, 1).ConfigureAwait(false);
+        return await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+    }
 
-    private static void EnsureValueWithinLimit(T? value, long version) => EntryPayloadSizeGuard.EnsureWithinLimit(new CacheEntry<T> { Value = value, Version = version });
+    private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry) => EntryPayloadSizeGuard.EnsureWithinLimitAsync(entry);
+
+    private static Task EnsureValueWithinLimitAsync(T? value, long version) =>
+        EntryPayloadSizeGuard.EnsureWithinLimitAsync(new CacheEntry<T> { Value = value, Version = version });
 }

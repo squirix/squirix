@@ -3,17 +3,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using NetArchTest.Rules;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// Enforces high-value architectural dependency boundaries for the main Squirix assembly.
-/// </summary>
-public sealed class ArchitectureTests
+/// <summary>Enforces high-value architectural dependency boundaries for the main Squirix assembly.</summary>
+public sealed class ArchitectureTests : UnitTestBase
 {
     private static readonly string[] ForbiddenSharedGrpcTransportMapperRuntimeMarkers =
     [
@@ -40,9 +40,7 @@ public sealed class ArchitectureTests
         "Microsoft.AspNetCore.Authentication.JwtBearer",
     ];
 
-    /// <summary>
-    /// Ensures transport adapters do not take dependencies on low-level journal JSON internals.
-    /// </summary>
+    /// <summary>Ensures transport adapters do not take dependencies on low-level journal JSON internals.</summary>
     [Fact]
     public void AdaptersShouldNotDependOnJournalJsonInternals()
     {
@@ -52,9 +50,7 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures client and server projects compile the same shared gRPC transport mapper sources.
-    /// </summary>
+    /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
     [Fact]
     public void ClientAndServerProjectsShouldCompileSharedGrpcTransportMappersFromSameSources()
     {
@@ -69,60 +65,50 @@ public sealed class ArchitectureTests
             Assert.Contains(include, serverIncludes, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures filter types stay at the REST adapter boundary.
-    /// </summary>
+    /// <summary>Ensures filter types stay at the REST adapter boundary.</summary>
     [Fact]
     public void FilterTypesShouldLiveInAdaptersRestNamespace()
     {
         var result = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Filter"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Filter", StringComparison.InvariantCulture),
             [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures handler types stay in the hosting security boundary.
-    /// </summary>
+    /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
     [Fact]
     public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Handler").Should()
+        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Handler", StringComparison.InvariantCulture).Should()
                           .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures the journal periodic flush task is observed during disposal instead of being fire-and-forget.
-    /// </summary>
+    /// <summary>Ensures the journal periodic flush task is observed during disposal instead of being fire-and-forget.</summary>
     [Fact]
-    public void JournalWriterFlushLoopShouldBeObservedByDispose()
+    public async Task JournalWriterFlushLoopShouldBeObservedByDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = File.ReadAllText(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalWriter.cs"));
+        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalWriter.cs"), DefaultCancellationToken);
 
         Assert.Contains("_flushLoopTask = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
         Assert.Contains("await _flushLoopTask.ConfigureAwait(false);", text, StringComparison.Ordinal);
         Assert.DoesNotContain("_ = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures metrics types stay centralized in the observability namespace.
-    /// </summary>
+    /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
     [Fact]
     public void MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Metrics").And().AreNotInterfaces().Should()
+        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Metrics", StringComparison.InvariantCulture).And().AreNotInterfaces().Should()
                           .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures backpressure controls stay isolated from storage concerns.
-    /// </summary>
+    /// <summary>Ensures backpressure controls stay isolated from storage concerns.</summary>
     [Fact]
     public void NodeBackpressureShouldNotDependOnStorage()
     {
@@ -132,9 +118,7 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures node services remain application-layer components and do not depend on transport adapters.
-    /// </summary>
+    /// <summary>Ensures node services remain application-layer components and do not depend on transport adapters.</summary>
     [Fact]
     public void NodeServicesShouldNotDependOnAdapters()
     {
@@ -144,9 +128,7 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures observability remains transport-agnostic and reusable across adapters.
-    /// </summary>
+    /// <summary>Ensures observability remains transport-agnostic and reusable across adapters.</summary>
     [Fact]
     public void ObservabilityShouldNotDependOnAdapters()
     {
@@ -156,60 +138,60 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures configuration option types live only in approved configuration namespaces.
-    /// </summary>
+    /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
     [Fact]
     public void OptionsTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Options"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Options", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServerOptionsTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
-    /// <summary>
-    /// Ensures product code does not use access-check bypass attributes.
-    /// </summary>
+    /// <summary>Ensures product code does not use access-check bypass attributes.</summary>
     [Fact]
-    public void ProductionSourcesShouldNotUseIgnoresAccessChecksTo()
+    public async Task ProductionSourcesShouldNotUseIgnoresAccessChecksTo()
     {
         var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var offenders = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Where(path => !path.Contains(objMarker, StringComparison.Ordinal))
-                                 .Where(static path => File.ReadAllText(path).Contains("IgnoresAccessChecksTo", StringComparison.Ordinal))
-                                 .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        {
+            if (path.Contains(objMarker, StringComparison.Ordinal))
+                continue;
+
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            if (text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal))
+                offenders.Add(path);
+        }
 
         Assert.Empty(offenders);
     }
 
-    /// <summary>
-    /// Ensures repository projects and sources do not hide dependencies with global or implicit usings.
-    /// </summary>
+    /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
     [Fact]
     public void RepositoryShouldNotUseGlobalOrImplicitUsings()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var sourceOffenders = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Where(static path => !IsGeneratedOutputPath(path))
-                                       .Where(static path => Path.GetFileName(path).Equals("GlobalUsings.cs", StringComparison.OrdinalIgnoreCase) ||
-                                                             File.ReadLines(path).Any(static line => line.TrimStart().StartsWith("global using ", StringComparison.Ordinal)))
-                                       .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
-                                       .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+        var sourceOffenders = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+                                       .Where(static path =>
+                                            !IsGeneratedOutputPath(path) && (Path.GetFileName(path).Equals("GlobalUsings.cs", StringComparison.OrdinalIgnoreCase) ||
+                                                                             File.ReadLines(path).Any(static line =>
+                                                                                 line.TrimStart().StartsWith("global using ", StringComparison.Ordinal))))
+                                       .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToArray();
 
-        var projectOffenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(static path => !IsGeneratedOutputPath(path))
-                                        .Where(static path => LoadProjectByAbsolutePath(path).Descendants().Any(static element =>
-                                             element.Name.LocalName == "ImplicitUsings" && element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase)))
-                                        .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'))
-                                        .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+        var projectOffenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(static path =>
+                                             !IsGeneratedOutputPath(path) && LoadProjectByAbsolutePath(path).Descendants().Any(static element =>
+                                                 string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase) &&
+                                                 element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase)))
+                                        .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToArray();
 
         Assert.Empty(sourceOffenders);
         Assert.Empty(projectOffenders);
     }
 
-    /// <summary>
-    /// Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.
-    /// </summary>
+    /// <summary>Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.</summary>
     [Fact]
     public void ServerAssemblyShouldGenerateGrpcServiceBaseFromSharedTransportNamespace()
     {
@@ -225,9 +207,7 @@ public sealed class ArchitectureTests
         Assert.False(serviceBaseType.IsPublic);
     }
 
-    /// <summary>
-    /// Ensures the server package does not reference the client SDK assembly.
-    /// </summary>
+    /// <summary>Ensures the server package does not reference the client SDK assembly.</summary>
     [Fact]
     public void ServerAssemblyShouldNotReferenceSquirix()
     {
@@ -235,22 +215,18 @@ public sealed class ArchitectureTests
         Assert.DoesNotContain("Squirix", references, StringComparer.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.
-    /// </summary>
+    /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
     [Fact]
-    public void ServerBootstrapSourcesShouldUseServerPackageHostStartupApi()
+    public async Task ServerBootstrapSourcesShouldUseServerPackageHostStartupApi()
     {
-        var sources = ReadServerBootstrapSourceTexts();
+        var sources = await ReadServerBootstrapSourceTextsAsync();
         var combined = string.Join(Environment.NewLine, sources.Select(static source => source.Text));
 
-        Assert.Contains("AddSquirixServer", combined, StringComparison.Ordinal);
+        Assert.Contains("AddSquirixServerAsync", combined, StringComparison.Ordinal);
         Assert.Contains("MapSquirixServer", combined, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures the standalone process host stays separate from the packable server runtime.
-    /// </summary>
+    /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
     [Fact]
     public void ServerHostProjectShouldBePackableGlobalToolExecutable()
     {
@@ -268,11 +244,9 @@ public sealed class ArchitectureTests
         Assert.Equal([@"..\squirix.server\Squirix.Server.csproj"], ReadIncludes(project, "ProjectReference"));
     }
 
-    /// <summary>
-    /// Ensures InternalsVisibleTo grants match the approved server allowlist.
-    /// </summary>
+    /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
     [Fact]
-    public void ServerInternalsVisibleToShouldMatchApprovedAllowlist()
+    public async Task ServerInternalsVisibleToShouldMatchApprovedAllowlist()
     {
         string[] approved =
         [
@@ -288,7 +262,7 @@ public sealed class ArchitectureTests
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
         var assemblyInfoPath = PathKit.Combine(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
-        var text = File.ReadAllText(assemblyInfoPath);
+        var text = await File.ReadAllTextAsync(assemblyInfoPath, DefaultCancellationToken);
         var granted = new List<string>();
         var index = 0;
         while ((index = text.IndexOf("InternalsVisibleTo(\"", index, StringComparison.Ordinal)) >= 0)
@@ -300,13 +274,11 @@ public sealed class ArchitectureTests
         }
 
         granted.Sort(StringComparer.Ordinal);
-        var expected = approved.OrderBy(static name => name, StringComparer.Ordinal).ToArray();
+        var expected = approved.Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(expected, granted);
     }
 
-    /// <summary>
-    /// Ensures server product code does not depend on client SDK namespaces.
-    /// </summary>
+    /// <summary>Ensures server product code does not depend on client SDK namespaces.</summary>
     [Fact]
     public void ServerProductCodeShouldNotImportSquirixNamespaces()
     {
@@ -331,16 +303,14 @@ public sealed class ArchitectureTests
         }
     }
 
-    /// <summary>
-    /// Ensures the server runtime project has the required library package metadata.
-    /// </summary>
+    /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
     [Fact]
     public void ServerProjectShouldBePackableLibrary()
     {
         var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
 
         Assert.Equal("net10.0", ReadProperty(project, "TargetFramework"));
-        Assert.DoesNotContain(project.Descendants(), static element => element.Name.LocalName == "OutputType");
+        Assert.DoesNotContain(project.Descendants(), static element => string.Equals(element.Name.LocalName, "OutputType", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "AssemblyName"));
         Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "RootNamespace"));
         Assert.Equal(ServerArchitectureNamespaces.PackageId, ReadProperty(project, "PackageId"));
@@ -352,17 +322,15 @@ public sealed class ArchitectureTests
         Assert.Equal("enable", ReadProperty(project, "Nullable"));
     }
 
-    /// <summary>
-    /// Ensures the server project generates only server-owned durability protos.
-    /// </summary>
+    /// <summary>Ensures the server project generates only server-owned durability protos.</summary>
     [Fact]
-    public void ServerProjectShouldGenerateJournalEnvelopeTransportContract()
+    public async Task ServerProjectShouldGenerateJournalEnvelopeTransportContract()
     {
-        var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
-                                                                              .SingleOrDefault(static element => string.Equals(
-                                                                                   element.Attribute("Include")?.Value,
-                                                                                   @"Storage\Journaling\Protos\JournalEnvelope.proto",
-                                                                                   StringComparison.Ordinal));
+        var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().SingleOrDefault(static element =>
+            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
+                element.Attribute("Include")?.Value,
+                @"Storage\Journaling\Protos\JournalEnvelope.proto",
+                StringComparison.Ordinal));
 
         Assert.NotNull(protobuf);
         Assert.Equal("Server", protobuf.Attribute("GrpcServices")?.Value);
@@ -370,7 +338,9 @@ public sealed class ArchitectureTests
         Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var protoText = File.ReadAllText(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Protos", "JournalEnvelope.proto"));
+        var protoText = await File.ReadAllTextAsync(
+            PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Protos", "JournalEnvelope.proto"),
+            DefaultCancellationToken);
         Assert.Contains("option csharp_namespace = \"Squirix.Server.Storage.JournalProto\";", protoText, StringComparison.Ordinal);
         Assert.Contains("message JournalEnvelope", protoText, StringComparison.Ordinal);
         Assert.Contains("message Put", protoText, StringComparison.Ordinal);
@@ -379,9 +349,23 @@ public sealed class ArchitectureTests
         Assert.Contains("package squirix.journal;", protoText, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.
-    /// </summary>
+    /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
+    [Fact]
+    public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
+    {
+        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().SingleOrDefault(static element =>
+            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
+                element.Attribute("Include")?.Value,
+                @"..\shared\transport\grpc\Protos\SquirixCache.proto",
+                StringComparison.Ordinal));
+
+        Assert.NotNull(serverProtobuf);
+        Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
+        Assert.Equal(@"..\shared\transport\grpc\Protos", serverProtobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
+    }
+
+    /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
     [Fact]
     public void ServerProjectShouldKeepApprovedHostingDependencyBaseline()
     {
@@ -389,22 +373,20 @@ public sealed class ArchitectureTests
         var serverPackageReferences = ReadIncludes(project, "PackageReference")
                                      .Where(static include =>
                                           include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
-                                     .OrderBy(static include => include, StringComparer.Ordinal).ToArray();
+                                     .Order(StringComparer.Ordinal).ToArray();
         var unexpectedPackageReferences = serverPackageReferences.Except(KnownServerPackageDependencyBaseline, StringComparer.Ordinal).ToArray();
 
         Assert.Empty(unexpectedPackageReferences);
 
         var serverFrameworkReferences = ReadIncludes(project, "FrameworkReference").Where(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                                                                                   .OrderBy(static include => include, StringComparer.Ordinal).ToArray();
+                                                                                   .Order(StringComparer.Ordinal).ToArray();
         var unexpectedFrameworkReferences = serverFrameworkReferences.Except(KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal).ToArray();
 
         Assert.Empty(unexpectedFrameworkReferences);
         Assert.Contains(serverFrameworkReferences, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Ensures the server project does not reference the client SDK project.
-    /// </summary>
+    /// <summary>Ensures the server project does not reference the client SDK project.</summary>
     [Fact]
     public void ServerProjectShouldNotReferenceSquirixProject()
     {
@@ -417,9 +399,7 @@ public sealed class ArchitectureTests
         Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Ensures Prometheus metrics endpoint mapping is owned by the server package.
-    /// </summary>
+    /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
     [Fact]
     public void ServerShouldOwnPrometheusMetricsEndpointMapping()
     {
@@ -428,22 +408,18 @@ public sealed class ArchitectureTests
         Assert.False(mappingType.IsPublic);
     }
 
-    /// <summary>
-    /// Ensures service types stay in approved service namespaces.
-    /// </summary>
+    /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
     public void ServiceTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Service"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Service", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServiceTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
-    /// <summary>
-    /// Ensures shared stale-owner marker constants are compiled into the server build from shared source.
-    /// </summary>
+    /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
     [Fact]
     public void SharedGrpcStaleOwnerMarkerConstantsShouldBePresentInServerBuild()
     {
@@ -457,61 +433,44 @@ public sealed class ArchitectureTests
         Assert.Equal("stale-owner", staleOwnerValue.GetRawConstantValue());
     }
 
-    /// <summary>
-    /// Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.
-    /// </summary>
+    /// <summary>Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.</summary>
     [Fact]
-    public void SharedGrpcTransportMapperSourcesShouldNotDependOnCoreInternalRuntimeTypes()
+    public async Task SharedGrpcTransportMapperSourcesShouldNotDependOnCoreInternalRuntimeTypes()
     {
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
 
-        var offenders = Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Select(static path => (Path: path, Text: File.ReadAllText(path)))
-                                 .SelectMany(static pair => ForbiddenSharedGrpcTransportMapperRuntimeMarkers
-                                                           .Where(marker => pair.Text.Contains(marker, StringComparison.Ordinal))
-                                                           .Select(marker => $"{Path.GetFileName(pair.Path)}:{marker}")).OrderBy(
-                                      static offender => offender,
-                                      StringComparer.Ordinal).ToArray();
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
+        {
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            foreach (var marker in ForbiddenSharedGrpcTransportMapperRuntimeMarkers)
+            {
+                if (text.Contains(marker, StringComparison.Ordinal))
+                    offenders.Add($"{Path.GetFileName(path)}:{marker}");
+            }
+        }
 
         Assert.Empty(offenders);
     }
 
-    /// <summary>
-    /// Ensures share-sourced gRPC transport mappers use the shared mapper namespace.
-    /// </summary>
+    /// <summary>Ensures share-sourced gRPC transport mappers use the shared mapper namespace.</summary>
     [Fact]
-    public void SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
+    public async Task SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
     {
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
-        var offenders = Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Select(static path => (Path: path, Text: File.ReadAllText(path)))
-                                 .Where(static pair => !pair.Text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
-                                 .Select(static pair => Path.GetFileName(pair.Path))
-                                 .OrderBy(static path => path, StringComparer.Ordinal).ToArray();
+        var offenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
+        {
+            var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
+            if (!text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
+                offenders.Add(Path.GetFileName(path));
+        }
 
         Assert.Empty(offenders);
     }
 
-    /// <summary>
-    /// Ensures the server project generates the basic KV and expiration transport contract from shared source.
-    /// </summary>
-    [Fact]
-    public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
-    {
-        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().Where(static element => element.Name.LocalName == "Protobuf")
-                                                                                    .SingleOrDefault(static element => string.Equals(
-                                                                                         element.Attribute("Include")?.Value,
-                                                                                         @"..\shared\transport\grpc\Protos\SquirixCache.proto",
-                                                                                         StringComparison.Ordinal));
-
-        Assert.NotNull(serverProtobuf);
-        Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", serverProtobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
-    }
-
-    /// <summary>
-    /// Ensures storage types stay isolated from transport adapter concerns.
-    /// </summary>
+    /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
     [Fact]
     public void StorageShouldNotDependOnAdapters()
     {
@@ -521,9 +480,7 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures storage code does not take a dependency on hosting/DI composition details.
-    /// </summary>
+    /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
     [Fact]
     public void StorageShouldNotDependOnNodeHosting()
     {
@@ -533,14 +490,13 @@ public sealed class ArchitectureTests
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>
-    /// Ensures validator types stay centralized in the hosting composition layer.
-    /// </summary>
+    /// <summary>Ensures validator types stay centralized in the hosting composition layer.</summary>
     [Fact]
     public void ValidatorTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator").And().DoNotHaveNameEndingWith("Invalidator"),
+            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
+                 .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
             [.. ArchitectureAllowlists.ValidatorTypeNamespaces.Where(static ns => ns is not "Squirix" and not "Squirix.Core")]);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
@@ -565,8 +521,8 @@ public sealed class ArchitectureTests
 
     private static string[] ReadIncludes(XDocument project, string itemName) =>
     [
-        .. project.Descendants().Where(element => element.Name.LocalName == itemName).Select(static element => element.Attribute("Include")?.Value)
-                  .Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
+        .. project.Descendants().Where(element => string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                  .Select(static element => element.Attribute("Include")?.Value).Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
     ];
 
     private static string[] ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
@@ -575,12 +531,12 @@ public sealed class ArchitectureTests
 
     private static string ReadProperty(XDocument project, string propertyName)
     {
-        var value = project.Descendants().FirstOrDefault(element => element.Name.LocalName == propertyName)?.Value.Trim();
+        var value = project.Descendants().FirstOrDefault(element => string.Equals(element.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase))?.Value.Trim();
         Assert.False(string.IsNullOrWhiteSpace(value), $"Expected MSBuild property '{propertyName}'.");
         return value;
     }
 
-    private static (string RelativePath, string Text)[] ReadServerBootstrapSourceTexts()
+    private static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
         var relativePaths = new[]
@@ -590,14 +546,15 @@ public sealed class ArchitectureTests
             "src/squirix.server.host/SquirixServerProcess.cs",
         };
 
-        return
-        [
-            .. relativePaths.Select(static path => path.Replace('/', Path.DirectorySeparatorChar)).Select(path => (RelativePath: path, AbsolutePath: PathKit.Combine(root, path)))
-                            .Select(static pair =>
-                             {
-                                 Assert.True(File.Exists(pair.AbsolutePath), $"Expected server bootstrap source at {pair.AbsolutePath}.");
-                                 return (pair.RelativePath, Text: File.ReadAllText(pair.AbsolutePath));
-                             }),
-        ];
+        var sources = new (string RelativePath, string Text)[relativePaths.Length];
+        for (var i = 0; i < relativePaths.Length; i++)
+        {
+            var relativePath = relativePaths[i].Replace('/', Path.DirectorySeparatorChar);
+            var absolutePath = PathKit.Combine(root, relativePath);
+            Assert.True(File.Exists(absolutePath), $"Expected server bootstrap source at {absolutePath}.");
+            sources[i] = (relativePath, await File.ReadAllTextAsync(absolutePath, DefaultCancellationToken));
+        }
+
+        return sources;
     }
 }

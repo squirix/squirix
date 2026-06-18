@@ -6,26 +6,11 @@ namespace Squirix.Server.Node.Observability;
 
 internal static class CallPolicyMetrics
 {
-    public static readonly Histogram1Label BackoffSeconds;
-    public static readonly Counter1Label BackoffsTotal;
-    public static readonly Counter1Label DrainRejectsTotal;
-    public static readonly Histogram1Label QueueWaitSeconds;
-    public static readonly Counter2Labels RetriesTotal;
-    private static readonly Histogram<double> BackoffSecondsHist = MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_backoff_seconds");
-    private static readonly Counter<long> BackoffsTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_backoffs_total");
-    private static readonly Counter<long> DrainRejectsTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_drain_rejects_total");
-    private static readonly Histogram<double> QueueWaitSecondsHist = MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_queue_wait_seconds");
-
-    private static readonly Counter<long> RetriesTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_retries_total");
-
-    static CallPolicyMetrics()
-    {
-        RetriesTotal = new Counter2Labels(RetriesTotalCtr, "peer", "reason");
-        DrainRejectsTotal = new Counter1Label(DrainRejectsTotalCtr, "peer");
-        BackoffsTotal = new Counter1Label(BackoffsTotalCtr, "peer");
-        BackoffSeconds = new Histogram1Label(BackoffSecondsHist, "peer");
-        QueueWaitSeconds = new Histogram1Label(QueueWaitSecondsHist, "peer");
-    }
+    public static readonly Histogram1Label BackoffSeconds = new(MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_backoff_seconds"), "peer");
+    public static readonly Counter1Label BackoffsTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_backoffs_total"), "peer");
+    public static readonly Counter1Label DrainRejectsTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_drain_rejects_total"), "peer");
+    public static readonly Histogram1Label QueueWaitSeconds = new(MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_queue_wait_seconds"), "peer");
+    public static readonly Counter2Labels RetriesTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_retries_total"), "peer", "reason");
 
     internal readonly struct Counter1Label
     {

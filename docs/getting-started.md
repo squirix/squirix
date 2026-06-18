@@ -11,16 +11,25 @@ Prerequisites:
 
 ### NuGet global tool
 
-```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
-squirix-server run --data-dir ./data
+```bash
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.5
+squirix-server run
 ```
 
-The host listens on `https://localhost:5001` by default and prints ready-to-use client and operational endpoint URLs.
+The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
+ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
+access the cache API. This is a development convenience, not production hardening. See
+[server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
+
+For WAL/snapshot durability:
+
+```bash
+squirix-server run --persist --data-dir ./data
+```
 
 Health probes use the same HTTPS listener (local tool default port **5001**):
 
-```powershell
+```bash
 curl -k https://localhost:5001/health
 curl -k https://localhost:5001/metrics
 ```
@@ -29,28 +38,37 @@ curl -k https://localhost:5001/metrics
 
 ### Docker (fastest if you have Docker Desktop)
 
-```powershell
-docker build -f Dockerfile.dev -t squirix-server .
-docker run --rm `
-  -p 5000:5000 `
-  -e SQUIRIX_API_KEYS=dev-docker-key `
-  -e SQUIRIX_ADMIN_ENABLED=true `
+> **Development only.** Examples below use the public test JWT key `dev-squirix-docker-jwt-key!!!!!!` and bundled dev
+> HTTPS/mTLS certificates. Do not reuse them outside a local machine.
+> See [containerization.md](containerization.md#security).
+
+Single-container examples start in the default **ephemeral** mode (in-memory cache). The two-node `docker compose`
+example enables persistence with `--persist --data-dir /data` and named volumes.
+
+```bash
+docker build -f docker/Dockerfile -t squirix-server .
+docker run --rm \
+  -p 5000:5000 \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
-Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`, `/admin`). Images ship a bundled development
-HTTPS certificate; use `curl -k` from the host. When `SQUIRIX_API_KEYS` is set, pass `X-Api-Key` for `/metrics` scrapes
-from outside the container.
+Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`). Images ship a bundled development
+HTTPS certificate; use `curl -k` from the host. When JWT is configured, pass a bearer token for `/metrics` scrapes from
+outside the container.
 
 Release image (pinned NuGet tool version):
 
-```powershell
-docker build -f Dockerfile.release -t squirix-server:0.1.0-preview.4 .
-docker run --rm `
-  -p 5000:5000 `
-  -e SQUIRIX_API_KEYS=dev-docker-key `
-  -e SQUIRIX_ADMIN_ENABLED=true `
-  squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
+```bash
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.5 .
+docker run --rm \
+  -p 5000:5000 \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
+  squirix-server:0.1.0-preview.5 run --urls https://0.0.0.0:5000
 ```
 
 Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
@@ -58,21 +76,21 @@ Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://local
 
 ### From this repository
 
-```powershell
-dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run --data-dir ./data
+```bash
+dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ```
 
 ## 2. Add the client SDK
 
-```powershell
-dotnet add package squirix --version 0.1.0-preview.4
+```bash
+dotnet add package squirix --version 0.1.0-preview.5
 ```
 
 ## 3. Connect and use a typed cache
 
 Use the HTTPS gRPC endpoint from the host output.
 
-**Local tool or `dotnet run`** (default `https://localhost:5001`, no API key unless you configure auth):
+**Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
 
 ```csharp
 using System.Threading;
@@ -89,16 +107,16 @@ var lookup = await cache.GetValueAsync("greeting", cancellationToken);
 Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 ```
 
-**Docker** (`SQUIRIX_API_KEYS` in the examples): single-container `https://localhost:5000`; Compose node A
-`https://localhost:5001`. Use `options.ApiKey = "dev-docker-key"` and a development TLS validation override when
-connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
+**Docker** (JWT env vars in the examples): single-container `https://localhost:5000`; Compose node A
+`https://localhost:5001`. Use `options.BearerTokenProvider` with a JWT signed by the docker dev key and a development
+TLS validation override when connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
 
 ```csharp
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
         options.Endpoints.Add("https://localhost:5000"); // or :5001 for Compose node A
-        options.ApiKey = "dev-docker-key";
+        options.BearerTokenProvider = _ => new ValueTask<string>(yourJwtBearerToken);
     },
     cancellationToken);
 ```
@@ -119,15 +137,16 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 
 ## CLI reference
 
-```powershell
+```bash
 squirix-server init [--settings ./Squirix.settings.json]
 squirix-server validate-config --settings ./Squirix.settings.json [--strict]
 squirix-server doctor [--settings ./Squirix.settings.json] [--strict]
 squirix-server version
 ```
 
-`run` accepts `--urls`, `--data-dir`, `--settings`, and `--strict`. Without `--settings`, the host discovers
-`Squirix.settings.json` or `squirix.settings.json` in the working directory and application directory.
+`run` accepts `--urls`, `--persist`, `--data-dir` (with `--persist`), `--settings`, and `--strict`. Without
+`--settings`, the host discovers `Squirix.settings.json` or `squirix.settings.json` in the working directory and
+application directory.
 
 ## Next steps
 

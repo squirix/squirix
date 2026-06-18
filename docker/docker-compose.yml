@@ -1,14 +1,24 @@
+# LOCAL DEVELOPMENT ONLY — not a production deployment template.
+# Hard-coded JWT and mTLS secrets below are public test fixtures. Anyone who knows them can mint valid JWTs.
+# For production, use OIDC/JWKS or per-environment secrets — see docs/containerization.md#security.
+
 services:
   node-a:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: docker/Dockerfile
     container_name: squirix-node-a
     environment:
-      - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
+      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
+      - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-A.pfx
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
+    command: ["run", "--persist", "--data-dir", "/data"]
     ports:
-      - "5001:5000" # HTTPS gRPC + /health + /metrics + /admin
+      - "5001:5000" # HTTPS gRPC + /health + /metrics
     volumes:
       - ./node-a/Squirix.settings.json:/app/Squirix.settings.json:ro
       - nodea-data:/data
@@ -18,11 +28,17 @@ services:
   node-b:
     build:
       context: ..
-      dockerfile: Dockerfile.dev
+      dockerfile: docker/Dockerfile
     container_name: squirix-node-b
     environment:
-      - SQUIRIX_API_KEYS=dev-docker-key
-      - SQUIRIX_ADMIN_ENABLED=true
+      - SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!!
+      - SQUIRIX_JWT_ISSUER=https://squirix.docker.dev
+      - SQUIRIX_JWT_AUDIENCE=squirix
+      - SQUIRIX_CLUSTER_MTLS_CA_PATH=/mtls/cluster-ca.crt
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH=/mtls/node-B.pfx
+      - SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD=dev-docker-mtls
+      - SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT=5100
+    command: ["run", "--persist", "--data-dir", "/data"]
     ports:
       - "5002:5000"
     volumes:

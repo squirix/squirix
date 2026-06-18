@@ -27,14 +27,6 @@ Run one small smoke benchmark:
 SQUIRIX_E2E_BENCHMARK_SMOKE=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHit*' --warmupCount 1 --iterationCount 1
 ```
 
-PowerShell:
-
-```powershell
-$env:SQUIRIX_E2E_BENCHMARK_SMOKE='1'
-dotnet run -c Release --project benchmarks\squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHit*' --warmupCount 1 --iterationCount 1
-Remove-Item Env:\SQUIRIX_E2E_BENCHMARK_SMOKE
-```
-
 Run a longer local job:
 
 ```bash
@@ -74,10 +66,22 @@ Value shapes:
 
 Durability:
 
-- `Default`
+- `Ephemeral` — in-memory server (default)
+- `Persistence` — WAL/snapshot stack enabled
 
-The current benchmark harness uses the existing server testkit default persistence settings. It does not expose separate
-`NoDurability`, `RelaxedWal`, or `StrictFsync` modes yet, so durability comparisons are limited to the current default.
+The full scenario matrix uses `Ephemeral` only. Compare both modes with:
+
+```bash
+SQUIRIX_E2E_BENCHMARK_SMOKE=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*DurabilityComparison*'
+```
+
+Or include both modes in the full matrix:
+
+```bash
+SQUIRIX_E2E_BENCHMARK_DURABILITY=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks
+```
+
+Client SDK benchmarks (`Squirix.Benchmarks`) expose the same modes through `DurabilityComparisonBenchmarks`.
 
 ## Benchmark Groups
 

@@ -7,9 +7,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Applies an optional default operation deadline to logical cache calls.
-/// </summary>
+/// <summary>Applies an optional default operation deadline to logical cache calls.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -39,20 +37,23 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
     public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.GetExpirationAsync(cacheName, key, ct), cancellationToken);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.GetOrAddAsync(cacheName, key, entry, ct), cancellationToken);
+
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.GetValueAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.RemoveAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.RemoveExpirationAsync(cacheName, key, ct), cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.SetAsync(cacheName, key, value, ct), cancellationToken);
 
     public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.SetAsync(cacheName, key, entry, ct), cancellationToken);
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.RemoveExpirationAsync(cacheName, key, ct), cancellationToken);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.RemoveAsync(cacheName, key, ct), cancellationToken);
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.TouchAsync(cacheName, key, expiration, ct), cancellationToken);
@@ -68,6 +69,9 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         WithDeadlineAsync(ct => _inner.TryRemoveAsync(cacheName, key, ct), cancellationToken);
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        WithDeadlineAsync(ct => _inner.UpdateAsync(cacheName, key, value, ct), cancellationToken);
 
     private async ValueTask WithDeadlineAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
@@ -86,7 +90,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
         catch (OperationCanceledException ex)
         {
-            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) == CancellationScenarioKind.OperationDeadlineExceeded)
+            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is CancellationScenarioKind.OperationDeadlineExceeded)
             {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
             }
@@ -109,7 +113,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
         catch (OperationCanceledException ex)
         {
-            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) == CancellationScenarioKind.OperationDeadlineExceeded)
+            if (OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is CancellationScenarioKind.OperationDeadlineExceeded)
             {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
             }

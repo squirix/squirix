@@ -2,9 +2,7 @@ using System;
 
 namespace Squirix;
 
-/// <summary>
-/// Outcome of a cache entry lookup.
-/// </summary>
+/// <summary>Outcome of a cache entry lookup.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 /// <param name="Found">Indicates whether the key was present and not expired.</param>
 /// <param name="Entry">The cache entry when found.</param>

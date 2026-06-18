@@ -1,32 +1,29 @@
 using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>
-/// Tests for ClientPool methods and metrics.
-/// </summary>
-public sealed class ClientPoolMetricsTests : ServerUnitTestBase
+/// <summary>Tests for ClientPool methods and metrics.</summary>
+public sealed class ClientPoolMetricsTests : UnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
     private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
 
-    /// <summary>
-    /// Pool size matches configured peers and draining toggles after BeginDrain.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Pool size matches configured peers and draining toggles after BeginDrain.</summary>
     [Fact]
     public async Task ActiveClientCountReflectsPeerSetAndDrainingState()
     {
         var peers = BuildPeers(4);
         var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await using (pool.ConfigureAwait(false))
+        await using (pool)
         {
             Assert.Equal(4, pool.ActiveClientCount);
             Assert.Equal(4, pool.NodeIds.Count);
@@ -39,10 +36,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         }
     }
 
-    /// <summary>
-    /// Ensures Dispose emits squirix_peer_pool_disposals_total counter events.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Ensures Dispose emits squirix_peer_pool_disposals_total counter events.</summary>
     [Fact]
     public async Task DisposeIncrementsDisposalsTotal()
     {
@@ -55,10 +49,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         Assert.True(sink.HasEvent(PoolDisposalsTotalInstrumentName));
     }
 
-    /// <summary>
-    /// Repeated lookups for the same node must return the same gRPC client instance.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Repeated lookups for the same node must return the same gRPC client instance.</summary>
     [Fact]
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
@@ -70,10 +61,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
             Assert.Same(first, pool.ForNode("n0"));
     }
 
-    /// <summary>
-    /// Ensures NodeIds is a deterministic snapshot of the pool membership.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Ensures NodeIds is a deterministic snapshot of the pool membership.</summary>
     [Fact]
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
@@ -84,10 +72,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
     }
 
-    /// <summary>
-    /// Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Many ForNode lookups must not grow the pooled channel count beyond the configured peer set.</summary>
     [Fact]
     public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
     {
@@ -98,16 +83,13 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         var anchor = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
-            _ = pool.ForNode(i % 2 == 0 ? "n0" : "n1");
+            _ = pool.ForNode(i % 2 is 0 ? "n0" : "n1");
 
         Assert.Same(anchor, pool.ForNode("n0"));
         Assert.Equal(2, pool.ActiveClientCount);
     }
 
-    /// <summary>
-    /// Ensures WarmUpAsync fails fast when configured peer endpoints are unreachable.
-    /// </summary>
-    /// <returns>A task representing the asynchronous unit test.</returns>
+    /// <summary>Ensures WarmUpAsync fails fast when configured peer endpoints are unreachable.</summary>
     [Fact]
     public async Task WarmUpThrowsWhenEndpointsAreUnreachable()
     {
@@ -121,7 +103,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     {
         var peers = new Peer[n];
         for (var i = 0; i < n; i++)
-            peers[i] = new Peer { NodeId = $"n{i}", Url = $"https://localhost:{6500 + i}" };
+            peers[i] = new Peer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Url = $"https://localhost:{6500 + i.ToString(CultureInfo.InvariantCulture)}" };
 
         return peers;
     }

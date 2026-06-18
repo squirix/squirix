@@ -1,11 +1,13 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Squirix.Server.Cluster.Transport;
 
+[StructLayout(LayoutKind.Auto)]
 internal readonly struct BootstrapConnectOptions
 {
-    public static readonly TimeSpan DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan DefaultOverallDeadline = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5);
 
     public BootstrapConnectOptions(TimeSpan perAttemptTimeout, TimeSpan overallDeadline, TimeSpan? baseBackoff = null, TimeSpan? maxBackoff = null)
     {
@@ -18,11 +20,11 @@ internal readonly struct BootstrapConnectOptions
         MaxBackoff = maxBackoff ?? TimeSpan.FromSeconds(2);
     }
 
-    public TimeSpan PerAttemptTimeout { get; }
-
-    public TimeSpan OverallDeadline { get; }
-
     public TimeSpan BaseBackoff { get; }
 
     public TimeSpan MaxBackoff { get; }
+
+    public TimeSpan OverallDeadline { get; }
+
+    public TimeSpan PerAttemptTimeout { get; }
 }

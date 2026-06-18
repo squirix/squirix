@@ -1,5 +1,7 @@
 using System;
+using System.Globalization;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.Errors;
 
@@ -13,7 +15,14 @@ internal static class CacheOperationContract
 
     public static SquirixException NotFound() => new(SquirixErrorCode.NotFound, "NotFound", "Not found.");
 
-    public static SquirixException PayloadTooLarge(int maxBytes) => new(SquirixErrorCode.PayloadTooLarge, "PayloadTooLarge", $"Payload size limit is {maxBytes} bytes.");
+    public static SquirixException OperationIdRequired() => new(SquirixErrorCode.OperationIdRequired, "OperationIdRequired", RpcMutationContracts.OperationIdRequiredDetail);
+
+    public static SquirixException OperationIdReuseMismatch() => new(SquirixErrorCode.OperationIdReuseMismatch, "OperationIdReuseMismatch", OperationIdReuseMismatchException.StableDetail);
+
+    public static SquirixException PayloadTooLarge(int maxBytes) => new(
+        SquirixErrorCode.PayloadTooLarge,
+        "PayloadTooLarge",
+        $"Payload size limit is {maxBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
 
     public static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 
@@ -25,4 +34,18 @@ internal static class CacheOperationContract
     internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
                                                                                      message.StartsWith(InsertVersionMustExceedCurrentMessagePrefix, StringComparison.Ordinal) &&
                                                                                      message.Contains(", provided=", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Determines whether <paramref name="message" /> matches the required operation-id contract.
+    /// </summary>
+    /// <param name="message">An exception or RPC status detail string.</param>
+    /// <returns><see langword="true" /> when <paramref name="message" /> identifies a missing operation id.</returns>
+    internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdRequiredDetail, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Determines whether <paramref name="message" /> matches the operation-id reuse mismatch contract.
+    /// </summary>
+    /// <param name="message">An exception or RPC status detail string.</param>
+    /// <returns><see langword="true" /> when <paramref name="message" /> identifies an operation-id reuse mismatch.</returns>
+    internal static bool IsOperationIdReuseMismatchMessage(string? message) => string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
 }

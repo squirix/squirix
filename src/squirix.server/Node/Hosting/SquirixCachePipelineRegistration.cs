@@ -17,24 +17,23 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixCachePipelineRegistration
 {
-    public static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, SquirixServerExtensionOptions? extensions = null)
+    public static IServiceCollection AddSquirixCachePipeline(this IServiceCollection services, SquirixServerExtensionOptions? extensions = null, bool persistenceEnabled = false)
     {
         _ = services.AddOptions<CachePipelineDeadlineOptions>();
         _ = services.AddSingleton<ClientCache<object?>>(static sp => new ClientCache<object?>(
             sp.GetRequiredService<ILocalCacheReadOperations<object?>>(),
             sp.GetRequiredService<ILocalCacheMutationOperations<object?>>()));
-        _ = services.AddSingleton<DurableMutationExecutor>();
-        _ = services.AddSingleton<JournalLoggingCacheDecorator<object?>>(static sp => new JournalLoggingCacheDecorator<object?>(
-            sp.GetRequiredService<ClusterConfig>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<ClientCache<object?>>(),
-            sp.GetRequiredService<IJournalCoordinator>(),
-            sp.GetRequiredService<DurableMutationExecutor>()));
-        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<ClusterConfig>().NodeId,
-            sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
+
+        AddOwnershipGuardLayer(services, persistenceEnabled);
         _ = services.AddClusteredCacheSingleton();
+        AddCacheDecoratorChain(services);
+        AddLogicalNamespacedCache(services, extensions);
+
+        return services;
+    }
+
+    private static void AddCacheDecoratorChain(IServiceCollection services)
+    {
         _ = services.AddSingleton<MemoryAdmissionCacheDecorator<object?>>(static sp => new MemoryAdmissionCacheDecorator<object?>(
             sp.GetRequiredService<ClusteredCache<object?>>(),
             sp.GetRequiredService<IMemoryPressureGate>(),
@@ -58,16 +57,41 @@ internal static class SquirixCachePipelineRegistration
             sp.GetRequiredService<ClusterConfig>().NodeId));
         services.TryAddSingleton<ISquirixServerEntryCachePipeline<object?>>(static sp =>
             new BasicExtensionCachePipelineAdapter<object?>(sp.GetRequiredService<TracingCacheDecorator<object?>>()));
+    }
+
+    private static void AddLogicalNamespacedCache(IServiceCollection services, SquirixServerExtensionOptions? extensions)
+    {
         _ = services.AddSingleton<ILogicalNamespacedCache<object?>>(sp =>
         {
             var corePipeline = sp.GetRequiredService<TracingCacheDecorator<object?>>();
             var basicPipeline = new BasicExtensionCachePipelineAdapter<object?>(corePipeline);
             var decoratedPipeline = extensions?.DecorateCachePipeline?.Invoke(sp, basicPipeline);
-            return decoratedPipeline is null || ReferenceEquals(decoratedPipeline, basicPipeline)
-                ? corePipeline
+            return decoratedPipeline is null || ReferenceEquals(decoratedPipeline, basicPipeline) ? corePipeline
                 : new ExtensionCachePipelineAdapter<object?>(corePipeline, decoratedPipeline);
         });
+    }
 
-        return services;
+    private static void AddOwnershipGuardLayer(IServiceCollection services, bool persistenceEnabled)
+    {
+        if (persistenceEnabled)
+        {
+            _ = services.AddSingleton<DurableMutationExecutor>();
+            _ = services.AddSingleton<JournalLoggingCacheDecorator<object?>>(static sp => new JournalLoggingCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<ClientCache<object?>>(),
+                sp.GetRequiredService<IJournalCoordinator>(),
+                sp.GetRequiredService<DurableMutationExecutor>()));
+            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
+            return;
+        }
+
+        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId,
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<ClientCache<object?>>()));
     }
 }

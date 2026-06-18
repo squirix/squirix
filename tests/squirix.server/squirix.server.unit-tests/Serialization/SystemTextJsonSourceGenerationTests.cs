@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Google.Protobuf;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.Rest.RestJsonSerializerContext;
@@ -16,14 +16,64 @@ using SquirixJsonSerializerContext = Squirix.Server.Serialization.SquirixJsonSer
 
 namespace Squirix.Server.UnitTests.Serialization;
 
-/// <summary>
-/// Tests for System.Text.Json source-generated metadata used by the default serializer.
-/// </summary>
-public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
+/// <summary>Tests for System.Text.Json source-generated metadata used by the default serializer.</summary>
+public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 {
-    /// <summary>
-    /// Ensures the runtime journal codec preserves the existing JSON envelope shape.
-    /// </summary>
+    /// <summary>Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
+    [Fact]
+    public void JournalCodecRoundTripsRemoveExpiration()
+    {
+        var envelope = new JournalEnvelope
+        {
+            Seq = 22,
+            UnixMs = 789,
+            RemoveExpiration = new RemoveExpiration { Key = "k1", Namespace = "default" },
+        };
+
+        var bytes = RecordCodec.Serialize(envelope);
+        using var document = JsonDocument.Parse(bytes);
+        var root = document.RootElement;
+
+        Assert.True(root.TryGetProperty("removeExpiration", out var removeExpiration));
+        Assert.Equal("k1", removeExpiration.GetProperty("key").GetString());
+        Assert.Equal("default", removeExpiration.GetProperty("namespace").GetString());
+
+        var roundTrip = RecordCodec.Deserialize(bytes);
+
+        Assert.Equal(JournalEnvelope.OpOneofCase.RemoveExpiration, roundTrip.OpCase);
+        Assert.Equal("k1", roundTrip.RemoveExpiration.Key);
+        Assert.Equal("default", roundTrip.RemoveExpiration.Namespace);
+    }
+
+    /// <summary>Ensures the compact touch-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
+    [Fact]
+    public void JournalCodecRoundTripsTouchExpiration()
+    {
+        var envelope = new JournalEnvelope
+        {
+            Seq = 23,
+            UnixMs = 790,
+            TouchExpiration = new TouchExpiration { Key = "k2", Namespace = "default", ExpiresUnixMs = 1_765_000_000_000 },
+        };
+
+        var bytes = RecordCodec.Serialize(envelope);
+        using var document = JsonDocument.Parse(bytes);
+        var root = document.RootElement;
+
+        Assert.True(root.TryGetProperty("touchExpiration", out var touchExpiration));
+        Assert.Equal("k2", touchExpiration.GetProperty("key").GetString());
+        Assert.Equal("default", touchExpiration.GetProperty("namespace").GetString());
+        Assert.Equal(1_765_000_000_000, touchExpiration.GetProperty("expiresUnixMs").GetInt64());
+
+        var roundTrip = RecordCodec.Deserialize(bytes);
+
+        Assert.Equal(JournalEnvelope.OpOneofCase.TouchExpiration, roundTrip.OpCase);
+        Assert.Equal("k2", roundTrip.TouchExpiration.Key);
+        Assert.Equal("default", roundTrip.TouchExpiration.Namespace);
+        Assert.Equal(1_765_000_000_000, roundTrip.TouchExpiration.ExpiresUnixMs);
+    }
+
+    /// <summary>Ensures the runtime journal codec preserves the existing JSON envelope shape.</summary>
     [Fact]
     public void JournalCodecUsesGeneratedJsonContract()
     {
@@ -55,9 +105,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.False(root.TryGetProperty("Seq", out _));
     }
 
-    /// <summary>
-    /// Ensures journal JSON DTOs keep the existing web/camelCase JSON contract.
-    /// </summary>
+    /// <summary>Ensures journal JSON DTOs keep the existing web/camelCase JSON contract.</summary>
     [Fact]
     public void JournalDtoUsesSourceGeneratedWebContract()
     {
@@ -92,72 +140,12 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.Equal("k1", roundTrip.Put?.Item.Key);
     }
 
-    /// <summary>
-    /// Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.
-    /// </summary>
-    [Fact]
-    public void JournalCodecRoundTripsRemoveExpiration()
-    {
-        var envelope = new JournalEnvelope
-        {
-            Seq = 22,
-            UnixMs = 789,
-            RemoveExpiration = new RemoveExpiration { Key = "k1", Namespace = "default" },
-        };
-
-        var bytes = RecordCodec.Serialize(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("removeExpiration", out var removeExpiration));
-        Assert.Equal("k1", removeExpiration.GetProperty("key").GetString());
-        Assert.Equal("default", removeExpiration.GetProperty("namespace").GetString());
-
-        var roundTrip = RecordCodec.Deserialize(bytes);
-
-        Assert.Equal(JournalEnvelope.OpOneofCase.RemoveExpiration, roundTrip.OpCase);
-        Assert.Equal("k1", roundTrip.RemoveExpiration.Key);
-        Assert.Equal("default", roundTrip.RemoveExpiration.Namespace);
-    }
-
-    /// <summary>
-    /// Ensures the compact touch-expiration journal operation uses the persisted camelCase shape and round-trips.
-    /// </summary>
-    [Fact]
-    public void JournalCodecRoundTripsTouchExpiration()
-    {
-        var envelope = new JournalEnvelope
-        {
-            Seq = 23,
-            UnixMs = 790,
-            TouchExpiration = new TouchExpiration { Key = "k2", Namespace = "default", ExpiresUnixMs = 1_765_000_000_000 },
-        };
-
-        var bytes = RecordCodec.Serialize(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("touchExpiration", out var touchExpiration));
-        Assert.Equal("k2", touchExpiration.GetProperty("key").GetString());
-        Assert.Equal("default", touchExpiration.GetProperty("namespace").GetString());
-        Assert.Equal(1_765_000_000_000, touchExpiration.GetProperty("expiresUnixMs").GetInt64());
-
-        var roundTrip = RecordCodec.Deserialize(bytes);
-
-        Assert.Equal(JournalEnvelope.OpOneofCase.TouchExpiration, roundTrip.OpCase);
-        Assert.Equal("k2", roundTrip.TouchExpiration.Key);
-        Assert.Equal("default", roundTrip.TouchExpiration.Namespace);
-        Assert.Equal(1_765_000_000_000, roundTrip.TouchExpiration.ExpiresUnixMs);
-    }
-
-    /// <summary>
-    /// Ensures reflection fallback remains available for application payload types.
-    /// </summary>
+    /// <summary>Ensures reflection fallback remains available for application payload types.</summary>
     [Fact]
     public void KeepsReflectionFallbackForUnknownApplicationTypes()
     {
         var serializer = new SystemTextJsonSerializer();
-        var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int> { ["value"] = 42 });
+        var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 });
 
         var roundTrip = serializer.Deserialize<Dictionary<string, int>>(payload);
 
@@ -165,9 +153,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
-    /// <summary>
-    /// Ensures manifest serialization keeps the persisted camelCase property names.
-    /// </summary>
+    /// <summary>Ensures manifest serialization keeps the persisted camelCase property names.</summary>
     [Fact]
     public void ManifestContextPreservesPersistedJsonShape()
     {
@@ -196,9 +182,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.False(element.TryGetProperty("CurrentJournal", out _));
     }
 
-    /// <summary>
-    /// Ensures persistence DTOs outside journal are covered by the generated context.
-    /// </summary>
+    /// <summary>Ensures persistence DTOs outside journal are covered by the generated context.</summary>
     [Fact]
     public void PersistenceDtosRoundTripWithGeneratedMetadata()
     {
@@ -241,11 +225,9 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.Equal("insert", snapshotRoundTrip.Idempotency?.Outcome.Kind);
     }
 
-    /// <summary>
-    /// Ensures health/admin diagnostics DTOs keep stable nested JSON shapes.
-    /// </summary>
+    /// <summary>Ensures health diagnostics DTOs keep stable nested JSON shapes.</summary>
     [Fact]
-    public void RestContextPreservesHealthAndAdminJsonShape()
+    public void RestContextPreservesHealthJsonShape()
     {
         var health = new HealthReadyDetailsResponse(
             7,
@@ -254,33 +236,20 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
             new HealthCompactionDetails("idle", null, false),
             new HealthClientPoolDetails(true, 2),
             new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
-            new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false));
+            new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
+            new HealthRetentionCleanupDetails(false, 0, 0, null));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
-        Assert.Equal(7, backlog.GetInt64());
+        Assert.Equal(7UL, backlog.GetUInt64());
         Assert.True(healthElement.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out _));
+        Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
+        Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));
-
-        var admin = new AdminStorageDiagnosticsResponse(
-            "data",
-            new AdminManifestSnapshot { CurrentJournal = 1, NextSequence = 2 },
-            new AdminJournalWriterDiagnostics(1, 2, 3, 4, 5.5),
-            new AdminJournalDiagnostics(16, [new AdminJournalSegmentDiagnostic(1, "journal-1.log", "journal-1.log", true, 128, null, true, null)]));
-        var adminElement = JsonSerializer.SerializeToElement(admin, RestJsonSerializerContext.Default.AdminStorageDiagnosticsResponse);
-
-        Assert.True(adminElement.TryGetProperty("dataDir", out _));
-        Assert.True(adminElement.TryGetProperty("manifest", out var manifest));
-        Assert.True(manifest.TryGetProperty("currentJournal", out _));
-        Assert.True(adminElement.TryGetProperty("journal", out var journal));
-        Assert.True(journal.TryGetProperty("segments", out _));
-        Assert.False(adminElement.TryGetProperty("DataDir", out _));
     }
 
-    /// <summary>
-    /// Ensures REST/admin response DTOs keep the public web JSON contract.
-    /// </summary>
+    /// <summary>Ensures REST response DTOs keep the public web JSON contract.</summary>
     [Fact]
     public void RestContextPreservesPublicResponseJsonShape()
     {
@@ -298,14 +267,12 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.Equal(JsonValueKind.Null, detail.ValueKind);
     }
 
-    /// <summary>
-    /// Ensures SerializeToElement can still round-trip application payloads through reflection fallback.
-    /// </summary>
+    /// <summary>Ensures SerializeToElement can still round-trip application payloads through reflection fallback.</summary>
     [Fact]
     public void SerializeToElementKeepsReflectionFallbackForUnknownApplicationTypes()
     {
         var serializer = new SystemTextJsonSerializer();
-        var payload = new Dictionary<string, int> { ["value"] = 42 };
+        var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };
 
         var element = serializer.SerializeToElement(payload);
         var roundTrip = serializer.Deserialize<Dictionary<string, int>>(element);
@@ -314,9 +281,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
-    /// <summary>
-    /// Ensures SerializeToElement preserves the generated JSON contract for known DTOs.
-    /// </summary>
+    /// <summary>Ensures SerializeToElement preserves the generated JSON contract for known DTOs.</summary>
     [Fact]
     public void SerializeToElementUsesConfiguredJsonContract()
     {
@@ -343,9 +308,7 @@ public sealed class SystemTextJsonSourceGenerationTests : ServerUnitTestBase
         Assert.False(element.TryGetProperty("Seq", out _));
     }
 
-    /// <summary>
-    /// Ensures snapshot metadata frames keep the persisted camelCase property names.
-    /// </summary>
+    /// <summary>Ensures snapshot metadata frames keep the persisted camelCase property names.</summary>
     [Fact]
     public void SnapshotFrameContextPreservesPersistedJsonShape()
     {

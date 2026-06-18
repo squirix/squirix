@@ -14,10 +14,10 @@ diagnostics surfaces currently exposed by the node host.
 
 `GET /health/ready/details` returns a JSON payload with:
 
-- `journalBacklogOps`: journal operations not covered by the latest snapshot watermark
-- `snapshotAgeSeconds`: age of the latest snapshot, or `null` if no snapshot exists
-- `snapshotInFlight`: whether a snapshot is currently running
-- `compaction.state`: current journal compaction service state
+- `journalBacklogOps` (persistence enabled): journal operations not covered by the latest snapshot watermark
+- `snapshotAgeSeconds` (persistence enabled): age of the latest snapshot, or `null` if no snapshot exists
+- `snapshotInFlight` (persistence enabled): whether a snapshot is currently running
+- `compaction.state` (persistence enabled): current journal compaction service state
 - `compaction.lastRunUtc`
 - `compaction.inFlight`
 - `clientPool.configured`
@@ -27,18 +27,18 @@ diagnostics surfaces currently exposed by the node host.
 - `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
   accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
   `LocalCache<T>` does not own this policy.
-- `memoryPressure.maxEstimatedCacheBytes`: configured estimated byte limit, or `null` when no limit is configured
+- `memoryPressure.maxEstimatedCacheBytes`: resolved estimated byte limit (explicit setting or 80% RAM default)
 - `memoryPressure.estimatedCacheBytes`: current global approximate accounted bytes for the node
 - `memoryPressure.entryCount`: current global approximate accounted live entry count
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
-- `memoryPressure.writeRejectionActive`: whether the policy **would** reject memory-growing writes at critical pressure
-  (`Enabled`, positive `MaxEstimatedCacheBytes`, and `RejectWritesOnCriticalPressure`)
+- `memoryPressure.writeRejectionActive`: always `true`; growing writes are rejected at critical pressure
 
 Readiness behavior (`GET /health/ready`):
 
 - The route is the machine readiness probe for schedulers and load balancers.
-- `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
+- When persistence is enabled, `journal_recovery` is **Unhealthy** until journal startup recovery opens the gate.
+  Ephemeral nodes omit journal recovery checks.
 - `journal_maintenance` is **Unhealthy** after a fatal journal periodic flush-loop failure, a failed journal compaction
   state, or a fatal snapshot trigger failure.
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
@@ -60,6 +60,10 @@ Current limitation:
   exposed by the squirix node host.
 
 This route is a readiness/diagnostics payload, not a complete observability surface.
+
+Access control matches `/metrics`: loopback clients may scrape anonymously; remote clients must authenticate with
+the same JWT bearer token used for cache routes when server auth is enabled. `/health`, `/health/live`, and
+`/health/ready` stay anonymous for probes.
 
 ## Logical operation tracing
 
@@ -134,12 +138,33 @@ The scrape surface is a lightweight exporter over the `Squirix` .NET meter. Disa
 
 Access control is enforced on every request:
 
-- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials (typical same-host Prometheus).
-- **All other clients** must authenticate with `X-Api-Key` or a JWT bearer token. There is no settings flag to disable
-  this rule.
+- **Loopback clients** (`127.0.0.1`, `::1`) may scrape without credentials. This is a deliberate tradeoff for same-host
+  Prometheus and local development: **loopback is treated as trusted**. Any process on the host can reach loopback.
+- **All other clients** must authenticate with a JWT bearer token. There is no settings flag to change loopback access.
 
-Remote scrapers should use the same credentials as cache/admin routes. Example `Authorization` header:
-`X-Api-Key: your-api-key`. See [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
+<!-- markdownlint-disable-next-line MD033 -->
+<a id="metrics-loopback-trust"></a>
+
+### Loopback trust and multi-tenant hosts
+
+**Risk (low / design tradeoff):** on shared or multi-tenant machines, co-located processes can scrape `/metrics`
+anonymously over loopback and learn operational state (throughput, memory pressure, journal backlog, and similar).
+
+**Assumption:** production nodes that expose `/metrics` on loopback expect a **single-tenant** host or a controlled
+environment where local processes are trusted.
+
+**Mitigations when that assumption does not hold:**
+
+- Disable the HTTP scrape endpoint (`PrometheusMetrics.enabled: false`) and use OpenTelemetry or `MeterListener`
+  exporters with your platform's auth model.
+- Keep the primary listener on loopback only when the node must not accept remote clients (see
+  [server-mode.md](server-mode.md#loopback-development-default-not-production-posture)).
+- Run one squirix node per dedicated VM or container with network policies that limit who can reach the listener.
+
+Implementation: `SquirixMetricsConnectionSecurity` in `src/squirix.server/Node/Observability/Metrics/`.
+
+Remote scrapers should use the same JWT as cache routes. Example header: `Authorization: Bearer <token>`. See
+[configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)
 for a `prometheus.yml` fragment.
 
 <!-- markdownlint-disable-next-line MD033 -->
@@ -156,42 +181,13 @@ HTTP `/metrics` always exports the **public scrape profile**:
 Full-fidelity series (including `cache` and `exception_type`) remain on the `Squirix` .NET meter for OpenTelemetry and
 other `MeterListener` exporters.
 
-<!-- markdownlint-disable-next-line MD033 -->
-<a id="admin-routes-v01"></a>
-
-## Admin routes (v0.1)
-
-- `GET /admin/whoami`
-- `GET /admin/owner/{key}`
-- `GET /admin/ring`
-
-## Ring diagnostics
-
-`GET /admin/ring` returns:
-
-- `virtualNodes`
-- `members`
-- `sampleSize`
-- `vnodeDistribution`
-- `ownerLookupSamples`
-
-Use `ownerLookupSamples` for quick sanity checks and `/admin/owner/{key}` for a specific key lookup.
-
-Important:
-
-- This is the node's local ring view.
-- Dynamic topology changes, membership mutation, rebalance history, manual compaction triggers, and deep storage
-  diagnostics HTTP routes are not part of the v0.1 admin surface documented here.
-
 ## Security
 
-- `/admin` routes are exposed in Development automatically. Outside Development (including Docker `Production`
-  containers), set `SQUIRIX_ADMIN_ENABLED=true` or the routes are not mapped.
-- Admin routes use the same route-level authorization policy as the rest of `/admin`.
-- When API keys are configured, callers must provide a valid `X-Api-Key` header or equivalent configured auth.
-- `/health`, `/metrics`, and `/admin` are served on the primary HTTPS listener only.
-- Loopback `/metrics` scrapes stay anonymous; remote clients must present `X-Api-Key` or a JWT bearer token (see
-  [Metrics route](#metrics-route)).
+- `/health`, `/health/live`, and `/health/ready` stay anonymous for probes.
+- `/health/ready/details` and `/metrics` are served on the primary HTTPS listener only.
+- Loopback `/metrics` and `/health/ready/details` scrapes stay anonymous by design (loopback is trusted); remote
+  clients must present a JWT bearer token when server auth is enabled. See
+  [Metrics route — Loopback trust](#metrics-loopback-trust) for multi-tenant risk and mitigations.
 - Traces and additional metrics are also available through .NET observability primitives (`ActivitySource`, `Meter`)
   independent of the HTTP scrape route.
 

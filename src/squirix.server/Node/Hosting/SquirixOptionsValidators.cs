@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
@@ -18,7 +19,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixOptionsValidators
 {
-    private static ValidateOptionsResult ToResult(List<string> failures) => failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    private static ValidateOptionsResult ToResult(List<string> failures) => failures.Count is 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class BackpressureOptionsValidator : IValidateOptions<BackpressureOptions>
@@ -64,8 +65,7 @@ internal static class SquirixOptionsValidators
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class JournalMetricsExporterOptionsValidator : IValidateOptions<JournalMetricsExporterOptions>
     {
-        public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero
-            ? ValidateOptionsResult.Success
+        public ValidateOptionsResult Validate(string? name, JournalMetricsExporterOptions options) => options.Interval > TimeSpan.Zero ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail("journal metrics exporter Interval must be greater than zero.");
     }
 
@@ -77,6 +77,31 @@ internal static class SquirixOptionsValidators
             try
             {
                 options.Validate();
+                return ValidateOptionsResult.Success;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ValidateOptionsResult.Fail(ex.Message);
+            }
+        }
+    }
+
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
+    internal sealed class MtlsOptionsValidator : IValidateOptions<MtlsOptions>
+    {
+        private readonly ClusterConfig _cluster;
+
+        public MtlsOptionsValidator(ClusterConfig cluster)
+        {
+            _cluster = cluster;
+        }
+
+        public ValidateOptionsResult Validate(string? name, MtlsOptions options)
+        {
+            try
+            {
+                var primaryListenPort = Uri.TryCreate(_cluster.Url, UriKind.Absolute, out var uri) ? uri.Port : default(int?);
+                options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
                 return ValidateOptionsResult.Success;
             }
             catch (InvalidOperationException ex)

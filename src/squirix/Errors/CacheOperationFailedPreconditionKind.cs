@@ -6,18 +6,15 @@ namespace Squirix.Errors;
 /// </summary>
 internal enum CacheOperationFailedPreconditionKind
 {
-    /// <summary>
-    /// No recognized stable contract for the given detail string.
-    /// </summary>
+    /// <summary>No recognized stable contract for the given detail string.</summary>
     None = 0,
 
-    /// <summary>
-    /// Counter increment type mismatch (FailedPrecondition detail).
-    /// </summary>
+    /// <summary>Counter increment type mismatch (FailedPrecondition detail).</summary>
     CounterIncrementTypeMismatch = 1,
 
-    /// <summary>
-    /// Explicit insert version is not greater than the stored version (FailedPrecondition detail).
-    /// </summary>
+    /// <summary>Explicit insert version is not greater than the stored version (FailedPrecondition detail).</summary>
     InsertVersionMustExceedCurrent = 2,
+
+    /// <summary>Operation id was reused with a different mutation fingerprint (FailedPrecondition detail).</summary>
+    OperationIdReuseMismatch = 3,
 }

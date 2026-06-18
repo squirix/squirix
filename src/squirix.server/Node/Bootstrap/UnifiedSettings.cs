@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Hosting;
@@ -17,48 +19,64 @@ namespace Squirix.Server.Node.Bootstrap;
 /// </summary>
 internal static class UnifiedSettings
 {
+    private static readonly JsonDocumentOptions JsonOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
     /// <summary>
     /// Merges the <c>MemoryPressure</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
     /// </summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="merged">The merged result; equal to <paramref name="baseline" /> when the section is absent.</param>
-    /// <returns><see langword="true" /> when the settings file exists and defines a <c>MemoryPressure</c> object.</returns>
-    public static bool TryMergeMemoryPressureFromFile(MemoryPressureOptions baseline, out MemoryPressureOptions merged)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>MemoryPressure</c> object,
+    /// and <c>Merged</c> is the merged result.
+    /// </returns>
+    public static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeMemoryPressureFromFileAsync(
+        UnresolvedMemoryPressureOptions baseline,
+        CancellationToken cancellationToken = default)
     {
-        merged = baseline;
         var path = ResolveSettingsPath();
-        return path is not null && TryMergeMemoryPressureFromSettingsFilePath(path, baseline, out merged);
+        return path is null
+            ? (false, baseline)
+            : await TryMergeMemoryPressureFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Merges the <c>PrometheusMetrics</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
     /// </summary>
     /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="merged">The merged result; equal to <paramref name="baseline" /> when the section is absent.</param>
-    /// <returns><see langword="true" /> when the settings file exists and defines a <c>PrometheusMetrics</c> object.</returns>
-    public static bool TryMergePrometheusMetricsFromFile(PrometheusMetricsEndpointOptions baseline, out PrometheusMetricsEndpointOptions merged)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>PrometheusMetrics</c> object,
+    /// and <c>Merged</c> is the merged result.
+    /// </returns>
+    public static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergePrometheusMetricsFromFileAsync(
+        PrometheusMetricsEndpointOptions baseline,
+        CancellationToken cancellationToken = default)
     {
-        merged = baseline;
         var path = ResolveSettingsPath();
-        return path is not null && TryMergePrometheusMetricsFromSettingsFilePath(path, baseline, out merged);
+        return path is null
+            ? (false, baseline)
+            : await TryMergePrometheusMetricsFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Loads <c>Squirix:Cluster</c> from a specific settings JSON file path (used by tests and explicit file resolution).
     /// </summary>
     /// <param name="settingsFilePath">Full path to a JSON file with optional <c>Squirix.Cluster</c> section.</param>
-    /// <param name="config">The loaded cluster configuration when the method returns <see langword="true" />.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// <see langword="true" /> when the file exists and defines a <c>Cluster</c> object; otherwise <see langword="false" />.
+    /// A tuple where <c>Found</c> is <see langword="true" /> when the file exists and defines a <c>Cluster</c> object,
+    /// and <c>Config</c> is the loaded cluster configuration.
     /// </returns>
-    internal static bool TryLoadClusterConfigFromSettingsFilePath(string settingsFilePath, out ClusterConfig config)
+    internal static async Task<(bool Found, ClusterConfig? Config)> TryLoadClusterConfigFromSettingsFilePathAsync(
+        string settingsFilePath,
+        CancellationToken cancellationToken = default)
     {
-        config = null!;
-        if (!SquirixServerConfiguration.TryLoadFromFile(settingsFilePath, out var options, out _))
-            return false;
+        var (success, options, _) = await SquirixServerConfiguration.TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        if (!success || options is null)
+            return (false, null);
 
-        config = SquirixServerConfiguration.ToClusterConfig(options);
-        return true;
+        return (true, SquirixServerConfiguration.ToClusterConfig(options));
     }
 
     /// <summary>
@@ -66,27 +84,28 @@ internal static class UnifiedSettings
     /// </summary>
     /// <param name="settingsFilePath">Full path to a JSON file with optional <c>Squirix.MemoryPressure</c> section.</param>
     /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="merged">The merged result.</param>
-    /// <returns><see langword="true" /> when the file exists and defines a <c>MemoryPressure</c> object.</returns>
-    internal static bool TryMergeMemoryPressureFromSettingsFilePath(string settingsFilePath, MemoryPressureOptions baseline, out MemoryPressureOptions merged)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true" /> in <c>Found</c> when the file exists and defines a <c>MemoryPressure</c> object.</returns>
+    internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeMemoryPressureFromSettingsFilePathAsync(
+        string settingsFilePath,
+        UnresolvedMemoryPressureOptions baseline,
+        CancellationToken cancellationToken = default)
     {
-        merged = baseline;
         if (!File.Exists(settingsFilePath))
-            return false;
+            return (false, baseline);
 
-        using var fs = File.OpenRead(settingsFilePath);
-        using var doc = JsonDocument.Parse(fs, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        return await WithSquirixRootAsync(
+            settingsFilePath,
+            root =>
+            {
+                if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
+                    return (false, baseline);
 
-        var root = doc.RootElement;
-        if (root.TryGetProperty("Squirix", out var squirix))
-            root = squirix;
-
-        if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
-            return false;
-
-        var section = SerializationProvider.Instance.Deserialize<MemoryPressureSettings>(memoryPressure.GetRawText());
-        merged = section is null ? baseline : section.MergeInto(baseline);
-        return true;
+                var section = SerializationProvider.Instance.Deserialize<MemoryPressureSettings>(memoryPressure.GetRawText());
+                var merged = section is null ? baseline : section.MergeInto(baseline);
+                return (true, merged);
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -94,13 +113,22 @@ internal static class UnifiedSettings
     /// </summary>
     /// <param name="settingsFilePath">Settings JSON path.</param>
     /// <param name="failures">Collected validation failures.</param>
-    internal static void ValidateOptionalSections(string settingsFilePath, List<string> failures)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes after optional sections are validated.</returns>
+    internal static async Task ValidateOptionalSectionsAsync(
+        string settingsFilePath,
+        List<string> failures,
+        CancellationToken cancellationToken = default)
     {
-        if (TryMergeMemoryPressureFromSettingsFilePath(settingsFilePath, new MemoryPressureOptions(), out var memoryPressure))
+        var (memoryPressureFound, memoryPressure) = await TryMergeMemoryPressureFromSettingsFilePathAsync(
+            settingsFilePath,
+            new UnresolvedMemoryPressureOptions(),
+            cancellationToken).ConfigureAwait(false);
+        if (memoryPressureFound)
         {
             try
             {
-                memoryPressure.Validate();
+                _ = MemoryPressureOptionsResolver.Resolve(memoryPressure, GcMemoryBudgetProvider.Instance);
             }
             catch (InvalidOperationException ex)
             {
@@ -108,8 +136,13 @@ internal static class UnifiedSettings
             }
         }
 
-        if (!TryMergePrometheusMetricsFromSettingsFilePath(settingsFilePath, new PrometheusMetricsEndpointOptions(), out var prometheus))
+        var (prometheusFound, prometheus) = await TryMergePrometheusMetricsFromSettingsFilePathAsync(
+            settingsFilePath,
+            new PrometheusMetricsEndpointOptions(),
+            cancellationToken).ConfigureAwait(false);
+        if (!prometheusFound)
             return;
+
         var validator = new SquirixOptionsValidators.PrometheusMetricsEndpointOptionsValidator();
         var result = validator.Validate(Options.DefaultName, prometheus);
         if (result.Failed)
@@ -118,34 +151,36 @@ internal static class UnifiedSettings
 
     private static string? ResolveSettingsPath() => SquirixServerConfiguration.ResolveSettingsPath();
 
-    /// <summary>
-    /// Merges <c>PrometheusMetrics</c> from a specific settings file path.
-    /// </summary>
-    /// <param name="settingsFilePath">Full path to a JSON file with optional <c>Squirix.PrometheusMetrics</c> section.</param>
-    /// <param name="baseline">Baseline options when the section is absent.</param>
-    /// <param name="merged">The merged result.</param>
-    /// <returns><see langword="true" /> when the file exists and defines a <c>PrometheusMetrics</c> object.</returns>
-    private static bool TryMergePrometheusMetricsFromSettingsFilePath(
+    private static async Task<(bool Found, PrometheusMetricsEndpointOptions Merged)> TryMergePrometheusMetricsFromSettingsFilePathAsync(
         string settingsFilePath,
         PrometheusMetricsEndpointOptions baseline,
-        out PrometheusMetricsEndpointOptions merged)
+        CancellationToken cancellationToken = default)
     {
-        merged = baseline;
         if (!File.Exists(settingsFilePath))
-            return false;
+            return (false, baseline);
 
-        using var fs = File.OpenRead(settingsFilePath);
-        using var doc = JsonDocument.Parse(fs, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        return await WithSquirixRootAsync(
+            settingsFilePath,
+            root =>
+            {
+                if (!root.TryGetProperty("PrometheusMetrics", out var prometheusMetrics))
+                    return (false, baseline);
 
+                var section = SerializationProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
+                var merged = section is null ? baseline : section.MergeInto(baseline);
+                return (true, merged);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<T> WithSquirixRootAsync<T>(string settingsFilePath, Func<JsonElement, T> action, CancellationToken cancellationToken)
+    {
+        var bytes = await File.ReadAllBytesAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(bytes, JsonOptions);
         var root = doc.RootElement;
         if (root.TryGetProperty("Squirix", out var squirix))
             root = squirix;
 
-        if (!root.TryGetProperty("PrometheusMetrics", out var prometheusMetrics))
-            return false;
-
-        var section = SerializationProvider.Instance.Deserialize<PrometheusMetricsSettings>(prometheusMetrics.GetRawText());
-        merged = section is null ? baseline : section.MergeInto(baseline);
-        return true;
+        return action(root);
     }
 }

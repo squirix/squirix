@@ -1,0 +1,77 @@
+using System;
+using System.Security.Cryptography.X509Certificates;
+
+namespace Squirix.Server.Cluster.Transport;
+
+/// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
+internal sealed class MtlsCertificateMaterial : IDisposable
+{
+    private MtlsCertificateMaterial()
+    {
+        Enabled = false;
+    }
+
+    private MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    {
+        Enabled = true;
+        NodeCertificate = nodeCertificate;
+        TrustAnchor = trustAnchor;
+    }
+
+    /// <summary>Gets a disabled material instance with no loaded certificates.</summary>
+    public static MtlsCertificateMaterial Disabled { get; } = new();
+
+    /// <summary>Gets a value indicating whether cluster mTLS material was loaded.</summary>
+    public bool Enabled { get; }
+
+    /// <summary>Gets the local node certificate including its private key.</summary>
+    internal X509Certificate2? NodeCertificate { get; }
+
+    /// <summary>Gets the configured cluster trust root.</summary>
+    internal X509Certificate2? TrustAnchor { get; }
+
+    /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
+    /// <param name="options">Validated cluster mTLS options.</param>
+    /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
+    /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
+    /// <param name="localNodeId">Configured cluster node identifier; required when inter-node mTLS is enabled.</param>
+    /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
+    public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate(primaryListenPort, requiresInterNodeMtls);
+
+        if (!requiresInterNodeMtls)
+            return Disabled;
+
+        if (string.IsNullOrWhiteSpace(localNodeId))
+            throw new InvalidOperationException("Cluster NodeId is required to load inter-node mTLS certificate material.");
+
+        var trustAnchor = MtlsCertificateLoader.LoadTrustAnchor(options.CaPath!);
+        var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
+        MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
+        MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
+        return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (!Enabled)
+            return;
+
+        NodeCertificate?.Dispose();
+        TrustAnchor?.Dispose();
+    }
+
+    /// <summary>Creates enabled material from pre-built test certificates without reloading from disk.</summary>
+    /// <param name="nodeCertificate">Local node certificate including its private key.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <returns>Enabled certificate material for test host overrides.</returns>
+    internal static MtlsCertificateMaterial FromCertificates(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    {
+        ArgumentNullException.ThrowIfNull(nodeCertificate);
+        ArgumentNullException.ThrowIfNull(trustAnchor);
+        return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
+    }
+}

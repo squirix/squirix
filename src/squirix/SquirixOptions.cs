@@ -12,19 +12,12 @@ namespace Squirix;
 public sealed class SquirixOptions
 {
     /// <summary>
-    /// Gets or sets a static API key sent as the <c>x-api-key</c> header on every gRPC call.
-    /// </summary>
-    public string? ApiKey { get; set; }
-
-    /// <summary>
     /// Gets or sets a delegate that provides a bearer token for each gRPC call.
     /// Called before every RPC; implementations should cache tokens when appropriate.
     /// </summary>
     public Func<CancellationToken, ValueTask<string>>? BearerTokenProvider { get; set; }
 
-    /// <summary>
-    /// Gets bootstrap Squirix server endpoints used by remote clients.
-    /// </summary>
+    /// <summary>Gets bootstrap Squirix server endpoints used by remote clients.</summary>
     /// <remarks>
     ///     <para>
     ///     Endpoints must be interchangeable views of the same logical service (HA standby or load-balanced front door),

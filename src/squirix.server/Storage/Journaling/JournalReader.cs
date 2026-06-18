@@ -7,62 +7,18 @@ using Squirix.Server.Storage.JournalProto;
 
 namespace Squirix.Server.Storage.Journaling;
 
-internal sealed class JournalReader
+internal static class JournalReader
 {
     public static IEnumerable<JournalSegment> EnumerateSegments(string dataDir, int fromSegment)
     {
-        if (!Directory.Exists(dataDir))
+        if (!Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
             return [];
-
-        IEnumerable<string> files;
-        try
-        {
-            files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
-        }
-        catch (IOException)
-        {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
 
         var results = new List<JournalSegment>();
         foreach (var path in files)
         {
-            var name = Path.GetFileName(path);
-            if (!name.StartsWith(StorageFilePrefixes.Journal, StringComparison.Ordinal))
-                continue;
-
-            if (!name.EndsWith(StorageFileExtensions.Journal, StringComparison.Ordinal))
-                continue;
-
-            // Expected form: journal segment prefix + N digits + journal extension (for example ".jsqx")
-            // digitsLen = totalLen - prefixLen - extensionLen
-            var prefixLen = StorageFilePrefixes.Journal.Length;
-            var extensionLen = StorageFileExtensions.Journal.Length;
-            var digitsLen = name.Length - prefixLen - extensionLen;
-            if (digitsLen <= 0)
-                continue;
-
-            string digits;
-            try
-            {
-                digits = name.Substring(prefixLen, digitsLen);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                continue;
-            }
-
-            if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var idx))
-                continue;
-
-            if (idx < fromSegment)
-                continue;
-
-            results.Add(new JournalSegment { Index = idx, Path = path });
+            if (TryParseJournalSegment(path, fromSegment, out var segment))
+                results.Add(segment);
         }
 
         results.Sort(static (a, b) => a.Index.CompareTo(b.Index));
@@ -98,69 +54,33 @@ internal sealed class JournalReader
     /// <returns>Segments with the greatest indices, ordered from newest (highest index) to oldest among the selection.</returns>
     public static JournalSegment[] SelectNewestSegments(string dataDir, int fromSegment, int maxCount)
     {
-        if (maxCount <= 0 || !Directory.Exists(dataDir))
+        if (maxCount <= 0 || !Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
             return [];
-
-        IEnumerable<string> files;
-        try
-        {
-            files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
-        }
-        catch (IOException)
-        {
-            return [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return [];
-        }
 
         var pq = new PriorityQueue<JournalSegment, int>();
         foreach (var path in files)
         {
-            var name = Path.GetFileName(path);
-            if (!name.StartsWith(StorageFilePrefixes.Journal, StringComparison.Ordinal))
+            if (!TryParseJournalSegment(path, fromSegment, out var seg))
                 continue;
 
-            if (!name.EndsWith(StorageFileExtensions.Journal, StringComparison.Ordinal))
-                continue;
-
-            var prefixLen = StorageFilePrefixes.Journal.Length;
-            var extensionLen = StorageFileExtensions.Journal.Length;
-            var digitsLen = name.Length - prefixLen - extensionLen;
-            if (digitsLen <= 0)
-                continue;
-
-            string digits;
-            try
-            {
-                digits = name.Substring(prefixLen, digitsLen);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-                continue;
-            }
-
-            if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var idx))
-                continue;
-
-            if (idx < fromSegment)
-                continue;
-
-            var seg = new JournalSegment { Index = idx, Path = path };
             if (pq.Count < maxCount)
             {
-                pq.Enqueue(seg, idx);
+                pq.Enqueue(seg, seg.Index);
                 continue;
             }
 
-            if (idx <= pq.Peek().Index)
+            if (seg.Index <= pq.Peek().Index)
                 continue;
 
             _ = pq.Dequeue();
-            pq.Enqueue(seg, idx);
+            pq.Enqueue(seg, seg.Index);
         }
 
+        return MaterializeNewestSegments(pq);
+    }
+
+    private static JournalSegment[] MaterializeNewestSegments(PriorityQueue<JournalSegment, int> pq)
+    {
         var taken = new JournalSegment[pq.Count];
         var index = 0;
         while (pq.Count > 0)
@@ -168,5 +88,60 @@ internal sealed class JournalReader
 
         Array.Sort(taken, static (a, b) => b.Index.CompareTo(a.Index));
         return taken;
+    }
+
+    private static bool TryEnumerateJournalFiles(string dataDir, out IEnumerable<string> files)
+    {
+        try
+        {
+            files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+            return true;
+        }
+        catch (IOException)
+        {
+            files = [];
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            files = [];
+            return false;
+        }
+    }
+
+    private static bool TryParseJournalSegment(string path, int fromSegment, out JournalSegment segment)
+    {
+        segment = default;
+        var name = Path.GetFileName(path);
+        if (!name.StartsWith(StorageFilePrefixes.Journal, StringComparison.Ordinal))
+            return false;
+
+        if (!name.EndsWith(StorageFileExtensions.Journal, StringComparison.Ordinal))
+            return false;
+
+        var prefixLen = StorageFilePrefixes.Journal.Length;
+        var extensionLen = StorageFileExtensions.Journal.Length;
+        var digitsLen = name.Length - prefixLen - extensionLen;
+        if (digitsLen <= 0)
+            return false;
+
+        string digits;
+        try
+        {
+            digits = name.Substring(prefixLen, digitsLen);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var idx))
+            return false;
+
+        if (idx < fromSegment)
+            return false;
+
+        segment = new JournalSegment { Index = idx, Path = path };
+        return true;
     }
 }

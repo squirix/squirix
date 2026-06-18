@@ -5,10 +5,8 @@ using TestResult = NetArchTest.Rules.TestResult;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>
-/// NetArchTest composition helpers used across architecture tests.
-/// </summary>
-public static class ArchitectureNetArchRules
+/// <summary>NetArchTest composition helpers used across architecture tests.</summary>
+internal static class ArchitectureNetArchRules
 {
     /// <summary>
     /// Evaluates whether every type matched by <paramref name="matchingTypes" /> resides in one of the given exact namespaces (disjunction).
@@ -20,7 +18,7 @@ public static class ArchitectureNetArchRules
     {
         ArgumentNullException.ThrowIfNull(matchingTypes);
         ArgumentNullException.ThrowIfNull(exactNamespaces);
-        if (exactNamespaces.Count == 0)
+        if (exactNamespaces.Count is 0)
         {
             throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
         }

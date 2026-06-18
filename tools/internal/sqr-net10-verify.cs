@@ -11,32 +11,36 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-net10-verify — verify that all project TFMs are net10.0.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]");
+    var output = Console.Out;
+    await output.WriteLineAsync("sqr-net10-verify — verify that all project TFMs are net10.0.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-net10-verify.cs -- [--root <path>]").ConfigureAwait(false);
     return 0;
 }
 
 var root = ResolveDefaultRepoRoot();
-for (var i = 0; i < argv.Length; i++)
+var argIndex = 0;
+while (argIndex < argv.Length)
 {
-    var a = argv[i];
+    var a = argv[argIndex];
     if (string.Equals(a, "--root", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return FailUsage("missing value for --root");
+        if (argIndex + 1 >= argv.Length)
+            return await FailUsageAsync("missing value for --root").ConfigureAwait(false);
 
-        root = argv[++i];
-        continue;
+        root = argv[argIndex + 1];
+        argIndex += 2;
     }
-
-    return FailUsage($"unknown argument '{a}'");
+    else
+    {
+        return await FailUsageAsync($"unknown argument '{a}'").ConfigureAwait(false);
+    }
 }
 
 var resolvedRoot = Path.GetFullPath(root);
 if (!Directory.Exists(resolvedRoot))
-    return FailUsage($"root path does not exist: {resolvedRoot}");
+    return await FailUsageAsync($"root path does not exist: {resolvedRoot}").ConfigureAwait(false);
 
 var failures = new List<string>();
 foreach (var file in EnumerateProjectFiles(resolvedRoot))
@@ -45,11 +49,11 @@ foreach (var file in EnumerateProjectFiles(resolvedRoot))
 if (failures.Count > 0)
 {
     foreach (var failure in failures)
-        Console.Error.WriteLine(failure);
+        await Console.Error.WriteLineAsync(failure).ConfigureAwait(false);
     return 1;
 }
 
-Console.WriteLine("squirix .NET baseline verified: all project TargetFramework entries are net10.0.");
+await Console.Out.WriteLineAsync("squirix .NET baseline verified: all project TargetFramework entries are net10.0.").ConfigureAwait(false);
 return 0;
 
 string ResolveDefaultRepoRoot()
@@ -81,8 +85,8 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
             continue;
 
         var relative = Path.GetRelativePath(repoRoot, file);
-        var parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (parts.Length == 0 || !scopedTopLevelDirectories.Contains(parts[0]))
+        var parts = relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.None);
+        if (parts.Length is 0 || !scopedTopLevelDirectories.Contains(parts[0]))
             continue;
 
         if (parts.Any(skippedDirectories.Contains))
@@ -133,7 +137,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         foreach (var framework in frameworks)
         {
             var value = framework.Trim();
-            if (value.Length == 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
+            if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -144,8 +148,8 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
     }
 }
 
-static int FailUsage(string message)
+static async Task<int> FailUsageAsync(string message)
 {
-    Console.Error.WriteLine($"ERROR: {message}");
+    await Console.Error.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
     return 1;
 }

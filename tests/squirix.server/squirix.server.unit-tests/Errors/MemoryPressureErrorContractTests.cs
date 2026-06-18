@@ -6,18 +6,15 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Errors;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Errors;
 
-/// <summary>
-/// Contract tests for memory-pressure admission mapped through shared error helpers.
-/// </summary>
-public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
+/// <summary>Contract tests for memory-pressure admission mapped through shared error helpers.</summary>
+public sealed class MemoryPressureErrorContractTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies stable codes across REST and gRPC projections for memory pressure.
-    /// </summary>
+    /// <summary>Verifies stable codes across REST and gRPC projections for memory pressure.</summary>
     [Fact]
     public void MemoryPressureMapsToPublicCodeHttp429AndGrpcResourceExhausted()
     {
@@ -35,10 +32,7 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
         Assert.Equal(ResourceExhaustedException.StableDetail, direct.Status.Detail);
     }
 
-    /// <summary>
-    /// Verifies REST JSON matches canonical error shape for memory pressure.
-    /// </summary>
-    /// <returns>A task that completes when assertions pass.</returns>
+    /// <summary>Verifies REST JSON matches canonical error shape for memory pressure.</summary>
     [Fact]
     public async Task MemoryPressureRestPayloadUsesStableFields()
     {

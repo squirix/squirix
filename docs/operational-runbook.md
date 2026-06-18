@@ -24,7 +24,7 @@ When a node behaves unexpectedly:
 
 Before changing cluster topology in containers, validate settings:
 
-```powershell
+```bash
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 
@@ -38,20 +38,17 @@ Use these surfaces first:
 - `/health/live`
 - `/health/ready`
 - `/health/ready/details`
-- `/admin/whoami`
-- `/admin/owner/{key}`
-- `/admin/ring`
 
 Collect:
 
 - health/readiness detail
 - configured peer set and static ring shape
 - journal and snapshot errors from logs
-- Backpressure pressure and request failures from logs
+- Backpressure and request failures from logs
 - Serializer and journal JSON codec failures
 - Correlation or trace ids for failing requests
-- `memoryPressure` on `/health/ready/details` (state, limits, estimated usage, entry count, rejections, whether write
-  rejection is active)
+- `memoryPressure` on `/health/ready/details` (state, resolved byte limit, estimated usage, entry count, rejections;
+  `writeRejectionActive` is always `true`)
 
 Trace ownership during triage:
 
@@ -63,14 +60,18 @@ Trace ownership during triage:
 
 Security checks during triage:
 
-- Non-loopback listen URLs refuse startup without `SQUIRIX_API_KEYS` and/or JWT settings.
-- Outside Development, confirm `SQUIRIX_ADMIN_ENABLED=true` when `/admin` routes are expected (Docker compose examples
-  set it; otherwise routes are not mapped).
+- Confirm whether the primary listener is loopback-only or exposed on a non-loopback interface. Loopback binds
+  (`localhost`, `127.0.0.1`) may run without JWT by design; that trusts all local processes — not a production posture.
+  See [server-mode.md](server-mode.md#loopback-development-default-not-production-posture).
+- Non-loopback listen URLs refuse startup without JWT settings.
 - Confirm auth is enabled where required for exposed interfaces.
-- Verify that REST cache, gRPC cache, `/admin`, and remote `/metrics` scrapes are challenged consistently for
-  missing/invalid credentials (`/health` remains anonymous).
-- Operational routes (`/health`, `/metrics`, `/admin`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and
-  HTTP/2).
+- For symmetric JWT deployments, treat `SQUIRIX_JWT_SIGNING_KEY` compromise as full external API forgery risk; prefer
+  OIDC in production. See [security/jwt-signing-keys.md](security/jwt-signing-keys.md).
+- Verify that gRPC cache, remote `/metrics` scrapes, and remote `/health/ready/details` scrapes are challenged
+  consistently for missing/invalid credentials (`/health`, `/health/live`, and `/health/ready` remain anonymous).
+- On shared or multi-tenant hosts, remember that loopback `/metrics` scrapes stay anonymous even when JWT is enabled;
+  see [diagnostics — Loopback trust](diagnostics.md#metrics-loopback-trust).
+- Operational routes (`/health`, `/metrics`) are served only on the primary HTTPS listener (HTTPS HTTP/1.1 and HTTP/2).
 
 If failures are isolated to owner-routing paths, compare owner lookup results with the configured peer set and the
 node's local ring view.
@@ -93,9 +94,9 @@ Alerting guidance:
 
 - **High** (`memoryPressure.state == "high"` or metric `squirix_memory_pressure_state` with `state="high"`): plan
   capacity — trending estimated bytes toward the configured limit. No automatic host readiness failure.
-- **Critical** (`state == "critical"`): treat as imminent admission pressure. When `writeRejectionActive` is true,
-  expect growing writes to fail with documented `MEMORY_PRESSURE` / `ResourceExhausted` signals; monitor
-  `rejectedWriteCount` and `squirix_memory_rejections_total`. journal and snapshots remain **durability** tools — not an
+- **Critical** (`state == "critical"`): treat as imminent admission pressure. Expect growing writes to fail with
+  documented `MEMORY_PRESSURE` / `ResourceExhausted` signals; monitor
+  `rejectedWriteCount` and `squirix_memory_rejections_total`. Journal and snapshots remain **durability** tools — not an
   overflow tier for RAM pressure.
 - **Cardinality:** do not add raw cache names, keys, value previews, serialized payloads, or exception messages as
   metric labels or trace tags. Generic logical cache operation metrics are owned by `MetricsCacheDecorator<T>` and use
@@ -131,8 +132,8 @@ working-set size.
 Back up the full persistence set for a node:
 
 - journal segments
-- Snapshot files
-- Manifest files
+- snapshot files
+- manifest files
 - Node configuration
 - Serializer configuration and package versions
 
@@ -149,8 +150,8 @@ Do not copy only snapshots without the corresponding journal.
 
 ## Snapshot artifacts and memory pressure
 
-- **Background snapshots** are skipped while memory pressure is **critical** (when a positive `MaxEstimatedCacheBytes`
-  is configured and pressure evaluation is enabled). Operational snapshot requests are not gated the same way.
+- **Background snapshots** are skipped while memory pressure is **critical**. Operational snapshot requests are not
+  gated the same way.
 - **Partial writes:** snapshot creation uses a `.tmp` file that is deleted if the write or rename fails. Orphan `.tmp`
   files are not referenced by the manifest and are safe to delete during maintenance if a process crashed mid-write.
 - **Manifests** are updated only after a snapshot file is successfully written and moved into place.
@@ -199,7 +200,7 @@ Before upgrade:
 4. Run `tools/internal/sqr-release-validate.cs` locally for the target commit before tagging.
 5. Validate security posture after startup:
     - REST, admin, and gRPC reject missing/invalid credentials.
-    - gRPC accepts the same credential types (API key/JWT) as REST.
+    - gRPC accepts the same JWT bearer credentials as REST.
     - Operational routes are HTTPS-only on the primary listener.
 
 Compatible rolling upgrade:
@@ -227,7 +228,7 @@ Keep this information with any incident or bug report:
 - Node id, peer list, and data directory layout
 - Serializer configuration
 - Relevant config values from [configuration.md](configuration.md)
-- Health/readiness/admin payloads
+- Health/readiness payloads
 - journal/snapshot/manifest file list
 - Logs with correlation ids for failed operations
 - Steps already attempted

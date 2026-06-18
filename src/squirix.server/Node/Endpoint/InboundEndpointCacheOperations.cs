@@ -7,9 +7,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Endpoint;
 
-/// <summary>
-/// Routes inbound endpoint calls to the logical cache surface.
-/// </summary>
+/// <summary>Routes inbound endpoint calls to the logical cache surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheOperations<T>
 {

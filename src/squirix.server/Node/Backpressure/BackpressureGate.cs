@@ -15,13 +15,15 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
     private readonly IDisposable _observerRegistration;
     private readonly BackpressureOptions _options;
     private readonly SemaphoreSlim _slots;
+    private readonly TimeProvider _timeProvider;
     private bool _disposed;
     private int _inFlight;
     private int _queueDepth;
 
-    public BackpressureGate(BackpressureOptions options)
+    public BackpressureGate(BackpressureOptions options, TimeProvider? timeProvider = null)
     {
         _options = options;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _options.Validate();
         _slots = new SemaphoreSlim(_options.MaxInFlight, _options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
@@ -40,24 +42,24 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(clientId);
 
         var disabledResult = TryAcquireWhenDisabled(transport, operation);
-        if (disabledResult.HasValue)
+        if (disabledResult is not null)
             return disabledResult.Value;
 
         cancellationToken.ThrowIfCancellationRequested();
         var client = _clients.GetOrAdd(clientId, static (_, options) => new ClientState(options), _options);
 
         var nodeRateLimitReject = TryRejectByNodeRateLimit(transport, operation);
-        if (nodeRateLimitReject.HasValue)
+        if (nodeRateLimitReject is not null)
             return nodeRateLimitReject.Value;
 
         var clientRateLimitReject = TryRejectByClientRateLimit(transport, operation, client);
-        if (clientRateLimitReject.HasValue)
+        if (clientRateLimitReject is not null)
             return clientRateLimitReject.Value;
 
         var inFlight = Volatile.Read(ref _inFlight);
         var queueDepth = Volatile.Read(ref _queueDepth);
         var hardThresholdReject = TryRejectByHardThreshold(transport, operation, inFlight, queueDepth);
-        if (hardThresholdReject.HasValue)
+        if (hardThresholdReject is not null)
             return hardThresholdReject.Value;
 
         if (inFlight >= _options.SlowdownThreshold)
@@ -84,8 +86,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         ClientState client,
         CancellationToken cancellationToken)
     {
-        return await _slots.WaitAsync(0, cancellationToken).ConfigureAwait(false)
-            ? (BackpressureDecision.Accepted(), AcquireLease(clientId, client))
+        return await _slots.WaitAsync(0, cancellationToken).ConfigureAwait(false) ? (BackpressureDecision.Accepted(), AcquireLease(clientId, client))
             : await WaitInQueueAsync(transport, operation, clientId, client, cancellationToken).ConfigureAwait(false);
     }
 
@@ -98,14 +99,14 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
-        var window = Math.Max(1, _options.RejectThreshold - _options.SlowdownThreshold);
-        var relative = Math.Clamp((double)(inFlight - _options.SlowdownThreshold + 1) / window, 0d, 1d);
+        var window = Math.Max(1d, _options.RejectThreshold - _options.SlowdownThreshold);
+        var relative = Math.Clamp((inFlight - _options.SlowdownThreshold + 1d) / window, 0d, 1d);
         var delay = TimeSpan.FromMilliseconds(_options.MaxSlowdownDelay.TotalMilliseconds * relative);
         if (delay <= TimeSpan.Zero)
             return;
 
         BackpressureMetrics.AddSlowdown(transport, operation);
-        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
     }
 
     private void Release(string clientId, ClientState client)
@@ -183,7 +184,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private void TryTrimClient(string clientId, ClientState client)
     {
-        if (client.InFlight != 0 || client.QueueDepth != 0 || client.RateLimiter?.HasRecentActivity == true)
+        if (client.InFlight is not 0 || client.QueueDepth is not 0 || client.RateLimiter?.HasRecentActivity is true)
             return;
 
         _ = _clients.TryRemove(new KeyValuePair<string, ClientState>(clientId, client));
@@ -285,7 +286,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
             }
         }
 
-        public static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond.HasValue && burst.HasValue ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        public static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         public bool TryAcquire()
         {

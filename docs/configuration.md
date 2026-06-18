@@ -16,12 +16,12 @@ Search order:
 In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings.json` → `/app/Squirix.settings.json`).
 See [containerization.md](containerization.md) for dev and release image layouts.
 
-The standalone `squirix-server` host, `builder.AddSquirixServer(...)`, and `SquirixServer.StartAsync()` load
+The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
 `Squirix:Cluster` through `SquirixServerConfiguration` when a settings file is discovered or supplied. `StartAsync()`
-then hosts the node through the same `AddSquirixServer` / `MapSquirixServer` pipeline as the standalone executable.
+then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline as the standalone executable.
 Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged from the same settings file at runtime
-when present. Custom ASP.NET Core hosts configure cluster topology and persistence directory through
-`SquirixServerOptions`; `app.MapSquirixServer()` maps gRPC, REST, health, admin, and metrics endpoints.
+when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
+`SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
 ## Remote client (`SquirixOptions`)
 
@@ -30,8 +30,7 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 | Member                | Purpose                                                                                                           |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `Endpoints`           | Bootstrap server URLs (HA front door, not shards). See [bootstrap client failover](bootstrap-client-failover.md). |
-| `ApiKey`              | Static API key sent as `x-api-key` on gRPC calls.                                                                 |
-| `BearerTokenProvider` | Optional bearer token for each gRPC call.                                                                         |
+| `BearerTokenProvider` | Supplies a JWT bearer token for each gRPC call when the server requires authentication.                           |
 | `Serializer`          | Per-session `ISquirixSerializer`; null uses default JSON for that client. See [serialization](serialization.md).  |
 
 For local HTTPS development, trust the ASP.NET Core development certificate with
@@ -45,13 +44,12 @@ await using var client = await SquirixClient.ConnectAsync(
     {
         options.Endpoints.Add("https://cache-a.example.internal:5001");
         options.Endpoints.Add("https://cache-b.example.internal:5002");
-        options.ApiKey = Environment.GetEnvironmentVariable("SQUIRIX_API_KEY");
+        options.BearerTokenProvider = _ => new ValueTask<string>(Environment.GetEnvironmentVariable("SQUIRIX_JWT")!);
     },
     cancellationToken);
 ```
 
-Client authentication uses the same API key / bearer options as gRPC transport configuration on the server when auth is
-enabled.
+Client authentication uses `BearerTokenProvider` when the server requires JWT bearer authentication.
 
 <!-- markdownlint-disable-next-line MD033 -->
 <a id="memory-pressure-squirixsettingsjson"></a>
@@ -59,18 +57,19 @@ enabled.
 ## Memory pressure (`Squirix.settings.json`)
 
 The optional `Squirix:MemoryPressure` section is merged when present (same file discovery as `Squirix:Cluster`).
-Environment variables listed below override merged file values. When enabled, the node may reject **growing** writes
-under critical estimated memory usage. Those rejections occur before durable journal append. REST returns HTTP **429**
-with code **`MEMORY_PRESSURE`**; gRPC returns **`ResourceExhausted`** (bounded payloads; field semantics are in the
-table below).
+Environment variables listed below override merged file values. Memory pressure is **always active** at runtime.
+The node may reject **growing** writes under critical estimated memory usage. Those rejections occur before durable
+journal append. REST returns HTTP **429** with code **`MEMORY_PRESSURE`**; gRPC returns **`ResourceExhausted`** (bounded
+payloads; field semantics are in the table below).
 
-| Field                              | Type  | Default           | Validation                                                                      |
-| ---------------------------------- | ----- | ----------------- | ------------------------------------------------------------------------------- |
-| `Enabled`                          | bool  | `false`           | Any boolean                                                                     |
-| `MaxEstimatedCacheBytes`           | long? | `null` (no limit) | unset or `>= 0`; non-positive values are treated as no limit for classification |
-| `HighPressureThresholdPercent`     | int   | `80`              | `(0, 100]`                                                                      |
-| `CriticalPressureThresholdPercent` | int   | `95`              | `(0, 100]`, must be `>` `HighPressureThresholdPercent`                          |
-| `RejectWritesOnCriticalPressure`   | bool  | `true`            | Any boolean (admission gate; REST/gRPC mapping when rejection occurs)           |
+| Field                              | Type  | Default                        | Validation                                                                                          |
+| ---------------------------------- | ----- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `MaxEstimatedCacheBytes`           | long? | `80%` of available process RAM | unset uses the RAM default; when set must be `> 0` and `<= 80%` of available process RAM at startup |
+| `HighPressureThresholdPercent`     | int   | `80`                           | `(0, 100]`                                                                                          |
+| `CriticalPressureThresholdPercent` | int   | `95`                           | `(0, 100]`, must be `>` `HighPressureThresholdPercent`                                              |
+
+Available process RAM is read from `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes` at startup (in containers this is
+usually the pod memory limit). Legacy JSON fields such as `enabled` and `rejectWritesOnCriticalPressure` are ignored.
 
 Example fragment:
 
@@ -78,11 +77,9 @@ Example fragment:
 {
     "Squirix": {
         "MemoryPressure": {
-            "enabled": true,
             "maxEstimatedCacheBytes": 1073741824,
             "highPressureThresholdPercent": 80,
-            "criticalPressureThresholdPercent": 95,
-            "rejectWritesOnCriticalPressure": true
+            "criticalPressureThresholdPercent": 95
         }
     }
 }
@@ -90,8 +87,8 @@ Example fragment:
 
 ## Cluster settings
 
-`Squirix:Cluster` is loaded by `SquirixServerConfiguration` for the standalone host, `AddSquirixServer(...)`, and
-`SquirixServer.StartAsync()`.
+`Squirix:Cluster` is loaded by `SquirixServerConfiguration` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
+standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 
 | Field            | Type   | Default                                | Validation                                                                                                                           |
 | ---------------- | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -107,7 +104,9 @@ CLI validation:
 
 - `squirix-server validate-config --settings PATH` validates `Squirix:Cluster` only.
 - `squirix-server validate-config --settings PATH --strict` also validates optional `MemoryPressure` and
-  `PrometheusMetrics` sections when they are present.
+  `PrometheusMetrics` sections when they are present. Host startup always resolves memory pressure (80% RAM default when
+  `MaxEstimatedCacheBytes` is unset) even when the JSON section is absent; `--strict` only checks the section if it
+  exists in the file.
 
 Example:
 
@@ -133,21 +132,37 @@ networks, set `Url` and the local peer entry to the **service hostname** reachab
 `https://squirix-node-a:5000`), not `https://0.0.0.0:5000`. The local peer `Url` must exactly match `Cluster.Url`.
 
 When exposing a container to host client apps: map the primary HTTPS listener (for example host **5001** → container **5000**)
-so gRPC clients and operational routes (`/health`, `/metrics`, `/admin`) share one TLS port. See [containerization.md](containerization.md).
+so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS port. See [containerization.md](containerization.md).
 
 ## Hosting options (`SquirixServerOptions`)
 
-Configure these through `builder.AddSquirixServer(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
+Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
-| Field                       | Type   | Default                        | Validation                                                                 |
-| --------------------------- | ------ | ------------------------------ | -------------------------------------------------------------------------- |
-| `WaitForRecovery`           | bool   | `true`                         | Any boolean                                                                |
-| `DataDirectory`             | string | `null` (platform default path) | Optional; non-empty when set                                               |
+| Field                       | Type   | Default | Validation                                                                 |
+| --------------------------- | ------ | ------- | -------------------------------------------------------------------------- |
+| `PersistenceEnabled`        | bool   | `false` | Any boolean                                                                |
+| `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
+| `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
+
+Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable WAL/snapshot persistence. The standalone
+host accepts `--persist`; `--data-dir` requires `--persist`.
+
+Example:
+
+```csharp
+await builder.AddSquirixServerAsync(options =>
+{
+    options.NodeId = "node-a";
+    options.Url = new Uri("https://localhost:5001");
+    options.UsePersistence("./data");
+});
+```
 
 ### Recovery startup (`WaitForRecovery`)
 
-When `WaitForRecovery` is `true` (default), the node blocks serving until hosted journal replay completes.
+When persistence is enabled and `WaitForRecovery` is `true` (default), the node blocks serving until hosted journal
+replay completes.
 
 When `WaitForRecovery` is `false`, replay runs in the background:
 
@@ -164,8 +179,8 @@ during startup.
 ## Node settings file (`Squirix.settings.json`)
 
 The sections below are **not** properties on `SquirixServerOptions`. They are loaded from the same settings file at node
-startup (standalone `squirix-server`, `AddSquirixServer` with discovered settings, or `SquirixServer.StartAsync`). Use
-`squirix-server validate-config --strict` to validate optional sections together with cluster settings.
+startup (standalone `squirix-server`, `AddSquirixServerAsync` with discovered settings, or `SquirixServer.StartAsync`).
+Use `squirix-server validate-config --strict` to validate optional sections together with cluster settings.
 
 ### Persistence
 
@@ -260,8 +275,15 @@ Example fragment:
 ```
 
 Access control is not configurable: loopback clients may scrape anonymously; all other clients must authenticate with
-the same `X-Api-Key` header or JWT bearer token used for cache/admin routes (see
-[diagnostics — Security](diagnostics.md#metrics-route)).
+the same JWT bearer token used for cache routes (see
+[diagnostics — Metrics route](diagnostics.md#metrics-route)).
+
+**Loopback trust assumption:** anonymous loopback scrapes assume the host is **single-tenant** and that any local
+process reaching `127.0.0.1` / `::1` is trusted. On **shared or multi-tenant** hosts, another tenant's process can
+scrape `/metrics` without JWT and read operational data. Mitigations: bind the primary listener to loopback only when
+appropriate, disable the HTTP scrape (`PrometheusMetrics.enabled: false`) and export through OpenTelemetry /
+`MeterListener` instead, or run nodes on dedicated hosts. There is no settings flag to require JWT for loopback
+scrapes — the tradeoff is intentional for same-host Prometheus ergonomics.
 
 Privacy is not configurable either: HTTP `/metrics` always uses the public scrape profile (`cache` and `exception_type`
 labels are stripped before export). See [diagnostics — Scrape privacy model](diagnostics.md#scrape-privacy-model).
@@ -275,8 +297,8 @@ scrape_configs:
     tls_config:
       insecure_skip_verify: true   # use proper CA trust in production
     authorization:
-      type: ApiKey
-      credentials: your-api-key
+      type: Bearer
+      credentials: your-jwt-bearer-token
     static_configs:
       - targets: ["node.example:5001"]
     metrics_path: /metrics
@@ -286,7 +308,7 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 
 ## In-process test hosts
 
-Production and standalone `squirix-server` processes configure API keys and JWT through environment variables (see below).
+Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
 In-process test hosts (`SquirixNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
 so parallel tests do not share process-wide environment state.
 
@@ -295,56 +317,92 @@ replaces environment-variable lookup for that startup only; omit it on `Integrat
 env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
 
 ```csharp
-// E2E / integration auth
-await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions { ApiKeys = ["secret"] });
+// E2E / integration auth (JWT)
+var credentials = TestJwtHelper.CreateRandomCredentials();
+await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
 // Smoke default: unauthenticated without touching process env
 await StartNodeAsync(url, peers);
 ```
 
-JWT-protected nodes follow the same pattern (`JwtSigningKey`, `JwtIssuer`, `JwtAudience`). OIDC authority URLs
-(`SQUIRIX_JWT_AUTHORITY`) remain env-only until a test needs a programmatic override. E2E tests run with xUnit
-parallelization enabled; auth scenarios must use explicit `TestNodeSecurityOptions` overrides rather than
-process environment variables.
+Symmetric JWT-protected nodes use `JwtSigningKey`, `JwtIssuer`, and `JwtAudience`. OIDC authority URLs use
+`JwtAuthority` with a required `JwtAudience`, optional `JwtIssuer`, and `JwtAllowHttpMetadata` (set `true` for `http://`
+mock authorities in tests). Startup fails when `SQUIRIX_JWT_AUTHORITY` is set without `SQUIRIX_JWT_AUDIENCE`, including
+on loopback listeners.
+
+```csharp
+// OIDC authority JWT (integration / smoke)
+await using var authority = await MockOidcAuthority.StartAsync(cancellationToken);
+await StartNodeAsync(url, peers, security: authority.ToSecurityOptions("squirix-test"));
+var token = authority.CreateBearerToken("squirix-test");
+```
+
+`MockOidcAuthority` lives in `Squirix.Server.TestKit.Security` and serves discovery metadata plus JWKS on loopback
+without external network access. E2E tests run with xUnit parallelization enabled; auth scenarios must use explicit
+`TestNodeSecurityOptions` overrides rather than process environment variables.
 
 ## Environment variables
 
 Deployment, Docker, and standalone hosts load security settings from the process environment. These variables map to
 the same auth pipeline used by in-process overrides above. Docker images also set
-`ASPNETCORE_Kestrel__Certificates__Default__Path` and `ASPNETCORE_Kestrel__Certificates__Default__Password` for the
+`ASPNETCORE_Kestrel__Certificates__Default__Path` for the
 bundled development PFX; see [containerization.md](containerization.md#https-in-containers).
 
 | Variable                                             | Purpose                                                                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SQUIRIX_API_KEYS`                                   | Comma-separated API keys. Enables the `ApiOrJwt` auth policy for REST cache routes, `/admin`, and gRPC cache endpoints.                                                                                            |
-| `SQUIRIX_ADMIN_ENABLED`                              | Exposes `/admin` outside development when `true` or `1`.                                                                                                                                                           |
-| `SQUIRIX_MTLS`                                       | Enables mutual TLS when `true` or `1`.                                                                                                                                                                             |
-| `SQUIRIX_MTLS_ALLOW_SELF_SIGNED`                     | Allows self-signed client certificates for mTLS validation. Dev/test only.                                                                                                                                         |
-| `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication.                                                                                                                                                                           |
-| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value.                                                                                                                                                                                     |
+| `SQUIRIX_JWT_AUTHORITY`                              | JWT authority for bearer authentication. Requires `SQUIRIX_JWT_AUDIENCE`.                                                                                                                                          |
+| `SQUIRIX_JWT_AUDIENCE`                               | JWT audience validation value. Required when `SQUIRIX_JWT_AUTHORITY` is set.                                                                                                                                       |
 | `SQUIRIX_JWT_ISSUER`                                 | JWT issuer. Required when using `SQUIRIX_JWT_SIGNING_KEY` without authority.                                                                                                                                       |
 | `SQUIRIX_JWT_SIGNING_KEY`                            | Symmetric JWT signing key, raw text or base64.                                                                                                                                                                     |
 | `SQUIRIX_JWT_ALLOW_HTTP_METADATA`                    | Allows non-HTTPS authority metadata for JWT in dev/test.                                                                                                                                                           |
-| `SQUIRIX_MEMORY_PRESSURE_ENABLED`                    | When set to `true`/`1` or `false`/`0`, overrides `MemoryPressure.Enabled` after JSON merge.                                                                                                                        |
-| `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (non-positive clears the limit).                                                                                                                                 |
+| `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`                 | Dedicated cluster/internal HTTPS listener port for inter-node gRPC mTLS. Required when remote cluster peers are configured and must differ from the primary `Cluster.Url` port.                                    |
+| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`                 | PKCS#12/PFX path for the local node certificate. Certificate CN must equal `Cluster.NodeId`. Mutually exclusive with PEM cert/key paths.                                                                           |
+| `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD`             | Optional password for `SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH`.                                                                                                                                                        |
+| `SQUIRIX_CLUSTER_MTLS_CERT_PATH`                     | PEM-encoded node certificate path. Certificate CN must equal `Cluster.NodeId`. Requires `SQUIRIX_CLUSTER_MTLS_KEY_PATH`.                                                                                           |
+| `SQUIRIX_CLUSTER_MTLS_KEY_PATH`                      | PEM-encoded node private key path.                                                                                                                                                                                 |
+| `SQUIRIX_CLUSTER_MTLS_CA_PATH`                       | PEM-encoded cluster CA / trust root. Required when remote cluster peers are configured.                                                                                                                            |
+| `SQUIRIX_MEMORY_PRESSURE_MAX_ESTIMATED_CACHE_BYTES`  | Overrides `MemoryPressure.MaxEstimatedCacheBytes` (must be positive and within the 80% RAM cap at startup).                                                                                                        |
 | `SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT`     | Overrides `MemoryPressure.HighPressureThresholdPercent`.                                                                                                                                                           |
 | `SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT` | Overrides `MemoryPressure.CriticalPressureThresholdPercent`.                                                                                                                                                       |
-| `SQUIRIX_MEMORY_PRESSURE_REJECT_WRITES_ON_CRITICAL`  | When set to `true`/`1` or `false`/`0`, overrides `MemoryPressure.RejectWritesOnCriticalPressure` (admission behavior when enabled).                                                                                |
 | `SQUIRIX_TEST_ROOT`                                  | Test-only root for generated node data directories.                                                                                                                                                                |
 
-Security notes:
+## Security notes
 
-- Non-loopback listen URLs (`0.0.0.0`, public interfaces, Docker service hostnames) **require**
-  `SQUIRIX_API_KEYS` and/or JWT settings at startup; the process refuses to start without them. Loopback binds
-  (`localhost`, `127.0.0.1`) allow unauthenticated cache access unless auth is explicitly configured.
-- `ApiOrJwt` is enforced server-side for REST cache routes, `/admin`, and gRPC cache endpoints when auth is enabled.
-- API key and JWT credentials are accepted consistently across REST and gRPC when configured; missing/invalid
-  credentials are rejected.
-- Operational routes (`/health`, `/metrics`, `/admin`) are served on the **primary HTTPS listener** only.
-- `SQUIRIX_ADMIN_ENABLED` is not a safe production toggle by itself. Pair it with network restriction and
-  authentication.
-- The v0.1 `/admin` surface is limited to `whoami`, owner lookup, and ring inspection. See
-  [diagnostics](diagnostics.md#admin-routes-v01).
+### Loopback trust model
+
+When the primary listen URL host is loopback (`localhost`, `127.0.0.1`, or another `IPAddress.IsLoopback` address),
+Squirix allows **unauthenticated** access to gRPC cache routes unless you configure `SQUIRIX_JWT_*`. `/metrics` scrapes
+from loopback clients stay anonymous even when JWT is enabled; remote clients still need a bearer token (see
+[diagnostics.md](diagnostics.md#metrics-route)).
+
+This trusts **every local process on the machine**, not just your application. It is appropriate for local development,
+benchmarks, and in-process tests. It is **not** a substitute for JWT/OIDC on shared hosts, containers published to the
+host network, or any interface reachable by other machines.
+
+Implementation: `SquirixExternalAccessSecurity.EnsureDataPlaneAuthenticatedForListenUri` skips the auth requirement only
+for loopback bind hosts. Non-loopback URLs (`0.0.0.0`, Docker DNS names, public interfaces) **require** JWT settings at
+startup; the process refuses to start without them.
+
+### External authentication
+
+- Non-loopback listen URLs **require** JWT settings at startup as described above. When auth is configured, loopback
+  gRPC and remote clients must present valid JWT bearer tokens for cache routes (missing or invalid credentials are
+  rejected).
+- Operational routes (`/health`, `/metrics`) are served on the **primary HTTPS listener** only.
+- When remote cluster peers are configured (`Peers[]` contains at least one node other than the local `NodeId`),
+  inter-node mTLS is required at startup. Inter-node gRPC is served on the dedicated internal HTTPS listener
+  (`SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`) with required peer client certificates. Each node certificate CN must match
+  its `Cluster.NodeId`; peer certificates are accepted only when they chain to the cluster CA and their CN matches the
+  expected peer `NodeId`. Outbound `ClientPool` calls attach the local node certificate and apply the same trust and
+  identity checks to peer server certificates. Standalone nodes without remote peers do not require cluster mTLS
+  material. The primary listener keeps external client behavior unchanged.
+- Deployment, rotation, and dev certificate generation for **inter-node mTLS** are documented in
+  [security/inter-node-mtls.md](security/inter-node-mtls.md). Squirix consumes externally managed cluster certificates;
+  it does not act as a production CA. Inter-node trust requires the PEM cluster CA at
+  `SQUIRIX_CLUSTER_MTLS_CA_PATH` and certificate CN equal to the expected cluster `NodeId`.
+- **External JWT** signing, blast radius, and rotation (symmetric vs OIDC) are documented in
+  [security/jwt-signing-keys.md](security/jwt-signing-keys.md). Inter-node forwarding does not use JWT when mTLS is
+  enforced.
 
 ## Sample `appsettings.json`
 
@@ -376,4 +434,6 @@ Typical examples:
 - `Persistence DataDir is required.`
 - `Persistence JournalMaxSegmentMb must be greater than zero.`
 - `MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.`
-- `MemoryPressure MaxEstimatedCacheBytes cannot be negative.`
+- `MemoryPressure MaxEstimatedCacheBytes must be positive when set.`
+- `MemoryPressure MaxEstimatedCacheBytes ({configured}) exceeds the 80% RAM cap ({cap}).`
+- `MemoryPressure cannot resolve RAM budget: available process memory is zero.`

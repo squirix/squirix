@@ -3,15 +3,13 @@ using Squirix.Server.Errors;
 
 namespace Squirix.Server.Core;
 
-/// <summary>
-/// Central validation for user cache entry keys.
-/// </summary>
+/// <summary>Central validation for user cache entry keys.</summary>
 internal static class CacheKeyValidator
 {
     /// <summary>
     /// Maximum allowed length for a cache key (Unicode scalar values; .NET string length).
     /// </summary>
-    public const int MaxLength = 1024;
+    private const int MaxLength = 1024;
 
     /// <summary>
     /// Maps a failed validation to a <see cref="SquirixException" /> for REST/gRPC contracts.
@@ -24,12 +22,10 @@ internal static class CacheKeyValidator
         return new SquirixException(SquirixErrorCode.InvalidCacheKey, "InvalidCacheKey", GetMessage(error));
     }
 
-    /// <summary>
-    /// Attempts to validate a key without throwing.
-    /// </summary>
+    /// <summary>Attempts to validate a key without throwing.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="error">The failure reason when validation fails.</param>
-    /// <returns><c>true</c> if the key is valid; otherwise <c>false</c>.</returns>
+    /// <returns><see langword="true"/> if the key is valid; otherwise <see langword="false"/>.</returns>
     public static bool TryValidate(string? key, out CacheKeyValidationError error)
     {
         if (string.IsNullOrEmpty(key) || IsWhiteSpaceOnly(key))
@@ -64,9 +60,7 @@ internal static class CacheKeyValidator
     /// <returns>The original key when valid.</returns>
     public static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
 
-    /// <summary>
-    /// Returns a stable, non-user-input diagnostic message for the given validation error.
-    /// </summary>
+    /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
     /// <param name="error">The validation failure.</param>
     /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
     private static string GetMessage(CacheKeyValidationError error) => error switch

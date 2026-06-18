@@ -7,18 +7,15 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Json;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Serialization;
 
-/// <summary>
-/// Tests JSON parsing with payloads split across multiple segments.
-/// </summary>
-public sealed class MultiSegmentJsonParsingTests : ServerUnitTestBase
+/// <summary>Tests JSON parsing with payloads split across multiple segments.</summary>
+public sealed class MultiSegmentJsonParsingTests : UnitTestBase
 {
-    /// <summary>
-    /// Cache entry DTO parsing handles segmented property names and values.
-    /// </summary>
+    /// <summary>Cache entry DTO parsing handles segmented property names and values.</summary>
     [Fact]
     public void CacheEntryJsonParsesSegmentedPayload()
     {
@@ -28,15 +25,14 @@ public sealed class MultiSegmentJsonParsingTests : ServerUnitTestBase
         var parsed = DiscriminatedEntryJsonReader.TryElementToEntry<string>(document.RootElement, out var entry);
 
         Assert.True(parsed);
+        Assert.NotNull(entry);
         Assert.Equal("segmented-value", entry.Value);
         Assert.Equal(1_234_567_890_123L, entry.Version);
         Assert.Equal(TimeSpan.FromSeconds(5), entry.Expiration);
         Assert.Equal("west", entry.Tags?["region"]);
     }
 
-    /// <summary>
-    /// journal record parsing handles segmented property names, string values, and numeric values.
-    /// </summary>
+    /// <summary>journal record parsing handles segmented property names, string values, and numeric values.</summary>
     [Fact]
     public void JournalRecordParsesSegmentedPayload()
     {
@@ -51,9 +47,7 @@ public sealed class MultiSegmentJsonParsingTests : ServerUnitTestBase
         Assert.Equal("op-1", envelope.Put?.OperationId);
     }
 
-    /// <summary>
-    /// Manifest parsing handles segmented property names, string values, and numeric values.
-    /// </summary>
+    /// <summary>Manifest parsing handles segmented property names, string values, and numeric values.</summary>
     [Fact]
     public void ManifestParsesSegmentedPayload()
     {
@@ -70,9 +64,7 @@ public sealed class MultiSegmentJsonParsingTests : ServerUnitTestBase
         Assert.Equal(11, manifest.LastSnapshot?.ReplayFromJournalSegment);
     }
 
-    /// <summary>
-    /// Snapshot metadata parsing handles segmented property names, string values, and numeric values.
-    /// </summary>
+    /// <summary>Snapshot metadata parsing handles segmented property names, string values, and numeric values.</summary>
     [Fact]
     public void SnapshotMetadataParsesSegmentedPayload()
     {

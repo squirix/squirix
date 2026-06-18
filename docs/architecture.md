@@ -41,7 +41,7 @@ implementation details, and must not become exported product API.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
-health/admin/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
+health/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
 `Squirix` owns the exported v0.1 client surface (`SquirixClient`, `ISquirixClient`, `SquirixOptions`, `ICache<T>`,
@@ -52,10 +52,16 @@ not host cache state or run the durability stack in the application process.
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,
 `UpdateAsync`, `GetValueAsync`, `GetEntryAsync`, `GetExpirationAsync`, `GetOrAddAsync`, `RemoveAsync`, `TouchAsync`,
 `RemoveExpirationAsync`). Prefer `GetValueAsync` for reads with explicit presence; there is no `GetValueOrDefaultAsync`
-on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface because existence can become stale
-immediately in a distributed cache. Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read
-model returned by lookup APIs, not a mutation parameter. Compare-and-set, counters, batch, scan, watch, and tag
-invalidation are not part of the v0.1 exported client surface.
+on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or the gRPC wire surface because existence
+can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` or REST `HEAD` instead.
+Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read model returned by lookup APIs, not a
+mutation parameter. Compare-and-set, counters, batch, scan, watch, and tag invalidation are not part of the v0.1 exported
+client surface.
+
+The v0.1 gRPC service surface in `SquirixCache.proto` uses `Set` / `SetValue` and `TrySet` / `TrySetValue` names
+(overwrite and add-if-absent semantics). Typed client traffic uses the `*Value` RPCs; `Set` / `TrySet` with `Entry`
+remain for cluster routing and struct-shaped payloads. See [api.md](api.md#wire-contract). Regressions are caught by
+`SquirixGrpcEndpointSurface.golden.txt` in server unit tests.
 
 The exported client entry point is asynchronous and remote:
 

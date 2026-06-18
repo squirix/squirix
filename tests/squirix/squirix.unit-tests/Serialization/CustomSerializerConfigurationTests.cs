@@ -13,23 +13,19 @@ namespace Squirix.UnitTests.Serialization;
 /// </summary>
 public sealed class CustomSerializerConfigurationTests
 {
-    /// <summary>
-    /// Mirrors SquirixClient.ConnectAsync options configuration before session creation.
-    /// </summary>
+    /// <summary>Mirrors SquirixClient.ConnectAsync options configuration before session creation.</summary>
     [Fact]
     public void ConnectAsyncConfigurePatternAssignsSerializerAfterConstruction()
     {
         var custom = new CallTrackingSerializer();
         var options = new SquirixOptions();
-        ConfigureLikeConnectAsync(options, custom);
+        ConfigureLikeConnect(options, custom);
 
         Assert.Same(custom, options.Serializer);
         _ = SerializationProvider.Create(options.Serializer);
     }
 
-    /// <summary>
-    /// Verifies that a null serializer creates an independent default serializer instance.
-    /// </summary>
+    /// <summary>Verifies that a null serializer creates an independent default serializer instance.</summary>
     [Fact]
     public void CreateWithNullSerializerUsesDefault()
     {
@@ -83,9 +79,7 @@ public sealed class CustomSerializerConfigurationTests
         Assert.Same(before, SerializationProvider.Instance);
     }
 
-    /// <summary>
-    /// Verifies that two scoped serializers created in the same process do not replace each other or the default host.
-    /// </summary>
+    /// <summary>Verifies that two scoped serializers created in the same process do not replace each other or the default host.</summary>
     [Fact]
     public void ScopedSerializersDoNotCrossAffect()
     {
@@ -118,7 +112,7 @@ public sealed class CustomSerializerConfigurationTests
         Assert.True(property.SetMethod.IsPublic);
     }
 
-    private static void ConfigureLikeConnectAsync(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
+    private static void ConfigureLikeConnect(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
 
     private sealed class CallTrackingSerializer : ISquirixSerializer
     {

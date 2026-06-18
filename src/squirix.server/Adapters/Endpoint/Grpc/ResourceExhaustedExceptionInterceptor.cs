@@ -21,6 +21,10 @@ internal sealed class ResourceExhaustedExceptionInterceptor : Interceptor
         {
             throw ex.ToRpcException();
         }
+        catch (OperationIdReuseMismatchException)
+        {
+            throw CacheOperationContract.OperationIdReuseMismatch().ToRpcException();
+        }
         catch (SquirixException ex)
         {
             throw ex.ToRpcException();
@@ -36,6 +40,10 @@ internal sealed class ResourceExhaustedExceptionInterceptor : Interceptor
         catch (ResourceExhaustedException ex)
         {
             throw ex.ToRpcException();
+        }
+        catch (OperationIdReuseMismatchException)
+        {
+            throw CacheOperationContract.OperationIdReuseMismatch().ToRpcException();
         }
         catch (SquirixException ex)
         {

@@ -42,7 +42,7 @@ internal sealed class JournalWriter : IJournalCoordinator
     private TaskCompletionSource? _pendingMemoryApplyDrained;
     private FileStream? _stream;
 
-    public JournalWriter(PersistenceOptions opt, Manifest manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
+    private JournalWriter(PersistenceOptions opt, Manifest manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
     {
         ArgumentNullException.ThrowIfNull(startupGate);
         _opt = opt;
@@ -51,15 +51,12 @@ internal sealed class JournalWriter : IJournalCoordinator
         _groupCommit = _opt.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(FlushAsync, _opt) : null;
         _ = DirectoryEx.CreateDirectory(_opt.DataDir);
         CurrentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        PrepareActiveSegmentForSequenceScan(manifest, _opt);
         NextSequence = DetermineNextSequence(manifest, _opt);
         _flushTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(1, _opt.FlushIntervalMs)));
         _flushLoopTask = FlushLoopAsync(_bgCts.Token);
     }
 
-    public event Action? OnAppended;
-
-    public bool StrictFsync => _opt.StrictFsync;
+    public event EventHandler? OnAppended;
 
     public long AppendedBytes => Interlocked.Read(ref _bytes);
 
@@ -88,15 +85,24 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
 
-    /// <summary>
-    /// Gets the bytes written to the active journal segment file for the current roll window. For unit tests only.
-    /// </summary>
+    /// <summary>Gets the bytes written to the active journal segment file for the current roll window. For unit tests only.</summary>
     internal long ActiveSegmentWrittenBytes { get; private set; }
 
     /// <summary>
     /// Gets a value indicating whether appended journal bytes are not yet covered by <see cref="FlushCoreAsync" /> (including strict fsync).
     /// </summary>
     internal bool IsDurabilityFlushPending => _dirty;
+
+    public static async Task<JournalWriter> CreateAsync(
+        PersistenceOptions opt,
+        Manifest manifest,
+        ManifestStore manifestStore,
+        JournalStartupGate startupGate,
+        CancellationToken cancellationToken = default)
+    {
+        await PrepareActiveSegmentForSequenceScanAsync(manifest, opt, cancellationToken).ConfigureAwait(false);
+        return new JournalWriter(opt, manifest, manifestStore, startupGate);
+    }
 
     public async ValueTask FlushAsync(CancellationToken cancellationToken)
     {
@@ -119,21 +125,21 @@ internal sealed class JournalWriter : IJournalCoordinator
         return AppendPutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
     }
 
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
-        new JournalEnvelope
-        {
-            Seq = AllocateSequence(),
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            RemoveExpiration = new RemoveExpiration { Key = key.Key, Namespace = key.Namespace },
-        },
-        cancellationToken);
-
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
         new JournalEnvelope
         {
             Seq = AllocateSequence(),
             UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Remove = new Remove { Key = key.Key, Namespace = key.Namespace },
+        },
+        cancellationToken);
+
+    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
+        new JournalEnvelope
+        {
+            Seq = AllocateSequence(),
+            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            RemoveExpiration = new RemoveExpiration { Key = key.Key, Namespace = key.Namespace },
         },
         cancellationToken);
 
@@ -151,9 +157,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         },
         cancellationToken);
 
-    /// <summary>
-    /// Waits until appended journal bytes are durable. Uses group commit when configured; otherwise flushes immediately.
-    /// </summary>
+    /// <summary>Waits until appended journal bytes are durable. Uses group commit when configured; otherwise flushes immediately.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when durability is established for prior appends.</returns>
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
@@ -177,7 +181,7 @@ internal sealed class JournalWriter : IJournalCoordinator
                 throw new InvalidOperationException("No pending journal memory apply is registered.");
 
             _pendingMemoryApplyCount--;
-            if (_pendingMemoryApplyCount == 0)
+            if (_pendingMemoryApplyCount is 0)
             {
                 drained = _pendingMemoryApplyDrained;
                 _pendingMemoryApplyDrained = null;
@@ -189,7 +193,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         var failures = new List<Exception>();
@@ -204,74 +208,12 @@ internal sealed class JournalWriter : IJournalCoordinator
             // Concurrent teardown can dispose the CTS or timer before this owner observes it.
         }
 
-        _groupCommit?.CancelPending(new ObjectDisposedException(nameof(JournalWriter)));
+        if (_groupCommit is not null)
+            await _groupCommit.CancelPendingAsync(new ObjectDisposedException(nameof(JournalWriter))).ConfigureAwait(false);
 
-        try
-        {
-            await _flushLoopTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
-        {
-            // Expected cooperative shutdown.
-        }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
-        {
-            // The timer may be disposed while the loop is waiting for the next tick.
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
-
-        try
-        {
-            await _ioGate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                Flush();
-            }
-            finally
-            {
-                _ = _ioGate.Release();
-            }
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
-
-        try
-        {
-            await DisposeStreamAsync().ConfigureAwait(false);
-        }
-        catch (IOException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (ObjectDisposedException ex)
-        {
-            failures.Add(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            failures.Add(ex);
-        }
+        await AwaitFlushLoopDuringDisposeAsync(failures).ConfigureAwait(false);
+        await FlushDuringDisposeAsync(failures).ConfigureAwait(false);
+        await DisposeStreamDuringDisposeAsync(failures).ConfigureAwait(false);
 
         _bgCts.Dispose();
         _ioGate.Dispose();
@@ -297,20 +239,22 @@ internal sealed class JournalWriter : IJournalCoordinator
         }
     }
 
-    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TResult>(
+    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
-        Func<TState, ulong, CancellationToken, ValueTask<TResult>> action,
+        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(captureUnderBarrier);
+        ArgumentNullException.ThrowIfNull(buildOutsideBarrier);
         ThrowIfFlushLoopFailed();
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         await WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
-        TResult result;
+        ulong seqAtFlush;
+        TBarrier barrierState;
         try
         {
-            ulong seqAtFlush;
             await _ioGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -322,14 +266,14 @@ internal sealed class JournalWriter : IJournalCoordinator
                 _ = _ioGate.Release();
             }
 
-            result = await action(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
+            barrierState = await captureUnderBarrier(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _ = _mutationGate.Release();
         }
 
-        return result;
+        return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
@@ -371,27 +315,28 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         JournalFraming.ThrowIfSegmentHeaderInvalid(stream.Length, header);
 
-        var validLength = (long)JournalFraming.FileHeaderSize;
+        long validLength = JournalFraming.FileHeaderSize;
         while (true)
         {
+            var frameOffset = validLength;
             var read = JournalFrameReader.ReadNext(stream, validLength, out var rentedBuffer, out _);
             if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
                 return validLength;
 
             validLength = read.NextFrameOffset;
-            ArgumentNullException.ThrowIfNull(rentedBuffer);
+            if (rentedBuffer is null)
+                throw new InvalidDataException($"journal segment missing payload buffer at offset {frameOffset.ToString(CultureInfo.InvariantCulture)}.");
+
             ArrayPool<byte>.Shared.Return(rentedBuffer);
         }
     }
 
     private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment) => new(
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0)}, chosenReplayStartSegment=0, snapshotPresent=False."));
+        $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent=False.");
 
     private static ulong DetermineNextSequence(Manifest manifest, PersistenceOptions options)
     {
-        var next = manifest.NextSequence == 0UL ? 1UL : manifest.NextSequence;
+        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
         if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
             next = lastApplied + 1UL;
 
@@ -404,7 +349,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         var lastAvailableSegment = 0;
         foreach (var segment in JournalReader.EnumerateSegments(options.DataDir, 1))
         {
-            if (firstAvailableSegment == 0)
+            if (firstAvailableSegment is 0)
                 firstAvailableSegment = segment.Index;
 
             lastAvailableSegment = segment.Index;
@@ -412,7 +357,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
-        var scanStartSegment = firstAvailableSegment == 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
+        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
 
         foreach (var env in JournalReader.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None))
         {
@@ -423,26 +368,33 @@ internal sealed class JournalWriter : IJournalCoordinator
         return next;
     }
 
-    private static FileOptions GetJournalFileOptions(bool strictFsync)
+    private static FileOptions GetJournalFileOptions()
     {
         var opts = FileOptions.Asynchronous;
-        if (strictFsync && OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
             opts |= FileOptions.WriteThrough;
         return opts;
     }
 
-    private static void PrepareActiveSegmentForSequenceScan(Manifest manifest, PersistenceOptions options)
+    private static async Task PrepareActiveSegmentForSequenceScanAsync(Manifest manifest, PersistenceOptions options, CancellationToken cancellationToken)
     {
         var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var path = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{segmentIndex:000000}{StorageFileExtensions.Journal}");
+        var path = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         if (!File.Exists(path))
             return;
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.None);
-        RepairTornTailIfNeeded(stream);
+        var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.None);
+        try
+        {
+            await RepairTornTailIfNeededAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
-    private static void RepairTornTailIfNeeded(FileStream stream)
+    private static async Task RepairTornTailIfNeededAsync(FileStream stream, CancellationToken cancellationToken)
     {
         try
         {
@@ -454,13 +406,13 @@ internal sealed class JournalWriter : IJournalCoordinator
             if (validLength == 0)
                 JournalFraming.WriteFileHeader(stream);
 
-            stream.Flush();
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidDataException) when (stream.Length > 0)
         {
             stream.SetLength(0);
             JournalFraming.WriteFileHeader(stream);
-            stream.Flush();
+            await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -482,9 +434,9 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
     {
-        if (firstAvailableSegment == 0)
+        if (firstAvailableSegment is 0)
         {
-            if (manifestCurrentJournal != 1)
+            if (manifestCurrentJournal is not 1)
                 throw CreateJournalTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
             return;
@@ -516,7 +468,7 @@ internal sealed class JournalWriter : IJournalCoordinator
             ActiveSegmentWrittenBytes += frameLen;
             _dirty = true;
 
-            // Publish buffered bytes to the OS so other handles (admin diagnostics, tail tools) observe a non-empty journal
+            // Publish buffered bytes to the OS so other handles (tail tools) observe a non-empty journal
             // without waiting for the periodic flush timer. Does not replace StrictFsync disk flush in FlushCoreAsync.
             var stream = _stream;
             if (stream is not null)
@@ -533,7 +485,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
     private async Task<int> AppendFrameAsync(byte[] payload, CancellationToken cancellationToken)
     {
-        var stream = GetOrCreateStream();
+        var stream = await GetOrCreateStreamAsync(cancellationToken).ConfigureAwait(false);
         var frameLen = JournalFraming.FrameHeaderSize + payload.Length + JournalFraming.FrameFooterSize;
         var frameStart = stream.Position;
         var sw = Stopwatch.StartNew();
@@ -541,7 +493,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         try
         {
             Span<byte> header = stackalloc byte[JournalFraming.FrameHeaderSize];
-            BinaryPrimitives.WriteUInt32LittleEndian(header, (uint)payload.Length);
+            BinaryPrimitives.WriteInt32LittleEndian(header, payload.Length);
             stream.Write(header);
 
             await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
@@ -575,7 +527,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         _ = Interlocked.Add(ref _bytes, frameLen);
         _ = Interlocked.Increment(ref _ops);
-        OnAppended?.Invoke();
+        OnAppended?.Invoke(this, EventArgs.Empty);
         return frameLen;
     }
 
@@ -594,6 +546,38 @@ internal sealed class JournalWriter : IJournalCoordinator
         return AppendAsync(journalEnvelope, cancellationToken);
     }
 
+    private async ValueTask AwaitFlushLoopDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+#pragma warning disable VSTHRD003
+
+            // The flush loop task is owned by this writer and is awaited during disposal.
+            await _flushLoopTask.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+        }
+        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
+        {
+            // Expected cooperative shutdown.
+        }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) is not 0)
+        {
+            // The timer may be disposed while the loop is waiting for the next tick.
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
+    }
+
     private async ValueTask DisposeStreamAsync()
     {
         FileStream? stream;
@@ -605,6 +589,26 @@ internal sealed class JournalWriter : IJournalCoordinator
 
         if (stream is not null)
             await stream.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private async ValueTask DisposeStreamDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+            await DisposeStreamAsync().ConfigureAwait(false);
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
     }
 
     private async ValueTask EnsureSegmentCapacityForFrameAsync(int frameLen, CancellationToken cancellationToken)
@@ -627,7 +631,7 @@ internal sealed class JournalWriter : IJournalCoordinator
 
             await action(cancellationToken).ConfigureAwait(false);
 
-            var manifest = _manifestStore.ReadCurrentOrDefault();
+            var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             CurrentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
             NextSequence = DetermineNextSequence(manifest, _opt);
             ActiveSegmentWrittenBytes = 0;
@@ -639,25 +643,39 @@ internal sealed class JournalWriter : IJournalCoordinator
         }
     }
 
-    private void Flush()
+    private async ValueTask FlushCoreAsync(CancellationToken cancellationToken)
     {
-        var stream = _stream;
-        if (stream is null)
-            return;
-
-        stream.Flush();
-        if (_opt.StrictFsync)
-            stream.Flush(true);
+        var stream = await GetOrCreateStreamAsync(cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         _dirty = false;
     }
 
-    private async ValueTask FlushCoreAsync(CancellationToken cancellationToken)
+    private async ValueTask FlushDuringDisposeAsync(List<Exception> failures)
     {
-        var stream = GetOrCreateStream();
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        if (_opt.StrictFsync)
-            stream.Flush(true);
-        _dirty = false;
+        try
+        {
+            await _ioGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await FlushCoreAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ = _ioGate.Release();
+            }
+        }
+        catch (IOException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            failures.Add(ex);
+        }
     }
 
     private async Task FlushLoopAsync(CancellationToken cancellationToken)
@@ -674,7 +692,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         {
             // Periodic flush loop stops when the journal writer is shutting down and the flush timer wait is canceled.
         }
-        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) != 0)
+        catch (ObjectDisposedException) when (Volatile.Read(ref _disposed) is not 0)
         {
             // Flush loop may outlive the writer by one tick; dispose completes the timer and pump exits without surfacing as an error.
         }
@@ -695,23 +713,31 @@ internal sealed class JournalWriter : IJournalCoordinator
         }
     }
 
-    private FileStream GetOrCreateStream()
+    private async Task<FileStream> GetOrCreateStreamAsync(CancellationToken cancellationToken)
     {
-        var current = _stream;
-        if (current is not null)
-            return current;
+        var existing = _stream;
+        if (existing is not null)
+            return existing;
+
+        var candidate = await OpenSegmentAsync(CurrentSegmentIndex, true, cancellationToken).ConfigureAwait(false);
+        var adoptCandidate = false;
 
         lock (_streamLock)
         {
-            current = _stream;
-            if (current is not null)
-                return current;
-
-            current = OpenSegment(CurrentSegmentIndex, true);
-            _stream = current;
-            ActiveSegmentWrittenBytes = current.Length;
-            return current;
+            existing = _stream;
+            if (existing is null)
+            {
+                _stream = candidate;
+                ActiveSegmentWrittenBytes = candidate.Length;
+                adoptCandidate = true;
+            }
         }
+
+        if (adoptCandidate)
+            return candidate;
+
+        await candidate.DisposeAsync().ConfigureAwait(false);
+        return existing!;
     }
 
     private bool HasPendingMemoryApply()
@@ -720,18 +746,18 @@ internal sealed class JournalWriter : IJournalCoordinator
             return _pendingMemoryApplyCount > 0;
     }
 
-    private FileStream OpenSegment(int idx, bool append)
+    private async Task<FileStream> OpenSegmentAsync(int idx, bool append, CancellationToken cancellationToken)
     {
-        var path = PathEx.Combine(_opt.DataDir, $"{StorageFilePrefixes.Journal}{idx:000000}{StorageFileExtensions.Journal}");
+        var path = PathEx.Combine(_opt.DataDir, $"{StorageFilePrefixes.Journal}{idx.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         var modes = append ? FileMode.OpenOrCreate : FileMode.Create;
-        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions(_opt.StrictFsync));
+        var fs = new FileStream(path, modes, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, GetJournalFileOptions());
         if (fs.Length == 0)
         {
             JournalFraming.WriteFileHeader(fs);
         }
         else if (append)
         {
-            RepairTornTailIfNeeded(fs);
+            await RepairTornTailIfNeededAsync(fs, cancellationToken).ConfigureAwait(false);
             _ = fs.Seek(0, SeekOrigin.End);
         }
 
@@ -744,18 +770,23 @@ internal sealed class JournalWriter : IJournalCoordinator
         var current = _stream ?? throw new InvalidOperationException("journal stream is not initialized.");
         await current.DisposeAsync().ConfigureAwait(false);
         CurrentSegmentIndex++;
-        _stream = OpenSegment(CurrentSegmentIndex, false);
-        ActiveSegmentWrittenBytes = _stream.Length;
+        var nextStream = await OpenSegmentAsync(CurrentSegmentIndex, false, cancellationToken).ConfigureAwait(false);
+        lock (_streamLock)
+        {
+            _stream = nextStream;
+            ActiveSegmentWrittenBytes = nextStream.Length;
+        }
+
         _dirty = false;
-        var prevManifest = _manifestStore.ReadCurrentOrDefault();
+        var prevManifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var manifest = new Manifest
         {
-            Format = prevManifest.Format == 0 ? 1 : prevManifest.Format,
+            Format = prevManifest.Format is 0 ? 1 : prevManifest.Format,
             CurrentJournal = CurrentSegmentIndex,
             NextSequence = NextSequence,
             LastSnapshot = prevManifest.LastSnapshot,
         };
-        _manifestStore.Write(manifest);
+        await _manifestStore.WriteAsync(manifest, cancellationToken).ConfigureAwait(false);
     }
 
     private void ThrowIfFlushLoopFailed()
@@ -781,7 +812,7 @@ internal sealed class JournalWriter : IJournalCoordinator
         Task waitTask;
         lock (_pendingMemoryApplyLock)
         {
-            if (_pendingMemoryApplyCount == 0)
+            if (_pendingMemoryApplyCount is 0)
                 return ValueTask.CompletedTask;
 
             _pendingMemoryApplyDrained ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

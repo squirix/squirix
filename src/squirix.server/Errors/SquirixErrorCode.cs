@@ -1,47 +1,35 @@
 namespace Squirix.Server.Errors;
 
-/// <summary>
-/// Defines stable squirix error codes used by protocol adapters and structured error payloads.
-/// </summary>
-internal enum SquirixErrorCode
+/// <summary>Defines stable squirix error codes used by protocol adapters and structured error payloads.</summary>
+public enum SquirixErrorCode
 {
-    /// <summary>
-    /// Cache name validation failed.
-    /// </summary>
+    /// <summary>Cache name validation failed.</summary>
     InvalidCacheName,
 
-    /// <summary>
-    /// Cache key validation failed.
-    /// </summary>
+    /// <summary>Cache key validation failed.</summary>
     InvalidCacheKey,
 
-    /// <summary>
-    /// Request validation failed.
-    /// </summary>
+    /// <summary>Request validation failed.</summary>
     BadRequest,
 
-    /// <summary>
-    /// Requested resource was not found.
-    /// </summary>
+    /// <summary>Requested resource was not found.</summary>
     NotFound,
 
-    /// <summary>
-    /// Request conflicts with current resource state.
-    /// </summary>
+    /// <summary>Request conflicts with current resource state.</summary>
     Conflict,
 
-    /// <summary>
-    /// Request payload exceeds the configured limit.
-    /// </summary>
+    /// <summary>Request payload exceeds the configured limit.</summary>
     PayloadTooLarge,
 
-    /// <summary>
-    /// Request was rejected by admission control.
-    /// </summary>
+    /// <summary>Request was rejected by admission control.</summary>
     TooManyRequests,
 
-    /// <summary>
-    /// Estimated cache memory usage is critical; memory-growing writes are rejected (admission control).
-    /// </summary>
+    /// <summary>Estimated cache memory usage is critical; memory-growing writes are rejected (admission control).</summary>
     MemoryPressure,
+
+    /// <summary>Mutating RPC is missing a required operation identifier.</summary>
+    OperationIdRequired,
+
+    /// <summary>An operation identifier was reused with a different mutation fingerprint.</summary>
+    OperationIdReuseMismatch,
 }

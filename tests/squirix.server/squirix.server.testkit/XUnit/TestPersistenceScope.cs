@@ -4,9 +4,7 @@ using Xunit;
 
 namespace Squirix.Server.TestKit.XUnit;
 
-/// <summary>
-/// Resolves filesystem path segments for test persistence so journal and snapshot directories stay isolated per xUnit test case.
-/// </summary>
+/// <summary>Resolves filesystem path segments for test persistence so journal and snapshot directories stay isolated per xUnit test case.</summary>
 public static class TestPersistenceScope
 {
     /// <summary>
@@ -21,6 +19,7 @@ public static class TestPersistenceScope
     public static string ResolvePersistenceScopeSegment(string? callerMemberName)
     {
         var uniqueId = TestContext.Current.Test?.TestCase.UniqueID;
-        return !string.IsNullOrEmpty(uniqueId) ? uniqueId : !string.IsNullOrEmpty(callerMemberName) ? callerMemberName : Guid.NewGuid().ToString("N");
+        var resolvePersistenceScopeSegment = !string.IsNullOrEmpty(callerMemberName) ? callerMemberName : Guid.NewGuid().ToString("N");
+        return !string.IsNullOrEmpty(uniqueId) ? uniqueId : resolvePersistenceScopeSegment;
     }
 }

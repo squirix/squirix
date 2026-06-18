@@ -10,9 +10,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Records bounded logical cache operation spans for the surface.
-/// </summary>
+/// <summary>Records bounded logical cache operation spans for the surface.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -48,10 +46,25 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetExpirationAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyNullableValueResult);
 
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.GetOrAdd,
+        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
+        CacheOperationClassifier.ClassifyCacheValueResult);
+
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Get,
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         static _ => CacheOperationResults.Ok);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Remove,
+        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.RemoveExpiration,
+        () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Set,
@@ -60,16 +73,6 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Set,
         () => _inner.SetAsync(cacheName, key, entry, cancellationToken));
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.RemoveExpiration,
-        () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Touch,
@@ -96,12 +99,17 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryRemoveAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheRemoveResult);
 
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Update,
+        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
+
     private static string GetSpanName(string operation) => $"squirix.cache.{operation}";
 
     private static void RecordResult(Activity? activity, string result)
     {
         _ = activity?.SetTag("cache.result", result);
-        if (result != CacheOperationResults.Ok)
+        if (!string.Equals(result, CacheOperationResults.Ok, StringComparison.OrdinalIgnoreCase))
             _ = activity?.SetStatus(ActivityStatusCode.Error);
     }
 

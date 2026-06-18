@@ -17,6 +17,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
     private readonly SnapshotTriggerOptions _opt;
+    private readonly TimeProvider _timeProvider;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
@@ -28,15 +29,21 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private int _fatalFailure;
 
-    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, SnapshotCoordinator<T> coordinator, IJournalCoordinator journal, SnapshotTriggerOptions opt)
+    public SnapshotTriggerService(
+        ILogger<SnapshotTriggerService<T>> log,
+        SnapshotCoordinator<T> coordinator,
+        IJournalCoordinator journal,
+        SnapshotTriggerOptions opt,
+        TimeProvider? timeProvider = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _opt = opt ?? throw new ArgumentNullException(nameof(opt));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) != 0;
+    public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) is not 0;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -51,55 +58,15 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
         try
         {
-            var period = TimeSpan.FromSeconds(1);
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                var requestTask = _snapshotRequests.Reader.WaitToReadAsync(stoppingToken).AsTask();
-                var tickTask = Task.Delay(period, stoppingToken);
-                var completed = await Task.WhenAny(requestTask, tickTask).ConfigureAwait(false);
-                if (completed == requestTask)
-                {
-                    if (!await requestTask.ConfigureAwait(false))
-                        break;
-
-                    while (_snapshotRequests.Reader.TryRead(out _))
-                    {
-                        // Intentionally empty: coalesce bursty snapshot requests into one run.
-                    }
-                }
-
-                if (_log.IsEnabled(LogLevel.Trace))
-                    SnapshotTriggerLogs.LogTick(_log);
-
-                await _coordinator.TrySnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
-            }
+            await RunSnapshotLoopAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             SnapshotTriggerLogs.LogCancelled(_log);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {
-            Volatile.Write(ref _fatalFailure, 1);
-            SnapshotTriggerLogs.LogCrashed(_log, ex);
-            throw;
-        }
-        catch (ObjectDisposedException ex)
-        {
-            Volatile.Write(ref _fatalFailure, 1);
-            SnapshotTriggerLogs.LogCrashed(_log, ex);
-            throw;
-        }
-        catch (InvalidOperationException ex)
-        {
-            Volatile.Write(ref _fatalFailure, 1);
-            SnapshotTriggerLogs.LogCrashed(_log, ex);
-            throw;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            Volatile.Write(ref _fatalFailure, 1);
-            SnapshotTriggerLogs.LogCrashed(_log, ex);
+            RecordFatalCrash(ex);
             throw;
         }
         finally
@@ -111,12 +78,44 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
         return;
 
-        void OnJournalAppended()
+        void OnJournalAppended(object? sender, EventArgs e)
         {
             if (_log.IsEnabled(LogLevel.Trace))
                 SnapshotTriggerLogs.LogJournalAppended(_log);
 
             _ = _snapshotRequests.Writer.TryWrite(true);
+        }
+    }
+
+    private void RecordFatalCrash(Exception ex)
+    {
+        Volatile.Write(ref _fatalFailure, 1);
+        SnapshotTriggerLogs.LogCrashed(_log, ex);
+    }
+
+    private async Task RunSnapshotLoopAsync(CancellationToken stoppingToken)
+    {
+        var period = TimeSpan.FromSeconds(1);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var requestTask = _snapshotRequests.Reader.WaitToReadAsync(stoppingToken).AsTask();
+            var tickTask = Task.Delay(period, _timeProvider, stoppingToken);
+            var completed = await Task.WhenAny(requestTask, tickTask).ConfigureAwait(false);
+            if (completed == requestTask)
+            {
+                if (!await requestTask.ConfigureAwait(false))
+                    break;
+
+                while (_snapshotRequests.Reader.TryRead(out _))
+                {
+                    // Intentionally empty: coalesce bursty snapshot requests into one run.
+                }
+            }
+
+            if (_log.IsEnabled(LogLevel.Trace))
+                SnapshotTriggerLogs.LogTick(_log);
+
+            await _coordinator.TrySnapshotAsync(_journal, stoppingToken).ConfigureAwait(false);
         }
     }
 }

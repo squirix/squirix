@@ -6,20 +6,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Squirix.Server;
 
-/// <summary>
-/// Server-package bootstrap for the squirix node host runtime.
-/// </summary>
+/// <summary>Server-package bootstrap for the squirix node host runtime.</summary>
 internal static class SquirixServerRuntime
 {
-    /// <summary>
-    /// Starts the squirix node server application with default production logging and cluster settings resolution.
-    /// </summary>
+    /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A lifetime handle for the started application.</returns>
     public static async ValueTask<SquirixServerApplicationHandle> StartAsync(Action<SquirixServerOptions>? configure = null, CancellationToken cancellationToken = default)
     {
-        var options = SquirixServerConfiguration.LoadOrCreateDefault();
+        var options = await SquirixServerConfiguration.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
         SquirixServerConfiguration.ApplyRuntimeDefaults(options);
         ClusterTopologyValidator.Validate(options);
@@ -38,7 +34,7 @@ internal static class SquirixServerRuntime
         _ = builder.Logging.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
         _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
 
-        _ = builder.AddSquirixServer(target => SquirixServerConfiguration.CopyOptions(options, target), loadDiscoveredSettings: false);
+        _ = await builder.AddSquirixServerAsync(target => SquirixServerConfiguration.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken).ConfigureAwait(false);
         var app = builder.Build();
         _ = app.MapSquirixServer();
 

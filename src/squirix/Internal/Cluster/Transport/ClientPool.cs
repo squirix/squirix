@@ -15,16 +15,15 @@ using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal.Cluster.Transport;
 
-/// <summary>
-/// Holds gRPC clients per peer and an execution policy (timeout/retry/concurrency) per peer.
-/// </summary>
+/// <summary>Holds gRPC clients per peer and an execution policy (timeout/retry/concurrency) per peer.</summary>
 internal sealed class ClientPool : IClientPool
 {
-    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new();
+    private readonly ConcurrentDictionary<string, SquirixCacheService.SquirixCacheServiceClient> _cacheClients = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new();
+    private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
-    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new();
+    private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TimeProvider _timeProvider;
     private int _disposed;
 
     public ClientPool(
@@ -32,9 +31,12 @@ internal sealed class ClientPool : IClientPool
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
-        BootstrapConnectOptions? connectOptions = null)
+        CallCredentials? callCredentials = null,
+        BootstrapConnectOptions? connectOptions = null,
+        TimeProvider? timeProvider = null)
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
+        _timeProvider = timeProvider ?? TimeProvider.System;
         var peerList = peers as Peer[] ?? [.. peers];
         var nodeIds = new string[peerList.Length];
 
@@ -44,6 +46,7 @@ internal sealed class ClientPool : IClientPool
             GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
+                Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
                 HttpHandler = handler ?? GrpcTransportEndpoints.CreateChannelHandler(),
                 MaxReceiveMessageSize = SquirixClientGrpcLimits.MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixClientGrpcLimits.MaxSendMessageSizeBytes,
@@ -85,13 +88,11 @@ internal sealed class ClientPool : IClientPool
             if (!_channels.TryGetValue(nodeId, out var channel))
                 continue;
 
-            var connectOptions = primaryNodeId is null
-                ? _connectOptions
-                : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
+            var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
 
             try
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken).ConfigureAwait(false);
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
                 ClientPoolMetrics.AddWarmup();
                 primaryNodeId ??= nodeId;
             }
@@ -138,7 +139,7 @@ internal sealed class ClientPool : IClientPool
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
         BeginDrain();

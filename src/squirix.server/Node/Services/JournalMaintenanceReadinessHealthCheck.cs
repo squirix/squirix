@@ -6,9 +6,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Services;
 
-/// <summary>
-/// Reports readiness based on fatal journal maintenance failures.
-/// </summary>
+/// <summary>Reports readiness based on fatal journal maintenance failures.</summary>
 internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
 {
     private readonly IJournalCompactionStatus _compaction;
@@ -31,11 +29,10 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         if (_journal.HasFlushLoopFailure)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
 
-        if (_compaction.State == CompactionState.Failed)
+        if (_compaction.State is CompactionState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
-        var healthy = _snapshot.HasFatalFailure
-            ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")
+        var healthy = _snapshot.HasFatalFailure ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")
             : HealthCheckResult.Healthy("journal maintenance is ready.");
         return Task.FromResult(healthy);
     }

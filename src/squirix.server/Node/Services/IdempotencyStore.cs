@@ -1,16 +1,16 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Threading;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Services;
 
-[SuppressMessage("Usage", "CA1001:Types that own disposable fields should be disposable", Justification = "Disposed by DI container at shutdown.")]
 internal sealed class IdempotencyStore : IDisposable
 {
+    private const string InsertOutcomeKind = "insert";
+
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly ConcurrentDictionary<string, StoredOperation> _records = new(StringComparer.Ordinal);
     private readonly TimeSpan _retention;
@@ -42,7 +42,7 @@ internal sealed class IdempotencyStore : IDisposable
         return snapshot;
     }
 
-    public void RestoreInsert(string operationId, string fingerprint) => Restore(operationId, fingerprint, InsertOutcome.Instance);
+    public void RestoreInsert(string operationId, string fingerprint) => Restore(operationId, fingerprint, InsertOutcomeKind);
 
     public void RestoreSnapshotRecords(IEnumerable<PersistedIdempotencyRecord> records)
     {
@@ -51,7 +51,9 @@ internal sealed class IdempotencyStore : IDisposable
         var restored = new List<KeyValuePair<string, StoredOperation>>();
         foreach (var record in records)
         {
-            ArgumentNullException.ThrowIfNull(record);
+            if (record is null)
+                throw new ArgumentException("Idempotency record must not be null.", nameof(records));
+
             restored.Add(
                 new KeyValuePair<string, StoredOperation>(record.OperationId, new StoredOperation(record.Fingerprint, FromPersistedOutcome(record.Outcome), record.CreatedUtc)));
         }
@@ -62,11 +64,11 @@ internal sealed class IdempotencyStore : IDisposable
 
     public void Dispose() => _mutex.Dispose();
 
-    private static InsertOutcome FromPersistedOutcome(PersistedIdempotencyOutcome outcome)
+    private static string FromPersistedOutcome(PersistedIdempotencyOutcome outcome)
     {
         return outcome.Kind switch
         {
-            "insert" => InsertOutcome.Instance,
+            InsertOutcomeKind => InsertOutcomeKind,
             _ => throw new NotSupportedException($"Unsupported persisted outcome kind: {outcome.Kind}"),
         };
     }
@@ -78,21 +80,21 @@ internal sealed class IdempotencyStore : IDisposable
         return HexFormat.FormatSha256HexUpper(digest);
     }
 
-    private static PersistedIdempotencyOutcome ToPersistedOutcome(IdempotencyOutcome outcome)
+    private static PersistedIdempotencyOutcome ToPersistedOutcome(string outcomeKind)
     {
-        return outcome switch
+        return outcomeKind switch
         {
-            InsertOutcome => new PersistedIdempotencyOutcome { Kind = "insert" },
-            _ => throw new NotSupportedException($"Unsupported idempotency outcome type: {outcome.GetType().Name}"),
+            InsertOutcomeKind => new PersistedIdempotencyOutcome { Kind = InsertOutcomeKind },
+            _ => throw new NotSupportedException($"Unsupported idempotency outcome kind: {outcomeKind}"),
         };
     }
 
-    private void Restore(string operationId, string fingerprint, IdempotencyOutcome outcome)
+    private void Restore(string operationId, string fingerprint, string outcomeKind)
     {
         if (string.IsNullOrWhiteSpace(operationId))
             return;
 
-        _records[operationId] = new StoredOperation(fingerprint, outcome, DateTime.UtcNow);
+        _records[operationId] = new StoredOperation(fingerprint, outcomeKind, DateTime.UtcNow);
     }
 
     private void SweepExpired(DateTime utcNow)
@@ -104,5 +106,5 @@ internal sealed class IdempotencyStore : IDisposable
         }
     }
 
-    private sealed record StoredOperation(string Fingerprint, IdempotencyOutcome Outcome, DateTime CreatedUtc);
+    private sealed record StoredOperation(string Fingerprint, string Outcome, DateTime CreatedUtc);
 }

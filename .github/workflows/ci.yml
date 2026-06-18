@@ -2,6 +2,7 @@ name: CI
 
 on:
     # Push/PR to main or develop: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
+    # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     push:
         branches: [ main, develop ]
     pull_request:
@@ -17,38 +18,63 @@ concurrency:
 
 jobs:
     changes:
-        name: Detect changes
+        name: Detect Changes
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
             code: ${{ steps.filter.outputs.code }}
             docs: ${{ steps.filter.outputs.docs }}
+            docker: ${{ steps.filter.outputs.docker }}
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
 
-            -   name: Paths filter
+            -   name: Paths Filter
                 uses: dorny/paths-filter@v4
                 id: filter
                 with:
                     filters: |
                         code:
-                          - '**'
-                          - '!**/*.md'
-                          - '!docs/**'
-                          - '!.github/ISSUE_TEMPLATE/**'
-                          - '!.github/PULL_REQUEST_TEMPLATE.md'
-                          - '!.markdownlint.json'
-                          - '!.markdownlint-cli2.jsonc'
+                          - 'src/**'
+                          - 'tests/**'
+                          - 'tools/**'
+                          - 'examples/**'
+                          - 'benchmarks/**'
+                          - 'samples/**'
+                          - 'Directory.Build.props'
+                          - 'Directory.Packages.props'
+                          - 'global.json'
+                          - 'stylecop.json'
+                          - '.editorconfig'
+                          - 'squirix.slnx'
+                          - 'squirix.slnx.DotSettings'
+                          - 'coverlet.runsettings'
+                          - 'clean-bin-obj.bat'
+                          - 'clean-bin-obj.sh'
                         docs:
                           - '**/*.md'
                           - 'docs/**'
                           - 'contributing.md'
                           - '.markdownlint.json'
                           - '.markdownlint-cli2.jsonc'
+                        docker:
+                          - 'docker/Dockerfile'
+                          - 'docker/Dockerfile.release'
+                          - 'docker/**'
+                          - '.dockerignore'
+                          - 'src/squirix/**'
+                          - 'src/shared/**'
+                          - 'src/squirix.server/**'
+                          - 'src/squirix.server.host/**'
+                          - 'Directory.Build.props'
+                          - 'Directory.Packages.props'
+                          - 'global.json'
+                          - 'stylecop.json'
+                          - '.editorconfig'
+                          - 'squirix.slnx'
 
     markdownlint:
-        name: Documentation lint (markdownlint)
+        name: Documentation Lint (Markdownlint)
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: changes
@@ -60,14 +86,16 @@ jobs:
             -   name: Checkout
                 uses: actions/checkout@v6
 
-            -   name: Run markdownlint
+            -   name: Run Markdownlint
                 uses: DavidAnson/markdownlint-cli2-action@v23
                 with:
                     config: .markdownlint-cli2.jsonc
 
     # dotnet format is slow; run it once on the cheapest runner instead of every matrix cell.
+    # Pull requests: changed solution .cs files only (full solution on global config / project changes).
+    # Push, schedule, and workflow_dispatch: full solution.
     verify-coding-conventions:
-        name: Verify coding conventions (.editorconfig)
+        name: Verify Coding Conventions (.editorconfig)
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: changes
@@ -78,13 +106,15 @@ jobs:
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
+                with:
+                    fetch-depth: 0
 
             -   name: Setup .NET
                 uses: actions/setup-dotnet@v5
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet packages
+            -   name: Cache NuGet Packages
                 uses: actions/cache@v5
                 with:
                     path: ~/.nuget/packages
@@ -95,21 +125,64 @@ jobs:
             -   name: Restore
                 run: dotnet restore squirix.slnx
 
-            -   name: Verify .NET 10 baseline
+            -   name: Verify .NET 10 Baseline
                 run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
 
-            -   name: Verify file-based durability tools (sqr-*.cs)
+            -   name: Verify File-Based Durability Tools (sqr-*.cs)
                 run: dotnet run --file ./tools/internal/sqr-tools-verify.cs --
 
-            -   name: Ensure dev HTTPS certificate
+            -   name: Ensure Dev HTTPS Certificate
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
-            -   name: Verify file-based examples
+            -   name: Verify File-Based Examples
                 run: dotnet run --file ./tools/internal/sqr-examples-verify.cs --
 
-            -   name: Verify coding conventions (.editorconfig)
-                run: dotnet format squirix.slnx --verify-no-changes --no-restore
+            -   name: Verify Coding Conventions (.editorconfig)
+                shell: bash
+                run: bash tools/ci/verify-dotnet-format.sh
+
+    # Pull requests: fail when changed text files are committed with CRLF (LF required by .editorconfig).
+    verify-line-endings:
+        name: Verify Line Endings (LF)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name == 'pull_request'
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v6
+                with:
+                    fetch-depth: 0
+
+            -   name: Verify Line Endings In Changed Files
+                shell: bash
+                run: bash tools/ci/verify-line-endings.sh
+
+    docker-build:
+        name: Docker Build
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        needs: changes
+        if: |
+            needs.changes.outputs.docker == 'true' ||
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch'
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v6
+
+            -   name: Set Up Docker Buildx
+                uses: docker/setup-buildx-action@v4
+
+            -   name: Build Image
+                uses: docker/build-push-action@v7
+                with:
+                    context: .
+                    file: docker/Dockerfile
+                    push: false
+                    tags: squirix-server:ci
+                    cache-from: type=gha
+                    cache-to: type=gha,mode=max
 
     build:
         name: Build (${{ matrix.os }} / ${{ matrix.framework }})
@@ -143,7 +216,7 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet packages
+            -   name: Cache NuGet Packages
                 uses: actions/cache@v5
                 with:
                     path: ~/.nuget/packages
@@ -154,25 +227,22 @@ jobs:
             -   name: Restore
                 run: dotnet restore squirix.slnx
 
-            -   name: Verify .NET 10 baseline
-                run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
-
-            -   name: Verify whitespace
+            -   name: Verify Whitespace
                 run: git diff --check
 
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
-            -   name: Ensure dev HTTPS certificate
+            -   name: Ensure Dev HTTPS Certificate
                 if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
-            -   name: Pack and external package smoke
+            -   name: Run External Package Smoke
                 if: matrix.os == 'ubuntu-latest' && github.event_name != 'pull_request'
                 run: dotnet run --file ./tools/internal/sqr-package-smoke.cs --
 
-            -   name: Upload build outputs for tests
+            -   name: Upload Build Outputs For Tests
                 uses: actions/upload-artifact@v7
                 with:
                     name: build-output-${{ matrix.os }}-${{ matrix.framework }}
@@ -191,7 +261,7 @@ jobs:
                     if-no-files-found: error
 
     smoke-fast-fail:
-        name: Smoke Fast-Fail (ubuntu / net10.0)
+        name: Smoke Fast-Fail (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: build
@@ -213,7 +283,7 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet packages
+            -   name: Cache NuGet Packages
                 uses: actions/cache@v5
                 with:
                     path: ~/.nuget/packages
@@ -221,37 +291,43 @@ jobs:
                     restore-keys: |
                         ${{ runner.os }}-dotnet10-nuget-
 
-            -   name: Download build outputs
+            -   name: Download Build Outputs
                 uses: actions/download-artifact@v7
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
 
-            -   name: Restore (resolve packages for collectors)
+            -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore executable bits for test hosts (Linux)
+            -   name: Restore Executable Bits For Test Hosts (Linux)
                 if: runner.os == 'Linux'
                 shell: bash
                 run: |
                     chmod +x tests/squirix.server/squirix.server.smoke-tests/bin/Release/net10.0/Squirix.Server.SmokeTests || true
 
-            -   name: Ensure dev HTTPS certificate
+            -   name: Ensure Dev HTTPS Certificate
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
-            -   name: Run smoke tests
+            -   name: Run Auth-Protected Surface Smoke Tests (Fast-Fail)
+                shell: bash
+                run: |
+                    set -o pipefail
+                    dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
+                      --filter "FullyQualifiedName~AuthSmokeTests" 2>&1 | tee test-output-smoke-auth.log
+
+            -   name: Run Smoke Tests
                 shell: bash
                 run: |
                     set -o pipefail
                     mkdir -p coverage/smoke
                     dotnet test tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj -f net10.0 --configuration Release --no-build --verbosity normal \
-                      -p:UseAppHost=false \
                       --logger "trx;LogFileName=smoke.trx" \
                       --results-directory "${{ github.workspace }}/coverage/smoke" \
                       --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee test-output-smoke.log
 
-            -   name: Verify smoke coverage was collected
+            -   name: Verify Smoke Coverage Was Collected
                 shell: bash
                 run: |
                     mapfile -t files < <(find coverage/smoke -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -263,7 +339,7 @@ jobs:
                       exit 1
                     fi
 
-            -   name: Upload smoke coverage files
+            -   name: Upload Smoke Coverage Files
                 if: always()
                 uses: actions/upload-artifact@v7
                 with:
@@ -272,7 +348,7 @@ jobs:
                     path: coverage/**/coverage.cobertura.xml
                     if-no-files-found: error
 
-            -   name: Upload smoke test results (TRX)
+            -   name: Upload Smoke Test Results (TRX)
                 if: always()
                 uses: actions/upload-artifact@v7
                 with:
@@ -281,11 +357,11 @@ jobs:
                     path: '**/*.trx'
                     if-no-files-found: warn
 
-            -   name: Fail on gRPC cancellation errors in logs
+            -   name: Fail On gRPC Cancellation Errors In Logs
                 if: always()
                 shell: bash
                 run: |
-                    if grep -Ei 'gRPC method .+ (task )?canceled' test-output-smoke.log; then
+                    if grep -Ei 'gRPC method .+ (task )?canceled' test-output-smoke-auth.log test-output-smoke.log; then
                       echo "Found gRPC cancellation errors in logs. Failing the build." >&2
                       exit 1
                     else
@@ -299,11 +375,11 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ github.event_name == 'schedule' && 8 || 4 }}
+            max-parallel: ${{ github.event_name == 'schedule' && 8 || 7 }}
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e ]
+                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -322,7 +398,7 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet packages
+            -   name: Cache NuGet Packages
                 uses: actions/cache@v5
                 with:
                     path: ~/.nuget/packages
@@ -330,16 +406,16 @@ jobs:
                     restore-keys: |
                         ${{ runner.os }}-dotnet10-nuget-
 
-            -   name: Download build outputs
+            -   name: Download Build Outputs
                 uses: actions/download-artifact@v7
                 with:
                     name: build-output-${{ matrix.os }}-${{ matrix.framework }}
                     path: .
 
-            -   name: Restore (resolve packages for collectors)
+            -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore executable bits for test hosts (Linux)
+            -   name: Restore Executable Bits For Test Hosts (Linux)
                 if: runner.os == 'Linux'
                 shell: bash
                 run: |
@@ -347,11 +423,11 @@ jobs:
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
 
-            -   name: Ensure dev HTTPS certificate
+            -   name: Ensure Dev HTTPS Certificate
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
-            -   name: Run test suite
+            -   name: Run Test Suite
                 shell: bash
                 run: |
                     set -o pipefail
@@ -372,10 +448,14 @@ jobs:
                       server-integration)
                         PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
                         ;;
-                      e2e)
+                      e2e-single-node)
                         PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
                         # Stress E2E tests are scheduled/manual only; keep them out of the standard e2e run.
-                        FILTER_ARGS=(--filter "Suite!=Stress")
+                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.SingleNode|FullyQualifiedName~Client|FullyQualifiedName~Persistence)&Suite!=Stress")
+                        ;;
+                      e2e-multi-node)
+                        PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
+                        FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
                         ;;
                       *)
                         echo "Unsupported suite: ${{ matrix.suite }}" >&2
@@ -383,23 +463,21 @@ jobs:
                         ;;
                     esac
 
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+                    if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.suite }}" != "server-property" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" \
                         --results-directory "${{ github.workspace }}/coverage/${{ matrix.suite }}" \
                         --settings coverlet.runsettings --collect:"XPlat Code Coverage" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     else
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
-                        -p:UseAppHost=false \
                         "${FILTER_ARGS[@]}" \
                         --logger "trx;LogFileName=${{ matrix.suite }}.trx" 2>&1 | tee "test-output-${{ matrix.suite }}.log"
                     fi
 
-            -   name: Verify suite coverage was collected
-                if: matrix.os == 'ubuntu-latest'
+            -   name: Verify Suite Coverage Was Collected
+                if: matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 shell: bash
                 run: |
                     mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -411,8 +489,8 @@ jobs:
                       exit 1
                     fi
 
-            -   name: Upload raw coverage files
-                if: always() && matrix.os == 'ubuntu-latest'
+            -   name: Upload Raw Coverage Files
+                if: always() && matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}
@@ -420,7 +498,7 @@ jobs:
                     path: coverage/**/coverage.cobertura.xml
                     if-no-files-found: error
 
-            -   name: Upload test results (TRX)
+            -   name: Upload Test Results (TRX)
                 if: always()
                 uses: actions/upload-artifact@v7
                 with:
@@ -429,7 +507,7 @@ jobs:
                     path: '**/*.trx'
                     if-no-files-found: warn
 
-            -   name: Fail on gRPC cancellation errors in logs
+            -   name: Fail On gRPC Cancellation Errors In Logs
                 if: always()
                 shell: bash
                 run: |
@@ -441,11 +519,16 @@ jobs:
                     fi
 
     verify-test-discovery:
-        name: Verify test discovery (ubuntu / net10.0)
+        name: Verify Test Discovery (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [ build, smoke-fast-fail ]
         steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
             -   name: Checkout
                 uses: actions/checkout@v6
 
@@ -454,7 +537,7 @@ jobs:
                 with:
                     global-json-file: global.json
 
-            -   name: Cache NuGet packages
+            -   name: Cache NuGet Packages
                 uses: actions/cache@v5
                 with:
                     path: ~/.nuget/packages
@@ -462,23 +545,24 @@ jobs:
                     restore-keys: |
                         ${{ runner.os }}-dotnet10-nuget-
 
-            -   name: Download build outputs
+            -   name: Download Build Outputs
                 uses: actions/download-artifact@v7
                 with:
                     name: build-output-ubuntu-latest-net10.0
                     path: .
 
-            -   name: Restore (resolve packages for test host)
+            -   name: Restore (Resolve Packages For Test Host)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore executable bits for test hosts (Linux)
+            -   name: Restore Executable Bits For Test Hosts (Linux)
                 if: runner.os == 'Linux'
                 shell: bash
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
+                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
 
-            -   name: Verify test discovery per project (fail on zero tests)
+            -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
                 shell: bash
                 run: |
                     set -euo pipefail
@@ -486,7 +570,7 @@ jobs:
                     test_projects=()
                     while IFS= read -r -d '' f; do
                       test_projects+=("$f")
-                    done < <(git ls-files -z '*Tests.csproj' '*E2E.csproj')
+                    done < <(git ls-files -z '*Tests.csproj' '*E2ETests.csproj')
 
                     if [ ${#test_projects[@]} -eq 0 ]; then
                       echo "No test projects found (*.Tests.csproj)." >&2
@@ -511,6 +595,15 @@ jobs:
                         echo "No tests discovered in $proj" >&2
                         exit 1
                       fi
+
+                      count="$(echo "$output" | sed -n '/The following Tests are available:/,$p' | tail -n +2 | grep -E '^[[:space:]]+[^[:space:]]' | wc -l | tr -d '[:space:]')"
+                      if [ "${count:-0}" -le 0 ]; then
+                        echo "$output"
+                        echo "No test names were listed for $proj" >&2
+                        exit 1
+                      fi
+
+                      echo "Discovered $count tests in $proj"
                     done
 
     coverage:
@@ -527,13 +620,14 @@ jobs:
         env:
             COVERAGE_MIN_LINE_RATE: "0.70"
         steps:
-            -   name: Download raw coverage files
+            -   name: Download Raw Coverage Files
                 uses: actions/download-artifact@v7
                 with:
                     pattern: coverage-raw-net10.0-*
                     merge-multiple: true
                     path: coverage
-            -   name: Check coverage files exist
+
+            -   name: Check Coverage Files Exist
                 id: covcheck
                 shell: bash
                 run: |
@@ -545,16 +639,18 @@ jobs:
                     fi
 
                     echo "found=true" >> "$GITHUB_OUTPUT"
-            -   name: Merge coverage reports
+
+            -   name: Merge Coverage Reports
                 if: steps.covcheck.outputs.found == 'true'
                 uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
                 with:
                     reports: coverage/**/coverage.cobertura.xml
                     targetdir: coverage/merged
                     reporttypes: Cobertura
-                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
+                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
                     classfilters: '+*;-JetBrains.Annotations.*'
-            -   name: Enforce coverage gate
+
+            -   name: Enforce Coverage Gate
                 if: steps.covcheck.outputs.found == 'true'
                 shell: pwsh
                 run: |
@@ -576,24 +672,28 @@ jobs:
                     if ($rate -lt $threshold) {
                         throw "Line coverage is below the configured threshold."
                     }
-            - name: Report
-              if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-              uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
-              with:
-                  reports: coverage/**/coverage.cobertura.xml
-                  targetdir: coverage/report
-                  reporttypes: HtmlInline;Cobertura;TextSummary
-                  assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit'
-                  classfilters: '+*;-JetBrains.Annotations.*'
-            -   name: Upload coverage artifact
+
+            -   name: Generate Coverage Report
+                if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+                uses: danielpalme/ReportGenerator-GitHub-Action@a003c8fb9ac008fd0fffd5faa4f7d3ecb52e0675
+                with:
+                    reports: coverage/**/coverage.cobertura.xml
+                    targetdir: coverage/report
+                    reporttypes: HtmlInline;Cobertura;TextSummary
+                    assemblyfilters: '+Squirix;+Squirix.Server;-Squirix.TestKit;-Squirix.Server.TestKit'
+                    classfilters: '+*;-JetBrains.Annotations.*'
+
+            -   name: Upload Coverage Artifact
                 if: steps.covcheck.outputs.found == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-report
                     retention-days: 30
                     path: coverage/report
-            -   name: Summary
+
+            -   name: Write Coverage Summary
                 if: always()
+                shell: bash
                 run: |
                     if [ -f coverage/report/Summary.txt ]; then
                       echo "### Coverage Summary" >> $GITHUB_STEP_SUMMARY
@@ -611,14 +711,14 @@ jobs:
         needs: [ smoke-fast-fail, test-suites ]
         if: always()
         steps:
-            -   name: Download TRX artifacts
+            -   name: Download TRX Artifacts
                 uses: actions/download-artifact@v7
                 with:
                     pattern: test-results-*
                     merge-multiple: true
                     path: test-results
 
-            -   name: Write top 5 slowest tests to summary
+            -   name: Write Top 5 Slowest Tests To Summary
                 shell: pwsh
                 run: |
                     $trxFiles = Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue
@@ -667,49 +767,6 @@ jobs:
                         ('- {0} - {1}' -f $item.Name, $item.DurationText) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     }
 
-    cleanup-intermediate-artifacts:
-        name: Cleanup intermediate artifacts
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [ coverage, test-duration-summary ]
-        if: always()
-        permissions:
-            actions: write
-            contents: read
-        steps:
-            -   name: Delete intermediate workflow artifacts
-                shell: bash
-                env:
-                    GH_TOKEN: ${{ github.token }}
-                run: |
-                    set -euo pipefail
-                    repo='${{ github.repository }}'
-                    run_id='${{ github.run_id }}'
-                    page=1
-                    while true; do
-                      json="$(gh api "repos/${repo}/actions/runs/${run_id}/artifacts?per_page=100&page=${page}")"
-                      n="$(jq '.artifacts | length' <<<"${json}")"
-                      if [[ "${n}" -eq 0 ]]; then
-                        break
-                      fi
-                      while IFS=$'\t' read -r id name; do
-                        [[ -z "${id}" ]] && continue
-                        case "${name}" in
-                          build-output-*|coverage-raw-*|test-results-*|package-artifacts-*)
-                            echo "Deleting artifact id=${id} name=${name}"
-                            gh api --method DELETE "repos/${repo}/actions/artifacts/${id}"
-                            ;;
-                          *)
-                            echo "Keeping artifact id=${id} name=${name}"
-                            ;;
-                        esac
-                      done < <(jq -r '.artifacts[] | "\(.id)\t\(.name)"' <<<"${json}")
-                      if [[ "${n}" -lt 100 ]]; then
-                        break
-                      fi
-                      page=$((page + 1))
-                    done
-
     ci-success:
         name: CI success
         runs-on: ubuntu-latest
@@ -718,6 +775,8 @@ jobs:
             - changes
             - markdownlint
             - verify-coding-conventions
+            - verify-line-endings
+            - docker-build
             - build
             - smoke-fast-fail
             - test-suites
@@ -727,11 +786,12 @@ jobs:
             always() && (
               needs.changes.outputs.docs == 'true' ||
               needs.changes.outputs.code == 'true' ||
+              needs.changes.outputs.docker == 'true' ||
               github.event_name == 'schedule' ||
               github.event_name == 'workflow_dispatch'
             )
         steps:
-            -   name: Verify required checks for this change set
+            -   name: Verify Required Checks For This Change Set
                 shell: bash
                 env:
                     DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
@@ -739,6 +799,8 @@ jobs:
                     EVENT_NAME: ${{ github.event_name }}
                     RESULT_MARKDOWNLINT: ${{ needs.markdownlint.result }}
                     RESULT_VERIFY: ${{ needs.verify-coding-conventions.result }}
+                    RESULT_LINE_ENDINGS: ${{ needs.verify-line-endings.result }}
+                    RESULT_DOCKER: ${{ needs.docker-build.result }}
                     RESULT_BUILD: ${{ needs.build.result }}
                     RESULT_SMOKE: ${{ needs.smoke-fast-fail.result }}
                     RESULT_TEST: ${{ needs.test-suites.result }}
@@ -750,11 +812,19 @@ jobs:
 
                     require_docs=false
                     require_code=false
+                    require_docker=false
+                    require_line_endings=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docs=true
                     fi
                     if [[ "$CODE_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_code=true
+                    fi
+                    if [[ "${{ needs.changes.outputs.docker }}" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                      require_docker=true
+                    fi
+                    if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                      require_line_endings=true
                     fi
 
                     assert_success() {
@@ -775,6 +845,8 @@ jobs:
 
                     assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
                     assert_success "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
+                    assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
+                    assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
                     assert_success "build" "$require_code" "$RESULT_BUILD"
                     assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
                     assert_success "test-suites" "$require_code" "$RESULT_TEST"
@@ -786,19 +858,39 @@ jobs:
                     fi
 
     stability-stress:
-        name: Stability Stress (manual)
-        if: github.event_name == 'workflow_dispatch'
+        name: Stability Stress (Weekly / Manual)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         runs-on: windows-latest
-        timeout-minutes: 45
+        timeout-minutes: 60
         steps:
-            -   uses: actions/checkout@v6
-            -   uses: actions/setup-dotnet@v5
+            -   name: Checkout
+                uses: actions/checkout@v6
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@v5
                 with:
                     global-json-file: global.json
+
             -   name: Restore
                 run: dotnet restore squirix.slnx
+
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
-            -   name: Run selected resiliency stress checks
-                shell: pwsh
+
+            -   name: Ensure Dev HTTPS Certificate
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            -   name: Run Selected Resiliency Stress Checks
                 run: dotnet run --file ./tools/internal/sqr-resiliency-repeat.cs -- -Iterations 5 -Configuration Release -NoBuild
+
+            -   name: Run E2E Stress Suite
+                shell: bash
+                env:
+                    SQUIRIX_STRESS_SCALE: "0.5"
+                run: |
+                    set -o pipefail
+                    dotnet test tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                      --configuration Release \
+                      --no-build \
+                      --filter "Suite=Stress"

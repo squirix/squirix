@@ -23,15 +23,16 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(FlushIntervalMs), value, "FlushIntervalMs must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "FlushIntervalMs must be greater than zero.");
 
             field = value;
         }
     }
 
-    /// <summary>
-    /// Gets the maximum number of concurrent durable mutations that can share one durability flush.
-    /// </summary>
+    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
+    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+
+    /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
     [JsonPropertyName("groupCommitMaxBatch")]
     public int JournalGroupCommitMaxBatch
     {
@@ -39,7 +40,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGroupCommitMaxBatch), value, "JournalGroupCommitMaxBatch must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxBatch must be greater than zero.");
 
             field = value;
         }
@@ -56,16 +57,24 @@ internal sealed record PersistenceOptions
         init
         {
             if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalGroupCommitMaxWaitMs), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
 
             field = value;
         }
     }
 
-    /// <summary>
-    /// Gets a value indicating whether journal group commit is enabled.
-    /// </summary>
-    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+    [JsonPropertyName("journalMaxSegmentMb")]
+    public int JournalMaxSegmentMb
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentMb must be greater than zero.");
+
+            field = value;
+        }
+    }
 
     public int ManifestRetentionCount
     {
@@ -73,7 +82,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(ManifestRetentionCount), value, "ManifestRetentionCount must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "ManifestRetentionCount must be greater than zero.");
 
             field = value;
         }
@@ -85,7 +94,7 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotIntervalSec), value, "SnapshotIntervalSec must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotIntervalSec must be greater than zero.");
 
             field = value;
         }
@@ -97,24 +106,20 @@ internal sealed record PersistenceOptions
         init
         {
             if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(SnapshotRetentionCount), value, "SnapshotRetentionCount must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotRetentionCount must be greater than zero.");
 
             field = value;
         }
     }
 
-    public bool StrictFsync { get; init; }
+    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
+    public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
 
-    [JsonPropertyName("journalMaxSegmentMb")]
-    public int JournalMaxSegmentMb
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(JournalMaxSegmentMb), value, "JournalMaxSegmentMb must be greater than zero.");
+    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
+    public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
 
-            field = value;
-        }
-    }
+    /// <summary>
+    /// Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.
+    /// </summary>
+    public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
 }

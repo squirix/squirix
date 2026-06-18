@@ -16,6 +16,9 @@ internal sealed class CacheRuntime : ICacheRuntime
     public ILogicalNamespacedCache<T> GetCache<T>(string cacheName)
     {
         _ = CacheName.ParsePublic(cacheName);
-        return new NamespacedCacheAdapter<T>((ILogicalNamespacedCache<T>)_defaultCache);
+        if (_defaultCache is not ILogicalNamespacedCache<T> typedCache)
+            throw new InvalidOperationException($"Default cache does not support value type '{typeof(T).Name}'.");
+
+        return new NamespacedCacheAdapter<T>(typedCache);
     }
 }

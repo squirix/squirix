@@ -9,6 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="JetBrains.Annotations"/>
         <PackageReference Include="NetArchTest.Rules"/>
         <PackageReference Include="FakeItEasy"/>
         <PackageReference Include="xunit.v3"/>

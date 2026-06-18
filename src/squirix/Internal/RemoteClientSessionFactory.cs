@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.Core.Interceptors;
+using Grpc.Core;
 using Squirix.Internal.Cluster.Bootstrap;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -30,47 +30,38 @@ internal static class RemoteClientSessionFactory
             };
         }
 
-        var interceptor = BuildInterceptorChain(options);
+        var credentials = BuildCallCredentials(options);
 
-        ClientPool? clients = null;
+        ClientPool? pool = null;
         try
         {
 #pragma warning disable CA2000
-            clients = new ClientPool(peers, static nodeId => new CallPolicy(peer: nodeId), handler, interceptor);
+            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
 #pragma warning restore CA2000
-            var primaryNodeId = await clients.WarmUpAsync(cancellationToken).ConfigureAwait(false);
-            var bootstrapNodeIds = new string[clients.BootstrapNodeIds.Count];
-            for (var i = 0; i < clients.BootstrapNodeIds.Count; i++)
-                bootstrapNodeIds[i] = clients.BootstrapNodeIds[i];
+            var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
+            var nodeIds = new string[pool.BootstrapNodeIds.Count];
+            for (var i = 0; i < pool.BootstrapNodeIds.Count; i++)
+                nodeIds[i] = pool.BootstrapNodeIds[i];
 
-            var failover = new BootstrapEndpointFailover(bootstrapNodeIds, primaryNodeId);
-            var connected = clients;
-            clients = null;
+            var failover = new BootstrapEndpointFailover(nodeIds, primaryNodeId);
+            var connected = pool;
+            pool = null;
             return new RemoteClientSession(connected, failover, SerializationProvider.Create(options.Serializer));
         }
         finally
         {
-            if (clients is not null)
-                await clients.DisposeAsync().ConfigureAwait(false);
+            if (pool is not null)
+                await pool.DisposeAsync().ConfigureAwait(false);
         }
     }
 
-    private static Interceptor? BuildInterceptorChain(SquirixOptions options)
+    private static CallCredentials? BuildCallCredentials(SquirixOptions options)
     {
-        var interceptors = new List<Interceptor>();
-
-        if (!string.IsNullOrWhiteSpace(options.ApiKey))
-            interceptors.Add(new ApiKeyInterceptor(options.ApiKey));
-
-        if (options.BearerTokenProvider is not null)
-            interceptors.Add(new BearerTokenInterceptor(options.BearerTokenProvider));
-
-        return interceptors.Count switch
+        return options.BearerTokenProvider is null ? null : CallCredentials.FromInterceptor(async (context, metadata) =>
         {
-            0 => null,
-            1 => interceptors[0],
-            _ => new CompositeInterceptor(interceptors),
-        };
+            var token = await options.BearerTokenProvider(context.CancellationToken).ConfigureAwait(false);
+            metadata.Add("authorization", $"Bearer {token}");
+        });
     }
 
     private static string[] NormalizeEndpoints(IEnumerable<string> endpoints)
@@ -82,7 +73,9 @@ internal static class RemoteClientSessionFactory
 
         foreach (var endpoint in endpoints)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+            if (string.IsNullOrWhiteSpace(endpoint))
+                throw new ArgumentException("Endpoint must be a non-empty string.", nameof(endpoints));
+
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Scheme) || string.IsNullOrWhiteSpace(uri.Host))
                 throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 
@@ -93,6 +86,6 @@ internal static class RemoteClientSessionFactory
                 result.Add(normalized);
         }
 
-        return result.Count == 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
+        return result.Count is 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
     }
 }

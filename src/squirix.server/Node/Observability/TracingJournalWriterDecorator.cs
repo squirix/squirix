@@ -6,9 +6,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Adds OpenTelemetry spans around journal coordinator operations.
-/// </summary>
+/// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
 internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
 {
     private readonly JournalWriter _inner;
@@ -20,7 +18,7 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
     }
 
-    public event Action? OnAppended
+    public event EventHandler? OnAppended
     {
         add => _inner.OnAppended += value;
         remove => _inner.OnAppended -= value;
@@ -43,17 +41,17 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
     public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken) =>
         TracePutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
 
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.RemoveExpiration,
-        Enrich(JournalWriterTracing.ForKey(key)),
-        () => _inner.AppendRemoveExpirationAsync(key, cancellationToken));
-
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
         _tracer,
         JournalOperationKind.Remove,
         Enrich(JournalWriterTracing.ForKey(key)),
         () => _inner.AppendRemoveAsync(key, cancellationToken));
+
+    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
+        _tracer,
+        JournalOperationKind.RemoveExpiration,
+        Enrich(JournalWriterTracing.ForKey(key)),
+        () => _inner.AppendRemoveExpirationAsync(key, cancellationToken));
 
     public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
         _tracer,
@@ -79,14 +77,15 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
         Enrich(default),
         () => _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken));
 
-    public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TResult>(
+    public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
-        Func<TState, ulong, CancellationToken, ValueTask<TResult>> action,
+        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
         _tracer,
         JournalOperationKind.SnapshotCut,
         Enrich(default),
-        () => _inner.ExecuteSnapshotCutAsync(state, action, cancellationToken));
+        () => _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken));
 
     public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
         JournalWriterTracing.TraceAsync(

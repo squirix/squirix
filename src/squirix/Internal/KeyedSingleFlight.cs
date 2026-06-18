@@ -5,26 +5,25 @@ using System.Threading.Tasks;
 
 namespace Squirix.Internal;
 
-/// <summary>
-/// Serializes asynchronous work per key so a factory runs at most once for concurrent callers.
-/// </summary>
-internal sealed class KeyedSingleFlight
+/// <summary>Serializes asynchronous work per key so a factory runs at most once for concurrent callers.</summary>
+/// <typeparam name="TResult">The result type produced by the single-flight factory.</typeparam>
+internal sealed class KeyedSingleFlight<TResult>
 {
-    private readonly ConcurrentDictionary<string, Task> _inFlight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Task<TResult>> _concurrent = new(StringComparer.Ordinal);
 
-    public Task<TResult> RunAsync<TResult>(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
+    public Task<TResult> RunAsync(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        return (Task<TResult>)_inFlight.GetOrAdd(
+        var result = _concurrent.GetOrAdd(
             key,
-            _ => ExecuteAndCleanupAsync(key, action, cancellationToken));
+            static (inFlightKey, state) => state.Flight.ExecuteAndCleanupAsync(inFlightKey, state.Action, state.CancellationToken),
+            new RunAsyncState(this, action, cancellationToken));
+
+        return result;
     }
 
-    private async Task<TResult> ExecuteAndCleanupAsync<TResult>(
-        string key,
-        Func<CancellationToken, Task<TResult>> action,
-        CancellationToken cancellationToken)
+    private async Task<TResult> ExecuteAndCleanupAsync(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
     {
         try
         {
@@ -32,7 +31,9 @@ internal sealed class KeyedSingleFlight
         }
         finally
         {
-            _ = _inFlight.TryRemove(key, out _);
+            _ = _concurrent.TryRemove(key, out _);
         }
     }
+
+    private readonly record struct RunAsyncState(KeyedSingleFlight<TResult> Flight, Func<CancellationToken, Task<TResult>> Action, CancellationToken CancellationToken);
 }

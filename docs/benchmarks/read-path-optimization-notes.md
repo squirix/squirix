@@ -28,8 +28,8 @@ E2E benchmark infrastructure lives only as physical files under `benchmarks/squi
 
 ### Layer breakdown (internal — `Squirix.Benchmarks`)
 
-```text
-dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c Release -- --filter *ReadPathBreakdownBenchmarks* --join --warmupCount 1 --iterationCount 3
+```bash
+dotnet run --project benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj -c Release -- --filter '*ReadPathBreakdownBenchmarks*' --join --warmupCount 1 --iterationCount 3
 ```
 
 | Benchmark method                     | Layer isolated                                                          |
@@ -42,8 +42,8 @@ dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c 
 
 Public client only — no `InternalsVisibleTo`, no in-process server DI:
 
-```text
-dotnet run --project benchmarks\squirix.e2e.benchmarks\Squirix.E2EBenchmarks.csproj -c Release -- --filter *PublicSdkOperationsBenchmarks* --join --warmupCount 1 --iterationCount 3
+```bash
+dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj -c Release -- --filter '*PublicSdkOperationsBenchmarks*' --join --warmupCount 1 --iterationCount 3
 ```
 
 | Benchmark method                | Layer isolated                                            |
@@ -114,7 +114,7 @@ Short e2e result after this step: `ReadExistingValueBatched` ≈ **126.7 µs**, 
 
 ### Step 2 — Compact `CacheValue` wire format
 
-Done for the value-only `GetValue` RPC. Public `SetAsync` / `TryAddAsync` now also have compact `InsertValue` / `TryInsertValue` RPCs. `GetEntry` and remove previous-value payloads
+Done for the value-only `GetValue` RPC. Public `SetAsync` / `TryAddAsync` now also have compact `SetValue` / `TrySetValue` RPCs. `GetEntry` and remove previous-value payloads
 still use the entry/struct path.
 
 Short e2e result after this step:
@@ -281,9 +281,9 @@ gRPC -> public SDK allocation delta is now about **+1.08 KB/op**, still mostly b
 
 Latest value-only write check:
 
-| Change                                                                                                                                              | Result |
-|-----------------------------------------------------------------------------------------------------------------------------------------------------|--------|
-| Added compact `InsertValue` / `TryInsertValue` RPCs and routed public `SetAsync` / `TryAddAsync` through `CacheValue` instead of `Entry` + `Struct` | Done   |
+| Change | Result |
+| --- | --- |
+| Added `SetValue` / `TrySetValue` RPCs; public writes use `CacheValue` instead of `Entry` + `Struct` | Done |
 
 Short e2e result after this change:
 
@@ -360,7 +360,7 @@ Profile here only if `SquirixServerPipelineReadBatched` regresses or if a low-la
 
 4. **Optimize `GetOrAdd` miss path**
     - Historical baseline: **445.8 µs**, **59.36 KB**.
-    - Target flow on single node: `GetValue miss -> factory -> TryAdd/Insert -> return`.
+    - Target flow on single node: `GetValue miss -> factory -> TrySetValue/SetValue -> return`.
     - Look for extra miss exceptions, duplicate reads, and unnecessary entry/struct serialization.
     - Re-measured after read-path fixes: **296.3 µs**, **32.96 KB**. That is close to one miss read plus one write RPC.
     - Added compact value-only write RPCs. Result: **311.9 µs**, **32.54 KB** in a short run; allocation barely moved and latency was noisy.
@@ -419,13 +419,13 @@ Profile here only if `SquirixServerPipelineReadBatched` regresses or if a low-la
 
 Quick run (default iteration count):
 
-```text
-dotnet run --project benchmarks\squirix.e2e.benchmarks\Squirix.E2EBenchmarks.csproj -c Release -- --filter *PublicSdkOperationsBenchmarks*
-dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c Release -- --filter *ReadPathBreakdownBenchmarks*
+```bash
+dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj -c Release -- --filter '*PublicSdkOperationsBenchmarks*'
+dotnet run --project benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj -c Release -- --filter '*ReadPathBreakdownBenchmarks*'
 ```
 
-On Windows, if BenchmarkDotNet fails writing under `Application Data`:
+If BenchmarkDotNet fails writing under the default artifacts directory:
 
-```text
-$env:BMDN_ArtifactsPath = "c:\Users\HOME\Source\Repos\squirix\squirix\BenchmarkDotNet.Artifacts"
+```bash
+export BMDN_ArtifactsPath="$PWD/BenchmarkDotNet.Artifacts"
 ```

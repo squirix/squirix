@@ -6,9 +6,7 @@ using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.IO;
 
-/// <summary>
-/// Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.
-/// </summary>
+/// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
 public static class JournalSegmentLeaseWait
 {
     private const int BufferSize = 64 * 1024;
@@ -18,7 +16,6 @@ public static class JournalSegmentLeaseWait
     /// </summary>
     /// <param name="dataDir">Node data directory containing journal segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the journal files are available.</returns>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
     public static async Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
@@ -28,7 +25,7 @@ public static class JournalSegmentLeaseWait
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (CanAcquireRepairLease(dataDir))
+            if (await CanAcquireRepairLeaseAsync(dataDir, cancellationToken).ConfigureAwait(false))
                 return;
 
             await Task.Delay(25, cancellationToken).ConfigureAwait(false);
@@ -37,27 +34,39 @@ public static class JournalSegmentLeaseWait
         throw new TimeoutException($"journal segments in '{dataDir}' remained locked after shutdown.");
     }
 
-    private static bool CanAcquireRepairLease(string dataDir)
+    private static async Task<bool> CanAcquireRepairLeaseAsync(string dataDir, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(dataDir))
             return true;
 
         var files = Directory.GetFiles(dataDir, StorageFilePrefixes.JournalSegmentGlob);
-        if (files.Length == 0)
+        if (files.Length is 0)
             return true;
 
         for (var i = 0; i < files.Length; i++)
         {
-            try
-            {
-                using var stream = new FileStream(files[i], FileMode.Open, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize, FileOptions.None);
-            }
-            catch (IOException)
-            {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await TryOpenRepairLeaseAsync(files[i], cancellationToken).ConfigureAwait(false))
                 return false;
-            }
         }
 
         return true;
+    }
+
+    private static async Task<bool> TryOpenRepairLeaseAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, BufferSize, FileOptions.Asynchronous);
+            await using (stream.ConfigureAwait(false))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return true;
+            }
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 }

@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace Squirix.Server.Node.Observability.Metrics;
 
-/// <summary>
-/// Label filtering for the public HTTP Prometheus scrape profile.
-/// </summary>
+/// <summary>Label filtering for the public HTTP Prometheus scrape profile.</summary>
 internal static class PrometheusScrapeLabelPolicy
 {
     private static readonly HashSet<string> ExcludedLabelNames = new(StringComparer.Ordinal)
@@ -14,14 +14,34 @@ internal static class PrometheusScrapeLabelPolicy
         "exception_type",
     };
 
-    /// <summary>
-    /// Returns tags with identifying labels removed for public HTTP export.
-    /// </summary>
+    /// <summary>Builds a Prometheus label set string from sorted tags.</summary>
+    /// <param name="tags">Sorted tag list.</param>
+    /// <returns>Prometheus label set without outer braces.</returns>
+    internal static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    {
+        if (tags.Length is 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < tags.Length; i++)
+        {
+            if (i > 0)
+                _ = sb.Append(',');
+            _ = sb.Append(tags[i].Key);
+            _ = sb.Append("=\"");
+            _ = sb.Append(Escape(Convert.ToString(tags[i].Value, CultureInfo.InvariantCulture) ?? string.Empty));
+            _ = sb.Append('"');
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Returns tags with identifying labels removed for public HTTP export.</summary>
     /// <param name="tags">Full instrument tags.</param>
     /// <returns>Filtered tag list sorted by key.</returns>
     internal static KeyValuePair<string, object?>[] FilterPublicTags(ReadOnlySpan<KeyValuePair<string, object?>> tags)
     {
-        if (tags.Length == 0)
+        if (tags.Length is 0)
             return [];
 
         var filtered = new List<KeyValuePair<string, object?>>(tags.Length);
@@ -31,36 +51,14 @@ internal static class PrometheusScrapeLabelPolicy
                 filtered.Add(tag);
         }
 
-        if (filtered.Count == 0)
+        if (filtered.Count is 0)
             return [];
 
         filtered.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-        return filtered.ToArray();
+        return [.. filtered];
     }
 
-    /// <summary>
-    /// Builds a Prometheus label set string from sorted tags.
-    /// </summary>
-    /// <param name="tags">Sorted tag list.</param>
-    /// <returns>Prometheus label set without outer braces.</returns>
-    internal static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
-    {
-        if (tags.Length == 0)
-            return string.Empty;
-
-        var sb = new System.Text.StringBuilder();
-        for (var i = 0; i < tags.Length; i++)
-        {
-            if (i > 0)
-                _ = sb.Append(',');
-            _ = sb.Append(tags[i].Key);
-            _ = sb.Append("=\"");
-            _ = sb.Append(Escape(tags[i].Value?.ToString() ?? string.Empty));
-            _ = sb.Append('"');
-        }
-
-        return sb.ToString();
-    }
-
-    private static string Escape(string s) => s.Replace("\\", @"\\").Replace("\n", "\\n").Replace("\"", "\\\"");
+    private static string Escape(string s) => s
+                                             .Replace("\\", @"\\", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)
+                                             .Replace("\"", "\\\"", StringComparison.Ordinal);
 }

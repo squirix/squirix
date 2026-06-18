@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
@@ -8,9 +9,7 @@ using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server.Node.Observability;
 
-/// <summary>
-/// Utilities and interceptors for structured logging scopes and trace-context propagation.
-/// </summary>
+/// <summary>Utilities and interceptors for structured logging scopes and trace-context propagation.</summary>
 internal static class Correlation
 {
     private const string TraceParentHeader = "traceparent";
@@ -43,8 +42,9 @@ internal static class Correlation
         {
             var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName);
             var ctx2 = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
-            using var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
-            return base.AsyncUnaryCall(request, ctx2, continuation);
+            var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
+            var call = base.AsyncUnaryCall(request, ctx2, continuation);
+            return WrapUnaryCallAsync(scope, call);
         }
 
         private static CallOptions AttachTraceHeaders(CallOptions opt, string method)
@@ -81,6 +81,44 @@ internal static class Correlation
 
             meta.Add(new Metadata.Entry(key, value));
         }
+
+        private static AsyncUnaryCall<TResponse> WrapUnaryCallAsync<TResponse>(IDisposable scope, AsyncUnaryCall<TResponse> inner)
+        {
+            var scopeDisposed = 0;
+
+            async Task<TResponse> ResponseAsync()
+            {
+                try
+                {
+#pragma warning disable VSTHRD003
+
+                    // Scope must live until the outbound unary call completes.
+                    return await inner.ResponseAsync.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
+                }
+                finally
+                {
+                    DisposeScopeOnce();
+                }
+            }
+
+            return new AsyncUnaryCall<TResponse>(
+                ResponseAsync(),
+                inner.ResponseHeadersAsync,
+                inner.GetStatus,
+                inner.GetTrailers,
+                () =>
+                {
+                    DisposeScopeOnce();
+                    inner.Dispose();
+                });
+
+            void DisposeScopeOnce()
+            {
+                if (Interlocked.Exchange(ref scopeDisposed, 1) is 0)
+                    scope.Dispose();
+            }
+        }
     }
 
     public sealed class ServerInterceptor : Interceptor
@@ -106,7 +144,7 @@ internal static class Correlation
             using var activity = StartServerActivity(tp, ts, context.Method);
             using var scope = BeginStandardScope(_log, _nodeId, context.Method);
             using var deadlineScope = RpcDeadlineContext.Push(context.Deadline);
-            return await base.UnaryServerHandler(request, context, continuation);
+            return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
         }
 
         private static Activity? StartServerActivity(string? traceParent, string? traceState, string method)

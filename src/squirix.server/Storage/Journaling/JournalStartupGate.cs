@@ -13,9 +13,7 @@ internal sealed class JournalStartupGate
             Open();
     }
 
-    /// <summary>
-    /// Gets a value indicating whether startup recovery has completed and the gate is open.
-    /// </summary>
+    /// <summary>Gets a value indicating whether startup recovery has completed and the gate is open.</summary>
     public bool IsReady => _ready.Task.IsCompleted;
 
     public void Open() => _ready.TrySetResult();

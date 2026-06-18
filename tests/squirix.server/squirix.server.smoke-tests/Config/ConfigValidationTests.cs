@@ -4,24 +4,20 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.SmokeTests.Support;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests.Config;
 
-/// <summary>
-/// Smoke tests for startup-time configuration validation.
-/// </summary>
+/// <summary>Smoke tests for startup-time configuration validation.</summary>
 public sealed class ConfigValidationTests : SmokeTestBase
 {
-    /// <summary>
-    /// Invalid node options fail during host startup through the options validation pipeline.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Invalid node options fail during host startup through the options validation pipeline.</summary>
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalidBackpressure = new BackpressureOptions
         {
             MaxInFlight = 8,
@@ -39,17 +35,15 @@ public sealed class ConfigValidationTests : SmokeTestBase
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// Invalid memory pressure options fail during host startup through the options validation pipeline.
-    /// </summary>
-    /// <returns>A task representing the asynchronous test.</returns>
+    /// <summary>Invalid memory pressure options fail during host startup through the options validation pipeline.</summary>
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUrl();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url } };
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalid = new MemoryPressureOptions
         {
+            MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 50,
         };

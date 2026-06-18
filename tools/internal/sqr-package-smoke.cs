@@ -1,24 +1,26 @@
 #:property PublishAot=false
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("sqr-package-smoke — build and run external package smoke sample.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/internal/sqr-package-smoke.cs --");
+    await output.WriteLineAsync("sqr-package-smoke — build and run external package smoke sample.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/internal/sqr-package-smoke.cs --").ConfigureAwait(false);
     return 0;
 }
 
 if (argv.Length > 0)
 {
-    Console.Error.WriteLine($"ERROR: unknown argument '{argv[0]}'");
+    await Console.Error.WriteLineAsync($"ERROR: unknown argument '{argv[0]}'").ConfigureAwait(false);
     return 1;
 }
 
@@ -38,30 +40,30 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Combine(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
-var corePackCode = RunDotnet(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir]);
-if (corePackCode != 0)
+var corePackCode = await RunDotnetAsync(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (corePackCode is not 0)
     return corePackCode;
 
-var serverPackCode = RunDotnet(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir]);
-if (serverPackCode != 0)
+var serverPackCode = await RunDotnetAsync(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+if (serverPackCode is not 0)
     return serverPackCode;
 
 if (!HasClientPackage(packageDir))
 {
-    Console.Error.WriteLine("ERROR: squirix client package was not produced.");
+    await Console.Error.WriteLineAsync("ERROR: squirix client package was not produced.").ConfigureAwait(false);
     return 1;
 }
 
 if (!HasServerPackage(packageDir))
 {
-    Console.Error.WriteLine("ERROR: squirix.server package was not produced.");
+    await Console.Error.WriteLineAsync("ERROR: squirix.server package was not produced.").ConfigureAwait(false);
     return 1;
 }
 
 var sampleDir = Path.Combine(repoRoot, "samples", "external-package-smoke");
 var settingsPath = Path.Combine(sampleDir, "Squirix.settings.json");
 var hadSettings = File.Exists(settingsPath);
-var settingsBackup = hadSettings ? File.ReadAllBytes(settingsPath) : null;
+var settingsBackup = hadSettings ? await File.ReadAllBytesAsync(settingsPath, CancellationToken.None).ConfigureAwait(false) : null;
 
 try
 {
@@ -69,12 +71,12 @@ try
     for (var attempt = 1; attempt <= maxAttempts; attempt++)
     {
         var port = GetFreeTcpPort();
-        var url = $"https://127.0.0.1:{port}";
+        var url = $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
         var json = BuildSettingsJson(url);
-        File.WriteAllText(settingsPath, json);
+        await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
 
-        var exitCode = RunDotnet(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"]);
-        if (exitCode == 0 || attempt == maxAttempts)
+        var exitCode = await RunDotnetAsync(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
+        if (exitCode is 0 || attempt == maxAttempts)
             return exitCode;
     }
 
@@ -84,7 +86,7 @@ finally
 {
     if (settingsBackup is not null)
     {
-        File.WriteAllBytes(settingsPath, settingsBackup);
+        await File.WriteAllBytesAsync(settingsPath, settingsBackup, CancellationToken.None).ConfigureAwait(false);
     }
     else if (File.Exists(settingsPath))
     {
@@ -122,7 +124,10 @@ static int GetFreeTcpPort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    return ((IPEndPoint)listener.LocalEndpoint).Port;
+    if (listener.LocalEndpoint is not IPEndPoint endpoint)
+        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
+
+    return endpoint.Port;
 }
 
 static string ResolveRepoRoot()
@@ -160,7 +165,7 @@ static bool HasServerPackage(string directory)
     return Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).Any();
 }
 
-static int RunDotnet(string workingDirectory, IReadOnlyList<string> args)
+static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
     var startInfo = new ProcessStartInfo
     {
@@ -175,11 +180,11 @@ static int RunDotnet(string workingDirectory, IReadOnlyList<string> args)
     using var proc = Process.Start(startInfo);
     if (proc is null)
     {
-        Console.Error.WriteLine($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}");
-        Console.Error.WriteLine($"Working directory: {startInfo.WorkingDirectory}");
+        await Console.Error.WriteLineAsync($"Failed to start process: {startInfo.FileName} {string.Join(' ', args)}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"Working directory: {startInfo.WorkingDirectory}").ConfigureAwait(false);
         return 1;
     }
 
-    proc.WaitForExit();
+    await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
     return proc.ExitCode;
 }

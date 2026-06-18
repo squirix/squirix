@@ -1,18 +1,20 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property PublishAot=false
+using System.Globalization;
 using Squirix.Server.Cluster;
 
+var output = Console.Out;
 var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
 if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
 {
-    Console.WriteLine("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]");
-    Console.WriteLine();
-    Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 internal");
+    await output.WriteLineAsync("sqr-ring-distribution — sample key ownership distribution in consistent hash ring.").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Usage:").ConfigureAwait(false);
+    await output.WriteLineAsync("  dotnet run --file tools/sqr-ring-distribution.cs -- --nodes node-a,node-b,node-c [--sample-size 10000] [--virtual-nodes 128] [--cache default]").ConfigureAwait(false);
+    await output.WriteLineAsync().ConfigureAwait(false);
+    await output.WriteLineAsync("Exit codes: 0 ok, 2 usage, 3 internal").ConfigureAwait(false);
     return 0;
 }
 
@@ -20,54 +22,59 @@ string? nodesCsv = null;
 var cacheName = "default";
 var sampleSize = 10000;
 var virtualNodes = 128;
-for (var i = 0; i < argv.Length; i++)
+var argIndex = 0;
+while (argIndex < argv.Length)
 {
-    var a = argv[i];
+    var a = argv[argIndex];
     if (string.Equals(a, "--nodes", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return Usage("missing value for --nodes");
+        if (argIndex + 1 >= argv.Length)
+            return await UsageAsync("missing value for --nodes").ConfigureAwait(false);
 
-        nodesCsv = argv[++i];
+        nodesCsv = argv[argIndex + 1];
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--sample-size", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length || !int.TryParse(argv[++i], out sampleSize) || sampleSize <= 0)
-            return Usage("invalid --sample-size value");
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out sampleSize) || sampleSize <= 0)
+            return await UsageAsync("invalid --sample-size value").ConfigureAwait(false);
 
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--virtual-nodes", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length || !int.TryParse(argv[++i], out virtualNodes) || virtualNodes <= 0)
-            return Usage("invalid --virtual-nodes value");
+        if (argIndex + 1 >= argv.Length || !int.TryParse(argv[argIndex + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out virtualNodes) || virtualNodes <= 0)
+            return await UsageAsync("invalid --virtual-nodes value").ConfigureAwait(false);
 
+        argIndex += 2;
         continue;
     }
 
     if (string.Equals(a, "--cache", StringComparison.OrdinalIgnoreCase))
     {
-        if (i + 1 >= argv.Length)
-            return Usage("missing value for --cache");
+        if (argIndex + 1 >= argv.Length)
+            return await UsageAsync("missing value for --cache").ConfigureAwait(false);
 
-        cacheName = argv[++i];
+        cacheName = argv[argIndex + 1];
+        argIndex += 2;
         continue;
     }
 
-    return Usage($"unknown argument '{a}'");
+    return await UsageAsync($"unknown argument '{a}'").ConfigureAwait(false);
 }
 
 if (string.IsNullOrWhiteSpace(nodesCsv))
-    return Usage("--nodes is required");
+    return await UsageAsync("--nodes is required").ConfigureAwait(false);
 
 try
 {
     var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
-    if (nodes.Length == 0)
-        return Usage("--nodes must contain at least one node id");
+    if (nodes.Length is 0)
+        return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -76,39 +83,40 @@ try
 
     for (var i = 0; i < sampleSize; i++)
     {
-        var key = $"sample-key-{i}";
+        var key = $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}";
         var owner = ring.GetOwner(cacheName, key);
         distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
     }
 
-    Console.WriteLine("OK: ring distribution computed");
-    Console.WriteLine($"cache: {cacheName}");
-    Console.WriteLine($"virtualNodes: {virtualNodes}");
-    Console.WriteLine($"sampleSize: {sampleSize}");
-    foreach (var item in distribution.OrderBy(static x => x.Key, StringComparer.Ordinal))
+    await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
+    await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
+    await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+    await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+    foreach (var key in distribution.Keys.Order(StringComparer.Ordinal))
     {
-        var share = Math.Round((double)item.Value / sampleSize, 6);
-        Console.WriteLine($"node.{item.Key}.count: {item.Value}");
-        Console.WriteLine($"node.{item.Key}.share: {share}");
+        var count = distribution[key];
+        var share = Math.Round(Convert.ToDouble(count, CultureInfo.InvariantCulture) / sampleSize, 6, MidpointRounding.ToEven);
+        await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
+        await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     }
 
     return 0;
 }
 catch (InvalidOperationException ex)
 {
-    Console.WriteLine("ERROR: unexpected internal failure");
-    Console.WriteLine(ex.Message);
+    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
     return 3;
 }
 catch (ArgumentException ex)
 {
-    Console.WriteLine("ERROR: unexpected internal failure");
-    Console.WriteLine(ex.Message);
+    await output.WriteLineAsync("ERROR: unexpected internal failure").ConfigureAwait(false);
+    await output.WriteLineAsync(ex.Message).ConfigureAwait(false);
     return 3;
 }
 
-static int Usage(string message)
+static async Task<int> UsageAsync(string message)
 {
-    Console.WriteLine($"ERROR: {message}");
+    await Console.Out.WriteLineAsync($"ERROR: {message}").ConfigureAwait(false);
     return 2;
 }

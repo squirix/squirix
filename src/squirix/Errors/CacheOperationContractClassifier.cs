@@ -3,9 +3,7 @@ using Grpc.Core;
 
 namespace Squirix.Errors;
 
-/// <summary>
-/// Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.
-/// </summary>
+/// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
 internal static class CacheOperationContractClassifier
 {
     /// <summary>
@@ -20,9 +18,16 @@ internal static class CacheOperationContractClassifier
     /// </remarks>
     public static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
     {
-        return CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail) ? CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch :
-            CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail) ? CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent :
-            CacheOperationFailedPreconditionKind.None;
+        if (CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail))
+            return CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch;
+
+        if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
+            return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
+
+        if (CacheOperationContract.IsOperationIdReuseMismatchMessage(detail))
+            return CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
+
+        return CacheOperationFailedPreconditionKind.None;
     }
 
     /// <summary>
@@ -32,11 +37,13 @@ internal static class CacheOperationContractClassifier
     /// <param name="statusCode">The gRPC status code from the transport fault.</param>
     /// <param name="detail">The gRPC status detail string.</param>
     /// <returns><see langword="true" /> when the fault should map to <see cref="OverflowException" /> in the domain pipeline.</returns>
-    public static bool IsCounterOverflowRpcFault(StatusCode statusCode, string? detail) => statusCode == StatusCode.InvalidArgument &&
-                                                                                           string.Equals(
+    public static bool IsCounterOverflowRpcFault(StatusCode statusCode, string? detail) => statusCode is StatusCode.InvalidArgument && string.Equals(
                                                                                                detail,
                                                                                                CacheOperationContract.CounterOverflowDetail,
                                                                                                StringComparison.Ordinal);
+
+    public static bool IsOperationIdReuseMismatchDetail(string? detail) =>
+        ClassifyFailedPreconditionDetail(detail) is CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
 
     /// <summary>
     /// When <paramref name="detail" /> matches a stable FailedPrecondition contract, exposes the string used as
@@ -45,16 +52,16 @@ internal static class CacheOperationContractClassifier
     /// <param name="detail">The gRPC status detail string.</param>
     /// <param name="message">The invalid-operation message when the method returns <see langword="true" />.</param>
     /// <returns><see langword="true" /> when <paramref name="detail" /> matches counter type mismatch or insert-version precondition contracts.</returns>
-    public static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string message)
+    public static bool TryGetFailedPreconditionInvalidOperationMessage(string? detail, out string? message)
     {
         var kind = ClassifyFailedPreconditionDetail(detail);
-        if (kind == CacheOperationFailedPreconditionKind.None)
+        if (kind is CacheOperationFailedPreconditionKind.None)
         {
-            message = null!;
+            message = null;
             return false;
         }
 
-        message = detail!;
+        message = detail;
         return true;
     }
 }

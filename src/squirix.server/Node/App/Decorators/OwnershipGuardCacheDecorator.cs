@@ -6,9 +6,7 @@ using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
 
-/// <summary>
-/// Ensures owner-local physical mutations execute only on the owning node.
-/// </summary>
+/// <summary>Ensures owner-local physical mutations execute only on the owning node.</summary>
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
@@ -39,9 +37,28 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetExpirationAsync(cacheName, key, cancellationToken);
+    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetExpirationAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken);
+    }
 
     public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.RemoveAsync(cacheName, key, cancellationToken);
+    }
+
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
+    }
 
     public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
@@ -53,18 +70,6 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.SetAsync(cacheName, key, entry, cancellationToken);
-    }
-
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
-    }
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveAsync(cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -92,6 +97,12 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.TryRemoveAsync(cacheName, key, cancellationToken);
+    }
+
+    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.UpdateAsync(cacheName, key, value, cancellationToken);
     }
 
     private void EnsureLocalOwner(string cacheName, string key)

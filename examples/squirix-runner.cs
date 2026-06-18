@@ -2,10 +2,11 @@
 #:project ../src/squirix.server/Squirix.Server.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
-using System.IO;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Grpc.Core;
 using Squirix;
 using Squirix.Server;
@@ -15,10 +16,7 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.WriteLine("squirix-runner - file-based demo runner for squirix.");
-    Console.WriteLine();
-    Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --file examples/squirix-runner.cs -- [--skip-load]");
+    PrintHelp();
     return 0;
 }
 
@@ -27,30 +25,36 @@ using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
 var previousCurrentDirectory = Directory.GetCurrentDirectory();
-var demoRoot = Path.Combine(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
+var demoRoot = Path.Join(Path.GetTempPath(), $"squirix-runner-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", demoRoot);
 
 try
 {
     _ = Directory.CreateDirectory(demoRoot);
-    var endpoint = $"https://127.0.0.1:{NextFreePort()}";
-    WriteSettingsFile(demoRoot, endpoint);
+    var endpoint = $"https://127.0.0.1:{NextFreePort().ToString(CultureInfo.InvariantCulture)}";
+    await WriteSettingsFileAsync(demoRoot, endpoint, cancellationToken).ConfigureAwait(false);
     Directory.SetCurrentDirectory(demoRoot);
 
-    await using var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
-    await using var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
-    var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
-    var users = await client.GetCacheAsync<string>("users", cancellationToken).ConfigureAwait(false);
-
-    await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
-    await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
-
-    Console.WriteLine($"Metrics endpoint available at {endpoint}/metrics");
-
-    if (runLoad)
+    var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
+    await using (host.ConfigureAwait(false))
     {
-        Console.WriteLine("Running demo load for up to five minutes. Press Ctrl+C to stop.");
-        await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        await using (client.ConfigureAwait(false))
+        {
+            var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
+            var users = await client.GetCacheAsync<string>("users", cancellationToken).ConfigureAwait(false);
+
+            await DemoDefaultCacheAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+            await DemoTypedNamedCacheAsync(users, cancellationToken).ConfigureAwait(false);
+
+            await Console.Out.WriteLineAsync($"Metrics endpoint available at {endpoint}/metrics").ConfigureAwait(false);
+
+            if (runLoad)
+            {
+                await Console.Out.WriteLineAsync("Running demo load for up to five minutes. Press Ctrl+C to stop.").ConfigureAwait(false);
+                await RunDemoLoadAsync(defaultCache, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     return 0;
@@ -71,28 +75,36 @@ static async Task DemoDefaultCacheAsync(ICache<object?> cache, CancellationToken
         cancellationToken).ConfigureAwait(false);
 
     var session = await cache.GetEntryAsync("session:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"Default cache -> payload={session.Entry?.Value}");
+    await Console.Out.WriteLineAsync($"Default cache -> payload={session.Entry?.Value}").ConfigureAwait(false);
 
     var touched = await cache.TouchAsync("session:42", TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
     var expiration = await cache.GetExpirationAsync("session:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"TouchAsync -> updated={touched}, expiration={expiration}");
+    await Console.Out.WriteLineAsync($"TouchAsync -> updated={touched}, expiration={expiration}").ConfigureAwait(false);
 }
 
 static async Task DemoTypedNamedCacheAsync(ICache<string> users, CancellationToken cancellationToken)
 {
     var added = await users.TryAddAsync("user:42", "created", cancellationToken: cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"TryAddAsync -> added={added}");
+    await Console.Out.WriteLineAsync($"TryAddAsync -> added={added}").ConfigureAwait(false);
 
     var stored = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"GetValueAsync -> found={stored.Found}, value={stored.Value}");
+    await Console.Out.WriteLineAsync($"GetValueAsync -> found={stored.Found}, value={stored.Value}").ConfigureAwait(false);
 
     await users.SetAsync("user:42", "updated", cancellationToken: cancellationToken).ConfigureAwait(false);
 
     var lookup = await users.GetValueAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"GetValueAsync -> present={lookup.Found}");
+    await Console.Out.WriteLineAsync($"GetValueAsync -> present={lookup.Found}").ConfigureAwait(false);
 
     var removed = await users.RemoveAsync("user:42", cancellationToken).ConfigureAwait(false);
-    Console.WriteLine($"RemoveAsync -> removed={removed}");
+    await Console.Out.WriteLineAsync($"RemoveAsync -> removed={removed}").ConfigureAwait(false);
+}
+
+static void PrintHelp()
+{
+    Console.Out.WriteLine("squirix-runner - file-based demo runner for squirix.");
+    Console.Out.WriteLine();
+    Console.Out.WriteLine("Usage:");
+    Console.Out.WriteLine("  dotnet run --file examples/squirix-runner.cs -- [--skip-load]");
 }
 
 static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken cancellationToken)
@@ -103,7 +115,7 @@ static async Task RunDemoLoadAsync(ICache<object?> cache, CancellationToken canc
     {
         try
         {
-            var key = $"load:{RandomNumberGenerator.GetInt32(0, 2048):D4}";
+            var key = $"load:{RandomNumberGenerator.GetInt32(0, 2048).ToString("D4", CultureInfo.InvariantCulture)}";
             if (RandomNumberGenerator.GetInt32(0, 10) < 7)
             {
                 await cache.SetAsync(
@@ -151,28 +163,36 @@ static int NextFreePort()
 {
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
-    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+    if (listener.LocalEndpoint is not IPEndPoint localEndpoint)
+        throw new InvalidOperationException("TcpListener did not expose a local IPEndPoint.");
+
+    var port = localEndpoint.Port;
     listener.Stop();
     return port;
 }
 
-static void WriteSettingsFile(string directory, string endpoint)
+static async Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
 {
-    var settings = $$"""
+    var settings = new
+    {
+        Squirix = new
         {
-          "Squirix": {
-            "Cluster": {
-              "NodeId": "runner",
-              "Url": "{{endpoint}}",
-              "Peers": [
+            Cluster = new
+            {
+                NodeId = "runner",
+                Url = endpoint,
+                Peers = new[]
                 {
-                  "NodeId": "runner",
-                  "Url": "{{endpoint}}"
-                }
-              ]
-            }
-          }
-        }
-        """;
-    File.WriteAllText(Path.Combine(directory, "Squirix.settings.json"), settings);
+                    new
+                    {
+                        NodeId = "runner",
+                        Url = endpoint,
+                    },
+                },
+            },
+        },
+    };
+
+    var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+    await File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken).ConfigureAwait(false);
 }

@@ -35,7 +35,7 @@ internal sealed class JournalCompactionController : IDisposable
 
         try
         {
-            var manifest = _manifestStore.ReadCurrentOrDefault();
+            var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var snapIdx = manifest.LastSnapshot?.Index ?? 0;
             LogManager.ManualCompactionStart(_log, snapIdx);
             await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _manifestStore, ct)), cancellationToken)

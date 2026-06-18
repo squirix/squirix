@@ -3,9 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Utils;
 
-/// <summary>
-/// Software CRC32C (Castagnoli) with reflected polynomial 0x82F63B78.
-/// </summary>
+/// <summary>Software CRC32C (Castagnoli) with reflected polynomial 0x82F63B78.</summary>
 internal static class Crc32C
 {
     private const uint Poly = 0x82F63B78u;
