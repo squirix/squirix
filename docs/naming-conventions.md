@@ -20,7 +20,7 @@ Use for:
 For **.NET global/local tools**, **`ToolCommandName` is `squirix-server`**. Install uses the NuGet **package id**;
 invocation uses **`ToolCommandName`**:
 
-```powershell
+```bash
 dotnet tool install -g squirix.server.tool
 squirix-server run
 ```

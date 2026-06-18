@@ -11,14 +11,14 @@ For install, Docker, and first connection steps, see [getting started](getting-s
 The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URL:
 `https://localhost:5001`.
 
-```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
+```bash
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.5
 squirix-server run
 ```
 
 Durable mode:
 
-```powershell
+```bash
 squirix-server run --persist --data-dir ./data
 ```
 
@@ -28,8 +28,8 @@ CLI reference and Docker examples: [getting-started.md](getting-started.md), [co
 
 Embed the server runtime from the **`squirix.server`** NuGet package:
 
-```powershell
-dotnet add package squirix.server --version 0.1.0-preview.4
+```bash
+dotnet add package squirix.server --version 0.1.0-preview.5
 ```
 
 ```csharp

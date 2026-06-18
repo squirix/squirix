@@ -29,6 +29,8 @@ Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only;
 ## Custom ASP.NET Core host
 
 ```csharp
+var builder = WebApplication.CreateBuilder(args);
+
 // Discovered Squirix.settings.json is loaded when loadDiscoveredSettings is true (default).
 await builder.AddSquirixServerAsync(options =>
 {
@@ -37,7 +39,9 @@ await builder.AddSquirixServerAsync(options =>
     options.UsePersistence("./data");
 });
 
+var app = builder.Build();
 app.MapSquirixServer();
+await app.RunAsync();
 ```
 
 Explicit settings path or in-memory baseline:
@@ -70,7 +74,7 @@ an empty override; pass explicit JWT settings for auth scenarios. See
 
 Validate settings before deploy:
 
-```powershell
+```bash
 squirix-server validate-config --settings Squirix.settings.json --strict
 ```
 
@@ -79,7 +83,7 @@ squirix-server validate-config --settings Squirix.settings.json --strict
 The `squirix-server` executable uses the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline. Local dev defaults
 listen on port **5001**:
 
-```powershell
+```bash
 squirix-server init
 squirix-server run
 squirix-server run --persist --data-dir ./data

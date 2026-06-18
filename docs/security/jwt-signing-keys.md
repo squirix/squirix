@@ -53,7 +53,7 @@ Docker and getting-started examples ship **test-only** signing keys. Do not reus
 When you configure symmetric JWT auth (`SQUIRIX_JWT_SIGNING_KEY`), generate a **unique** secret for each environment.
 The Docker dev fixture `dev-squirix-docker-jwt-key!!!!!!` is public in this repository.
 
-```sh
+```bash
 # At least 32 random bytes (example)
 openssl rand -base64 48
 ```

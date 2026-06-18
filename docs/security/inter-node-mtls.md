@@ -127,31 +127,30 @@ Use **test-only** certificates that are never copied into production examples.
 The commands below create a dev CA and two node certificates with `CN=node-a` and `CN=node-b`. Those CNs must match
 `Cluster.NodeId` / `Peers[].NodeId` in settings. Adjust paths, passwords, and distinguished names for your environment.
 
-```powershell
+```bash
 # Dev-only — do not use in production
-$dir = Join-Path $env:TEMP "squirix-dev-mtls"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Set-Location $dir
+dir=$(mktemp -d)
+cd "$dir"
 
 # Cluster CA
 openssl genrsa -out cluster-ca.key 4096
-openssl req -x509 -new -nodes -key cluster-ca.key -sha256 -days 30 `
+openssl req -x509 -new -nodes -key cluster-ca.key -sha256 -days 30 \
   -out cluster-ca.crt -subj "/CN=Squirix Dev Cluster CA"
 
 # Node A
 openssl genrsa -out node-a.key 2048
 openssl req -new -key node-a.key -out node-a.csr -subj "/CN=node-a"
-openssl x509 -req -in node-a.csr -CA cluster-ca.crt -CAkey cluster-ca.key -CAcreateserial `
+openssl x509 -req -in node-a.csr -CA cluster-ca.crt -CAkey cluster-ca.key -CAcreateserial \
   -out node-a.crt -days 30 -sha256
-openssl pkcs12 -export -out node-a.pfx -inkey node-a.key -in node-a.crt `
+openssl pkcs12 -export -out node-a.pfx -inkey node-a.key -in node-a.crt \
   -certfile cluster-ca.crt -passout pass:dev-mtls
 
 # Node B (repeat with node-b names)
 openssl genrsa -out node-b.key 2048
 openssl req -new -key node-b.key -out node-b.csr -subj "/CN=node-b"
-openssl x509 -req -in node-b.csr -CA cluster-ca.crt -CAkey cluster-ca.key -CAcreateserial `
+openssl x509 -req -in node-b.csr -CA cluster-ca.crt -CAkey cluster-ca.key -CAcreateserial \
   -out node-b.crt -days 30 -sha256
-openssl pkcs12 -export -out node-b.pfx -inkey node-b.key -in node-b.crt `
+openssl pkcs12 -export -out node-b.pfx -inkey node-b.key -in node-b.crt \
   -certfile cluster-ca.crt -passout pass:dev-mtls
 ```
 
@@ -163,20 +162,20 @@ ports).
 
 Node A:
 
-```powershell
-$env:SQUIRIX_CLUSTER_MTLS_CA_PATH = "$dir\cluster-ca.crt"
-$env:SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH = "$dir\node-a.pfx"
-$env:SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD = "dev-mtls"
-$env:SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT = "5101"
+```bash
+export SQUIRIX_CLUSTER_MTLS_CA_PATH="$dir/cluster-ca.crt"
+export SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH="$dir/node-a.pfx"
+export SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD="dev-mtls"
+export SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT="5101"
 ```
 
 Node B:
 
-```powershell
-$env:SQUIRIX_CLUSTER_MTLS_CA_PATH = "$dir\cluster-ca.crt"
-$env:SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH = "$dir\node-b.pfx"
-$env:SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD = "dev-mtls"
-$env:SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT = "5101"
+```bash
+export SQUIRIX_CLUSTER_MTLS_CA_PATH="$dir/cluster-ca.crt"
+export SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH="$dir/node-b.pfx"
+export SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD="dev-mtls"
+export SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT="5101"
 ```
 
 Mount the same files in containers at stable paths (for example `/mtls/cluster-ca.crt`, `/mtls/node.pfx`) and set the

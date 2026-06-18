@@ -57,6 +57,10 @@ gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared sou
 
 There is no `Contains` RPC. Prefer `GetValue` or REST `HEAD` for presence checks.
 
+Mutating gRPC RPCs require a non-empty `operation_id`. The `Squirix` client SDK generates a fresh id per mutating
+call automatically; custom gRPC clients must supply one. The server deduplicates retries with the same
+`operation_id` and rejects reuse with a different payload (`FailedPrecondition`).
+
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.
 
