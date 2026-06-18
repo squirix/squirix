@@ -15,14 +15,14 @@ Contents:
 
 ## Build (from sources)
 
-```powershell
+```bash
 cd docker
 docker compose build
 ```
 
 Or from the repository root:
 
-```powershell
+```bash
 docker build -f docker/Dockerfile -t squirix-server .
 ```
 
@@ -30,28 +30,28 @@ docker build -f docker/Dockerfile -t squirix-server .
 
 Published releases (nuget.org):
 
-```powershell
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.4 .
+```bash
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.5 .
 ```
 
 Verify a not-yet-published tool package locally:
 
-```powershell
+```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
-docker build -f docker/Dockerfile.release -t squirix-server:local `
-  --build-arg LOCAL_PACKAGES=true `
-  --build-arg SQUIRIX_VERSION=0.1.0-preview.4 .
+docker build -f docker/Dockerfile.release -t squirix-server:local \
+  --build-arg LOCAL_PACKAGES=true \
+  --build-arg SQUIRIX_VERSION=0.1.0-preview.5 .
 ```
 
 Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not
 hard-coded** — copy `docker/.env.example` to `docker/.env` (local dev only) before `up`:
 
-```powershell
+```bash
 dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
 cd docker
-Copy-Item .env.example .env
+cp .env.example .env
 docker compose -f docker-compose.release.yml build
 ```
 
@@ -63,40 +63,40 @@ docker compose -f docker-compose.release.yml build
 
 Two-node cluster (sets sample JWT env vars for both nodes; containers run with `Production` hosting environment):
 
-```powershell
+```bash
 cd docker
 docker compose up -d
 ```
 
 Release-image two-node cluster (requires `docker/.env` — copy from `.env.example` for local testing):
 
-```powershell
+```bash
 cd docker
-Copy-Item .env.example .env
+cp .env.example .env
 docker compose -f docker-compose.release.yml up -d
 ```
 
 For a single local development node (ephemeral, in-memory):
 
-```powershell
+```bash
 docker build -f docker/Dockerfile -t squirix-server .
-docker run --rm `
-  -p 5000:5000 `
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
-  -e SQUIRIX_JWT_AUDIENCE=squirix `
+docker run --rm \
+  -p 5000:5000 \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
 Durable single node with a host-mounted data directory:
 
-```powershell
-docker run --rm `
-  -p 5000:5000 `
-  -v squirix-data:/data `
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
-  -e SQUIRIX_JWT_AUDIENCE=squirix `
+```bash
+docker run --rm \
+  -p 5000:5000 \
+  -v squirix-data:/data \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000 --persist --data-dir /data
 ```
 
@@ -124,7 +124,7 @@ exported cert or use development-only certificate validation overrides.
 
 Example probes from the host:
 
-```powershell
+```bash
 curl -k https://localhost:5001/health
 curl -k -H "Authorization: Bearer <jwt>" https://localhost:5001/metrics
 ```
@@ -196,7 +196,7 @@ Use **distinct** JWT and mTLS material per environment (dev, staging, production
 
 Generate a long random secret (at least 32 bytes). Example with OpenSSL:
 
-```powershell
+```bash
 openssl rand -base64 48
 ```
 

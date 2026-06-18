@@ -20,7 +20,7 @@ await builder.AddSquirixServerAsync(options =>
 
 Standalone CLI:
 
-```powershell
+```bash
 squirix-server run --persist --data-dir ./data
 ```
 

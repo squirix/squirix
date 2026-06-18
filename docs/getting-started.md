@@ -11,8 +11,8 @@ Prerequisites:
 
 ### NuGet global tool
 
-```powershell
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
+```bash
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.5
 squirix-server run
 ```
 
@@ -23,13 +23,13 @@ access the cache API. This is a development convenience, not production hardenin
 
 For WAL/snapshot durability:
 
-```powershell
+```bash
 squirix-server run --persist --data-dir ./data
 ```
 
 Health probes use the same HTTPS listener (local tool default port **5001**):
 
-```powershell
+```bash
 curl -k https://localhost:5001/health
 curl -k https://localhost:5001/metrics
 ```
@@ -45,13 +45,13 @@ curl -k https://localhost:5001/metrics
 Single-container examples start in the default **ephemeral** mode (in-memory cache). The two-node `docker compose`
 example enables persistence with `--persist --data-dir /data` and named volumes.
 
-```powershell
+```bash
 docker build -f docker/Dockerfile -t squirix-server .
-docker run --rm `
-  -p 5000:5000 `
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
-  -e SQUIRIX_JWT_AUDIENCE=squirix `
+docker run --rm \
+  -p 5000:5000 \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
   squirix-server run --urls https://0.0.0.0:5000
 ```
 
@@ -61,14 +61,14 @@ outside the container.
 
 Release image (pinned NuGet tool version):
 
-```powershell
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.4 .
-docker run --rm `
-  -p 5000:5000 `
-  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! `
-  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev `
-  -e SQUIRIX_JWT_AUDIENCE=squirix `
-  squirix-server:0.1.0-preview.4 run --urls https://0.0.0.0:5000
+```bash
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.5 .
+docker run --rm \
+  -p 5000:5000 \
+  -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
+  -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
+  -e SQUIRIX_JWT_AUDIENCE=squirix \
+  squirix-server:0.1.0-preview.5 run --urls https://0.0.0.0:5000
 ```
 
 Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
@@ -76,14 +76,14 @@ Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://local
 
 ### From this repository
 
-```powershell
+```bash
 dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ```
 
 ## 2. Add the client SDK
 
-```powershell
-dotnet add package squirix --version 0.1.0-preview.4
+```bash
+dotnet add package squirix --version 0.1.0-preview.5
 ```
 
 ## 3. Connect and use a typed cache
@@ -137,7 +137,7 @@ See [bootstrap client failover](bootstrap-client-failover.md) and [configuration
 
 ## CLI reference
 
-```powershell
+```bash
 squirix-server init [--settings ./Squirix.settings.json]
 squirix-server validate-config --settings ./Squirix.settings.json [--strict]
 squirix-server doctor [--settings ./Squirix.settings.json] [--strict]

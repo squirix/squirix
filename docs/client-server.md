@@ -29,18 +29,20 @@ experiments — not as a drop-in replacement for production cache infrastructure
 
 NuGet ids use lowercase **`squirix.*`**. C# namespaces and exported types remain **`Squirix` / `Squirix.Server`**.
 
+All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profiles/squirix).
+
 | NuGet package | Role | nuget.org |
 | --- | --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.4` |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.4` |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.4` |
+| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.5` |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.5` |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.5` |
 
 Install:
 
-```powershell
-dotnet add package squirix --version 0.1.0-preview.4
-dotnet add package squirix.server --version 0.1.0-preview.4
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.4
+```bash
+dotnet add package squirix --version 0.1.0-preview.5
+dotnet add package squirix.server --version 0.1.0-preview.5
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.5
 ```
 
 During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
