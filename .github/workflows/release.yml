@@ -33,6 +33,10 @@ jobs:
       - name: Verify .NET 10 baseline
         run: dotnet run --file ./tools/internal/sqr-net10-verify.cs --
 
+      - name: Ensure Dev HTTPS Certificate
+        shell: bash
+        run: bash tools/ci/ensure-dev-https-cert.sh
+
       - name: Validate release dry run
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
