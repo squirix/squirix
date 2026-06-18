@@ -4,7 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.Mtls;
 
 namespace Squirix.Server.TestKit.Hosting;
@@ -99,7 +101,7 @@ public static class TestNodeHostFactory
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
-            persistenceOptions = new PersistenceOptions { DataDir = dataDir };
+            persistenceOptions = BuildPersistenceOptions(options!);
         }
 
         var peers = ClusterTls.CreatePeers(ref sharedMtls, topology);
@@ -129,6 +131,7 @@ public static class TestNodeHostFactory
                     _ = b.AddFilter("Squirix", LogLevel.Warning);
                 },
                 PersistenceOptions = persistenceOptions,
+                SnapshotOptions = BuildSnapshotOptions(options),
                 PeerHandlerFactory = peerHandlerFactory,
                 SecurityOptions = options?.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
@@ -137,5 +140,35 @@ public static class TestNodeHostFactory
             cancellationToken).ConfigureAwait(false);
 
         return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions is not null);
+    }
+
+    private static PersistenceOptions BuildPersistenceOptions(TestNodeHostStartOptions hostOptions)
+    {
+        var options = new PersistenceOptions { DataDir = hostOptions.DataDir ?? string.Empty };
+        if (hostOptions.JournalMaxSegmentMb is { } segmentMb)
+            options = options with { JournalMaxSegmentMb = segmentMb };
+
+        if (hostOptions.JournalMaxSegmentCount is { } segmentCount)
+            options = options with { JournalMaxSegmentCount = segmentCount };
+
+        if (hostOptions.JournalMaxTotalBytesMb is { } totalBytesMb)
+            options = options with { JournalMaxTotalBytesMb = totalBytesMb };
+
+        if (hostOptions.FlushIntervalMs is { } flushIntervalMs)
+            options = options with { FlushIntervalMs = flushIntervalMs };
+
+        if (hostOptions.JournalGroupCommitMaxWaitMs is { } groupCommitMaxWaitMs)
+            options = options with { JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMs) };
+
+        return options;
+    }
+
+    private static TriggerOptions? BuildSnapshotOptions(TestNodeHostStartOptions? hostOptions)
+    {
+        if (hostOptions?.SnapshotInterval is not { } snapshotInterval)
+            return null;
+
+        var interval = snapshotInterval.ToString("c", System.Globalization.CultureInfo.InvariantCulture);
+        return new ServerJsonSerializer().Deserialize<TriggerOptions>($$"""{"snapshotInterval":"{{interval}}"}""");
     }
 }

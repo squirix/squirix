@@ -47,4 +47,10 @@ public sealed class SquirixClientOptions
     ///     </para>
     /// </remarks>
     public ISquirixSerializer? Serializer { get; set; }
+
+    /// <summary>
+    /// Gets or sets the per-attempt RPC timeout for remote cache operations.
+    /// When null, the SDK default applies (currently three seconds per attempt).
+    /// </summary>
+    public TimeSpan? RpcPerAttemptTimeout { get; set; }
 }

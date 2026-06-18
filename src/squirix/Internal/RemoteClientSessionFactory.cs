@@ -22,6 +22,7 @@ internal static class RemoteClientSessionFactory
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
         ISquirixSerializer? serializer,
         HttpMessageHandler? handler,
+        TimeSpan? rpcPerAttemptTimeout,
         CancellationToken cancellationToken)
     {
         var normalizedEndpoints = NormalizeEndpoints(endpoints);
@@ -41,8 +42,11 @@ internal static class RemoteClientSessionFactory
         ClientPool? pool = null;
         try
         {
+            Func<string, ICallPolicy> policyFactory = rpcPerAttemptTimeout is null
+                ? CallPolicyDefaults.Create
+                : peer => CallPolicyDefaults.Create(peer, rpcPerAttemptTimeout);
 #pragma warning disable CA2000
-            pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
+            pool = new ClientPool(peers, policyFactory, handler, callCredentials: credentials);
 #pragma warning restore CA2000
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
             var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);

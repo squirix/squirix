@@ -5,10 +5,11 @@ on:
     # main push and PRs targeting main: full ubuntu/windows/macos matrix (release integration gate).
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
+    # TEMPORARY: stress/run-stress-tests runs journal volume WAL stress only (see stress-build / journal-volume-stress jobs).
     push:
-        branches: [ main, develop ]
+        branches: [ main, develop, stress/run-stress-tests ]
     pull_request:
-        branches: [ main, develop ]
+        branches: [ main, develop, stress/run-stress-tests ]
     # Weekly full cross-OS run (same test matrix as manual dispatch).
     schedule:
         - cron: "0 6 * * 1"
@@ -23,6 +24,7 @@ jobs:
         name: Detect Changes
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        if: github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         outputs:
             code: ${{ steps.filter.outputs.code }}
             docs: ${{ steps.filter.outputs.docs }}
@@ -89,9 +91,11 @@ jobs:
         timeout-minutes: 10
         needs: changes
         if: |
-            needs.changes.outputs.docs == 'true' ||
+            (needs.changes.outputs.docs == 'true' ||
             github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+            github.event_name == 'workflow_dispatch') &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
+
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
@@ -110,9 +114,11 @@ jobs:
         timeout-minutes: 15
         needs: changes
         if: |
-            needs.changes.outputs.code == 'true' ||
+            (needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+            github.event_name == 'workflow_dispatch') &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
+
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
@@ -157,7 +163,7 @@ jobs:
         name: Verify Line Endings (LF)
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
@@ -174,9 +180,11 @@ jobs:
         timeout-minutes: 20
         needs: changes
         if: |
-            needs.changes.outputs.docker == 'true' ||
+            (needs.changes.outputs.docker == 'true' ||
             github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+            github.event_name == 'workflow_dispatch') &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
+
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
@@ -201,9 +209,10 @@ jobs:
         timeout-minutes: 45
         needs: changes
         if: |
-            needs.changes.outputs.code == 'true' ||
+            (needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
-            github.event_name == 'workflow_dispatch'
+            github.event_name == 'workflow_dispatch') &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         strategy:
             fail-fast: false
             matrix:
@@ -275,6 +284,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         needs: build
+        if: github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -383,6 +393,7 @@ jobs:
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         needs: [ build, smoke-fast-fail ]
+        if: github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         strategy:
             fail-fast: false
             max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && 8 || 7 }}
@@ -530,6 +541,7 @@ jobs:
         name: Verify Test Discovery (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        if: github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         needs: [ build, smoke-fast-fail ]
         steps:
             -   name: Set Git Options
@@ -620,11 +632,12 @@ jobs:
         timeout-minutes: 20
         needs: [ changes, markdownlint, verify-coding-conventions, smoke-fast-fail, test-suites, verify-test-discovery ]
         if: |
-            always() &&
+            (always() &&
             needs.markdownlint.result != 'failure' &&
             (needs.changes.outputs.code == 'true' ||
              github.event_name == 'schedule' ||
-             github.event_name == 'workflow_dispatch')
+             github.event_name == 'workflow_dispatch')) &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         env:
             COVERAGE_MIN_LINE_RATE: "0.70"
         steps:
@@ -717,7 +730,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         needs: [ smoke-fast-fail, test-suites ]
-        if: always()
+        if: always() && github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         steps:
             -   name: Download TRX Artifacts
                 uses: actions/download-artifact@v7
@@ -800,6 +813,162 @@ jobs:
                         "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     }
 
+    stress-build:
+        name: Stress Build (Ubuntu / Net10.0)
+        runs-on: ubuntu-latest
+        timeout-minutes: 25
+        if: github.event_name == 'push' && github.ref == 'refs/heads/stress/run-stress-tests'
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@v6
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@v5
+                with:
+                    global-json-file: global.json
+
+            -   name: Cache NuGet Packages
+                uses: actions/cache@v5
+                with:
+                    path: ~/.nuget/packages
+                    key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
+                    restore-keys: |
+                        ${{ runner.os }}-dotnet10-nuget-
+
+            -   name: Restore
+                run: dotnet restore squirix.slnx
+
+            -   name: Build
+                run: dotnet build squirix.slnx --configuration Release --no-restore
+
+            -   name: Ensure Dev HTTPS Certificate
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            -   name: Upload Build Outputs For Stress Test
+                uses: actions/upload-artifact@v7
+                with:
+                    name: build-output-ubuntu-latest-net10.0
+                    retention-days: 1
+                    path: |
+                        src/**/bin/Release/net10.0/
+                        src/**/obj/Release/net10.0/
+                        tests/**/bin/Release/net10.0/
+                        tests/**/obj/Release/net10.0/
+                        !**/*.xml
+                        !**/ref/**
+                        !**/*.cache
+                        !**/*.editorconfig*
+                    if-no-files-found: error
+
+    journal-volume-stress:
+        name: Journal Volume Stress (WAL)
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        needs: stress-build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/stress/run-stress-tests'
+        env:
+            ASPNETCORE_ENVIRONMENT: Production
+            DOTNET_ENVIRONMENT: Production
+            DOTNET_GENERATE_ASPNET_CERTIFICATE: "false"
+            SQUIRIX_JOURNAL_STRESS_GB: "1"
+            SQUIRIX_JOURNAL_STRESS_MB: ""
+            SQUIRIX_JOURNAL_SEGMENT_MB: "64"
+            SQUIRIX_RPC_PER_ATTEMPT_TIMEOUT_SEC: "120"
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@v6
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@v5
+                with:
+                    global-json-file: global.json
+
+            -   name: Download Build Outputs
+                uses: actions/download-artifact@v7
+                with:
+                    name: build-output-ubuntu-latest-net10.0
+                    path: .
+
+            -   name: Restore (Resolve Packages For Test Host)
+                run: dotnet restore squirix.slnx
+
+            -   name: Restore Executable Bits For Test Hosts (Linux)
+                shell: bash
+                run: |
+                    chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
+
+            -   name: Ensure Dev HTTPS Certificate
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
+            -   name: Run Journal Volume WAL Stress Test
+                shell: bash
+                run: |
+                    set -o pipefail
+                    dotnet test tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                      -f net10.0 \
+                      --configuration Release \
+                      --no-build \
+                      --verbosity normal \
+                      --filter "FullyQualifiedName~HeavyJournalSurvivesRollCompactionAndRepeatedRestart" \
+                      --logger "trx;LogFileName=journal-volume-stress.trx" \
+                      2>&1 | tee test-output-journal-volume-stress.log
+
+            -   name: Upload Journal Volume Stress Results (TRX)
+                if: always()
+                uses: actions/upload-artifact@v7
+                with:
+                    name: test-results-ubuntu-latest-net10.0-journal-volume-stress
+                    retention-days: 7
+                    path: '**/*.trx'
+                    if-no-files-found: warn
+
+    ci-success-stress:
+        name: CI success
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [ stress-build, journal-volume-stress ]
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/stress/run-stress-tests'
+        steps:
+            -   name: Verify Stress Pipeline
+                shell: bash
+                env:
+                    RESULT_BUILD: ${{ needs.stress-build.result }}
+                    RESULT_STRESS: ${{ needs.journal-volume-stress.result }}
+                run: |
+                    set -euo pipefail
+                    failed=0
+                    if [[ "$RESULT_BUILD" != "success" ]]; then
+                      echo "FAIL stress-build result=$RESULT_BUILD" >&2
+                      failed=1
+                    else
+                      echo "OK   stress-build"
+                    fi
+                    if [[ "$RESULT_STRESS" != "success" ]]; then
+                      echo "FAIL journal-volume-stress result=$RESULT_STRESS" >&2
+                      failed=1
+                    else
+                      echo "OK   journal-volume-stress"
+                    fi
+                    if [[ "$failed" -ne 0 ]]; then
+                      exit 1
+                    fi
+
     ci-success:
         name: CI success
         runs-on: ubuntu-latest
@@ -816,13 +985,15 @@ jobs:
             - verify-test-discovery
             - coverage
         if: |
-            always() && (
+            (always() && (
               needs.changes.outputs.docs == 'true' ||
               needs.changes.outputs.code == 'true' ||
               needs.changes.outputs.docker == 'true' ||
               github.event_name == 'schedule' ||
               github.event_name == 'workflow_dispatch'
-            )
+            )) &&
+            github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
+
         steps:
             -   name: Verify Required Checks For This Change Set
                 shell: bash
@@ -892,7 +1063,7 @@ jobs:
 
     stability-stress:
         name: Stability Stress (Weekly / Manual)
-        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref != 'refs/heads/stress/run-stress-tests' && github.head_ref != 'stress/run-stress-tests'
         runs-on: windows-latest
         timeout-minutes: 60
         steps:

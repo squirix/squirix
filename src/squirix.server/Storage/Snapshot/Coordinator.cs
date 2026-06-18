@@ -140,7 +140,8 @@ internal sealed class Coordinator
         return updated.LastSnapshot;
     }
 
-    private bool ShouldSuppressBackgroundSnapshot() => _backgroundSnapshotMemoryThrottle.ShouldSuppressBackgroundSnapshot();
+    private bool ShouldSuppressBackgroundSnapshot() =>
+        _triggerState.ShouldDeferUnderCriticalMemoryPressure(_backgroundSnapshotMemoryThrottle.ShouldSuppressBackgroundSnapshot());
 
     private sealed record CapturedSnapshotBundle(
         List<(CacheKey Key, NodeCacheEntry<object?> Entry)> Items,
@@ -192,6 +193,16 @@ internal sealed class Coordinator
             _opsAtLast = _journal.AppendedOps;
             _bytesAtLast = _journal.AppendedBytes;
         }
+
+        /// <summary>Returns whether critical memory pressure should defer the currently eligible snapshot.</summary>
+        /// <param name="isCriticalMemoryPressure">Whether the node is currently under critical memory pressure.</param>
+        internal bool ShouldDeferUnderCriticalMemoryPressure(bool isCriticalMemoryPressure) =>
+            SnapshotDurabilityPolicy.ShouldDeferSnapshotUnderCriticalMemoryPressure(
+                isCriticalMemoryPressure,
+                _lastSnapshotUtc != DateTime.MinValue,
+                _journal.AppendedOps - _opsAtLast,
+                _journal.AppendedBytes - _bytesAtLast,
+                _opt);
 
         /// <summary>
         /// Returns <see langword="true" /> when conditions are met to start a new snapshot.

@@ -8,11 +8,15 @@
 
   Scale guidance: single-node drives 8 writers x 1000 x scale increments (~20k ops/sec).
   The per-test hard deadline is 120s, so keep scale below ~250.
+
+  Journal volume stress (JournalVolumeStressTests) uses SQUIRIX_JOURNAL_STRESS_MB or
+  SQUIRIX_JOURNAL_STRESS_GB instead of SQUIRIX_STRESS_SCALE. Defaults: DEBUG 32 MB, Release 64 MB.
 -->
 <RunSettings>
     <RunConfiguration>
         <EnvironmentVariables>
             <SQUIRIX_STRESS_SCALE>20</SQUIRIX_STRESS_SCALE>
+            <SQUIRIX_JOURNAL_STRESS_MB>256</SQUIRIX_JOURNAL_STRESS_MB>
         </EnvironmentVariables>
     </RunConfiguration>
 </RunSettings>

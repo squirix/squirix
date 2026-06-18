@@ -85,7 +85,7 @@ public sealed class SquirixClient : ISquirixClient
         ArgumentNullException.ThrowIfNull(options);
 
         var session = await RemoteClientSessionFactory
-            .ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, cancellationToken)
+            .ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, options.RpcPerAttemptTimeout, cancellationToken)
             .ConfigureAwait(false);
         return new SquirixClient(session);
     }

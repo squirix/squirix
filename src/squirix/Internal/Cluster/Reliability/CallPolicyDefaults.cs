@@ -30,5 +30,8 @@ internal static class CallPolicyDefaults
     /// </summary>
     private static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(3);
 
-    internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
+    internal static CallPolicy Create(string peer) => Create(peer, null);
+
+    internal static CallPolicy Create(string peer, TimeSpan? perAttemptTimeout) =>
+        new(perAttemptTimeout ?? PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }
