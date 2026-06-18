@@ -28,8 +28,8 @@ E2E benchmark infrastructure lives only as physical files under `benchmarks/squi
 
 ### Layer breakdown (internal — `Squirix.Benchmarks`)
 
-```text
-dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c Release -- --filter *ReadPathBreakdownBenchmarks* --join --warmupCount 1 --iterationCount 3
+```bash
+dotnet run --project benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj -c Release -- --filter '*ReadPathBreakdownBenchmarks*' --join --warmupCount 1 --iterationCount 3
 ```
 
 | Benchmark method                     | Layer isolated                                                          |
@@ -42,8 +42,8 @@ dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c 
 
 Public client only — no `InternalsVisibleTo`, no in-process server DI:
 
-```text
-dotnet run --project benchmarks\squirix.e2e.benchmarks\Squirix.E2EBenchmarks.csproj -c Release -- --filter *PublicSdkOperationsBenchmarks* --join --warmupCount 1 --iterationCount 3
+```bash
+dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj -c Release -- --filter '*PublicSdkOperationsBenchmarks*' --join --warmupCount 1 --iterationCount 3
 ```
 
 | Benchmark method                | Layer isolated                                            |
@@ -419,13 +419,13 @@ Profile here only if `SquirixServerPipelineReadBatched` regresses or if a low-la
 
 Quick run (default iteration count):
 
-```text
-dotnet run --project benchmarks\squirix.e2e.benchmarks\Squirix.E2EBenchmarks.csproj -c Release -- --filter *PublicSdkOperationsBenchmarks*
-dotnet run --project benchmarks\squirix.benchmarks\Squirix.Benchmarks.csproj -c Release -- --filter *ReadPathBreakdownBenchmarks*
+```bash
+dotnet run --project benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj -c Release -- --filter '*PublicSdkOperationsBenchmarks*'
+dotnet run --project benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj -c Release -- --filter '*ReadPathBreakdownBenchmarks*'
 ```
 
-On Windows, if BenchmarkDotNet fails writing under `Application Data`:
+If BenchmarkDotNet fails writing under the default artifacts directory:
 
-```text
-$env:BMDN_ArtifactsPath = "c:\Users\HOME\Source\Repos\squirix\squirix\BenchmarkDotNet.Artifacts"
+```bash
+export BMDN_ArtifactsPath="$PWD/BenchmarkDotNet.Artifacts"
 ```

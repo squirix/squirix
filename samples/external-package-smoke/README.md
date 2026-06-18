@@ -5,7 +5,7 @@ references), to simulate a third-party consumer on the v0.1 client SDK surface.
 
 After changing the client SDK, repack before `SmokeUsePackages=true`:
 
-```powershell
+```bash
 dotnet pack src/squirix/Squirix.csproj -c Release -o artifacts/packages
 ```
 
@@ -18,13 +18,13 @@ dotnet pack src/squirix/Squirix.csproj -c Release -o artifacts/packages
 
 From the repository root:
 
-```powershell
+```bash
 dotnet pack src/squirix/Squirix.csproj -c Release -o artifacts/packages
 ```
 
 ## Run
 
-```powershell
+```bash
 cd samples/external-package-smoke
 dotnet restore
 dotnet run

@@ -54,7 +54,7 @@ port **5000** (`https://squirix-node-a:5000` in mounted settings).
 
 Before changing topology in containers, validate settings:
 
-```powershell
+```bash
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 

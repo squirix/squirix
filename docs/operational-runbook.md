@@ -24,7 +24,7 @@ When a node behaves unexpectedly:
 
 Before changing cluster topology in containers, validate settings:
 
-```powershell
+```bash
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 

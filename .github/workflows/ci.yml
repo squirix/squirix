@@ -2,6 +2,7 @@ name: CI
 
 on:
     # Push/PR to main or develop: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
+    # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     push:
         branches: [ main, develop ]
     pull_request:
@@ -140,6 +141,22 @@ jobs:
             -   name: Verify Coding Conventions (.editorconfig)
                 shell: bash
                 run: bash tools/ci/verify-dotnet-format.sh
+
+    # Pull requests: fail when changed text files are committed with CRLF (LF required by .editorconfig).
+    verify-line-endings:
+        name: Verify Line Endings (LF)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.event_name == 'pull_request'
+        steps:
+            -   name: Checkout
+                uses: actions/checkout@v6
+                with:
+                    fetch-depth: 0
+
+            -   name: Verify Line Endings In Changed Files
+                shell: bash
+                run: bash tools/ci/verify-line-endings.sh
 
     docker-build:
         name: Docker Build
@@ -758,6 +775,7 @@ jobs:
             - changes
             - markdownlint
             - verify-coding-conventions
+            - verify-line-endings
             - docker-build
             - build
             - smoke-fast-fail
@@ -781,6 +799,7 @@ jobs:
                     EVENT_NAME: ${{ github.event_name }}
                     RESULT_MARKDOWNLINT: ${{ needs.markdownlint.result }}
                     RESULT_VERIFY: ${{ needs.verify-coding-conventions.result }}
+                    RESULT_LINE_ENDINGS: ${{ needs.verify-line-endings.result }}
                     RESULT_DOCKER: ${{ needs.docker-build.result }}
                     RESULT_BUILD: ${{ needs.build.result }}
                     RESULT_SMOKE: ${{ needs.smoke-fast-fail.result }}
@@ -794,6 +813,7 @@ jobs:
                     require_docs=false
                     require_code=false
                     require_docker=false
+                    require_line_endings=false
                     if [[ "$DOCS_CHANGED" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docs=true
                     fi
@@ -802,6 +822,9 @@ jobs:
                     fi
                     if [[ "${{ needs.changes.outputs.docker }}" == "true" || "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
                       require_docker=true
+                    fi
+                    if [[ "$EVENT_NAME" == "pull_request" ]]; then
+                      require_line_endings=true
                     fi
 
                     assert_success() {
@@ -822,6 +845,7 @@ jobs:
 
                     assert_success "markdownlint" "$require_docs" "$RESULT_MARKDOWNLINT"
                     assert_success "verify-coding-conventions" "$require_code" "$RESULT_VERIFY"
+                    assert_success "verify-line-endings" "$require_line_endings" "$RESULT_LINE_ENDINGS"
                     assert_success "docker-build" "$require_docker" "$RESULT_DOCKER"
                     assert_success "build" "$require_code" "$RESULT_BUILD"
                     assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
@@ -834,10 +858,10 @@ jobs:
                     fi
 
     stability-stress:
-        name: Stability Stress (Manual)
-        if: github.event_name == 'workflow_dispatch'
+        name: Stability Stress (Weekly / Manual)
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         runs-on: windows-latest
-        timeout-minutes: 45
+        timeout-minutes: 60
         steps:
             -   name: Checkout
                 uses: actions/checkout@v6
@@ -853,6 +877,20 @@ jobs:
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
+            -   name: Ensure Dev HTTPS Certificate
+                shell: bash
+                run: bash tools/ci/ensure-dev-https-cert.sh
+
             -   name: Run Selected Resiliency Stress Checks
-                shell: pwsh
                 run: dotnet run --file ./tools/internal/sqr-resiliency-repeat.cs -- -Iterations 5 -Configuration Release -NoBuild
+
+            -   name: Run E2E Stress Suite
+                shell: bash
+                env:
+                    SQUIRIX_STRESS_SCALE: "0.5"
+                run: |
+                    set -o pipefail
+                    dotnet test tests/squirix.e2e.tests/Squirix.E2ETests.csproj \
+                      --configuration Release \
+                      --no-build \
+                      --filter "Suite=Stress"

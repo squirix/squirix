@@ -27,14 +27,6 @@ Run one small smoke benchmark:
 SQUIRIX_E2E_BENCHMARK_SMOKE=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHit*' --warmupCount 1 --iterationCount 1
 ```
 
-PowerShell:
-
-```powershell
-$env:SQUIRIX_E2E_BENCHMARK_SMOKE='1'
-dotnet run -c Release --project benchmarks\squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHit*' --warmupCount 1 --iterationCount 1
-Remove-Item Env:\SQUIRIX_E2E_BENCHMARK_SMOKE
-```
-
 Run a longer local job:
 
 ```bash

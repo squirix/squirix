@@ -39,7 +39,7 @@ feature/my-fix → develop → main → tag vX.Y.Z
 
 2. Make your change and run tests (trust the ASP.NET Core HTTPS development certificate once per machine):
 
-   ```powershell
+   ```bash
    dotnet build squirix.slnx --configuration Release
    dotnet dev-certs https --trust
    dotnet test squirix.slnx --configuration Release
