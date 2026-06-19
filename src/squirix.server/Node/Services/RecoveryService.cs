@@ -107,8 +107,9 @@ internal sealed class RecoveryService<T> : IHostedService
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
-        return missingInitialSegment || journalGapDetected ? throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false)
-            : Math.Max(firstAvailableSegment, manifestCurrentJournal);
+        if (!missingInitialSegment && !journalGapDetected)
+            return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
+        throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
     }
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
