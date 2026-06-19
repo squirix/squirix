@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using FsCheck.Fluent;
 using Squirix.Server.Cluster;
 using Xunit;
@@ -82,7 +82,10 @@ public sealed class ConsistentHashRingPropertyTests
         var ring = new ConsistentHashRing(nodes, vnodes);
         const int sample = 50_000;
 
-        var counts = nodes.ToDictionary(static n => n, static _ => 0, StringComparer.OrdinalIgnoreCase);
+        var counts = new Dictionary<string, int>(nodes.Length, StringComparer.OrdinalIgnoreCase);
+        foreach (var node in nodes)
+            counts[node] = 0;
+
         foreach (var key in RingHelpers.MakeKeys(sample, seed))
             counts[ring.GetOwner(key)]++;
 
@@ -101,7 +104,14 @@ public sealed class ConsistentHashRingPropertyTests
             _ => 0.0,
         };
         var threshold = Math.Min(0.50, Math.Max(0.15, Math.Max(samplingTerm, discretenessTerm) + smallClusterSlack));
-        var maxDev = counts.Values.Max(c => Math.Abs(c - expected) / expected);
+        var maxDev = 0.0;
+        foreach (var count in counts.Values)
+        {
+            var deviation = Math.Abs(count - expected) / expected;
+            if (deviation > maxDev)
+                maxDev = deviation;
+        }
+
         var userMessage = $"n={n.ToString(CultureInfo.InvariantCulture)}, vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}, perNode≈{k.ToString("F1", CultureInfo.InvariantCulture)}, sample={sample.ToString(CultureInfo.InvariantCulture)}, " + $"maxDev={maxDev.ToString("P2", CultureInfo.InvariantCulture)}, threshold={threshold.ToString("P2", CultureInfo.InvariantCulture)}, " +
                           $"sampling={samplingTerm.ToString("P2", CultureInfo.InvariantCulture)}, discrete={discretenessTerm.ToString("P2", CultureInfo.InvariantCulture)}, " + $"counts=[{string.Join(", ", counts.Values)}]";
         Assert.True(maxDev <= threshold, userMessage);
@@ -123,11 +133,19 @@ public sealed class ConsistentHashRingPropertyTests
 
         var ring = new ConsistentHashRing(baseNodes, vnodes);
         var newNode = $"node-new-{Math.Abs(seed % 1_000_000).ToString(CultureInfo.InvariantCulture)}";
-        var withNew = baseNodes.Append(newNode).ToArray();
+        var withNew = new string[baseNodes.Length + 1];
+        Array.Copy(baseNodes, withNew, baseNodes.Length);
+        withNew[baseNodes.Length] = newNode;
         var ring2 = new ConsistentHashRing(withNew, vnodes);
 
         const int sample = 20_000;
-        var moved = RingHelpers.MakeKeys(sample, seed).Count(key => !string.Equals(ring.GetOwner(key), ring2.GetOwner(key), StringComparison.OrdinalIgnoreCase));
+        var moved = 0;
+        foreach (var key in RingHelpers.MakeKeys(sample, seed))
+        {
+            if (!string.Equals(ring.GetOwner(key), ring2.GetOwner(key), StringComparison.OrdinalIgnoreCase))
+                moved++;
+        }
+
         var n = baseNodes.Length;
         var ratio = 1.0 * moved / sample;
         var expected = 1.0 / (n + 1);
@@ -152,7 +170,14 @@ public sealed class ConsistentHashRingPropertyTests
         var ringBefore = new ConsistentHashRing(nodes, vnodes);
         var victimIndex = Math.Abs(seed % nodes.Length);
         var victim = nodes[victimIndex];
-        var remaining = nodes.Where(n => !string.Equals(n, victim, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var remainingList = new List<string>(nodes.Length - 1);
+        foreach (var node in nodes)
+        {
+            if (!string.Equals(node, victim, StringComparison.OrdinalIgnoreCase))
+                remainingList.Add(node);
+        }
+
+        var remaining = remainingList.ToArray();
         var ringAfter = new ConsistentHashRing(remaining, vnodes);
 
         var altSeed = seed ^ int.CreateTruncating(0x9E3779B9u);

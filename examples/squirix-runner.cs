@@ -11,7 +11,7 @@ using Grpc.Core;
 using Squirix;
 using Squirix.Server;
 
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
@@ -20,7 +20,15 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     return 0;
 }
 
-var runLoad = !argv.Any(static arg => string.Equals(arg, "--skip-load", StringComparison.OrdinalIgnoreCase));
+var runLoad = true;
+foreach (var arg in argv)
+{
+    if (string.Equals(arg, "--skip-load", StringComparison.OrdinalIgnoreCase))
+    {
+        runLoad = false;
+        break;
+    }
+}
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");

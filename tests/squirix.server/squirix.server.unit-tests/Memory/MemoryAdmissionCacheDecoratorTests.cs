@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
@@ -41,7 +40,14 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
             _ => cache.RemoveAsync(TestOperationIds.Default, CacheName, key, DefaultCancellationToken).AsTask(),
             DefaultCancellationToken);
 
-        Assert.Equal(1, results.Count(static result => result.Removed));
+        var removedCount = 0;
+        foreach (var result in results)
+        {
+            if (result.Removed)
+                removedCount++;
+        }
+
+        Assert.Equal(1, removedCount);
         Assert.Equal(0, accounting.EntryCount);
         Assert.Equal(0, accounting.EstimatedBytes);
         Assert.False(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
@@ -167,7 +173,14 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
             _ => cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken).AsTask(),
             DefaultCancellationToken);
 
-        Assert.Equal(1, results.Count(static added => added));
+        var addedCount = 0;
+        foreach (var added in results)
+        {
+            if (added)
+                addedCount++;
+        }
+
+        Assert.Equal(1, addedCount);
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(expectedBytes, accounting.EstimatedBytes);
         Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));

@@ -1,5 +1,5 @@
+using System;
 using System.Globalization;
-using System.Linq;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support.Client;
 using Squirix.E2ETests.Support.Cluster.Fixtures;
@@ -59,9 +59,13 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     {
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
-        var tasks = Enumerable.Range(0, 50).Select(i =>
-            i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
-                : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)).ToArray();
+        var tasks = new Task[50];
+        for (var i = 0; i < tasks.Length; i++)
+        {
+            tasks[i] = i % 2 is 0
+                ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
+                : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken);
+        }
 
         await Task.WhenAll(tasks);
 

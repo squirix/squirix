@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -317,8 +316,11 @@ public static class DirectoryKit
             name = seg[..dot];
 
         string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        if (fixedNames.Any(n => string.Equals(name, n, StringComparison.OrdinalIgnoreCase)))
-            return true;
+        foreach (var reserved in fixedNames)
+        {
+            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
 
         if (name.Length < 4)
             return false;

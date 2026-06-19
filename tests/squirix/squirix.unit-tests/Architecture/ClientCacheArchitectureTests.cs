@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -51,8 +51,9 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientAssemblyShouldNotExposeInternalsToSquirixServer()
     {
-        var friendAssemblies = ClientArchitecture.MainAssembly.GetCustomAttributes<InternalsVisibleToAttribute>()
-                                                 .Select(static attribute => GetSimpleAssemblyName(attribute.AssemblyName)).ToArray();
+        var friendAssemblies = new List<string>();
+        foreach (var attribute in ClientArchitecture.MainAssembly.GetCustomAttributes<InternalsVisibleToAttribute>())
+            friendAssemblies.Add(GetSimpleAssemblyName(attribute.AssemblyName));
 
         Assert.DoesNotContain(friendAssemblies, static assemblyName => string.Equals(assemblyName, "Squirix.Server", StringComparison.Ordinal));
     }
@@ -61,7 +62,9 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientAssemblyShouldNotReferenceSquirixServer()
     {
-        var references = ClientArchitecture.MainAssembly.GetReferencedAssemblies().Select(static a => a.Name).ToArray();
+        var references = new List<string>();
+        foreach (var assembly in ClientArchitecture.MainAssembly.GetReferencedAssemblies())
+            references.Add(assembly.Name!);
         Assert.DoesNotContain("Squirix.Server", references, StringComparer.Ordinal);
     }
 
@@ -69,11 +72,18 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var protobuf = LoadProject("src/squirix/Squirix.csproj").Descendants().SingleOrDefault(static element =>
-            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
-                element.Attribute("Include")?.Value,
-                @"..\shared\transport\grpc\Protos\SquirixCache.proto",
-                StringComparison.Ordinal));
+        XElement? protobuf = null;
+        foreach (var element in LoadProject("src/squirix/Squirix.csproj").Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.Equals(element.Attribute("Include")?.Value, @"..\shared\transport\grpc\Protos\SquirixCache.proto", StringComparison.Ordinal))
+                continue;
+
+            protobuf = element;
+            break;
+        }
 
         Assert.NotNull(protobuf);
         Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
@@ -87,13 +97,21 @@ public sealed class ClientCacheArchitectureTests
     public void ClientProjectShouldNotReferenceServerHostingPackages()
     {
         var project = LoadProject("src/squirix/Squirix.csproj");
-        var serverPackageReferences = ReadIncludes(project, "PackageReference").Where(static include =>
-            include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)).ToArray();
+        var serverPackageReferences = new List<string>();
+        foreach (var include in ReadIncludes(project, "PackageReference"))
+        {
+            if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+                serverPackageReferences.Add(include);
+        }
 
         Assert.Empty(serverPackageReferences);
 
-        var serverFrameworkReferences = ReadIncludes(project, "FrameworkReference").Where(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                                                                                   .ToArray();
+        var serverFrameworkReferences = new List<string>();
+        foreach (var include in ReadIncludes(project, "FrameworkReference"))
+        {
+            if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
+                serverFrameworkReferences.Add(include);
+        }
 
         Assert.Empty(serverFrameworkReferences);
     }
@@ -112,8 +130,16 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientPublicApiShouldNotExposeShardTerminology()
     {
-        var offenders = ClientArchitecture.MainAssembly.ExportedTypes.Where(static type => type.FullName is not null && type.FullName.Contains("Shard", StringComparison.Ordinal))
-                                          .Select(static type => type.FullName).Order(StringComparer.Ordinal).ToArray();
+        var offenders = new List<string>();
+        foreach (var type in ClientArchitecture.MainAssembly.ExportedTypes)
+        {
+            if (type.FullName is null || !type.FullName.Contains("Shard", StringComparison.Ordinal))
+                continue;
+
+            offenders.Add(type.FullName);
+        }
+
+        offenders.Sort(StringComparer.Ordinal);
 
         Assert.Empty(offenders);
     }
@@ -162,11 +188,23 @@ public sealed class ClientCacheArchitectureTests
         return XDocument.Load(path);
     }
 
-    private static string[] ReadIncludes(XDocument project, string itemName) =>
-    [
-        .. project.Descendants().Where(element => string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
-                  .Select(static element => element.Attribute("Include")?.Value).Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
-    ];
+    private static string[] ReadIncludes(XDocument project, string itemName)
+    {
+        var includes = new List<string>();
+        foreach (var element in project.Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var value = element.Attribute("Include")?.Value;
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            includes.Add(value);
+        }
+
+        return includes.ToArray();
+    }
 
     private static string[] ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
 }

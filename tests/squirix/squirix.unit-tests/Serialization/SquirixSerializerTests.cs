@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using FakeItEasy;
 using Squirix.Serialization;
 using Xunit;
@@ -47,15 +46,21 @@ public sealed class SquirixSerializerTests
 
         _ = A.CallTo(() => custom.Deserialize<Dictionary<string, int>>(payload)).MustHaveHappenedOnceExactly();
         A.CallTo(() => custom.Deserialize<Dictionary<string, int>>(A<Stream>._)).MustNotHaveHappened();
-        var called = Fake.GetCalls(custom).Any(static call =>
+        var called = false;
+        foreach (var call in Fake.GetCalls(custom))
         {
             var method = call.Method;
             if (!string.Equals(method.Name, nameof(ISquirixSerializer.Deserialize), StringComparison.OrdinalIgnoreCase))
-                return false;
+                continue;
 
             var parameters = method.GetParameters();
-            return parameters.Length is 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>);
-        });
+            if (parameters.Length is 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>))
+            {
+                called = true;
+                break;
+            }
+        }
+
         Assert.False(called);
     }
 

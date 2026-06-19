@@ -6,7 +6,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
@@ -151,18 +151,23 @@ static string ResolveRepoRoot()
 
 static bool HasClientPackage(string directory)
 {
-    return Directory.EnumerateFiles(directory, "squirix*.nupkg", SearchOption.TopDirectoryOnly)
-                  .Any(static path =>
-                  {
-                      var name = Path.GetFileName(path);
-                      return name.StartsWith("squirix.", StringComparison.Ordinal)
-                          && !name.StartsWith("squirix.server.", StringComparison.Ordinal);
-                  });
+    foreach (var path in Directory.EnumerateFiles(directory, "squirix*.nupkg", SearchOption.TopDirectoryOnly))
+    {
+        var name = Path.GetFileName(path);
+        if (name.StartsWith("squirix.", StringComparison.Ordinal)
+            && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
+            return true;
+    }
+
+    return false;
 }
 
 static bool HasServerPackage(string directory)
 {
-    return Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).Any();
+    foreach (var _ in Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly))
+        return true;
+
+    return false;
 }
 
 static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)

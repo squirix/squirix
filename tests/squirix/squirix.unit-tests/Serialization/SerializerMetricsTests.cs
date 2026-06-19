@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using FakeItEasy;
@@ -74,8 +73,19 @@ public sealed class SerializerMetricsTests
     {
         var arg = call.Arguments[0];
         var argType = arg?.GetType() ?? typeof(object);
-        var genericDef = typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                                                         .Single(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase) && m.IsGenericMethodDefinition);
+        MethodInfo? genericDef = null;
+        foreach (var method in typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!string.Equals(method.Name, methodName, StringComparison.OrdinalIgnoreCase) || !method.IsGenericMethodDefinition)
+                continue;
+
+            genericDef = method;
+            break;
+        }
+
+        if (genericDef is null)
+            throw new InvalidOperationException($"Generic method '{methodName}' not found.");
+
         var gm = genericDef.MakeGenericMethod(argType);
         var result = gm.Invoke(inner, [arg]);
         if (result is TResult typed)

@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -79,8 +79,14 @@ public sealed class CorrelationClientInterceptorTests
             });
 
         var options = Assert.NotNull(observed);
-        var values = (options.Headers ?? []).Where(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase)).Select(static entry => entry.Value)
-                                            .ToArray();
+        var values = new List<string>();
+        foreach (var entry in options.Headers ?? [])
+        {
+            if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
 
         _ = Assert.Single(values);
         Assert.NotEqual("00-stale-stale-00", values[0]);
@@ -113,8 +119,15 @@ public sealed class CorrelationClientInterceptorTests
             });
 
         var options = Assert.NotNull(observed);
-        var values = (options.Headers ?? []).Where(static entry => string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase)).Select(static entry => entry.Value)
-                                            .ToArray();
+        var values = new List<string>();
+        foreach (var entry in options.Headers ?? [])
+        {
+            if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
+
         _ = Assert.Single(values);
         Assert.Equal("vendor=value", values[0]);
     }

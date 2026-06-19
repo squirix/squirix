@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -26,7 +25,11 @@ internal static class MtlsCertificateLoader
         if (chain.Build(nodeCertificate))
             return;
 
-        var errors = string.Join("; ", chain.ChainStatus.Select(static status => status.StatusInformation.Trim()));
+        var errorParts = new string[chain.ChainStatus.Length];
+        for (var i = 0; i < chain.ChainStatus.Length; i++)
+            errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
+
+        var errors = string.Join("; ", errorParts);
         var chainFailureMessage = string.IsNullOrWhiteSpace(errors) ? "mTLS node certificate does not chain to the configured trust root."
             : $"mTLS node certificate does not chain to the configured trust root. {errors}";
         throw new InvalidOperationException(chainFailureMessage);

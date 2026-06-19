@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -173,7 +173,14 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
-        return routeBuilder.DataSources.SelectMany(static source => source.Endpoints).ToArray();
+        var endpoints = new List<Endpoint>();
+        foreach (var source in routeBuilder.DataSources)
+        {
+            foreach (var endpoint in source.Endpoints)
+                endpoints.Add(endpoint);
+        }
+
+        return endpoints.ToArray();
     }
 
     private sealed record ExtensionMarker(string Name);

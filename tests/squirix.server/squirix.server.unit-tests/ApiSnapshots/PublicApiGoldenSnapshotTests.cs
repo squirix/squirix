@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Text;
 using Squirix.Server.TestKit.IO;
@@ -23,10 +23,17 @@ public sealed class PublicApiGoldenSnapshotTests
         var actual = ExportedTypeReflection.GetExportedApiIdentitySet(ServerAssembly);
         var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
         Assert.True(File.Exists(path), $"Golden file missing: {path}");
-        var expected = File.ReadAllLines(path).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToHashSet(StringComparer.Ordinal);
 
-        var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
-        var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).Order(StringComparer.Ordinal).ToArray();
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in File.ReadAllLines(path))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length > 0)
+                expected.Add(trimmed);
+        }
+
+        var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
+        var missing = CollectSetDifference(expected, actual, StringComparer.OrdinalIgnoreCase);
         if (unexpected.Length is 0 && missing.Length is 0)
             return;
 
@@ -44,10 +51,42 @@ public sealed class PublicApiGoldenSnapshotTests
     [Fact]
     public void ServerShouldExposeOnlyCanonicalLifetimeMethods()
     {
-        var methods = typeof(SquirixServer).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                                           .Where(static method => !method.IsSpecialName).Select(static method => method.Name).Distinct(StringComparer.Ordinal)
-                                           .Order(StringComparer.Ordinal).ToArray();
+        var methodNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var method in typeof(SquirixServer).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+        {
+            if (method.IsSpecialName)
+                continue;
+
+            methodNames.Add(method.Name);
+        }
+
+        var methods = new List<string>(methodNames);
+        methods.Sort(StringComparer.Ordinal);
 
         Assert.Equal(["DisposeAsync", "StartAsync"], methods);
+    }
+
+    private static string[] CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
+    {
+        var result = new List<string>();
+        foreach (var item in left)
+        {
+            if (!SetContains(right, item, comparer))
+                result.Add(item);
+        }
+
+        result.Sort(StringComparer.Ordinal);
+        return result.ToArray();
+    }
+
+    private static bool SetContains(IReadOnlySet<string> set, string item, StringComparer comparer)
+    {
+        foreach (var candidate in set)
+        {
+            if (comparer.Equals(candidate, item))
+                return true;
+        }
+
+        return false;
     }
 }

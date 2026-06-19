@@ -4,7 +4,7 @@ using System.Globalization;
 using Squirix.Server.Cluster;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
@@ -72,11 +72,27 @@ if (string.IsNullOrWhiteSpace(nodesCsv))
 
 try
 {
-    var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
-    if (nodes.Length is 0)
+    var splitNodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    var nodes = new List<string>();
+    foreach (var node in splitNodes)
+    {
+        var found = false;
+        foreach (var existing in nodes)
+        {
+            if (StringComparer.Ordinal.Equals(existing, node))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
+            nodes.Add(node);
+    }
+    if (nodes.Count is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
-    var ring = new ConsistentHashRing(nodes, virtualNodes);
+    var ring = new ConsistentHashRing(nodes.ToArray(), virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
     foreach (var node in nodes)
         distribution[node] = 0;
@@ -92,7 +108,9 @@ try
     await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
     await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
-    foreach (var key in distribution.Keys.Order(StringComparer.Ordinal))
+    var sortedKeys = new List<string>(distribution.Keys);
+    sortedKeys.Sort(StringComparer.Ordinal);
+    foreach (var key in sortedKeys)
     {
         var count = distribution[key];
         var share = Math.Round(Convert.ToDouble(count, CultureInfo.InvariantCulture) / sampleSize, 6, MidpointRounding.ToEven);

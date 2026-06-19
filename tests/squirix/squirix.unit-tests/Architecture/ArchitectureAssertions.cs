@@ -1,5 +1,5 @@
 using System;
-using System.Linq;
+using System.Collections.Generic;
 using Xunit;
 using TestResult = NetArchTest.Rules.TestResult;
 
@@ -19,6 +19,11 @@ internal static class ArchitectureAssertions
             return;
         }
 
-        Assert.Fail(string.Join(Environment.NewLine, result.FailingTypeNames.Order(StringComparer.Ordinal)));
+        var names = new List<string>();
+        foreach (var name in result.FailingTypeNames)
+            names.Add(name);
+
+        names.Sort(StringComparer.Ordinal);
+        Assert.Fail(string.Join(Environment.NewLine, names));
     }
 }

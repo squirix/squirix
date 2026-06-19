@@ -4,7 +4,6 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -110,7 +109,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="servicesConfigure">Optional action to configure DI services.</param>
     /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
     /// <param name="persistenceOptions">Optional persistence options.</param>
-    /// <param name="usePersistence">When <see langword="true"/>, starts the node with WAL/snapshot persistence enabled.</param>
+    /// <param name="usePersistence">When <see langword="true" />, starts the node with WAL/snapshot persistence enabled.</param>
     /// <param name="output">Optional xUnit output helper for log capture.</param>
     /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
     /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
@@ -118,7 +117,7 @@ public abstract class SmokeTestBase : IDisposable
     /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
     /// </param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
-    /// <param name="memoryPressureOptions">Optional memory pressure options; when <see langword="null"/>, defaults merged from settings and environment are used.</param>
+    /// <param name="memoryPressureOptions">Optional memory pressure options; when <see langword="null" />, defaults merged from settings and environment are used.</param>
     /// <param name="testName">
     /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
     /// </param>
@@ -185,8 +184,7 @@ public abstract class SmokeTestBase : IDisposable
         CancellationToken cancellationToken = default)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ??
-                         throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
@@ -282,7 +280,7 @@ public abstract class SmokeTestBase : IDisposable
     /// underlying document's lifetime; otherwise the value is used as-is.
     /// </param>
     /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <see langword="null"/>, the entry has no absolute expiry.
+    /// Optional absolute UTC expiration time. When <see langword="null" />, the entry has no absolute expiry.
     /// </param>
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
@@ -294,7 +292,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> containing the provided <paramref name="value" />,
     /// <paramref name="expiresUtc" />, <paramref name="version" />, and <paramref name="tags" /> (if any).
-    /// The <c>Expiration</c> property is set to <see langword="null"/>.
+    /// The <c>Expiration</c> property is set to <see langword="null" />.
     /// </returns>
     private protected static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
@@ -322,6 +320,17 @@ public abstract class SmokeTestBase : IDisposable
         return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
+    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
+    {
+        foreach (var peer in peers)
+        {
+            if (ListenUrls.SameAuthority(peer.Url, urlString))
+                return peer.NodeId;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Gets the root directory for test persistence. Uses <c>XUNIT_TEST_ROOT</c> env variable if set,
     /// otherwise falls back to <c>%LOCALAPPDATA%\SquirixSmoke</c>.
@@ -337,13 +346,6 @@ public abstract class SmokeTestBase : IDisposable
         return PathKit.Combine(true, appData, "SquirixSmoke");
     }
 
-    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
-    {
-        DefaultRequestVersion = HttpVersion.Version20,
-        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
-        Timeout = TimeSpan.FromSeconds(30),
-    };
-
     private async Task<string> ConstructDataDirAsync(string? dataDir, string selfNodeId, string testScope, bool clean, CancellationToken cancellationToken)
     {
         var dataRoot = PathKit.Combine(true, GetStableRoot(), GetType().Name, testScope, "cluster");
@@ -354,6 +356,13 @@ public abstract class SmokeTestBase : IDisposable
         DirectoryKit.CreateDirectory(combine);
         return combine;
     }
+
+    private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
+    {
+        DefaultRequestVersion = HttpVersion.Version20,
+        DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher,
+        Timeout = TimeSpan.FromSeconds(30),
+    };
 
     private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
         PersistenceOptions? persistenceOptions,
