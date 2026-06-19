@@ -1,8 +1,5 @@
 using System;
-using System.Buffers;
-using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
+using System.Globalization;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.Server.TestKit;
 

@@ -26,21 +26,20 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     public async Task GoldenSnapshotMatchesProductionRestEndpointSurface()
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
-        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
-        Assert.True(File.Exists(path));
+        var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
+        Assert.True(File.Exists(path), $"Golden file missing: {path}");
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
-        for (var i = 0; i < lines.Length; i++)
+        foreach (var line in await File.ReadAllLinesAsync(path, DefaultCancellationToken))
         {
-            var line = lines[i];
-            if (line.Length is 0)
-                continue;
-
-            _ = expected.Add(line);
+            var trimmed = line.Trim();
+            if (trimmed.Length > 0)
+                expected.Add(trimmed);
         }
 
-        if (actual.SetEquals(expected))
+        var unexpected = CollectSetDifference(actual, expected);
+        var missing = CollectSetDifference(expected, actual);
+        if (unexpected.Length is 0 && missing.Length is 0)
             return;
 
         var unexpected = CollectSetDifference(actual, expected);
@@ -57,98 +56,16 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         Assert.Fail(sb.ToString());
     }
 
-    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
+    private static string[] CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
-        return result;
-    }
-
-    /// <summary>Collects HTTP route patterns exposed by the production Squirix server mapping pipeline.</summary>
-    private static class RestEndpointSurfaceCollector
-    {
-        /// <summary>Builds a production-like host and returns sorted REST route identities (method + path).</summary>
-        /// <returns>Sorted REST route identities for the mapped server surface.</returns>
-        internal static async Task<List<string>> CollectProductionRestRoutesAsync()
-        {
-            await using var app = await BuildProductionHostAsync();
-            _ = app.MapSquirixServer();
-            return CollectRestRoutes(app);
-        }
-
-        private static void AppendHttpMethods(RouteEndpoint route, string pattern, List<string> routes)
-        {
-            var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
-            if (methods is null || methods.HttpMethods.Count is 0)
-            {
-                // Health probes often omit explicit HttpMethodMetadata; treat them as GET for the golden.
-                if (pattern.StartsWith("/health", StringComparison.Ordinal))
-                    routes.Add($"GET {pattern}");
-
-                return;
-            }
-
-            var httpMethods = new List<string>(methods.HttpMethods);
-            httpMethods.Sort(StringComparer.Ordinal);
-            for (var methodIndex = 0; methodIndex < httpMethods.Count; methodIndex++)
-                routes.Add($"{httpMethods[methodIndex]} {pattern}");
-        }
-
-        private static void AppendRouteEndpoint(Endpoint endpoint, List<string> routes)
-        {
-            if (endpoint is not RouteEndpoint route)
-                return;
-
-            // gRPC endpoints are covered by a separate contract surface and must not dilute REST goldens.
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() is not null)
-                return;
-
-            var pattern = route.RoutePattern.RawText ?? "/";
-            if (pattern.Contains("grpcunimplemented", StringComparison.Ordinal))
-                return;
-
-            AppendHttpMethods(route, pattern, routes);
-        }
-
-        private static async Task<WebApplication> BuildProductionHostAsync()
-        {
-            var builder = WebApplication.CreateBuilder(
-                new WebApplicationOptions
-                {
-                    EnvironmentName = "Production",
-                });
-
-            _ = await builder.AddSquirixServerAsync(
-                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
-                loadDiscoveredSettings: false,
-                cancellationToken: CancellationToken.None);
-
-            return builder.Build();
-        }
-
-        /// <summary>
-        /// Collects REST route identities (<c>METHOD /pattern</c>) from the host endpoint data sources,
-        /// excluding gRPC methods and unimplemented placeholders.
-        /// </summary>
-        /// <param name="app">Built web application exposing endpoint route data.</param>
-        /// <returns>Sorted list of REST route identities for golden comparison.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when <paramref name="app" /> does not expose endpoint data sources.</exception>
-        private static List<string> CollectRestRoutes(WebApplication app)
-        {
-            if (app is not IEndpointRouteBuilder routeBuilder)
-                throw new InvalidOperationException("Web application does not expose endpoint data sources.");
-
-            var routes = new List<string>();
-            foreach (var source in routeBuilder.DataSources)
-                for (var index = 0; index < source.Endpoints.Count; index++)
-                    AppendRouteEndpoint(source.Endpoints[index], routes);
-
-            routes.Sort(StringComparer.Ordinal);
-            return routes;
-        }
+        return result.ToArray();
     }
 }

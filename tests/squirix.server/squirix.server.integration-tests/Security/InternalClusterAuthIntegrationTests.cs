@@ -86,7 +86,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
-        var interNodeUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ??
                            throw new InvalidOperationException("Expected inter-node URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
@@ -228,9 +228,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
 
-        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
-        var nodeBUrl = FindPeer(peers, "node-b").Uri;
-        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUri ?? throw new InvalidOperationException("Expected inter-node URL for node-a.");
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
+        var nodeBUrl = FindPeer(peers, "node-b").Url;
+        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ??
+                            throw new InvalidOperationException("Expected inter-node URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,
@@ -260,12 +261,14 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         Assert.Equal("stale-owner", ex.Trailers.GetValue("squirix-error-code"));
     }
 
-    private static ServerPeer FindPeer(IReadOnlyList<ServerPeer> peers, string nodeId)
+    private static Peer FindPeer(IReadOnlyList<Peer> peers, string nodeId)
     {
         foreach (var peer in peers)
+        {
             if (string.Equals(peer.NodeId, nodeId, StringComparison.OrdinalIgnoreCase))
                 return peer;
+        }
 
-        throw new InvalidOperationException("Expected peer was not found.");
+        throw new InvalidOperationException($"Expected peer '{nodeId}'.");
     }
 }

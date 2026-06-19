@@ -1,3 +1,5 @@
+using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit;
@@ -60,8 +62,11 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
-            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken)
-                : Cluster.CacheB.SetAsync(key, $"b-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken);
+        {
+            tasks[i] = i % 2 is 0
+                ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
+                : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken);
+        }
 
         await Task.WhenAll(tasks);
 

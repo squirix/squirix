@@ -23,20 +23,20 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     public async Task GoldenSnapshotMatchesProductionGrpcEndpointSurface()
     {
         var actual = new HashSet<string>(await GrpcEndpointSurfaceCollector.CollectProductionGrpcMethodsAsync(), StringComparer.OrdinalIgnoreCase);
-        var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");
-        Assert.True(File.Exists(path));
+        var path = PathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");
+        Assert.True(File.Exists(path), $"Golden file missing: {path}");
 
-        var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
-        for (var i = 0; i < lines.Length; i++)
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in await File.ReadAllLinesAsync(path, DefaultCancellationToken))
         {
-            if (lines[i].Length is 0)
-                continue;
-
-            _ = expected.Add(lines[i]);
+            var trimmed = line.Trim();
+            if (trimmed.Length > 0)
+                expected.Add(trimmed);
         }
 
-        if (actual.SetEquals(expected))
+        var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
+        var missing = CollectSetDifference(expected, actual, StringComparer.OrdinalIgnoreCase);
+        if (unexpected.Length is 0 && missing.Length is 0)
             return;
 
         var unexpected = CollectSetDifference(actual, expected);
@@ -53,69 +53,27 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         Assert.Fail(sb.ToString());
     }
 
-    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
+    private static string[] CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
     {
         var result = new List<string>();
         foreach (var item in left)
-            if (!right.Contains(item))
+        {
+            if (!SetContains(right, item, comparer))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
-        return result;
+        return result.ToArray();
     }
 
-    /// <summary>Collects gRPC service/method identities exposed by the production Squirix server mapping pipeline.</summary>
-    private static class GrpcEndpointSurfaceCollector
+    private static bool SetContains(IReadOnlySet<string> set, string item, StringComparer comparer)
     {
-        /// <summary>
-        /// Builds a production-like host and returns sorted gRPC method identities (<c>ServiceName/MethodName</c>).
-        /// </summary>
-        /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
-        internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()
+        foreach (var candidate in set)
         {
-            await using var app = await BuildProductionHostAsync();
-            _ = app.MapSquirixServer();
-            return CollectGrpcMethods(app);
+            if (comparer.Equals(candidate, item))
+                return true;
         }
 
-        private static async Task<WebApplication> BuildProductionHostAsync()
-        {
-            var builder = WebApplication.CreateBuilder(
-                new WebApplicationOptions
-                {
-                    EnvironmentName = "Production",
-                });
-
-            _ = await builder.AddSquirixServerAsync(
-                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
-                loadDiscoveredSettings: false,
-                cancellationToken: CancellationToken.None);
-
-            return builder.Build();
-        }
-
-        private static List<string> CollectGrpcMethods(WebApplication app)
-        {
-            if (app is not IEndpointRouteBuilder routeBuilder)
-                throw new InvalidOperationException("Web application does not expose endpoint data sources.");
-
-            var methods = new List<string>();
-            foreach (var source in routeBuilder.DataSources)
-                for (var index = 0; index < source.Endpoints.Count; index++)
-                {
-                    var endpoint = source.Endpoints[index];
-                    var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-                    if (grpc is null)
-                        continue;
-
-                    if (grpc.Method.Name.Contains("grpcunimplemented", StringComparison.Ordinal))
-                        continue;
-
-                    methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
-                }
-
-            methods.Sort(StringComparer.Ordinal);
-            return methods;
-        }
+        return false;
     }
 }

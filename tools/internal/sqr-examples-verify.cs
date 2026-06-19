@@ -83,26 +83,6 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
 
 static string FormatSmokeCommand(string[] args)
 {
-    if (args.Length is 0)
-        return string.Empty;
-
-    if (args.Length is 1)
-        return args[0];
-
-    var builder = new System.Text.StringBuilder();
-    for (var i = 0; i < args.Length; i++)
-    {
-        if (i > 0)
-            builder.Append(' ');
-
-        builder.Append(args[i]);
-    }
-
-    return builder.ToString();
-}
-
-static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, string[] args, CancellationToken cancellationToken)
-{
     var quotedArgs = new string[args.Length];
     for (var i = 0; i < args.Length; i++)
     {

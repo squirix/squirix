@@ -73,19 +73,27 @@ if (string.IsNullOrWhiteSpace(nodesCsv))
 try
 {
     var splitNodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-    var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
+    var nodes = new List<string>();
     foreach (var node in splitNodes)
-        uniqueNodes.Add(node);
+    {
+        var found = false;
+        foreach (var existing in nodes)
+        {
+            if (StringComparer.Ordinal.Equals(existing, node))
+            {
+                found = true;
+                break;
+            }
+        }
 
-    var nodes = new string[uniqueNodes.Count];
-    var nodeIndex = 0;
-    foreach (var node in uniqueNodes)
-        nodes[nodeIndex++] = node;
+        if (!found)
+            nodes.Add(node);
+    }
 
-    if (nodes.Length is 0)
+    if (nodes.Count is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
-    var ring = RuntimeServiceRegistration.CreateHashLocator(nodes, virtualNodes);
+    var ring = new ConsistentHashRing(nodes.ToArray(), virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
     for (var n = 0; n < nodes.Length; n++)
         distribution[nodes[n]] = 0;
@@ -99,7 +107,7 @@ try
     await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     var sortedKeys = new List<string>(distribution.Keys);
     sortedKeys.Sort(StringComparer.Ordinal);
-    for (var k = 0; k < sortedKeys.Count; k++)
+    foreach (var key in sortedKeys)
     {
         var key = sortedKeys[k];
         var count = distribution[key];

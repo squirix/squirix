@@ -64,8 +64,18 @@ public sealed class CorrelationClientInterceptorTests
             new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
             capture.OnContinueAsync);
 
-        Assert.NotNull(capture.Headers);
-        var values = CollectHeaderValues(capture.Headers, "traceparent");
+                return CreateCompletedUnaryCallAsync("ok");
+            });
+
+        var options = Assert.NotNull(observed);
+        var values = new List<string>();
+        foreach (var entry in options.Headers ?? [])
+        {
+            if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
 
         _ = Assert.Single(values);
         Assert.NotEqual("00-stale-stale-00", values[0]);
@@ -94,6 +104,16 @@ public sealed class CorrelationClientInterceptorTests
 
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "tracestate");
+
+        var options = Assert.NotNull(observed);
+        var values = new List<string>();
+        foreach (var entry in options.Headers ?? [])
+        {
+            if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
 
         _ = Assert.Single(values);
         Assert.Equal("vendor=value", values[0]);

@@ -161,9 +161,7 @@ static bool HasClientPackage(string directory)
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
             && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
-        {
             return true;
-        }
     }
 
     return false;
@@ -171,8 +169,10 @@ static bool HasClientPackage(string directory)
 
 static bool HasServerPackage(string directory)
 {
-    using var enumerator = Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
-    return enumerator.MoveNext();
+    foreach (var _ in Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly))
+        return true;
+
+    return false;
 }
 
 static string? ResolveDotnetPath()

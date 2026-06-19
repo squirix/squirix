@@ -149,7 +149,9 @@ try
         await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
     await StepAsync("Validate package artifacts").ConfigureAwait(false);
-    var packages = new List<string>(Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly));
+    var packages = new List<string>();
+    foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly))
+        packages.Add(package);
 
     packages.Sort(StringComparer.OrdinalIgnoreCase);
     if (packages.Count < packageProjects.Length)
@@ -352,11 +354,16 @@ static string? ResolveDotnetPath()
 
 static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
 {
+    var quotedArgs = new string[args.Count];
+    for (var i = 0; i < args.Count; i++)
+        quotedArgs[i] = QuoteIfNeeded(args[i]);
+
     var processStartInfo = new ProcessStartInfo
     {
         FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
+        Arguments = string.Join(' ', quotedArgs),
     };
     foreach (var arg in args)
         processStartInfo.ArgumentList.Add(arg);
@@ -398,10 +405,8 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             names.Add(entry.FullName);
 
         string? nuspecName = null;
-        var nameSpan = CollectionsMarshal.AsSpan(names);
-        for (var i = 0; i < nameSpan.Length; i++)
+        foreach (var name in names)
         {
-            var name = nameSpan[i];
             if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -413,12 +418,13 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
 
         var hasReadme = false;
-        for (var i = 0; i < nameSpan.Length; i++)
+        foreach (var name in names)
         {
-            if (!string.Equals(nameSpan[i], "README.md", StringComparison.Ordinal))
-                continue;
-            hasReadme = true;
-            break;
+            if (string.Equals(name, "README.md", StringComparison.Ordinal))
+            {
+                hasReadme = true;
+                break;
+            }
         }
 
         if (!hasReadme)

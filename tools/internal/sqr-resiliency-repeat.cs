@@ -123,8 +123,11 @@ static string ResolveRepoRoot()
 
 static string? ResolveDotnetPath()
 {
-    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    var quotedArgs = new string[args.Count];
+    for (var i = 0; i < args.Count; i++)
+        quotedArgs[i] = QuoteIfNeeded(args[i]);
+
+    using var proc = Process.Start(new ProcessStartInfo
     {
         var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         if (File.Exists(dotnetRootCandidate))
@@ -164,11 +167,8 @@ static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadO
         FileName = dotnetPath,
         WorkingDirectory = repoRoot,
         UseShellExecute = false,
-    };
-    foreach (var arg in args)
-        processStartInfo.ArgumentList.Add(arg);
-
-    using var proc = Process.Start(processStartInfo);
+        Arguments = string.Join(' ', quotedArgs),
+    });
     if (proc is not null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 

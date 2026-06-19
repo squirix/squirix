@@ -465,18 +465,5 @@ dotnet_diagnostic.SA1518.severity = none
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.RS0031.severity = none
 
-[**/*.g.cs]
-# Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format.
-dotnet_diagnostic.RS0030.severity = none
-dotnet_diagnostic.RS0031.severity = none
-# Generated sources often use bare [ExcludeFromCodeCoverage] without justification.
-dotnet_diagnostic.EPC29.severity = none
-
-[**/obj/**]
-# MSBuild intermediate output (source generators, gRPC, JSON context, etc.).
-dotnet_diagnostic.RS0030.severity = none
-dotnet_diagnostic.RS0031.severity = none
-dotnet_diagnostic.EPC29.severity = none
-
 # Analyzer execution settings
 # Enable concurrent execution and generated code handling are set via MSBuild props

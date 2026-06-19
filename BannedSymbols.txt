@@ -1,3 +1,6 @@
 M:System.String.Create;Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
 M:System.String.Format;Use string interpolation ($"") instead.
 M:System.FormattableString.Invariant;Use string interpolation ($"") instead.
+T:System.Linq.Enumerable;LINQ is banned in this solution. Use explicit loops instead.
+T:System.Linq.EnumerableQuery`1;LINQ is banned in this solution. Use explicit loops instead.
+T:System.Linq.ParallelEnumerable;LINQ is banned in this solution. Use explicit loops instead.
