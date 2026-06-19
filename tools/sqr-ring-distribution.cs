@@ -89,6 +89,7 @@ try
         if (!found)
             nodes.Add(node);
     }
+
     if (nodes.Count is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
