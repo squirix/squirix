@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Node.Observability;
 using Xunit;
@@ -101,7 +100,11 @@ public sealed class CorrelationScopeBehaviorTests
             if (state is not StandardScopeState scopeState)
                 throw new InvalidOperationException("Unexpected scope state shape.");
 
-            LastScopeState = scopeState.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
+            var capturedState = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var pair in scopeState)
+                capturedState[pair.Key] = pair.Value;
+
+            LastScopeState = capturedState;
             return NullScope.Instance;
         }
 

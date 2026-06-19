@@ -2,7 +2,7 @@
 using System.Diagnostics;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -30,10 +30,13 @@ if (!Directory.Exists(examplesDir))
     return 1;
 }
 
-var files = Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase)
-                     .ToArray();
+var files = new List<string>();
+foreach (var file in Directory.EnumerateFiles(examplesDir, "*.cs", SearchOption.TopDirectoryOnly))
+    files.Add(Path.GetFullPath(file));
 
-if (files.Length is 0)
+files.Sort(StringComparer.OrdinalIgnoreCase);
+
+if (files.Count is 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no examples/*.cs files found.").ConfigureAwait(false);
     return 1;
@@ -70,7 +73,14 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
 
 static async Task<int> RunDotnetAsync(string workingDirectory, string[] args, CancellationToken cancellationToken)
 {
-    var arguments = string.Join(' ', args.Select(static arg => arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg));
+    var quotedArgs = new string[args.Length];
+    for (var i = 0; i < args.Length; i++)
+    {
+        var arg = args[i];
+        quotedArgs[i] = arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg;
+    }
+
+    var arguments = string.Join(' ', quotedArgs);
     using var proc = Process.Start(
         new ProcessStartInfo
         {

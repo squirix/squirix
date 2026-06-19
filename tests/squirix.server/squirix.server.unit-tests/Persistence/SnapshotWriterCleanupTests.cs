@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,7 +101,8 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         await foreach (var (key, _) in SnapshotReader.ReadEntriesAsync<object?>(path, cancellationToken: CancellationToken.None))
             keys.Add(key.Key);
 
-        return [.. keys.Order(StringComparer.Ordinal)];
+        keys.Sort(StringComparer.Ordinal);
+        return keys.ToArray();
     }
 
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations

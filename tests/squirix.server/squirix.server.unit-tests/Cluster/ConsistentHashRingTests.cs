@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using Squirix.Server.Cluster;
 using Squirix.Server.TestKit.Testing;
 using Xunit;
@@ -115,14 +115,18 @@ public sealed class ConsistentHashRingTests
         var nodes = new[] { "A", "B", "C" };
         var ring = new ConsistentHashRing(nodes);
 
-        var counts = nodes.ToDictionary(static n => n, static _ => 0, StringComparer.OrdinalIgnoreCase);
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var node in nodes)
+            counts[node] = 0;
         const int keys = 20_000;
 
         for (var i = 0; i < keys; i++)
             counts[ring.GetOwner($"key:{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
         var expected = 1.0 * keys / nodes.Length;
-        var maxDev = counts.Values.Max(c => Math.Abs(c - expected) / expected);
+        var maxDev = 0.0;
+        foreach (var count in counts.Values)
+            maxDev = Math.Max(maxDev, Math.Abs(count - expected) / expected);
 
         Assert.True(maxDev <= 0.20, $"Distribution deviation too high: {maxDev.ToString("P1", CultureInfo.InvariantCulture)}");
     }
@@ -137,7 +141,10 @@ public sealed class ConsistentHashRingTests
     {
         var baseNodes = new[] { "A", "B", "C" };
         var ring1 = new ConsistentHashRing(baseNodes);
-        var ring2 = new ConsistentHashRing(baseNodes.Append("D"));
+        var extendedNodes = new string[baseNodes.Length + 1];
+        Array.Copy(baseNodes, extendedNodes, baseNodes.Length);
+        extendedNodes[baseNodes.Length] = "D";
+        var ring2 = new ConsistentHashRing(extendedNodes);
 
         const int keys = 50_000;
         var moved = 0;

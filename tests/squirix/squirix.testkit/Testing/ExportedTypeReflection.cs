@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -15,18 +14,7 @@ public static class ExportedTypeReflection
     /// <summary>Builds the set of stable exported public API identity strings used by broad public API snapshot tests.</summary>
     /// <param name="assembly">Assembly whose exported API is summarized.</param>
     /// <returns>Normalized type and member identities, compared with <see cref="StringComparer.Ordinal" />.</returns>
-    public static IReadOnlySet<string> GetExportedApiIdentitySet(Assembly assembly) => GetExportedApiIdentities(assembly).ToHashSet(StringComparer.Ordinal);
-
-    /// <summary>
-    /// Yields exported types from <paramref name="assembly" />, excluding compiler-generated artifacts.
-    /// </summary>
-    /// <param name="assembly">Assembly to enumerate.</param>
-    /// <returns>Filtered exported types.</returns>
-    private static IEnumerable<Type> EnumerateExportedTypesExcludingCompilerArtifacts(Assembly assembly)
-    {
-        ArgumentNullException.ThrowIfNull(assembly);
-        return assembly.GetExportedTypes().Where(static t => !IsCompilerGeneratedPublicArtifact(t));
-    }
+    public static IReadOnlySet<string> GetExportedApiIdentitySet(Assembly assembly) => new HashSet<string>(GetExportedApiIdentities(assembly), StringComparer.Ordinal);
 
     private static string FormatEventLine(EventInfo evt) => "E:" + FormatTypeIdentity(evt.DeclaringType!) + "::" + evt.Name;
 
@@ -38,8 +26,17 @@ public static class ExportedTypeReflection
         return "M:" + FormatTypeIdentity(method.DeclaringType!) + "::" + name + FormatParameterList(method.GetParameters());
     }
 
-    private static string FormatParameterList(ParameterInfo[] parameters) =>
-        "(" + string.Join(',', parameters.Select(static parameter => FormatTypeName(parameter.ParameterType))) + ")";
+    private static string FormatParameterList(ParameterInfo[] parameters)
+    {
+        if (parameters.Length is 0)
+            return "()";
+
+        var parts = new string[parameters.Length];
+        for (var i = 0; i < parameters.Length; i++)
+            parts[i] = FormatTypeName(parameters[i].ParameterType);
+
+        return "(" + string.Join(',', parts) + ")";
+    }
 
     private static IEnumerable<string> FormatPropertyLines(PropertyInfo property)
     {
@@ -47,7 +44,11 @@ public static class ExportedTypeReflection
         var indexParameters = property.GetIndexParameters();
         if (indexParameters.Length > 0)
         {
-            var indexSignature = string.Join(',', indexParameters.Select(static parameter => FormatTypeName(parameter.ParameterType)));
+            var indexParts = new string[indexParameters.Length];
+            for (var i = 0; i < indexParameters.Length; i++)
+                indexParts[i] = FormatTypeName(indexParameters[i].ParameterType);
+
+            var indexSignature = string.Join(',', indexParts);
             var propertyType = FormatTypeName(property.PropertyType);
             if (property.GetMethod?.IsPublic is true)
                 yield return "P:" + declaring + "::this[" + indexSignature + "]:" + propertyType + ".get";
@@ -100,7 +101,12 @@ public static class ExportedTypeReflection
         if (tick >= 0)
             genericDefinitionName = genericDefinitionName[..tick];
 
-        return genericDefinitionName + "<" + string.Join(',', type.GetGenericArguments().Select(FormatTypeName)) + ">";
+        var genericArguments = type.GetGenericArguments();
+        var argumentNames = new string[genericArguments.Length];
+        for (var i = 0; i < genericArguments.Length; i++)
+            argumentNames[i] = FormatTypeName(genericArguments[i]);
+
+        return genericDefinitionName + "<" + string.Join(',', argumentNames) + ">";
     }
 
     /// <summary>Builds stable exported public API identity strings, ordered by type and then by member.</summary>
@@ -111,32 +117,77 @@ public static class ExportedTypeReflection
         ArgumentNullException.ThrowIfNull(assembly);
 
         var lines = new List<string>();
-        foreach (var type in EnumerateExportedTypesExcludingCompilerArtifacts(assembly).OrderBy(static type => type.FullName, StringComparer.Ordinal))
+        var types = GetExportedTypesSorted(assembly);
+        foreach (var type in types)
         {
             lines.Add(FormatTypeLine(type));
             if (type.IsEnum)
             {
-                foreach (var field in type.GetFields(DeclaredMemberFlags).Where(static field => field is { IsStatic: true, IsPublic: true })
-                                          .OrderBy(FormatFieldLine, StringComparer.Ordinal))
-                {
-                    lines.Add(FormatFieldLine(field));
-                }
-
+                AddEnumFieldLines(type, lines);
                 continue;
             }
 
             var memberLines = new List<string>();
-
-            memberLines.AddRange(type.GetConstructors(DeclaredMemberFlags).Select(FormatMethodLine));
-            memberLines.AddRange(type.GetMethods(DeclaredMemberFlags).Where(IsOrdinaryMethod).Select(FormatMethodLine));
-            memberLines.AddRange(type.GetProperties(DeclaredMemberFlags).SelectMany(FormatPropertyLines));
-            memberLines.AddRange(type.GetEvents(DeclaredMemberFlags).Select(FormatEventLine));
-            memberLines.AddRange(type.GetFields(DeclaredMemberFlags).Where(static field => !field.IsSpecialName).Select(FormatFieldLine));
-
-            lines.AddRange(memberLines.Order(StringComparer.Ordinal));
+            AddMemberLines(type, memberLines);
+            memberLines.Sort(StringComparer.Ordinal);
+            lines.AddRange(memberLines);
         }
 
         return lines;
+    }
+
+    private static void AddEnumFieldLines(Type type, List<string> lines)
+    {
+        var enumFields = new List<FieldInfo>();
+        foreach (var field in type.GetFields(DeclaredMemberFlags))
+        {
+            if (field is { IsStatic: true, IsPublic: true })
+                enumFields.Add(field);
+        }
+
+        enumFields.Sort(static (left, right) => StringComparer.Ordinal.Compare(FormatFieldLine(left), FormatFieldLine(right)));
+        foreach (var field in enumFields)
+            lines.Add(FormatFieldLine(field));
+    }
+
+    private static void AddMemberLines(Type type, List<string> memberLines)
+    {
+        foreach (var constructor in type.GetConstructors(DeclaredMemberFlags))
+            memberLines.Add(FormatMethodLine(constructor));
+
+        foreach (var method in type.GetMethods(DeclaredMemberFlags))
+        {
+            if (IsOrdinaryMethod(method))
+                memberLines.Add(FormatMethodLine(method));
+        }
+
+        foreach (var property in type.GetProperties(DeclaredMemberFlags))
+        {
+            foreach (var line in FormatPropertyLines(property))
+                memberLines.Add(line);
+        }
+
+        foreach (var evt in type.GetEvents(DeclaredMemberFlags))
+            memberLines.Add(FormatEventLine(evt));
+
+        foreach (var field in type.GetFields(DeclaredMemberFlags))
+        {
+            if (!field.IsSpecialName)
+                memberLines.Add(FormatFieldLine(field));
+        }
+    }
+
+    private static List<Type> GetExportedTypesSorted(Assembly assembly)
+    {
+        var types = new List<Type>();
+        foreach (var type in assembly.GetExportedTypes())
+        {
+            if (!IsCompilerGeneratedPublicArtifact(type))
+                types.Add(type);
+        }
+
+        types.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.FullName, right.FullName));
+        return types;
     }
 
     /// <summary>

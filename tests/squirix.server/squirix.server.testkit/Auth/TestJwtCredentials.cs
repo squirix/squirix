@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 
 namespace Squirix.Server.TestKit.Auth;
 
@@ -40,5 +39,10 @@ public sealed class TestJwtCredentials
 
     /// <summary>Gets an independent copy of the raw symmetric signing key bytes.</summary>
     /// <returns>Raw symmetric signing key bytes.</returns>
-    public byte[] GetSigningKey() => _signingKey.ToArray();
+    public byte[] GetSigningKey()
+    {
+        var copy = new byte[_signingKey.Length];
+        Array.Copy(_signingKey, copy, _signingKey.Length);
+        return copy;
+    }
 }

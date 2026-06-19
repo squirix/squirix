@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Xunit;
 
 namespace Squirix.E2ETests.Fixtures.TypedValues;
@@ -14,8 +13,10 @@ internal static class TypedValueAssertions
         Assert.Equal(expected.CouponCode, actual.CouponCode);
         Assert.Equal(expected.Items.Count, actual.Items.Count);
 
-        foreach (var (expectedItem, actualItem) in expected.Items.Zip(actual.Items))
+        for (var i = 0; i < expected.Items.Count; i++)
         {
+            var expectedItem = expected.Items[i];
+            var actualItem = actual.Items[i];
             Assert.Equal(expectedItem.Sku, actualItem.Sku);
             Assert.Equal(expectedItem.Quantity, actualItem.Quantity);
             Assert.Equal(expectedItem.Price, actualItem.Price);

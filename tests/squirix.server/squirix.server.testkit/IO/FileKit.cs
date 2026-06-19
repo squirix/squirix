@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 
 namespace Squirix.Server.TestKit.IO;
 
@@ -42,8 +41,11 @@ public static class FileKit
             name = seg[..dot];
 
         string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        if (fixedNames.Any(n => string.Equals(name, n, StringComparison.OrdinalIgnoreCase)))
-            return true;
+        foreach (var reserved in fixedNames)
+        {
+            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
 
         if (name.Length < 4)
             return false;

@@ -22,7 +22,7 @@ var packageProjects = new[]
 };
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -151,8 +151,12 @@ try
         await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
     await StepAsync("Validate package artifacts").ConfigureAwait(false);
-    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly).Order(StringComparer.OrdinalIgnoreCase).ToArray();
-    if (packages.Length < packageProjects.Length)
+    var packages = new List<string>();
+    foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly))
+        packages.Add(package);
+
+    packages.Sort(StringComparer.OrdinalIgnoreCase);
+    if (packages.Count < packageProjects.Length)
         throw new InvalidOperationException($"Expected at least {packageProjects.Length} .nupkg files in {packageOutputPath}.");
 
     foreach (var package in packages)
@@ -322,12 +326,16 @@ async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> 
 
 static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
 {
+    var quotedArgs = new string[args.Count];
+    for (var i = 0; i < args.Count; i++)
+        quotedArgs[i] = QuoteIfNeeded(args[i]);
+
     var processStartInfo = new ProcessStartInfo
     {
         FileName = "dotnet",
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
-        Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
+        Arguments = string.Join(' ', quotedArgs),
     };
     using var proc = Process.Start(processStartInfo);
     if (proc is not null)
@@ -366,11 +374,34 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
     var archive = await ZipFile.OpenReadAsync(packagePath, cancellationToken).ConfigureAwait(false);
     await using (archive.ConfigureAwait(false))
     {
-        var names = archive.Entries.Select(static e => e.FullName).ToArray();
-        var nuspecName = names.FirstOrDefault(static n => n.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+        var names = new List<string>();
+        foreach (var entry in archive.Entries)
+            names.Add(entry.FullName);
+
+        string? nuspecName = null;
+        foreach (var name in names)
+        {
+            if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            nuspecName = name;
+            break;
+        }
+
         if (string.IsNullOrWhiteSpace(nuspecName))
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
-        if (!names.Contains("README.md", StringComparer.Ordinal))
+
+        var hasReadme = false;
+        foreach (var name in names)
+        {
+            if (string.Equals(name, "README.md", StringComparison.Ordinal))
+            {
+                hasReadme = true;
+                break;
+            }
+        }
+
+        if (!hasReadme)
             throw new InvalidOperationException($"Package has no README.md: {packagePath}");
 
         var nuspecEntry = archive.GetEntry(nuspecName) ?? throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
@@ -378,23 +409,59 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         await using (stream.ConfigureAwait(false))
         {
             var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken).ConfigureAwait(false);
-            var metadata = document.Root?.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "metadata", StringComparison.Ordinal));
+            XElement? metadata = null;
+            foreach (var element in document.Root?.Elements() ?? [])
+            {
+                if (!string.Equals(element.Name.LocalName, "metadata", StringComparison.Ordinal))
+                    continue;
+
+                metadata = element;
+                break;
+            }
+
             if (metadata is null)
                 throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
 
             foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
             {
-                var value = metadata.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.Ordinal))?.Value.Trim();
+                string? value = null;
+                foreach (var element in metadata.Elements())
+                {
+                    if (!string.Equals(element.Name.LocalName, name, StringComparison.Ordinal))
+                        continue;
+
+                    value = element.Value.Trim();
+                    break;
+                }
+
                 if (string.IsNullOrWhiteSpace(value))
                     throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
             }
 
-            var repository = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "repository", StringComparison.Ordinal));
+            XElement? repository = null;
+            foreach (var element in metadata.Elements())
+            {
+                if (!string.Equals(element.Name.LocalName, "repository", StringComparison.Ordinal))
+                    continue;
+
+                repository = element;
+                break;
+            }
+
             var repositoryUrl = repository?.Attribute("url")?.Value.Trim();
             if (string.IsNullOrWhiteSpace(repositoryUrl))
                 throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
 
-            var licenseElement = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "license", StringComparison.Ordinal));
+            XElement? licenseElement = null;
+            foreach (var element in metadata.Elements())
+            {
+                if (!string.Equals(element.Name.LocalName, "license", StringComparison.Ordinal))
+                    continue;
+
+                licenseElement = element;
+                break;
+            }
+
             if (string.IsNullOrWhiteSpace(licenseElement?.Value.Trim()))
                 throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
         }

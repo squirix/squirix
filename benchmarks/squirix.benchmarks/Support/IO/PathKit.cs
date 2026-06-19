@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 
 namespace Squirix.Benchmarks.Support.IO;
@@ -53,16 +52,19 @@ internal static class PathKit
 
             if (!string.IsNullOrEmpty(root) && path.StartsWith(root, StringComparison.Ordinal))
             {
-                var remainder = path[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries).Select(SanitizePath)
-                                                   .ToArray();
+                var parts = path[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+                var remainder = new string[parts.Length];
+                for (var i = 0; i < parts.Length; i++)
+                    remainder[i] = SanitizePath(parts[i]);
+
                 segments.Add(root);
                 segments.AddRange(remainder);
                 continue;
             }
 
-            var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries).Select(SanitizePath);
-
-            segments.AddRange(sanitizedParts);
+            var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < sanitizedParts.Length; i++)
+                segments.Add(SanitizePath(sanitizedParts[i]));
         }
 
         return JoinSegments(segments);

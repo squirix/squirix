@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
-using System.Linq;
 
 namespace Squirix.TestKit.Diagnostics;
 
@@ -38,8 +37,18 @@ public sealed class MeasurementSink : IDisposable
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
     /// <param name="expectedTags">Expected tag key/value pairs that must be present on the measurement.</param>
     /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
-    public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags) => _events.Any(e =>
-        string.Equals(e.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(e.Tags, expectedTags));
+    public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags)
+    {
+        ArgumentNullException.ThrowIfNull(expectedTags);
+
+        foreach (var (name, _, tags) in _events)
+        {
+            if (string.Equals(name, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(tags, expectedTags))
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Disposes the underlying <see cref="MeterListener" /> and releases resources.
@@ -58,10 +67,18 @@ public sealed class MeasurementSink : IDisposable
     {
         foreach (var (k, v) in expected)
         {
-            if (!tags.Any(t => string.Equals(t.Key, k, StringComparison.OrdinalIgnoreCase) && TagValueEquals(t.Value, v)))
+            var found = false;
+            foreach (var tag in tags)
             {
-                return false;
+                if (string.Equals(tag.Key, k, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, v))
+                {
+                    found = true;
+                    break;
+                }
             }
+
+            if (!found)
+                return false;
         }
 
         return true;

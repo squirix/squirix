@@ -13,7 +13,7 @@ var runs = new[]
 };
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
@@ -119,12 +119,16 @@ static string ResolveRepoRoot()
 
 static async Task<int> RunDotnetAsync(string repoRoot, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
+    var quotedArgs = new string[args.Count];
+    for (var i = 0; i < args.Count; i++)
+        quotedArgs[i] = QuoteIfNeeded(args[i]);
+
     using var proc = Process.Start(new ProcessStartInfo
     {
         FileName = "dotnet",
         WorkingDirectory = repoRoot,
         UseShellExecute = false,
-        Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
+        Arguments = string.Join(' ', quotedArgs),
     });
     if (proc is not null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

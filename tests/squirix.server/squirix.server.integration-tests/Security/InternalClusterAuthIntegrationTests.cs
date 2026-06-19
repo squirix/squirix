@@ -1,5 +1,5 @@
 using System;
-using System.Linq;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -88,7 +88,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
-        var interNodeUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ??
                            throw new InvalidOperationException("Expected inter-node URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
@@ -198,8 +198,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
-        var nodeBUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).Url;
-        var interNodeUrlA = peers.First(static peer => string.Equals(peer.NodeId, "node-a", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+        var nodeBUrl = FindPeer(peers, "node-b").Url;
+        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ??
                             throw new InvalidOperationException("Expected inter-node URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
@@ -229,5 +229,16 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Contains("owned by 'node-b'", ex.Status.Detail, StringComparison.Ordinal);
         Assert.Equal("stale-owner", ex.Trailers.GetValue("squirix-error-code"));
+    }
+
+    private static Peer FindPeer(IReadOnlyList<Peer> peers, string nodeId)
+    {
+        foreach (var peer in peers)
+        {
+            if (string.Equals(peer.NodeId, nodeId, StringComparison.OrdinalIgnoreCase))
+                return peer;
+        }
+
+        throw new InvalidOperationException($"Expected peer '{nodeId}'.");
     }
 }

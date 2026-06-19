@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
@@ -48,19 +47,22 @@ internal static class GrpcEndpointSurfaceCollector
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
         var methods = new List<string>();
-        var endpoints = routeBuilder.DataSources.SelectMany(static source => source.Endpoints);
-        foreach (var endpoint in endpoints)
+        foreach (var source in routeBuilder.DataSources)
         {
-            var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
-            if (grpc is null)
-                continue;
+            foreach (var endpoint in source.Endpoints)
+            {
+                var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
+                if (grpc is null)
+                    continue;
 
-            if (grpc.Method.Name.Contains("grpcunimplemented", StringComparison.Ordinal))
-                continue;
+                if (grpc.Method.Name.Contains("grpcunimplemented", StringComparison.Ordinal))
+                    continue;
 
-            methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
+                methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
+            }
         }
 
-        return [.. methods.Order(StringComparer.Ordinal)];
+        methods.Sort(StringComparer.Ordinal);
+        return methods.ToArray();
     }
 }

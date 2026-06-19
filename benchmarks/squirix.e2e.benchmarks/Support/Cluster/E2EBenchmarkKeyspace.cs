@@ -1,5 +1,5 @@
+using System;
 using System.Globalization;
-using System.Linq;
 using Squirix.E2EBenchmarks.Scenarios;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
@@ -89,7 +89,8 @@ internal sealed class E2EBenchmarkKeyspace
         var hit = Interleave(nodeA, nodeB);
         var miss = CreateKeys($"{prefix}:miss", count);
         var add = CreateKeys($"{prefix}:add", count);
-        var hot = hit.Take(HotKeyCount).ToArray();
+        var hot = new string[HotKeyCount];
+        Array.Copy(hit, hot, HotKeyCount);
         var expiring = CreateKeys($"{prefix}:expiring", count);
         return new E2EBenchmarkKeyspace(hit, miss, add, hot, expiring);
     }

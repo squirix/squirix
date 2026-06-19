@@ -1,8 +1,8 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Storage;
@@ -41,7 +41,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             JournalFraming.WriteFrame(stream, BuildPayload(3, "next"));
         }
 
-        _ = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
+        _ = Assert.Throws<InvalidDataException>(() => Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken)));
     }
 
     /// <summary>
@@ -57,7 +57,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             WriteFrameWithCrc(stream, BuildPayload(2, "bad"), 0xDEAD_BEEFu);
         }
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken)));
         Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
     }
 
@@ -67,7 +67,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
     {
         File.WriteAllBytes(JournalPath(1), []);
 
-        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
+        var records = Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken));
 
         Assert.Empty(records);
     }
@@ -79,7 +79,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
         using (var stream = File.Create(JournalPath(1)))
             JournalFraming.WriteFileHeader(stream);
 
-        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
+        var records = Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken));
 
         Assert.Empty(records);
     }
@@ -90,7 +90,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
     {
         File.WriteAllBytes(JournalPath(1), "NOPE!"u8.ToArray());
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken)));
 
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
     }
@@ -108,7 +108,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             JournalFraming.WriteFrame(stream, "{not-json"u8);
         }
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken)));
         Assert.Contains("JSON corruption", ex.Message, StringComparison.InvariantCulture);
     }
 
@@ -127,7 +127,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
             WriteTornTail(stream, tailKind);
         }
 
-        var records = JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray();
+        var records = Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken));
 
         var record = Assert.Single(records);
         Assert.Equal(1UL, record.Seq);
@@ -140,7 +140,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
     {
         File.WriteAllBytes(JournalPath(1), "SW"u8.ToArray());
 
-        var ex = Assert.Throws<InvalidDataException>(() => JournalReader.ReadAll(Dir, 1, DefaultCancellationToken).ToArray());
+        var ex = Assert.Throws<InvalidDataException>(() => Materialize(JournalReader.ReadAll(Dir, 1, DefaultCancellationToken)));
 
         Assert.Contains("truncated file header", ex.Message, StringComparison.Ordinal);
     }
@@ -157,6 +157,15 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
     {
         _dir = new TempDirectory("squirix-mmf-journal");
         return ValueTask.CompletedTask;
+    }
+
+    private static T[] Materialize<T>(IEnumerable<T> source)
+    {
+        var items = new List<T>();
+        foreach (var item in source)
+            items.Add(item);
+
+        return items.ToArray();
     }
 
     private static byte[] BuildPayload(ulong seq, string key)

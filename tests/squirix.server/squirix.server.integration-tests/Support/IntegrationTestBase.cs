@@ -4,7 +4,6 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -81,7 +80,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// it is cloned to detach from the underlying document’s lifetime; otherwise the value is used as-is.
     /// </param>
     /// <param name="expiresUtc">
-    /// Optional absolute UTC expiration time. When <see langword="null"/>, the entry does not have an absolute expiry.
+    /// Optional absolute UTC expiration time. When <see langword="null" />, the entry does not have an absolute expiry.
     /// </param>
     /// <param name="version">
     /// The initial monotonic version to assign to the entry. Defaults to <c>1</c>.
@@ -89,7 +88,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
     /// A new <see cref="CacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
-    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null"/>.
+    /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null" />.
     /// </returns>
     internal static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
@@ -193,7 +192,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
     /// </param>
     /// <param name="callPolicyFactory">
-    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null"/>, a default policy is used.
+    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
     /// The factory receives the peer URL and should return a configured policy instance.
     /// </param>
     /// <param name="configureGrpc">
@@ -201,24 +200,24 @@ public abstract class IntegrationTestBase : IDisposable
     /// </param>
     /// <param name="servicesConfigure">Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).</param>
     /// <param name="snapshotOptions">
-    /// Optional snapshot trigger options; when <see langword="null"/>, the node uses its built-in defaults.
+    /// Optional snapshot trigger options; when <see langword="null" />, the node uses its built-in defaults.
     /// </param>
     /// <param name="persistenceOptions">
     /// Optional base persistence options. The data directory is overridden per test (node id + scope);
     /// other fields are honored as provided.
     /// </param>
     /// <param name="usePersistence">
-    /// When <see langword="true"/>, starts the node with WAL/snapshot persistence enabled using a test-scoped data directory.
+    /// When <see langword="true" />, starts the node with WAL/snapshot persistence enabled using a test-scoped data directory.
     /// </param>
     /// <param name="output">Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.</param>
     /// <param name="cleanTestDir">
-    /// If <see langword="true"/>, the per-test data directory is cleaned before startup. If <see langword="false"/>, it is reused.
+    /// If <see langword="true" />, the per-test data directory is cleaned before startup. If <see langword="false" />, it is reused.
     /// </param>
     /// <param name="extraScope">Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.</param>
     /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
     /// <param name="memoryPressureOptions">
-    /// Optional memory pressure options; when <see langword="null"/>, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
+    /// Optional memory pressure options; when <see langword="null" />, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
     /// </param>
     /// <param name="security">Optional per-node security override. When set, environment variables are not read for auth on this startup.</param>
     /// <param name="waitForRecovery">
@@ -299,9 +298,7 @@ public abstract class IntegrationTestBase : IDisposable
         [CallerMemberName] string? testName = null)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ?? throw new ArgumentException(
-            "The peers list must contain an entry for the node being started",
-            nameof(peers));
+        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
@@ -399,6 +396,17 @@ public abstract class IntegrationTestBase : IDisposable
             scope = $"{scope}__{tfm}";
 
         return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
+    {
+        foreach (var peer in peers)
+        {
+            if (ListenUrls.SameAuthority(peer.Url, urlString))
+                return peer.NodeId;
+        }
+
+        return null;
     }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)

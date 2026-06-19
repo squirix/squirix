@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
@@ -46,32 +45,37 @@ internal static class RestEndpointSurfaceCollector
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
         var routes = new List<string>();
-        var endpoints = routeBuilder.DataSources.SelectMany(static source => source.Endpoints);
-        foreach (var endpoint in endpoints)
+        foreach (var source in routeBuilder.DataSources)
         {
-            if (endpoint is not RouteEndpoint route)
-                continue;
-
-            if (route.Metadata.GetMetadata<GrpcMethodMetadata>() is not null)
-                continue;
-
-            var pattern = route.RoutePattern.RawText ?? "/";
-            if (pattern.Contains("grpcunimplemented", StringComparison.Ordinal))
-                continue;
-
-            var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
-            if (methods is null || methods.HttpMethods.Count is 0)
+            foreach (var endpoint in source.Endpoints)
             {
-                if (pattern.StartsWith("/health", StringComparison.Ordinal))
-                    routes.Add($"GET {pattern}");
+                if (endpoint is not RouteEndpoint route)
+                    continue;
 
-                continue;
+                if (route.Metadata.GetMetadata<GrpcMethodMetadata>() is not null)
+                    continue;
+
+                var pattern = route.RoutePattern.RawText ?? "/";
+                if (pattern.Contains("grpcunimplemented", StringComparison.Ordinal))
+                    continue;
+
+                var methods = route.Metadata.GetMetadata<HttpMethodMetadata>();
+                if (methods is null || methods.HttpMethods.Count is 0)
+                {
+                    if (pattern.StartsWith("/health", StringComparison.Ordinal))
+                        routes.Add($"GET {pattern}");
+
+                    continue;
+                }
+
+                var httpMethods = new List<string>(methods.HttpMethods);
+                httpMethods.Sort(StringComparer.Ordinal);
+                foreach (var method in httpMethods)
+                    routes.Add($"{method} {pattern}");
             }
-
-            foreach (var method in methods.HttpMethods.Order(StringComparer.Ordinal))
-                routes.Add($"{method} {pattern}");
         }
 
-        return [.. routes.Order(StringComparer.Ordinal)];
+        routes.Sort(StringComparer.Ordinal);
+        return routes.ToArray();
     }
 }

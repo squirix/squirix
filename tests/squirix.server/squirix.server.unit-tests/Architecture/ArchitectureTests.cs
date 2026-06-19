@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -155,8 +154,13 @@ public sealed class ArchitectureTests : UnitTestBase
     {
         var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
+        var paths = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+            paths.Add(path);
+
+        paths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+        foreach (var path in paths)
         {
             if (path.Contains(objMarker, StringComparison.Ordinal))
                 continue;
@@ -174,18 +178,58 @@ public sealed class ArchitectureTests : UnitTestBase
     public void RepositoryShouldNotUseGlobalOrImplicitUsings()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var sourceOffenders = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-                                       .Where(static path =>
-                                            !IsGeneratedOutputPath(path) && (Path.GetFileName(path).Equals("GlobalUsings.cs", StringComparison.OrdinalIgnoreCase) ||
-                                                                             File.ReadLines(path).Any(static line =>
-                                                                                 line.TrimStart().StartsWith("global using ", StringComparison.Ordinal))))
-                                       .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToArray();
+        var sourceOffenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        {
+            if (IsGeneratedOutputPath(path))
+                continue;
 
-        var projectOffenders = Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(static path =>
-                                             !IsGeneratedOutputPath(path) && LoadProjectByAbsolutePath(path).Descendants().Any(static element =>
-                                                 string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase) &&
-                                                 element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase)))
-                                        .Select(path => Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal).ToArray();
+            if (Path.GetFileName(path).Equals("GlobalUsings.cs", StringComparison.OrdinalIgnoreCase))
+            {
+                sourceOffenders.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
+                continue;
+            }
+
+            var hasGlobalUsing = false;
+            foreach (var line in File.ReadLines(path))
+            {
+                if (!line.TrimStart().StartsWith("global using ", StringComparison.Ordinal))
+                    continue;
+
+                hasGlobalUsing = true;
+                break;
+            }
+
+            if (hasGlobalUsing)
+                sourceOffenders.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
+        }
+
+        sourceOffenders.Sort(StringComparer.Ordinal);
+
+        var projectOffenders = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
+        {
+            if (IsGeneratedOutputPath(path))
+                continue;
+
+            var hasImplicitUsings = false;
+            foreach (var element in LoadProjectByAbsolutePath(path).Descendants())
+            {
+                if (!string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!element.Value.Trim().Equals("enable", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                hasImplicitUsings = true;
+                break;
+            }
+
+            if (hasImplicitUsings)
+                projectOffenders.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
+        }
+
+        projectOffenders.Sort(StringComparer.Ordinal);
 
         Assert.Empty(sourceOffenders);
         Assert.Empty(projectOffenders);
@@ -211,7 +255,9 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerAssemblyShouldNotReferenceSquirix()
     {
-        var references = SquirixArchitecture.ServerAssembly.GetReferencedAssemblies().Select(static a => a.Name).ToArray();
+        var references = new List<string>();
+        foreach (var assembly in SquirixArchitecture.ServerAssembly.GetReferencedAssemblies())
+            references.Add(assembly.Name!);
         Assert.DoesNotContain("Squirix", references, StringComparer.Ordinal);
     }
 
@@ -220,7 +266,7 @@ public sealed class ArchitectureTests : UnitTestBase
     public async Task ServerBootstrapSourcesShouldUseServerPackageHostStartupApi()
     {
         var sources = await ReadServerBootstrapSourceTextsAsync();
-        var combined = string.Join(Environment.NewLine, sources.Select(static source => source.Text));
+        var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
 
         Assert.Contains("AddSquirixServerAsync", combined, StringComparison.Ordinal);
         Assert.Contains("MapSquirixServer", combined, StringComparison.Ordinal);
@@ -274,7 +320,8 @@ public sealed class ArchitectureTests : UnitTestBase
         }
 
         granted.Sort(StringComparer.Ordinal);
-        var expected = approved.Order(StringComparer.Ordinal).ToArray();
+        var expected = new List<string>(approved);
+        expected.Sort(StringComparer.Ordinal);
         Assert.Equal(expected, granted);
     }
 
@@ -326,11 +373,18 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public async Task ServerProjectShouldGenerateJournalEnvelopeTransportContract()
     {
-        var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().SingleOrDefault(static element =>
-            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
-                element.Attribute("Include")?.Value,
-                @"Storage\Journaling\Protos\JournalEnvelope.proto",
-                StringComparison.Ordinal));
+        XElement? protobuf = null;
+        foreach (var element in LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.Equals(element.Attribute("Include")?.Value, @"Storage\Journaling\Protos\JournalEnvelope.proto", StringComparison.Ordinal))
+                continue;
+
+            protobuf = element;
+            break;
+        }
 
         Assert.NotNull(protobuf);
         Assert.Equal("Server", protobuf.Attribute("GrpcServices")?.Value);
@@ -353,11 +407,18 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var serverProtobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().SingleOrDefault(static element =>
-            string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
-                element.Attribute("Include")?.Value,
-                @"..\shared\transport\grpc\Protos\SquirixCache.proto",
-                StringComparison.Ordinal));
+        XElement? serverProtobuf = null;
+        foreach (var element in LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.Equals(element.Attribute("Include")?.Value, @"..\shared\transport\grpc\Protos\SquirixCache.proto", StringComparison.Ordinal))
+                continue;
+
+            serverProtobuf = element;
+            break;
+        }
 
         Assert.NotNull(serverProtobuf);
         Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
@@ -370,17 +431,27 @@ public sealed class ArchitectureTests : UnitTestBase
     public void ServerProjectShouldKeepApprovedHostingDependencyBaseline()
     {
         var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
-        var serverPackageReferences = ReadIncludes(project, "PackageReference")
-                                     .Where(static include =>
-                                          include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
-                                     .Order(StringComparer.Ordinal).ToArray();
-        var unexpectedPackageReferences = serverPackageReferences.Except(KnownServerPackageDependencyBaseline, StringComparer.Ordinal).ToArray();
+        var serverPackageReferences = new List<string>();
+        foreach (var include in ReadIncludes(project, "PackageReference"))
+        {
+            if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+                serverPackageReferences.Add(include);
+        }
+
+        serverPackageReferences.Sort(StringComparer.Ordinal);
+        var unexpectedPackageReferences = CollectExcept(serverPackageReferences, KnownServerPackageDependencyBaseline, StringComparer.Ordinal);
 
         Assert.Empty(unexpectedPackageReferences);
 
-        var serverFrameworkReferences = ReadIncludes(project, "FrameworkReference").Where(static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                                                                                   .Order(StringComparer.Ordinal).ToArray();
-        var unexpectedFrameworkReferences = serverFrameworkReferences.Except(KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal).ToArray();
+        var serverFrameworkReferences = new List<string>();
+        foreach (var include in ReadIncludes(project, "FrameworkReference"))
+        {
+            if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
+                serverFrameworkReferences.Add(include);
+        }
+
+        serverFrameworkReferences.Sort(StringComparer.Ordinal);
+        var unexpectedFrameworkReferences = CollectExcept(serverFrameworkReferences, KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal);
 
         Assert.Empty(unexpectedFrameworkReferences);
         Assert.Contains(serverFrameworkReferences, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
@@ -440,8 +511,13 @@ public sealed class ArchitectureTests : UnitTestBase
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
 
+        var mapperPaths = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly))
+            mapperPaths.Add(path);
+
+        mapperPaths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
+        foreach (var path in mapperPaths)
         {
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             foreach (var marker in ForbiddenSharedGrpcTransportMapperRuntimeMarkers)
@@ -459,8 +535,13 @@ public sealed class ArchitectureTests : UnitTestBase
     public async Task SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
     {
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
+        var mapperPaths = new List<string>();
+        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly))
+            mapperPaths.Add(path);
+
+        mapperPaths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
+        foreach (var path in mapperPaths)
         {
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             if (!text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
@@ -494,10 +575,19 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ValidatorTypesShouldLiveInApprovedNamespaces()
     {
+        var validatorNamespaces = new List<string>();
+        foreach (var ns in ArchitectureAllowlists.ValidatorTypeNamespaces)
+        {
+            if (string.Equals(ns, "Squirix", StringComparison.Ordinal) || string.Equals(ns, "Squirix.Core", StringComparison.Ordinal))
+                continue;
+
+            validatorNamespaces.Add(ns);
+        }
+
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
             Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
                  .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
-            [.. ArchitectureAllowlists.ValidatorTypeNamespaces.Where(static ns => ns is not "Squirix" and not "Squirix.Core")]);
+            validatorNamespaces.ToArray());
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
     }
@@ -519,11 +609,23 @@ public sealed class ArchitectureTests : UnitTestBase
 
     private static XDocument LoadProjectByAbsolutePath(string path) => XDocument.Load(path);
 
-    private static string[] ReadIncludes(XDocument project, string itemName) =>
-    [
-        .. project.Descendants().Where(element => string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
-                  .Select(static element => element.Attribute("Include")?.Value).Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value!),
-    ];
+    private static string[] ReadIncludes(XDocument project, string itemName)
+    {
+        var includes = new List<string>();
+        foreach (var element in project.Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var value = element.Attribute("Include")?.Value;
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            includes.Add(value);
+        }
+
+        return includes.ToArray();
+    }
 
     private static string[] ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
 
@@ -531,9 +633,40 @@ public sealed class ArchitectureTests : UnitTestBase
 
     private static string ReadProperty(XDocument project, string propertyName)
     {
-        var value = project.Descendants().FirstOrDefault(element => string.Equals(element.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase))?.Value.Trim();
+        string? value = null;
+        foreach (var element in project.Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            value = element.Value.Trim();
+            break;
+        }
+
         Assert.False(string.IsNullOrWhiteSpace(value), $"Expected MSBuild property '{propertyName}'.");
         return value;
+    }
+
+    private static string[] CollectExcept(IReadOnlyList<string> left, string[] baseline, StringComparer comparer)
+    {
+        var result = new List<string>();
+        foreach (var item in left)
+        {
+            var found = false;
+            foreach (var known in baseline)
+            {
+                if (comparer.Equals(item, known))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                result.Add(item);
+        }
+
+        return result.ToArray();
     }
 
     private static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync()

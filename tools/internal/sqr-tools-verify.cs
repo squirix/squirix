@@ -2,7 +2,7 @@
 using System.Diagnostics;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -23,10 +23,13 @@ if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
     return 1;
 }
 
-var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase)
-                     .ToArray();
+var files = new List<string>();
+foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly))
+    files.Add(Path.GetFullPath(file));
 
-if (files.Length is 0)
+files.Sort(StringComparer.OrdinalIgnoreCase);
+
+if (files.Count is 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
     return 1;
