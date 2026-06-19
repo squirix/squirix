@@ -1,7 +1,7 @@
 name: CI
 
 on:
-    # develop push/PR: ubuntu-only matrix (fast path) + fast e2e wire-alloc benchmarks.
+    # develop push/PR: ubuntu-only matrix (fast path).
     # main push and PRs targeting main: full ubuntu/windows/macos matrix (release integration gate).
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
