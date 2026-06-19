@@ -195,6 +195,10 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `StrictFsync`                 | bool   | `true`                                                     | Any boolean                                                                                                                                |
 | `JournalGroupCommitMaxWaitMs` | int    | `0`                                                        | `>= 0` (`0` disables group commit)                                                                                                         |
 | `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`                                                                                                                                      |
+| `JournalBackend`              | string | `PipelinedWal`                                             | `JsonFramed` or `PipelinedWal`                                                                                                             |
+| `WalPlatformBackend`          | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
+| `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (PipelinedWal segment count cap)                                                                                                     |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (PipelinedWal total WAL size cap)                                                                                                    |
 
 See [journal group commit](journal-group-commit.md) for latency vs throughput tradeoffs.
 
