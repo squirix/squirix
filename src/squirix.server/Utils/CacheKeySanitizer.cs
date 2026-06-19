@@ -24,17 +24,13 @@ internal static class CacheKeySanitizer
 
         var len = key.Length;
         var digitCount = CountDecimalDigits(len);
-        return string.Create(
-            MaxPrefixLength + 8 + digitCount + 1,
-            (key, len, digitCount),
-            static (dest, state) =>
-            {
-                state.key.AsSpan(0, MaxPrefixLength).CopyTo(dest);
-                "***[len=".AsSpan().CopyTo(dest[MaxPrefixLength..]);
-                const int writtenStart = MaxPrefixLength + 8;
-                _ = state.len.TryFormat(dest.Slice(writtenStart, state.digitCount), out _, provider: CultureInfo.InvariantCulture);
-                dest[writtenStart + state.digitCount] = ']';
-            });
+        Span<char> dest = stackalloc char[MaxPrefixLength + 8 + digitCount + 1];
+        key.AsSpan(0, MaxPrefixLength).CopyTo(dest);
+        "***[len=".AsSpan().CopyTo(dest[MaxPrefixLength..]);
+        const int writtenStart = MaxPrefixLength + 8;
+        _ = len.TryFormat(dest.Slice(writtenStart, digitCount), out _, provider: CultureInfo.InvariantCulture);
+        dest[writtenStart + digitCount] = ']';
+        return new string(dest);
     }
 
     private static int CountDecimalDigits(int value)

@@ -1,0 +1,1 @@
+M:System.String.Create;Do not use String.Create — use stackalloc spans, StringBuilder, or interpolation instead.
