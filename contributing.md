@@ -51,6 +51,13 @@ feature/my-fix → develop → main → tag vX.Y.Z
    Link related issues with closing keywords (`Fixes #123`, `Closes #123`, or `Resolves #123`) in the PR
    title or body. GitHub auto-closes linked issues when the PR merges into the default branch (`develop`).
 
+### Continuous integration
+
+- **`develop` pull requests and pushes** — Linux (`ubuntu-latest`) only for build and test jobs (fast feedback).
+- **`main` integration** — pull requests targeting `main` (release sync) and pushes to `main` run the full cross-OS
+  matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`) for build and test suites.
+- **Scheduled and manual runs** — the same full cross-OS matrix runs weekly and on `workflow_dispatch`.
+
 ## Guidelines
 
 - Keep code simple and readable.
