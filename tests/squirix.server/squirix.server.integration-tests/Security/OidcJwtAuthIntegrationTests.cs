@@ -42,7 +42,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "oidc-expired" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
@@ -65,7 +65,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "oidc-invalid" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
@@ -86,7 +86,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetValueAsync(new GetValueRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken);
+            _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken);
         });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
@@ -106,7 +106,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };
 
         var response = await client.GetValueAsync(
-            new GetValueRequest { CacheName = "default", Key = "oidc-jwt-ok" },
+            new GetValueAsyncRequest { CacheName = "default", Key = "oidc-jwt-ok" },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 
         Assert.False(response.Found);
@@ -128,7 +128,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "oidc-audience" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 

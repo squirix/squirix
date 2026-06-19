@@ -29,7 +29,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         await using (var seedNode = await StartNodeAsync(seedUrl, seedPeers, usePersistence: true, extraScope: Scope))
         {
             var seedCache = GetCache(seedNode);
-            await seedCache.SetAsync(CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
+            await seedCache.SetEntryAsync(CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
         }
 
         var restartUrl = GetNextHttpUri();
@@ -49,10 +49,10 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Address));
 
         var cache = GetCache(node);
-        var beforeReplay = await cache.TryGetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
+        var beforeReplay = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
         Assert.False(beforeReplay.Found);
 
-        var writeTask = cache.SetAsync(CacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
+        var writeTask = cache.SetEntryAsync(CacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
         var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
         Assert.NotSame(writeTask, writeStarted);
 
@@ -62,10 +62,12 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         await WaitForReadyHealthyAsync(node.Address);
 
         var recovered = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
-        Assert.Equal("persisted-value", recovered);
+        Assert.True(recovered.Found);
+        Assert.Equal("persisted-value", recovered.Value);
 
         var writtenDuringRecovery = await cache.GetValueAsync(CacheNames.DefaultNamespace, DuringRecoveryKey, DefaultCancellationToken);
-        Assert.Equal("during-recovery", writtenDuringRecovery);
+        Assert.True(writtenDuringRecovery.Found);
+        Assert.Equal("during-recovery", writtenDuringRecovery.Value);
     }
 
     private async Task<HttpStatusCode> GetLiveStatusCodeAsync(string address)

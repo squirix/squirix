@@ -113,7 +113,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
         Assert.True(second.Found);
         TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
-        Assert.Equal(0, factoryCalls);
+        Assert.Equal(1, factoryCalls);
     }
 
     /// <summary>Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.</summary>

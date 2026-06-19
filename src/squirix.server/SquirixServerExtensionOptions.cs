@@ -12,7 +12,7 @@ public sealed class SquirixServerExtensionOptions
     public Action<IServiceCollection>? ConfigureServices { get; set; }
 
     /// <summary>Gets or sets a callback that decorates the hosted basic cache pipeline.</summary>
-    public Func<IServiceProvider, ISquirixServerCachePipeline<object?>, ISquirixServerCachePipeline<object?>>? DecorateCachePipeline { get; set; }
+    public Func<IServiceProvider, ISquirixServerCachePipeline, ISquirixServerCachePipeline>? DecorateCachePipeline { get; set; }
 
     /// <summary>Gets or sets a callback that maps extension endpoints after core endpoints are mapped.</summary>
     public Action<WebApplication>? MapEndpoints { get; set; }

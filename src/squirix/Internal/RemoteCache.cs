@@ -49,8 +49,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.GetExpirationAsync(new GetExpirationRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<GetExpirationResponse>(responseAsync);
+                var responseAsync = client.GetExpirationAsync(new GetExpirationAsyncRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
+                return new ValueTask<GetExpirationAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
@@ -78,21 +78,17 @@ internal sealed class RemoteCache<T> : ICache<T>
             key,
             async ct =>
             {
-                var existing = await GetValueAsync(key, ct).ConfigureAwait(false);
-                if (existing.Found)
-                    return existing;
-
                 var created = await valueFactory(key, ct).ConfigureAwait(false);
                 var entry = ToEntry(created, options);
                 OperationInputValidator<T>.ValidateEntry(entry);
 
-                var request = ToGetOrAddValueRequest(key, entry);
+                var request = ToGetOrAddAsyncRequest(key, entry);
                 request.OperationId = RpcOperationIdentity.New();
                 var response = await ExecuteAsync(
                     static (client, state, token) =>
                     {
-                        var responseAsync = client.GetOrAddValueAsync(state, cancellationToken: token).ResponseAsync;
-                        return new ValueTask<GetOrAddValueResponse>(responseAsync);
+                        var responseAsync = client.GetOrAddAsync(state, cancellationToken: token).ResponseAsync;
+                        return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
                     },
                     request,
                     ct).ConfigureAwait(false);
@@ -108,8 +104,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.GetValueAsync(new GetValueRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<GetValueResponse>(responseAsync);
+                var responseAsync = client.GetValueAsync(new GetValueAsyncRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
+                return new ValueTask<GetValueAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
@@ -125,7 +121,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) =>
-                (await client.RemoveAsync(new RemoveRequest { OperationId = operationId, CacheName = _cacheName, Key = key }, cancellationToken: ct).ConfigureAwait(false)).Removed,
+                (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Removed,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -135,8 +131,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
             async (client, ct) => (await client.RemoveExpirationAsync(
-                new RemoveExpirationRequest { OperationId = operationId, CacheName = _cacheName, Key = key },
-                cancellationToken: ct).ConfigureAwait(false)).Found,
+                new RemoveExpirationAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Found,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -145,10 +141,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var entry = ToEntry(value, options);
         OperationInputValidator<T>.ValidateEntry(entry);
-        var request = ToSetValueRequest(key, entry);
+        var request = ToSetEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
-        _ = await ExecuteAsync(async (client, ct) => await client.SetValueAsync(request, cancellationToken: ct).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        _ = await ExecuteAsync(async (client, ct) => await client.SetEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
@@ -160,8 +156,8 @@ internal sealed class RemoteCache<T> : ICache<T>
             {
                 ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(expiration));
                 return (await client.TouchAsync(
-                    new TouchRequest { OperationId = operationId, CacheName = _cacheName, Key = key, Expiration = Duration.FromTimeSpan(expiration) },
-                    cancellationToken: ct).ConfigureAwait(false)).Found;
+                    new TouchAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key, Expiration = Duration.FromTimeSpan(expiration) },
+                    cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Found;
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -178,10 +174,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var entry = ToEntry(value, options);
         OperationInputValidator<T>.ValidateEntry(entry);
-        var request = ToTrySetValueRequest(key, entry);
+        var request = ToTryAddEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
-        return await ExecuteAsync(async (client, ct) => (await client.TrySetValueAsync(request, cancellationToken: ct).ConfigureAwait(false)).Added, cancellationToken)
+        return await ExecuteAsync(async (client, ct) => (await client.TryAddEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Added, cancellationToken)
            .ConfigureAwait(false);
     }
 
@@ -190,9 +186,15 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         var operationId = RpcOperationIdentity.New();
         return await ExecuteAsync(
-            async (client, ct) => (await client.UpdateValueAsync(
-                new UpdateValueRequest { OperationId = operationId, CacheName = _cacheName, Key = key, Value = ProtoEx.ToCacheValue(value, _serializer) },
-                cancellationToken: ct).ConfigureAwait(false)).Updated,
+            async (client, ct) => (await client.UpdateAsync(
+                new UpdateAsyncRequest
+                {
+                    OperationId = operationId,
+                    CacheName = _cacheName,
+                    Key = key,
+                    Entry = ProtoEx.MapEntryToProto(new CacheEntry<T> { Value = value }, _serializer),
+                },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Updated,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -290,7 +292,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             return await ExecuteAsync(
                 async (client, ct) =>
                 {
-                    var response = await client.GetAsync(new GetRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ConfigureAwait(false);
+                    var response = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
                     return await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -301,30 +303,24 @@ internal sealed class RemoteCache<T> : ICache<T>
         }
     }
 
-    private GetOrAddValueRequest ToGetOrAddValueRequest(string key, CacheEntry<T> entry) => new()
+    private GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,
-        Value = ProtoEx.ToCacheValue(entry.Value, _serializer),
-        ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
     };
 
-    private SetValueRequest ToSetValueRequest(string key, CacheEntry<T> entry) => new()
+    private SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,
-        Value = ProtoEx.ToCacheValue(entry.Value, _serializer),
-        ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
     };
 
-    private TrySetValueRequest ToTrySetValueRequest(string key, CacheEntry<T> entry) => new()
+    private TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
     {
         CacheName = _cacheName,
         Key = key,
-        Value = ProtoEx.ToCacheValue(entry.Value, _serializer),
-        ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
     };
 }

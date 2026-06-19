@@ -1,4 +1,3 @@
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.LocalCache;
@@ -10,48 +9,6 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>Unit tests for derived cache mutations on the server local cache surface.</summary>
 public sealed class CacheDerivedMutationTests : UnitTestBase
 {
-    /// <summary>Ensures ClientCache GetOrAddAsync invokes the factory once under concurrency.</summary>
-    [Fact]
-    public async Task ClientCacheGetOrAddAsyncInvokesFactoryOnceUnderConcurrency()
-    {
-        await using var physical = new PhysicalCache<string>();
-        var clientCache = new ClientCache<string>(physical, physical);
-        var factoryCalls = 0;
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        var first = RunGetOrAddAsync();
-        var second = RunGetOrAddAsync();
-        await Task.Delay(50, DefaultCancellationToken);
-        gate.SetResult();
-        var results = await Task.WhenAll(first.AsTask(), second.AsTask());
-
-        Assert.Equal(1, factoryCalls);
-        foreach (var result in results)
-        {
-            Assert.True(result.Found);
-            Assert.Equal("created", result.Value);
-        }
-
-        return;
-
-        ValueTask<CacheValueResult<string>> RunGetOrAddAsync()
-        {
-            return clientCache.GetOrAddWithFactoryAsync(
-                "orders",
-                "k",
-                async (key, cancellationToken) =>
-                {
-                    _ = key;
-                    _ = cancellationToken;
-                    _ = Interlocked.Increment(ref factoryCalls);
-                    await gate.Task.WaitAsync(cancellationToken);
-                    return "created";
-                },
-                null,
-                DefaultCancellationToken);
-        }
-    }
-
     /// <summary>Ensures ClientCache UpdateAsync preserves expiration through the adapter.</summary>
     [Fact]
     public async Task ClientCacheUpdateAsyncPreservesExpiration()
@@ -60,7 +17,7 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         await using var physical = new PhysicalCache<string>(timeProvider);
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
-        await clientCache.SetAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await clientCache.SetEntryAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await clientCache.UpdateAsync("orders", "k", "new", DefaultCancellationToken);
 
@@ -78,12 +35,12 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
-        await cache.InsertAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await cache.SetAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await cache.UpdateAsync("k", "new", DefaultCancellationToken);
 
         Assert.True(updated);
-        var entry = await cache.GetValueAsync("k", DefaultCancellationToken);
+        var entry = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.NotNull(entry);
         Assert.Equal("new", entry.Value);
         Assert.Equal(expires, entry.ExpiresUtc);

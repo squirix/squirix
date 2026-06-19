@@ -87,6 +87,19 @@ internal static class ProtoEx
         };
     }
 
+    internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        return new CacheEntryWire
+        {
+            Value = ToStruct(entry.Value, serializer),
+            ExpiresUtc = entry.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(entry.ExpiresUtc.Value, DateTimeKind.Utc)),
+            Expiration = entry.Expiration is null ? null : Duration.FromTimeSpan(entry.Expiration.Value),
+        };
+    }
+
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
     private static async ValueTask<T?> DeserializeAsync<T>(Value value, ISquirixSerializer serializer)

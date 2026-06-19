@@ -31,21 +31,21 @@ public sealed class GrpcAuthSmokeTests : SmokeTestBase
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var getRequest = new GetRequest { CacheName = "default", Key = "grpc-auth-smoke" };
+        var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetAsync(getRequest, cancellationToken: DefaultCancellationToken); });
+        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken); });
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
         var invalidAuth = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken));
+            _ = await client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken));
         });
         Assert.Equal(StatusCode.Unauthenticated, invalidAuth.StatusCode);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var response = await client.GetValueAsync(
-            new GetValueRequest { CacheName = "default", Key = "grpc-auth-smoke" },
+            new GetValueAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" },
             new CallOptions(validHeaders, cancellationToken: DefaultCancellationToken));
         Assert.False(response.Found);
     }

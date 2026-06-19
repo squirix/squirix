@@ -33,21 +33,21 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         _idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
     }
 
-    public override async Task<GetResponse> Get(GetRequest request, ServerCallContext context)
+    public override async Task<GetEntryAsyncResponse> GetEntry(GetEntryAsyncRequest request, ServerCallContext context)
     {
         RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        return entry is null ? throw CacheOperationContract.NotFound().ToRpcException() : new GetResponse { Entry = entry.MapToProto() };
+        return entry is null ? throw CacheOperationContract.NotFound().ToRpcException() : new GetEntryAsyncResponse { Entry = entry.MapToProto() };
     }
 
-    public override async Task<GetExpirationResponse> GetExpiration(GetExpirationRequest request, ServerCallContext context)
+    public override async Task<GetExpirationAsyncResponse> GetExpiration(GetExpirationAsyncRequest request, ServerCallContext context)
     {
         RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
         if (entry is null)
-            return new GetExpirationResponse { Found = false };
+            return new GetExpirationAsyncResponse { Found = false };
 
-        var response = new GetExpirationResponse { Found = true };
+        var response = new GetExpirationAsyncResponse { Found = true };
         if (entry.ExpiresUtc is not { } expiresUtc)
             return response;
 
@@ -57,69 +57,57 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         return response;
     }
 
-    public override Task<GetOrAddValueResponse> GetOrAddValue(GetOrAddValueRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<GetOrAddAsyncResponse> GetOrAdd(GetOrAddAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
-        RpcMutationFingerprints.GetOrAddValue(request.CacheName, request.Key, request.Value, request.ExpiresUtc, request.Expiration),
-        ct => GetOrAddValueCoreAsync(request, ct),
+        RpcMutationFingerprints.GetOrAdd(request.CacheName, request.Key, request.Entry),
+        ct => GetOrAddAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override async Task<GetValueResponse> GetValue(GetValueRequest request, ServerCallContext context)
+    public override async Task<GetValueAsyncResponse> GetValue(GetValueAsyncRequest request, ServerCallContext context)
     {
         RequireValidCacheKey(request.Key);
-        var result = await ApiForRequest(request.CacheName).TryGetValueAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        var response = new GetValueResponse { Found = result.Found };
+        var result = await ApiForRequest(request.CacheName).GetValueAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
+        var response = new GetValueAsyncResponse { Found = result.Found };
         if (result.Found)
             response.Value = ProtoEx.CacheValueToGrpcValue(result.Value);
 
         return response;
     }
 
-    public override Task<RemoveResponse> Remove(RemoveRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<RemoveAsyncResponse> Remove(RemoveAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.Remove(request.CacheName, request.Key),
-        ct => RemoveCoreAsync(request, ct),
+        ct => RemoveAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override Task<RemoveExpirationResponse> RemoveExpiration(RemoveExpirationRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<RemoveExpirationAsyncResponse> RemoveExpiration(RemoveExpirationAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.RemoveExpiration(request.CacheName, request.Key),
-        ct => RemoveExpirationCoreAsync(request, ct),
+        ct => RemoveExpirationAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override Task<SetResponse> Set(SetRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<SetAsyncResponse> SetEntry(SetEntryAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
-        RpcMutationFingerprints.Set(request.CacheName, request.Key, request.Entry),
-        ct => SetCoreAsync(request, ct),
+        RpcMutationFingerprints.SetEntry(request.CacheName, request.Key, request.Entry),
+        ct => SetEntryAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override Task<SetResponse> SetValue(SetValueRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
-        request.OperationId,
-        RpcMutationFingerprints.SetValue(request.CacheName, request.Key, request.Value, request.ExpiresUtc, request.Expiration),
-        ct => SetValueCoreAsync(request, ct),
-        context.CancellationToken);
-
-    public override Task<TouchResponse> Touch(TouchRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<TouchAsyncResponse> Touch(TouchAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.Touch(request.CacheName, request.Key, request.Expiration),
-        ct => TouchCoreAsync(request, ct),
+        ct => TouchAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override Task<TrySetResponse> TrySet(TrySetRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<TryAddAsyncResponse> TryAddEntry(TryAddEntryAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
-        RpcMutationFingerprints.TrySet(request.CacheName, request.Key, request.Entry),
-        ct => TrySetCoreAsync(request, ct),
+        RpcMutationFingerprints.TryAddEntry(request.CacheName, request.Key, request.Entry),
+        ct => TryAddEntryAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
-    public override Task<TrySetResponse> TrySetValue(TrySetValueRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
+    public override Task<UpdateAsyncResponse> Update(UpdateAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
-        RpcMutationFingerprints.TrySetValue(request.CacheName, request.Key, request.Value, request.ExpiresUtc, request.Expiration),
-        ct => TrySetValueCoreAsync(request, ct),
-        context.CancellationToken);
-
-    public override Task<UpdateValueResponse> UpdateValue(UpdateValueRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
-        request.OperationId,
-        RpcMutationFingerprints.UpdateValue(request.CacheName, request.Key, request.Value),
-        ct => UpdateValueCoreAsync(request, ct),
+        RpcMutationFingerprints.Update(request.CacheName, request.Key, request.Entry),
+        ct => UpdateAsyncCoreAsync(request, ct),
         context.CancellationToken);
 
     private static string RequireCacheName(string cacheName) => string.IsNullOrWhiteSpace(cacheName)
@@ -146,122 +134,99 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         throw new RpcException(new Status(StatusCode.FailedPrecondition, detail), GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers());
     }
 
-    private async Task<GetOrAddValueResponse> GetOrAddValueCoreAsync(GetOrAddValueRequest request, CancellationToken cancellationToken)
+    private async Task<GetOrAddAsyncResponse> GetOrAddAsyncCoreAsync(GetOrAddAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         var api = _cacheOperations.ForCache(cacheName);
-        var existing = await api.TryGetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
         if (existing.Found)
         {
-            return new GetOrAddValueResponse
+            return new GetOrAddAsyncResponse
             {
                 Added = false,
                 Value = ProtoEx.CacheValueToGrpcValue(existing.Value),
             };
         }
 
-        var entry = await ProtoEx.CacheValueFromGrpcValueAsync<T>(request.Value, request.ExpiresUtc, request.Expiration).ConfigureAwait(false);
-        if (await api.TryInsertAsync(request.Key, entry, cancellationToken).ConfigureAwait(false))
+        var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
+        if (await api.TryAddEntryAsync(request.Key, entry, cancellationToken).ConfigureAwait(false))
         {
-            return new GetOrAddValueResponse
+            return new GetOrAddAsyncResponse
             {
                 Added = true,
                 Value = ProtoEx.CacheValueToGrpcValue(entry.Value),
             };
         }
 
-        var afterRace = await api.TryGetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
-        return new GetOrAddValueResponse
+        var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        return new GetOrAddAsyncResponse
         {
             Added = false,
             Value = ProtoEx.CacheValueToGrpcValue(afterRace.Value),
         };
     }
 
-    private async Task<RemoveResponse> RemoveCoreAsync(RemoveRequest request, CancellationToken cancellationToken)
+    private async Task<RemoveAsyncResponse> RemoveAsyncCoreAsync(RemoveAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var result = await _cacheOperations.ForCache(cacheName).TryRemoveAsync(request.Key, cancellationToken).ConfigureAwait(false);
-        var response = new RemoveResponse { Removed = result.Removed };
+        var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        var response = new RemoveAsyncResponse { Removed = result.Removed };
         if (result.Removed)
-            response.PreviousValue = ProtoEx.CacheValueToGrpcStruct(result.Value);
+            response.PreviousValue = ProtoEx.CacheValueToGrpcValue(result.Value);
 
         return response;
     }
 
-    private async Task<RemoveExpirationResponse> RemoveExpirationCoreAsync(RemoveExpirationRequest request, CancellationToken cancellationToken)
+    private async Task<RemoveExpirationAsyncResponse> RemoveExpirationAsyncCoreAsync(RemoveExpirationAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         var found = await _cacheOperations.ForCache(cacheName).RemoveExpirationAsync(request.Key, cancellationToken).ConfigureAwait(false);
-        return new RemoveExpirationResponse { Found = found };
+        return new RemoveExpirationAsyncResponse { Found = found };
     }
 
-    private async Task<SetResponse> SetCoreAsync(SetRequest request, CancellationToken cancellationToken)
+    private async Task<SetAsyncResponse> SetEntryAsyncCoreAsync(SetEntryAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        await _cacheOperations.ForCache(cacheName).InsertAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-        return new SetResponse();
+        await _cacheOperations.ForCache(cacheName).SetEntryAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        return new SetAsyncResponse();
     }
 
-    private async Task<SetResponse> SetValueCoreAsync(SetValueRequest request, CancellationToken cancellationToken)
-    {
-        var cacheName = RequireCacheName(request.CacheName);
-        RequireValidCacheKey(request.Key);
-        EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        await _cacheOperations.ForCache(cacheName).InsertAsync(
-            request.Key,
-            await ProtoEx.CacheValueFromGrpcValueAsync<T>(request.Value, request.ExpiresUtc, request.Expiration).ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-        return new SetResponse();
-    }
-
-    private async Task<TouchResponse> TouchCoreAsync(TouchRequest request, CancellationToken cancellationToken)
+    private async Task<TouchAsyncResponse> TouchAsyncCoreAsync(TouchAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         var found = await _cacheOperations.ForCache(cacheName).TouchAsync(request.Key, request.Expiration.ToTimeSpan(), cancellationToken).ConfigureAwait(false);
-        return new TouchResponse { Found = found };
+        return new TouchAsyncResponse { Found = found };
     }
 
-    private async Task<TrySetResponse> TrySetCoreAsync(TrySetRequest request, CancellationToken cancellationToken)
+    private async Task<TryAddAsyncResponse> TryAddEntryAsyncCoreAsync(TryAddEntryAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var added = await _cacheOperations.ForCache(cacheName).TryInsertAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
-        return new TrySetResponse { Added = added };
+        var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken)
+                                          .ConfigureAwait(false);
+        return new TryAddAsyncResponse { Added = added };
     }
 
-    private async Task<TrySetResponse> TrySetValueCoreAsync(TrySetValueRequest request, CancellationToken cancellationToken)
-    {
-        var cacheName = RequireCacheName(request.CacheName);
-        RequireValidCacheKey(request.Key);
-        EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var added = await _cacheOperations.ForCache(cacheName).TryInsertAsync(
-            request.Key,
-            await ProtoEx.CacheValueFromGrpcValueAsync<T>(request.Value, request.ExpiresUtc, request.Expiration).ConfigureAwait(false),
-            cancellationToken).ConfigureAwait(false);
-        return new TrySetResponse { Added = added };
-    }
-
-    private async Task<UpdateValueResponse> UpdateValueCoreAsync(UpdateValueRequest request, CancellationToken cancellationToken)
+    private async Task<UpdateAsyncResponse> UpdateAsyncCoreAsync(UpdateAsyncRequest request, CancellationToken cancellationToken)
     {
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
             request.Key,
-            (await ProtoEx.CacheValueFromGrpcValueAsync<T>(request.Value, null, null).ConfigureAwait(false)).Value,
+            (await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false)).Value,
             cancellationToken).ConfigureAwait(false);
-        return new UpdateValueResponse { Updated = updated };
+        return new UpdateAsyncResponse { Updated = updated };
     }
 }

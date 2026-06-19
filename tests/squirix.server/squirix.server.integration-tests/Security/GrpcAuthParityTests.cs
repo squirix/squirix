@@ -27,7 +27,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-jwt-bad" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-jwt-bad" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -46,7 +46,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: DefaultCancellationToken);
+            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: DefaultCancellationToken);
         });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -65,7 +65,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
 
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var response = await client.GetValueAsync(
-            new GetValueRequest { Key = "grpc-jwt-ok", CacheName = "default" },
+            new GetValueAsyncRequest { Key = "grpc-jwt-ok", CacheName = "default" },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         Assert.False(response.Found);
     }

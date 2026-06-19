@@ -54,11 +54,11 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     internal async ValueTask<bool> GetValueFoundAsync(string key, CancellationToken cancellationToken)
     {
-        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
         return response.Found;
     }
 
-    internal async ValueTask<bool> GetValueFoundAsync(GetValueRequest request, CancellationToken cancellationToken)
+    internal async ValueTask<bool> GetValueFoundAsync(GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         var response = await _client.GetValueAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
         return response.Found;
@@ -66,7 +66,7 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     internal async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
-        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return response.Found ? await ProtoEx.FromCacheValueAsync<string>(response.Value, Serializer).ConfigureAwait(false) : null;
     }

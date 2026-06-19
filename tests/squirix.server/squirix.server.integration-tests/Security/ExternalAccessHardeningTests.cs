@@ -42,7 +42,7 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
+            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
         });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }

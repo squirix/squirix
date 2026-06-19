@@ -20,9 +20,10 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         await using var node = await StartNodeAsync(url, peers);
         var cache = GetCache(node);
 
-        await cache.SetAsync(CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
+        await cache.SetEntryAsync(CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
         var value = await cache.GetValueAsync(CacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
-        Assert.Equal("value", value);
+        Assert.True(value.Found);
+        Assert.Equal("value", value.Value);
     }
 
     /// <summary>Ensures default startup does not create WAL, manifest, or snapshot files.</summary>

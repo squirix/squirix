@@ -31,7 +31,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
         var cache = GetCacheApiClient(node);
 
         const string key = "smoke:1";
-        await cache.InsertAsync(key, BuildEntry("value", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(key, BuildEntry("value", version: 1), DefaultCancellationToken);
 
         await Task.Delay(10, DefaultCancellationToken);
 

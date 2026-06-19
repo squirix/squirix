@@ -26,20 +26,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
 
-    public ValueTask AddAsync(CacheKey key, T? value, CancellationToken cancellationToken) => AddAsync(key, new CacheEntry<T> { Value = value }, cancellationToken);
-
-    public async ValueTask AddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        if (!await TryAddAsync(key, entry, cancellationToken).ConfigureAwait(false))
-            throw new InvalidOperationException($"Key already exists: {key.Key}");
-    }
-
-    public ValueTask<bool> ContainsAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryGetLive(key, out _));
-    }
-
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     public async IAsyncEnumerable<(CacheKey Key, CacheEntry<T> Entry)> EnumerateLiveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -60,30 +46,16 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<TimeSpan?> GetExpirationAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!TryGetLive(key, out var stored) || stored.ExpiresUtc is not { } expires)
-            return ValueTask.FromResult<TimeSpan?>(null);
-
-        var remaining = expires - UtcNow;
-        return ValueTask.FromResult<TimeSpan?>(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
-    }
-
-    public ValueTask<CacheEntry<T>?> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<CacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(TryGetLive(key, out var stored) ? ToEntry(stored) : null);
     }
 
-    public ValueTask InsertAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<CacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
-        _evictionIndex.TrackNew(key);
-        EnforceCapacityIfNeeded();
-        return ValueTask.CompletedTask;
+        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new CacheValueResult<T>(true, ToEntry(stored).Value) : new CacheValueResult<T>(false, default));
     }
 
     public ValueTask InsertForDurableRecoveryAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
@@ -95,17 +67,17 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<bool> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!_store.TryRemove(key, out var stored))
-            return ValueTask.FromResult(false);
+            return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
 
         _evictionIndex.Untrack(key);
         if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
-            return ValueTask.FromResult(false);
+            return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
 
-        return ValueTask.FromResult(true);
+        return ValueTask.FromResult(new CacheRemoveResult<T>(true, stored.Value));
     }
 
     public ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
@@ -120,7 +92,18 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     public ValueTask<bool> RemoveExpirationForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) => RemoveExpirationAsync(key, cancellationToken);
 
-    public ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) => RemoveAsync(key, cancellationToken);
+    public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) =>
+        (await RemoveAsync(key, cancellationToken).ConfigureAwait(false)).Removed;
+
+    public ValueTask SetAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = NormalizeEntry(entry);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
+        _evictionIndex.TrackNew(key);
+        EnforceCapacityIfNeeded();
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<bool> TouchAsync(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken)
     {
@@ -145,8 +128,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, T? value, CancellationToken cancellationToken) => TryAddAsync(key, new CacheEntry<T> { Value = value }, cancellationToken);
-
     public ValueTask<bool> TryAddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -161,25 +142,6 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         _evictionIndex.TrackNew(key);
         EnforceCapacityIfNeeded();
         return ValueTask.FromResult(true);
-    }
-
-    public ValueTask<CacheValueResult<T>> TryGetValueAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new CacheValueResult<T>(true, ToEntry(stored).Value) : new CacheValueResult<T>(false, default));
-    }
-
-    public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(CacheKey key, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!_store.TryRemove(key, out var stored))
-            return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
-
-        _evictionIndex.Untrack(key);
-        if (stored.ExpiresUtc is { } expires && expires <= UtcNow)
-            return ValueTask.FromResult(new CacheRemoveResult<T>(false, default));
-
-        return ValueTask.FromResult(new CacheRemoveResult<T>(true, stored.Value));
     }
 
     public ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken)

@@ -39,7 +39,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "spoofed-internal-marker" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
@@ -64,8 +64,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         using var channelA = CreateGrpcChannel(urlA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
-        var setResponse = await clientA.TrySetAsync(
-            new TrySetRequest
+        var setResponse = await clientA.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
             {
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
@@ -105,7 +105,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "internal-no-cert" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
@@ -128,8 +128,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         using var channelA = CreateGrpcChannel(urlA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        var setResponse = await clientA.TrySetAsync(
-            new TrySetRequest
+        var setResponse = await clientA.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
             {
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
@@ -142,7 +142,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         using var channelB = CreateGrpcChannel(urlB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        var getResponse = await clientB.GetValueAsync(new GetValueRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+        var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
 
         Assert.True(getResponse.Found);
         Assert.Equal(value, (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
@@ -170,9 +170,14 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.SetValueAsync(
-                new SetValueRequest
-                { OperationId = RpcOperationIdentity.New(), CacheName = "default", Key = "spoofed-owner-write", Value = ProtoEx.CacheValueToGrpcValue("blocked") },
+            _ = await client.SetEntryAsync(
+                new SetEntryAsyncRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = "spoofed-owner-write",
+                    Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
+                },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
@@ -208,13 +213,13 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.SetValueAsync(
-                new SetValueRequest
+            _ = await client.SetEntryAsync(
+                new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Value = ProtoEx.CacheValueToGrpcValue("stale-owner-blocked"),
+                    Entry = new CacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
