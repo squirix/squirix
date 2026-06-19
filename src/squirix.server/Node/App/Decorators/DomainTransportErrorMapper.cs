@@ -87,6 +87,12 @@ internal static class DomainTransportErrorMapper
         if (CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
             throw CacheOperationContract.OperationIdRequired();
 
+        if (CacheOperationContract.IsOperationIdInvalidFormatMessage(ex.Status.Detail))
+            throw CacheOperationContract.OperationIdInvalidFormat();
+
+        if (CacheOperationContract.IsOperationIdTooLongMessage(ex.Status.Detail))
+            throw CacheOperationContract.OperationIdTooLong();
+
         throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
     }
 

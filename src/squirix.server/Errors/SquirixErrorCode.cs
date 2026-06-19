@@ -30,6 +30,12 @@ public enum SquirixErrorCode
     /// <summary>Mutating RPC is missing a required operation identifier.</summary>
     OperationIdRequired,
 
+    /// <summary>Operation identifier is not 32 lowercase hex characters.</summary>
+    OperationIdInvalidFormat,
+
+    /// <summary>Operation identifier exceeds the maximum allowed length.</summary>
+    OperationIdTooLong,
+
     /// <summary>An operation identifier was reused with a different mutation fingerprint.</summary>
     OperationIdReuseMismatch,
 }

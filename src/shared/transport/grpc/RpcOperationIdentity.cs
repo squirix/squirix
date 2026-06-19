@@ -6,6 +6,6 @@ namespace Squirix.Transport.Grpc;
 public static class RpcOperationIdentity
 {
     /// <summary>Creates a new unique operation identifier for one logical mutation attempt.</summary>
-    /// <returns>A 32-character lowercase hex identifier.</returns>
+    /// <returns>A 32-character lowercase hex identifier (UUID without hyphens).</returns>
     public static string New() => Guid.NewGuid().ToString("N");
 }

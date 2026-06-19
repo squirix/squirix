@@ -13,6 +13,8 @@ namespace Squirix.Server.UnitTests.Node.Services;
 /// <summary>Unit tests for mutating RPC idempotency guard behavior.</summary>
 public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 {
+    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
+
     /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
     [Fact]
     public void TryReplayReturnsFalseWhenOperationIdIsUnknown()
@@ -65,6 +67,46 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
     }
 
+    /// <summary>Ensures over-length operation ids are rejected before format validation.</summary>
+    [Fact]
+    public void RequireOperationIdRejectsTooLongValue()
+    {
+        var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
+        var ex = Assert.Throws<RpcException>(() => RpcMutationContracts.RequireOperationId(tooLong));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
+    }
+
+    /// <summary>Ensures malformed operation ids are rejected with the stable format contract.</summary>
+    [Fact]
+    public void RequireOperationIdRejectsInvalidFormat()
+    {
+        var ex = Assert.Throws<RpcException>(static () => RpcMutationContracts.RequireOperationId("not-a-valid-operation-id"));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
+    }
+
+    /// <summary>Ensures uppercase hex operation ids are rejected.</summary>
+    [Fact]
+    public void RequireOperationIdRejectsUppercaseHex()
+    {
+        var uppercase = ValidOperationId.ToUpperInvariant();
+        var ex = Assert.Throws<RpcException>(() => RpcMutationContracts.RequireOperationId(uppercase));
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
+    }
+
+    /// <summary>Ensures conforming operation ids pass validation.</summary>
+    [Fact]
+    public void RequireOperationIdAcceptsValidValue()
+    {
+        var normalized = RpcMutationContracts.RequireOperationId(ValidOperationId);
+        Assert.Equal(ValidOperationId, normalized);
+    }
+
     /// <summary>Ensures the coordinator replays cached responses without re-executing the handler.</summary>
     [Fact]
     public async Task CoordinatorReplaysWithoutReExecutingHandler()
@@ -76,7 +118,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
         var fingerprint = RpcMutationFingerprints.TrySet("default", "k", entry);
 
         var first = await coordinator.ExecuteAsync(
-            "op-1",
+            ValidOperationId,
             fingerprint,
             _ =>
             {
@@ -86,7 +128,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
             DefaultCancellationToken);
 
         var second = await coordinator.ExecuteAsync(
-            "op-1",
+            ValidOperationId,
             fingerprint,
             _ =>
             {

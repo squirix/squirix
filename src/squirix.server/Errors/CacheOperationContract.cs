@@ -17,6 +17,12 @@ internal static class CacheOperationContract
 
     public static SquirixException OperationIdRequired() => new(SquirixErrorCode.OperationIdRequired, "OperationIdRequired", RpcMutationContracts.OperationIdRequiredDetail);
 
+    public static SquirixException OperationIdInvalidFormat() =>
+        new(SquirixErrorCode.OperationIdInvalidFormat, "OperationIdInvalidFormat", RpcMutationContracts.OperationIdInvalidFormatDetail);
+
+    public static SquirixException OperationIdTooLong() =>
+        new(SquirixErrorCode.OperationIdTooLong, "OperationIdTooLong", RpcMutationContracts.OperationIdTooLongDetail);
+
     public static SquirixException OperationIdReuseMismatch() => new(SquirixErrorCode.OperationIdReuseMismatch, "OperationIdReuseMismatch", OperationIdReuseMismatchException.StableDetail);
 
     public static SquirixException PayloadTooLarge(int maxBytes) => new(
@@ -42,10 +48,9 @@ internal static class CacheOperationContract
     /// <returns><see langword="true" /> when <paramref name="message" /> identifies a missing operation id.</returns>
     internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdRequiredDetail, StringComparison.Ordinal);
 
-    /// <summary>
-    /// Determines whether <paramref name="message" /> matches the operation-id reuse mismatch contract.
-    /// </summary>
-    /// <param name="message">An exception or RPC status detail string.</param>
-    /// <returns><see langword="true" /> when <paramref name="message" /> identifies an operation-id reuse mismatch.</returns>
+    internal static bool IsOperationIdInvalidFormatMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdInvalidFormatDetail, StringComparison.Ordinal);
+
+    internal static bool IsOperationIdTooLongMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdTooLongDetail, StringComparison.Ordinal);
+
     internal static bool IsOperationIdReuseMismatchMessage(string? message) => string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
 }
