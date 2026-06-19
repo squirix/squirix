@@ -287,20 +287,11 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
-        try
-        {
-            return await ExecuteAsync(
-                async (client, ct) =>
-                {
-                    var response = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-                    return await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
-        {
-            return null;
-        }
+        var response = await ExecuteAsync(
+            async (client, ct) => await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Found ? await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false) : null;
     }
 
     private GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()

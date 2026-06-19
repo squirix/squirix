@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;
@@ -45,7 +46,7 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         await using var node = await StartNodeAsync(url, peers, usePersistence: true);
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
         var json = await FetchReadyDetailsAsync(node.Address);
 

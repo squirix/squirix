@@ -28,27 +28,27 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetEntryAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyNullableReferenceResult);
 
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.RemoveExpiration,
-        () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
+        () => _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Set,
-        () => _inner.SetEntryAsync(cacheName, key, entry, cancellationToken));
+        () => _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken));
 
-    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Touch,
-        () => _inner.TouchAsync(cacheName, key, expiration, cancellationToken),
+        () => _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.TryAdd,
-        () => _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken),
+        () => _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
@@ -57,16 +57,16 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheValueResult);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
+        () => _inner.RemoveAsync(operationId, cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheRemoveResult);
 
-    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
         cacheName,
         CacheOperationNames.Update,
-        () => _inner.UpdateAsync(cacheName, key, value, cancellationToken),
+        () => _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
     private static async ValueTask ObserveAsync(string cacheName, string operation, Func<ValueTask> action)

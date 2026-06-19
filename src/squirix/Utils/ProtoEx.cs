@@ -71,22 +71,6 @@ internal static class ProtoEx
         return await DeserializeAsync<T>(Value.ForStruct(value), serializer).ConfigureAwait(false);
     }
 
-    internal static CacheValue ToCacheValue<T>(T? value, ISquirixSerializer serializer)
-    {
-        ArgumentNullException.ThrowIfNull(serializer);
-
-        return value switch
-        {
-            null => new CacheValue { NullValue = NullValue.NullValue },
-            string text => new CacheValue { StringValue = text },
-            int number => new CacheValue { Int64Value = number },
-            long number => new CacheValue { Int64Value = number },
-            double number => new CacheValue { DoubleValue = number },
-            bool boolean => new CacheValue { BoolValue = boolean },
-            _ => new CacheValue { StructValue = ToStruct(value, serializer) },
-        };
-    }
-
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(entry);

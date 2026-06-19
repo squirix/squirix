@@ -13,8 +13,6 @@ internal static class CacheOperationContract
 
     public static SquirixException MemoryPressure() => new(SquirixErrorCode.MemoryPressure, "MemoryPressure", ResourceExhaustedException.StableDetail);
 
-    public static SquirixException NotFound() => new(SquirixErrorCode.NotFound, "NotFound", "Not found.");
-
     public static SquirixException OperationIdRequired() => new(SquirixErrorCode.OperationIdRequired, "OperationIdRequired", RpcMutationContracts.OperationIdRequiredDetail);
 
     public static SquirixException OperationIdInvalidFormat() =>

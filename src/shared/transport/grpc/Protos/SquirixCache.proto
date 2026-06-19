@@ -40,7 +40,8 @@ message GetEntryAsyncRequest {
 }
 
 message GetEntryAsyncResponse {
-    CacheEntryWire entry = 1;
+    bool found = 1;
+    CacheEntryWire entry = 2;
 }
 
 message GetValueAsyncRequest {

@@ -52,14 +52,6 @@ internal static class ProtoEx
         };
     }
 
-    /// <summary>
-    /// Maps a cache value to protobuf <c>Struct</c> wire form (single-field wrapper or JSON-derived struct).
-    /// </summary>
-    /// <typeparam name="T">Logical cache value type.</typeparam>
-    /// <param name="value">Value to encode.</param>
-    /// <returns>Protobuf struct suitable for well-known <c>Value</c> payloads.</returns>
-    internal static Struct CacheValueToGrpcStruct<T>(T? value) => ToStruct(value);
-
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -78,9 +70,7 @@ internal static class ProtoEx
         };
     }
 
-    private static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    private static async ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
+    internal static async ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
     {
         if (typeof(T) == typeof(object))
             return Coerce<T>(NormalizeUntypedScalarForUntypedCache(await MapCacheValueAsObjectAsync(value).ConfigureAwait(false)));
@@ -123,20 +113,6 @@ internal static class ProtoEx
         return await FromStructAsync<T>(CacheValueToStruct(value)).ConfigureAwait(false);
     }
 
-    private static async ValueTask<object?> MapCacheValueAsObjectAsync(CacheValue value)
-    {
-        return value.KindCase switch
-        {
-            CacheValue.KindOneofCase.StringValue => value.StringValue,
-            CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
-            CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue).ConfigureAwait(false),
-            _ => await FromStructAsync<object?>(CacheValueToStruct(value)).ConfigureAwait(false),
-        };
-    }
-
     private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
     {
         CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
@@ -148,23 +124,12 @@ internal static class ProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
     };
 
+    private static T? Coerce<T>(object? value) => value is T result ? result : default;
+
     private static async ValueTask<T?> DeserializeFromProtoValueAsync<T>(Value value)
     {
         var buffer = await WriteValueToBufferAsync(value).ConfigureAwait(false);
         return SerializationProvider.Deserialize<T>(buffer.WrittenSpan);
-    }
-
-    private static async ValueTask<ArrayBufferWriter<byte>> WriteValueToBufferAsync(Value value)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        var writer = new Utf8JsonWriter(buffer);
-        await using (writer.ConfigureAwait(false))
-        {
-            WriteValue(writer, value);
-            await writer.FlushAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-
-        return buffer;
     }
 
     private static async ValueTask<T?> FromStructAsync<T>(Struct s)
@@ -174,9 +139,7 @@ internal static class ProtoEx
             if (s.Fields.Count is not 1 || !s.Fields.TryGetValue("value", out var onlyWrapped))
                 return await DeserializeFromProtoValueAsync<T>(Value.ForStruct(s)).ConfigureAwait(false);
 
-            return TryReadScalarValue<T>(onlyWrapped, out var scalar)
-                ? scalar
-                : await DeserializeFromProtoValueAsync<T>(onlyWrapped).ConfigureAwait(false);
+            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : await DeserializeFromProtoValueAsync<T>(onlyWrapped).ConfigureAwait(false);
         }
 
         if (s.Fields.Count is 1 && s.Fields.TryGetValue("value", out var only))
@@ -192,6 +155,20 @@ internal static class ProtoEx
         foreach (var item in el.EnumerateArray())
             list.Values.Add(ValueFromJson(item));
         return list;
+    }
+
+    private static async ValueTask<object?> MapCacheValueAsObjectAsync(CacheValue value)
+    {
+        return value.KindCase switch
+        {
+            CacheValue.KindOneofCase.StringValue => value.StringValue,
+            CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue).ConfigureAwait(false),
+            _ => await FromStructAsync<object?>(CacheValueToStruct(value)).ConfigureAwait(false),
+        };
     }
 
     /// <summary>
@@ -430,5 +407,18 @@ internal static class ProtoEx
             default:
                 throw new InvalidOperationException($"Unsupported protobuf value kind: {v.KindCase}.");
         }
+    }
+
+    private static async ValueTask<ArrayBufferWriter<byte>> WriteValueToBufferAsync(Value value)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        var writer = new Utf8JsonWriter(buffer);
+        await using (writer.ConfigureAwait(false))
+        {
+            WriteValue(writer, value);
+            await writer.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
+        return buffer;
     }
 }

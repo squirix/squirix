@@ -6,34 +6,25 @@ namespace Squirix.Server.Node.Context;
 internal static class RemoteInvocationContext
 {
     private static readonly AsyncLocal<bool> InternalOwnerInvocation = new();
-    private static readonly AsyncLocal<bool> RemoteInvocation = new();
 
-    public static bool IsInternalOwnerInvocation => InternalOwnerInvocation.Value;
+    internal static bool IsInternalOwnerInvocation => InternalOwnerInvocation.Value;
 
     internal static Scope EnterRemoteInvocation(bool isInternalOwnerInvocation = false)
     {
-        var wasRemoteInvocation = RemoteInvocation.Value;
-        var wasInternalOwnerInvocation = InternalOwnerInvocation.Value;
-        RemoteInvocation.Value = true;
+        var value = InternalOwnerInvocation.Value;
         InternalOwnerInvocation.Value = isInternalOwnerInvocation;
-        return new Scope(wasRemoteInvocation, wasInternalOwnerInvocation);
+        return new Scope(value);
     }
 
     internal readonly struct Scope : IDisposable
     {
-        private readonly bool _wasInternalOwnerInvocation;
-        private readonly bool _wasRemoteInvocation;
+        private readonly bool _internalOwnerInvocation;
 
-        public Scope(bool wasRemoteInvocation, bool wasInternalOwnerInvocation)
+        public Scope(bool internalOwnerInvocation)
         {
-            _wasInternalOwnerInvocation = wasInternalOwnerInvocation;
-            _wasRemoteInvocation = wasRemoteInvocation;
+            _internalOwnerInvocation = internalOwnerInvocation;
         }
 
-        public void Dispose()
-        {
-            InternalOwnerInvocation.Value = _wasInternalOwnerInvocation;
-            RemoteInvocation.Value = _wasRemoteInvocation;
-        }
+        public void Dispose() => InternalOwnerInvocation.Value = _internalOwnerInvocation;
     }
 }

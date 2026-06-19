@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Ops;
@@ -29,7 +30,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         await using (var seedNode = await StartNodeAsync(seedUrl, seedPeers, usePersistence: true, extraScope: Scope))
         {
             var seedCache = GetCache(seedNode);
-            await seedCache.SetEntryAsync(CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
+            await seedCache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
         }
 
         var restartUrl = GetNextHttpUri();
@@ -52,7 +53,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         var beforeReplay = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
         Assert.False(beforeReplay.Found);
 
-        var writeTask = cache.SetEntryAsync(CacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
+        var writeTask = cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
         var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
         Assert.NotSame(writeTask, writeStarted);
 

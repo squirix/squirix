@@ -3,6 +3,7 @@ using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Persistence;
@@ -20,7 +21,7 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         await using var node = await StartNodeAsync(url, peers);
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
         var value = await cache.GetValueAsync(CacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
         Assert.True(value.Found);
         Assert.Equal("value", value.Value);
