@@ -17,6 +17,7 @@
     <Folder Name="/benchmarks/">
         <Project Path="benchmarks/squirix.benchmarks/Squirix.Benchmarks.csproj"/>
         <Project Path="benchmarks/squirix.e2e.benchmarks/Squirix.E2EBenchmarks.csproj"/>
+        <Project Path="benchmarks/squirix.wal.benchmarks/Squirix.Wal.Benchmarks.csproj"/>
     </Folder>
     <Folder Name="/tests/">
         <Project Path="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"/>
