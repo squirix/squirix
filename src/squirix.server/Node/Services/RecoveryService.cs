@@ -10,7 +10,7 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.JournalProto;
+using Squirix.Server.Storage.Journaling.PipelinedWal.Read;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -128,58 +128,49 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
-    private async Task ApplyJournalEnvelopeAsync(JournalEnvelope env, CancellationToken cancellationToken)
+    private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
-        switch (env.OpCase)
+        switch (record.Operation)
         {
-            case JournalEnvelope.OpOneofCase.Put:
+            case JournalOperationKind.Put:
             {
-                var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(put.Item.Namespace);
-                var key = new CacheKey(cacheNamespace, put.Item.Key);
-
-                if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(put.Item.EntryJson.Memory, out var entry))
-                    throw CreateJournalDecodeFailure(env.Seq, "put", key.Key);
+                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var payload = record.PutDiscriminatedEntryJson ?? [];
+                if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(payload, out var entry))
+                    throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
                 if (IsExpiredForRecovery(entry))
                     break;
 
                 await _localCache.InsertForDurableRecoveryAsync(key, entry!, cancellationToken).ConfigureAwait(false);
-                _idempotency.RestoreInsert(put.OperationId, IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), put.Item.EntryJson.Span));
+                _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), payload));
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.Remove:
+            case JournalOperationKind.Remove:
             {
-                var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(remove.Namespace);
-                _ = await _localCache.RemoveForDurableRecoveryAsync(new CacheKey(cacheNamespace, remove.Key), cancellationToken).ConfigureAwait(false);
+                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                _ = await _localCache.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.RemoveExpiration:
+            case JournalOperationKind.RemoveExpiration:
             {
-                var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(removeExpiration.Namespace);
-                _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, removeExpiration.Key), cancellationToken).ConfigureAwait(false);
+                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.TouchExpiration:
+            case JournalOperationKind.TouchExpiration:
             {
-                var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(touchExpiration.Namespace);
-                var expiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime;
-                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, touchExpiration.Key), expiresUtc, cancellationToken)
-                                     .ConfigureAwait(false);
+                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
+                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
-
-            case JournalEnvelope.OpOneofCase.None:
-                break;
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(env), env.OpCase, "Unsupported journal op.");
+                throw new ArgumentOutOfRangeException(nameof(record), record.Operation, "Unsupported journal op.");
         }
     }
 
@@ -193,7 +184,7 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         var firstAvailableSegment = 0;
         var lastAvailableSegment = 0;
-        foreach (var segment in JournalReader.EnumerateSegments(_opt.DataDir, 1))
+        foreach (var segment in JournalReadPath.EnumerateSegments(_opt.DataDir, 1))
         {
             if (firstAvailableSegment is 0)
                 firstAvailableSegment = segment.Index;
@@ -310,12 +301,12 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private async Task ReplayJournalSegmentsAsync(int fromSegment, ulong lastAppliedSeq, CancellationToken cancellationToken)
     {
-        foreach (var env in JournalReader.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
+        foreach (var record in JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
         {
-            if (env.Seq <= lastAppliedSeq)
+            if (record.Sequence <= lastAppliedSeq)
                 continue;
 
-            await ApplyJournalEnvelopeAsync(env, cancellationToken).ConfigureAwait(false);
+            await ApplyJournalRecordAsync(record, cancellationToken).ConfigureAwait(false);
         }
     }
 
