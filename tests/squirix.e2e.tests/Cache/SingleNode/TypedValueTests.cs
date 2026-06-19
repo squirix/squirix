@@ -110,7 +110,36 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
 
     /// <summary>Verifies RemoveExpirationClearExpirationRecordSingleNode.</summary>
     [Fact]
-    public async Task RemoveExpirationClearExpirationRecordSingleNode()
+    public async Task GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode()
+    {
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
+        var expected = TypedValueFactory.CreateProfile("k");
+        var factoryCalls = 0;
+
+        var first = await cache.GetOrAddAsync(
+            "k",
+            static (key, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateProfile(key)),
+            cancellationToken: DefaultCancellationToken);
+
+        var second = await cache.GetOrAddAsync(
+            "k",
+            (_, _) =>
+            {
+                _ = Interlocked.Increment(ref factoryCalls);
+                return Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateUpdatedProfile("get-or-add"));
+            },
+            cancellationToken: DefaultCancellationToken);
+
+        Assert.True(first.Found);
+        TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
+        Assert.True(second.Found);
+        TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
+        Assert.Equal(1, factoryCalls);
+    }
+
+    /// <summary>Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.</summary>
+    [Fact]
+    public async Task RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-remove-expiration", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("remove-expiration");

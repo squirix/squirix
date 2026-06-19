@@ -52,7 +52,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
 | `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error)                                  |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; missing key → gRPC `NotFound`                                                                        |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
 | `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
@@ -62,6 +62,15 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 
 Mutations that accept expiration use `SetEntry` / `TryAddEntry` with `CacheEntryWire`. There are no flat `Set` / `TryAdd`
 value-only mutation RPCs on the wire surface.
+
+The server runtime pipeline (`ICacheApi`) is entry-based only (nine methods). gRPC handlers translate wire requests into
+that runtime surface; `GetExpiration` and `GetOrAdd` are wire convenience RPCs whose handlers may compose runtime calls
+internally — the client SDK calls one RPC per exported method and does not stitch multiple RPCs together.
+
+Wire RPC names omit the `Async` suffix; grpc-dotnet appends it on generated client methods (for example `SetEntry` →
+`SetEntryAsync`). Public `ICache<T>` names stay `SetAsync` / `TryAddAsync`.
+
+There is no `Contains` RPC. Prefer `GetValueAsync` or REST `HEAD` for presence checks.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
 hyphens, for example `a1b2c3d4e5f6478990abcdef012345678`). The `Squirix` client SDK generates a fresh id per mutating

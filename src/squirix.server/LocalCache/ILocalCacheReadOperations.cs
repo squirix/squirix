@@ -8,7 +8,7 @@ namespace Squirix.Server.LocalCache;
 /// <typeparam name="T">The stored value type.</typeparam>
 internal interface ILocalCacheReadOperations<T>
 {
-    ValueTask<NodeCacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken);
+    ValueTask<CacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken);
 
-    ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken);
+    ValueTask<CacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken);
 }

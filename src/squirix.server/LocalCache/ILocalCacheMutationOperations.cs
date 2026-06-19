@@ -13,11 +13,11 @@ internal interface ILocalCacheMutationOperations<T>
 
     ValueTask<bool> RemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken);
 
-    ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask SetAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<bool> TouchAsync(CacheKey key, TimeSpan expiration, CancellationToken cancellationToken);
 
-    ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask<bool> TryAddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<bool> UpdateAsync(CacheKey key, T? value, CancellationToken cancellationToken);
 }

@@ -14,5 +14,5 @@ public interface ISquirixServerCachePipeline
     /// <param name="expiration">New time to live.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when the key was found.</returns>
-    ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken);
+    ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken);
 }

@@ -34,10 +34,12 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -71,6 +73,43 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 
         Assert.True(setResponse.Added);
+    }
+
+    /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
+    [Fact]
+    public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
+    {
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var interNodeUrl = peers.First(static peer => string.Equals(peer.NodeId, "node-b", StringComparison.OrdinalIgnoreCase)).InterNodeUrl ??
+                           throw new InvalidOperationException("Expected inter-node URL for node-b.");
+
+        using var channel = GrpcChannel.ForAddress(
+            interNodeUrl,
+            new GrpcChannelOptions
+            {
+                HttpHandler = await CreateClusterCaTrustingHandlerWithoutClientCertificateAsync("node-b", peers, DefaultCancellationToken),
+                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            });
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
+                new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
+
+        Assert.True(
+            ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown,
+            $"Expected inter-node rejection without client certificate, got {ex.StatusCode} ({ex.Status.Detail}).");
     }
 
     /// <summary>Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.</summary>
@@ -161,16 +200,18 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "spoofed-owner-write",
-                    Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
+                    Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -202,14 +243,15 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new NodeCacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
+                    Entry = new CacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 

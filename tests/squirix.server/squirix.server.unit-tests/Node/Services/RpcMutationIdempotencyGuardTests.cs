@@ -23,14 +23,40 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
     [Fact]
     public async Task CoordinatorWithJournalPersistsOutcomeOnExecute()
     {
-        using var dir = new TempDirectory("squirix-coordinator-journal-outcome");
-        var options = new PersistenceOptions
+        var guard = new RpcMutationIdempotencyGuard();
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
+    /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
+    [Fact]
+    public void RecordSuccessThenTryReplayReturnsCachedResponse()
+    {
+        var guard = new RpcMutationIdempotencyGuard();
+        var original = new TryAddAsyncResponse { Added = true };
+        guard.RecordSuccess("op-1", "fp-1", original);
+
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.True(replayed);
+        Assert.NotNull(response);
+        Assert.True(response.Added);
+    }
+
+    /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
+    [Fact]
+    public void ReuseWithDifferentFingerprintThrowsTypedException()
+    {
+        var guard = new RpcMutationIdempotencyGuard();
+        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
+
+        var ex = Assert.Throws<OperationIdReuseMismatchException>(() =>
         {
-            DataDir = dir,
-            JournalMaxSegmentMb = 1,
-            FlushIntervalMs = 5,
-            ManifestRetentionCount = 1,
-        };
+            var replayed = guard.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
+            Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
+        });
 
         using var manifestStore = new ManifestStore(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
@@ -98,22 +124,15 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
         var coordinator = new RpcMutationIdempotencyCoordinator(guard);
         var executions = 0;
         var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
-        var fingerprint = RpcMutationFingerprints.TrySet("default", "k", entry);
+        var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "k", entry);
 
         var first = await coordinator.ExecuteAsync(
             ValidOperationId,
             fingerprint,
             _ =>
             {
-                var added = await state.Executor.ExecuteAsync(
-                    null,
-                    static _ => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
-                    new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
-                        (state.Journal, state.Key, state.Payload),
-                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
-                        static (_, _) => new ValueTask<bool>(true)),
-                    cancellationToken).ConfigureAwait(false);
-                return new TryAddAsyncResponse { Added = added };
+                executions++;
+                return Task.FromResult(new TryAddAsyncResponse { Added = true });
             },
             DefaultCancellationToken);
 
@@ -123,7 +142,7 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
             _ =>
             {
                 executions++;
-                return Task.FromResult(new TrySetResponse { Added = false });
+                return Task.FromResult(new TryAddAsyncResponse { Added = false });
             },
             DefaultCancellationToken);
 
@@ -131,6 +150,18 @@ public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
             found = true;
         }
 
-        Assert.True(found);
+    /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
+    [Fact]
+    public async Task ExpiredRecordsAreNotReplayed()
+    {
+        var guard = new RpcMutationIdempotencyGuard(TimeSpan.FromMilliseconds(50));
+        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
+
+        await Task.Delay(100, DefaultCancellationToken);
+
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
     }
 }

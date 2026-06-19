@@ -29,5 +29,5 @@ internal static class CacheOperationClassifier
 
     internal static string ClassifyFoundBool(bool found) => found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
-    internal static string ClassifyNullableReferenceResult<T>(NodeCacheEntry<T>? result) => result is null ? CacheOperationResults.NotFound : CacheOperationResults.Ok;
+    internal static string ClassifyNullableReferenceResult<T>(CacheEntry<T>? result) => result is null ? CacheOperationResults.NotFound : CacheOperationResults.Ok;
 }

@@ -24,49 +24,26 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         _self = self ?? throw new ArgumentNullException(nameof(self));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        ServerKeyValidator.Validate(key, nameof(key));
+        KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.GetEntryAsync(cacheName, key, cancellationToken);
     }
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-    {
-        ServerKeyValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        return _inner.GetValueAsync(cacheName, key, cancellationToken);
-    }
-
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        ServerKeyValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
-    }
-
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
         ServerKeyValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
         return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
     }
 
-    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        ServerKeyValidator.Validate(key, nameof(key));
-        ServerOpInputValidator.ValidateEntry(entry);
-        await EnsureRemotePutWithinLimitAsync(cacheName, key, entry).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-    }
-
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public async ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         ServerKeyValidator.Validate(key, nameof(key));
         ServerExpirationValidator.ValidateRequiredPositive(expiration, nameof(expiration));
         cancellationToken.ThrowIfCancellationRequested();
-        return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
+        await _inner.SetEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
@@ -78,51 +55,27 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
-        ServerKeyValidator.Validate(key, nameof(key));
+        KeyInputValidator.Validate(key, nameof(key));
+        OperationInputValidator<T>.ValidateEntry(entry);
+        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Local-owner update sizing runs in the ownership inner chain (journal prepare or local guard).
-        return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
+        return await _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    private Task EnsureRemotePutWithinLimitAsync(string cacheName, string key, NodeCacheEntry<T> entry)
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        if (IsLocalOwner(cacheName, key))
-            return Task.CompletedTask;
-
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
-        return Task.CompletedTask;
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.GetValueAsync(cacheName, key, cancellationToken);
     }
 
-    private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
-
-    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
-    private static class ServerExpirationValidator
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
     {
-        /// <summary>
-        /// Ensures <paramref name="expiration" /> is greater than zero.
-        /// </summary>
-        /// <param name="expiration">The expiration to validate.</param>
-        /// <param name="parameterName">The caller parameter name for exceptions.</param>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
-        internal static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
-        {
-            if (expiration <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(parameterName, expiration, "expiration must be greater than zero.");
-        }
-    }
-
-    /// <summary>Validates logical cache key strings before operations reach the inner pipeline.</summary>
-    private static class ServerKeyValidator
-    {
-        /// <summary>
-        /// Validates a key string and throws <see cref="ArgumentException" /> when invalid.
-        /// </summary>
-        /// <param name="key">The key to validate.</param>
-        /// <param name="parameterName">The caller parameter name for exceptions.</param>
-        internal static void Validate(string key, string parameterName) => _ = CacheKeyValidator.Validate(key, parameterName);
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.RemoveAsync(cacheName, key, cancellationToken);
     }
 
     /// <summary>Validates single-operation payloads such as cache entries and non-null factory delegates.</summary>

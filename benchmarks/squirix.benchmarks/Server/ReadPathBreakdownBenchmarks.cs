@@ -81,21 +81,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             string key,
             CancellationToken cancellationToken)
         {
-            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync
-                               .ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
-    public async Task SquirixGrpcFoundOnlyReusedBatchedAsync()
-    {
-        var cache = _rawGrpc!;
-        var request = _reusedRequest!;
-        for (var i = 0; i < ReadBatch; i++)
-        {
-            request.Key = _keys[i];
-            _consumer.Consume(await cache.GetValueFoundAsync(request, CancellationToken.None).ConfigureAwait(false));
+            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
         }
     }
 

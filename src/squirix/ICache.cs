@@ -9,7 +9,7 @@ namespace Squirix;
 /// <remarks>
 /// Application code should consume <see cref="ICache{T}" /> rather than implement it directly.
 /// Expired entries are treated as absent by all read and mutation methods.
-/// When <c>options</c> is <see langword="null" />, or <see cref="CacheEntryOptions" /> specifies neither
+/// When <c>options</c> is <see langword="null"/>, or <see cref="CacheEntryOptions" /> specifies neither
 /// <see cref="CacheEntryOptions.Expiration" /> nor <see cref="CacheEntryOptions.ExpiresAt" />, the write stores the entry
 /// without expiration metadata and the entry does not expire by TTL.
 /// </remarks>
@@ -18,7 +18,7 @@ public interface ICache<T>
     /// <summary>Adds a new value for the key and throws if a live entry already exists.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
+    /// <param name="options">Entry options. When <see langword="null"/> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the value has been added.</returns>
     /// <exception cref="CacheConflictException">Thrown when a live entry already exists for <paramref name="key" />.</exception>
@@ -39,7 +39,7 @@ public interface ICache<T>
     /// <summary>Gets the existing value or adds a value produced by the factory when the key is missing or expired.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="valueFactory">Factory used to produce the value when the key is absent.</param>
-    /// <param name="options">Entry options for a produced value. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
+    /// <param name="options">Entry options for a produced value. When <see langword="null"/> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The existing or added value result.</returns>
     /// <remarks>
@@ -74,7 +74,7 @@ public interface ICache<T>
     /// <summary>Creates or overwrites the value for the key.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
+    /// <param name="options">Entry options. When <see langword="null"/> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the value has been stored.</returns>
     Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);
@@ -96,7 +96,7 @@ public interface ICache<T>
     /// <summary>Attempts to add a new value for the key without throwing for an existing live entry.</summary>
     /// <param name="key">Cache key.</param>
     /// <param name="value">Value to store.</param>
-    /// <param name="options">Entry options. When <see langword="null" /> or without expiration fields, the entry does not expire by TTL.</param>
+    /// <param name="options">Entry options. When <see langword="null"/> or without expiration fields, the entry does not expire by TTL.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> when the value was added; otherwise <see langword="false" />.</returns>
     Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default);

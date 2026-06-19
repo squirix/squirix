@@ -39,8 +39,10 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
+        });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 

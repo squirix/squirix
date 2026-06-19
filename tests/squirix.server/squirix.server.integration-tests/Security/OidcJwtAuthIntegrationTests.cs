@@ -39,8 +39,12 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         var token = authority.CreateBearerToken(Audience, TimeSpan.FromMinutes(-10));
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
 
-        var req = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" };
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(req, new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -57,9 +61,12 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken))
-                  .ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -75,8 +82,10 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken);
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -112,9 +121,12 @@ public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken("wrong-audience")}" } };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken))
-                  .ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.GetValueAsync(
+                new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        });
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }

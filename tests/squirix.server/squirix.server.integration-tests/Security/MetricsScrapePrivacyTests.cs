@@ -29,7 +29,7 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
-        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
+        await cache.SetEntryAsync(secretCacheName, "k", new CacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics"));
         req.Version = HttpVersion.Version20;

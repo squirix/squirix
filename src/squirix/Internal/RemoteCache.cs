@@ -70,7 +70,28 @@ internal sealed class RemoteCache<T> : ICache<T>
         KeyInputValidator.Validate(key, nameof(key));
         ArgumentNullException.ThrowIfNull(valueFactory);
 
-        return _getOrAddFlights.RunAsync(key, new GetOrAddFlightState(this, key, valueFactory, options), static (state, ct) => ExecuteGetOrAddAsync(state, ct), cancellationToken);
+        return _getOrAddFlights.RunAsync(
+            key,
+            async ct =>
+            {
+                var created = await valueFactory(key, ct).ConfigureAwait(false);
+                var entry = ToEntry(created, options);
+                OperationInputValidator<T>.ValidateEntry(entry);
+
+                var request = ToGetOrAddAsyncRequest(key, entry);
+                request.OperationId = RpcOperationIdentity.New();
+                var response = await ExecuteAsync(
+                    static (client, state, token) =>
+                    {
+                        var responseAsync = client.GetOrAddAsync(state, cancellationToken: token).ResponseAsync;
+                        return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
+                    },
+                    request,
+                    ct).ConfigureAwait(false);
+
+                return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false));
+            },
+            cancellationToken);
     }
 
     public async Task<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken = default)
@@ -92,15 +113,10 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
-            {
-                var responseAsync = client.RemoveAsync(
-                    new RemoveAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    cancellationToken: ct).ResponseAsync;
-                return new ValueTask<RemoveAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
+        var operationId = RpcOperationIdentity.New();
+        return await ExecuteAsync(
+            async (client, ct) =>
+                (await client.RemoveAsync(new RemoveAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Removed,
             cancellationToken).ConfigureAwait(false);
 
         return response.Removed;
@@ -109,15 +125,11 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
-            {
-                var responseAsync = client.RemoveExpirationAsync(
-                    new RemoveExpirationAsyncRequest { OperationId = state.OperationId, CacheName = state.CacheName, Key = state.Key },
-                    cancellationToken: ct).ResponseAsync;
-                return new ValueTask<RemoveExpirationAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New()),
+        var operationId = RpcOperationIdentity.New();
+        return await ExecuteAsync(
+            async (client, ct) => (await client.RemoveExpirationAsync(
+                new RemoveExpirationAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Found,
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -126,19 +138,12 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task SetAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
-        var request = _rpc.ToSetEntryAsyncRequest(key, entry);
+        var entry = ToEntry(value, options);
+        OperationInputValidator<T>.ValidateEntry(entry);
+        var request = ToSetEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
-        _ = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
-            {
-                var responseAsync = client.SetEntryAsync(state, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<SetAsyncResponse>(responseAsync);
-            },
-            request,
-            cancellationToken).ConfigureAwait(false);
+        _ = await ExecuteAsync(async (client, ct) => await client.SetEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken = default)
@@ -148,15 +153,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await _rpc.ExecuteAsync(
             static (client, state, ct) =>
             {
-                var touchAsyncRequest = new TouchAsyncRequest
-                {
-                    OperationId = state.OperationId,
-                    CacheName = state.CacheName,
-                    Key = state.Key,
-                    Expiration = state.Expiration,
-                };
-                var responseAsync = client.TouchAsync(touchAsyncRequest, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<TouchAsyncResponse>(responseAsync);
+                ExpirationInputValidator.ValidateRequiredPositive(expiration, nameof(expiration));
+                return (await client.TouchAsync(
+                    new TouchAsyncRequest { OperationId = operationId, CacheName = _cacheName, Key = key, Expiration = Duration.FromTimeSpan(expiration) },
+                    cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Found;
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: Duration.FromTimeSpan(expiration)),
             cancellationToken).ConfigureAwait(false);
@@ -174,27 +174,38 @@ internal sealed class RemoteCache<T> : ICache<T>
     public async Task<bool> TryAddAsync(string key, T? value, CacheEntryOptions? options = null, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var entry = RemoteCacheRpc.ToEntry(value, options);
-        OperationInputValidator.ValidateEntry(entry);
-        var request = _rpc.ToTryAddEntryAsyncRequest(key, entry);
+        var entry = ToEntry(value, options);
+        OperationInputValidator<T>.ValidateEntry(entry);
+        var request = ToTryAddEntryAsyncRequest(key, entry);
         request.OperationId = RpcOperationIdentity.New();
 
-        var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
-            {
-                var responseAsync = client.TryAddEntryAsync(state, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<TryAddAsyncResponse>(responseAsync);
-            },
-            request,
-            cancellationToken).ConfigureAwait(false);
-
-        return response.Added;
+        return await ExecuteAsync(async (client, ct) => (await client.TryAddEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Added, cancellationToken)
+           .ConfigureAwait(false);
     }
 
     public async Task<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken = default)
     {
         KeyInputValidator.Validate(key, nameof(key));
-        var request = new UpdateAsyncRequest
+        var operationId = RpcOperationIdentity.New();
+        return await ExecuteAsync(
+            async (client, ct) => (await client.UpdateAsync(
+                new UpdateAsyncRequest
+                {
+                    OperationId = operationId,
+                    CacheName = _cacheName,
+                    Key = key,
+                    Entry = ProtoEx.MapEntryToProto(new CacheEntry<T> { Value = value }, _serializer),
+                },
+                cancellationToken: ct).ResponseAsync.ConfigureAwait(false)).Updated,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
+    {
+        if (options?.Expiration is not null && options.ExpiresAt is not null)
+            throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
+
+        return new CacheEntry<T>
         {
             OperationId = RpcOperationIdentity.New(),
             CacheName = _cacheName,
@@ -261,204 +272,38 @@ internal sealed class RemoteCache<T> : ICache<T>
         /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
         internal static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
         {
-            if (expiration <= TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(parameterName, expiration, "expiration must be greater than zero.");
+            return await ExecuteAsync(
+                async (client, ct) =>
+                {
+                    var response = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
+                    return await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
+        {
+            return null;
         }
     }
 
-    /// <summary>Validates single-operation payloads such as cache entries and non-null factory delegates.</summary>
-    private static class OperationInputValidator
+    private GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()
     {
-        /// <summary>Validates a cache entry reference.</summary>
-        /// <param name="entry">The entry to validate.</param>
-        internal static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
-    }
+        CacheName = _cacheName,
+        Key = key,
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+    };
 
-    private sealed class RemoteCacheRpc
+    private SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
     {
-        private readonly string _cacheName;
-        private readonly IClientPool _clients;
-        private readonly EndpointFailover _failover;
-        private readonly ISquirixSerializer _serializer;
+        CacheName = _cacheName,
+        Key = key,
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+    };
 
-        internal RemoteCacheRpc(string cacheName, EndpointFailover failover, IClientPool clients, ISquirixSerializer serializer)
-        {
-            _cacheName = cacheName;
-            _failover = failover ?? throw new ArgumentNullException(nameof(failover));
-            _clients = clients ?? throw new ArgumentNullException(nameof(clients));
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
-        }
-
-        internal static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
-        {
-            if (options?.Expiration is not null && options.ExpiresAt is not null)
-                throw new ArgumentException("Cache entry options cannot specify both Expiration and ExpiresAt; set at most one expiration mechanism.", nameof(options));
-
-            return new CacheEntry<T>
-            {
-                Value = value,
-                Expiration = options?.Expiration,
-                ExpiresUtc = options?.ExpiresAt?.UtcDateTime,
-            };
-        }
-
-        internal ValueTask<TResult> ExecuteAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
-            TState state,
-            CancellationToken cancellationToken) => AwaitRpcGuardedAsync(ExecuteCoreAsync(action, state, cancellationToken));
-
-        internal GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()
-        {
-            CacheName = _cacheName,
-            Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
-        };
-
-        internal SetEntryAsyncRequest ToSetEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
-        {
-            CacheName = _cacheName,
-            Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
-        };
-
-        internal TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
-        {
-            CacheName = _cacheName,
-            Key = key,
-            Entry = ProtoEx.MapEntryToProto(entry, _serializer),
-        };
-
-        private static async ValueTask<TResult> AwaitRpcGuardedAsync<TResult>(ValueTask<TResult> task)
-        {
-            try
-            {
-                return await task.ConfigureAwait(false);
-            }
-            catch (RpcException ex)
-            {
-                RemoteRpcErrorMapper.Map(ex);
-                throw;
-            }
-        }
-
-        private ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
-            Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
-            TState state,
-            CancellationToken cancellationToken) => _failover.ExecuteAsync(
-            static (nodeId, execution, ct) =>
-            {
-                var client = execution.Cache._clients.ForNode(nodeId);
-                return execution.Cache._clients.PolicyFor(nodeId).ExecuteAsync(
-                    static (policyState, token) => policyState.Action(policyState.Client, policyState.State, token),
-                    (execution.Action, Client: client, execution.State),
-                    ct);
-            },
-            (Cache: this, Action: action, State: state),
-            cancellationToken);
-
-        private static class CacheOperationContract
-        {
-            private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
-
-            /// <summary>
-            /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
-            /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
-            /// </summary>
-            /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter increment type mismatch.</returns>
-            internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
-                                                                                            detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
-                                                                                                "expected",
-                                                                                                StringComparison.OrdinalIgnoreCase);
-
-            /// <summary>
-            /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
-            /// </summary>
-            /// <param name="message">An exception or RPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
-            internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                             message.StartsWith(
-                                                                                                 InsertVersionMustExceedCurrentMessagePrefix,
-                                                                                                 StringComparison.Ordinal) && message.Contains(
-                                                                                                 ", provided=",
-                                                                                                 StringComparison.Ordinal);
-
-            internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
-
-            internal static bool IsOperationIdReuseMismatchMessage(string? message) =>
-                string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
-        }
-
-        /// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
-        private static class CacheOperationContractClassifier
-        {
-            /// <summary>
-            /// Stable contract classification for cache-operation transport faults that must stay aligned across
-            /// REST projections, gRPC adapters, remote cluster helpers, and <c>DomainTransportErrorMapper</c>.
-            /// </summary>
-            private enum CacheOperationFailedPreconditionKind
-            {
-                /// <summary>No recognized stable contract for the given detail string.</summary>
-                None = 0,
-
-                /// <summary>Counter increment type mismatch (FailedPrecondition detail).</summary>
-                CounterIncrementTypeMismatch = 1,
-
-                /// <summary>Explicit insert version is not greater than the stored version (FailedPrecondition detail).</summary>
-                InsertVersionMustExceedCurrent = 2,
-
-                /// <summary>Operation id was reused with a different mutation fingerprint (FailedPrecondition detail).</summary>
-                OperationIdReuseMismatch = 3,
-            }
-
-            internal static bool IsOperationIdReuseMismatchDetail(string? detail) =>
-                ClassifyFailedPreconditionDetail(detail) is CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
-
-            /// <summary>
-            /// Classifies <see cref="StatusCode.FailedPrecondition" /> status detail strings that map to a stable
-            /// <see cref="InvalidOperationException" /> in the logical cache pipeline.
-            /// </summary>
-            /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns>The classified contract kind; <see cref="CacheOperationFailedPreconditionKind.None" /> when no stable contract matches.</returns>
-            /// <remarks>
-            /// Classification order matches the domain transport error mapper historical behavior:
-            /// counter increment type mismatch is evaluated before insert-version precondition text.
-            /// </remarks>
-            private static CacheOperationFailedPreconditionKind ClassifyFailedPreconditionDetail(string? detail)
-            {
-                if (CacheOperationContract.IsCounterIncrementTypeMismatchRpcDetail(detail))
-                    return CacheOperationFailedPreconditionKind.CounterIncrementTypeMismatch;
-
-                if (CacheOperationContract.IsInsertVersionMustExceedCurrentMessage(detail))
-                    return CacheOperationFailedPreconditionKind.InsertVersionMustExceedCurrent;
-
-                if (CacheOperationContract.IsOperationIdReuseMismatchMessage(detail))
-                    return CacheOperationFailedPreconditionKind.OperationIdReuseMismatch;
-
-                return CacheOperationFailedPreconditionKind.None;
-            }
-        }
-
-        private static class RemoteRpcErrorMapper
-        {
-            /// <summary>Applies remote RPC error mapping and always throws (never returns normally).</summary>
-            /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
-            /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
-            /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
-            /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
-            [DoesNotReturn]
-            internal static void Map(RpcException ex)
-            {
-                ArgumentNullException.ThrowIfNull(ex);
-
-                if (ex.StatusCode is StatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
-                    throw new OperationIdRequiredException(ex.Status.Detail, ex);
-
-                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
-                    throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
-
-                ExceptionDispatchInfo.Capture(ex).Throw();
-            }
-        }
-    }
+    private TryAddEntryAsyncRequest ToTryAddEntryAsyncRequest(string key, CacheEntry<T> entry) => new()
+    {
+        CacheName = _cacheName,
+        Key = key,
+        Entry = ProtoEx.MapEntryToProto(entry, _serializer),
+    };
 }
