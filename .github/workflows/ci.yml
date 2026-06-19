@@ -1,7 +1,9 @@
 name: CI
 
 on:
-    # Push/PR to main or develop: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
+    # develop push/PR: ubuntu-only matrix (fast path).
+    # main push and PRs targeting main: full ubuntu/windows/macos matrix (release integration gate).
+    # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     push:
         branches: [ main, develop ]
@@ -196,7 +198,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
@@ -234,7 +236,6 @@ jobs:
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
             -   name: Ensure Dev HTTPS Certificate
-                if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
@@ -375,9 +376,9 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ github.event_name == 'schedule' && 8 || 7 }}
+            max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && 8 || 7 }}
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
                 suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
         env:
