@@ -75,7 +75,7 @@ dotnet_diagnostic.IDE0055.severity = error
 dotnet_diagnostic.S3267.severity = none
 # Method overloads should be grouped together - conflicts with Rider/ReSharper file layout for object overrides.
 dotnet_diagnostic.S4136.severity = none
-# Prefer string.Create over FormattableString - conflicts with BannedSymbols.txt (String.Create is banned).
+# Prefer string.Create / FormattableString over alternatives - conflicts with BannedSymbols.txt string formatting policy.
 dotnet_diagnostic.S6618.severity = none
 
 # Performance
@@ -104,6 +104,8 @@ dotnet_banned_api_analyzer.exclude_generated_code = true
 dotnet_diagnostic.RS0030.severity = error
 # Symbol has been banned for use in declarations
 dotnet_diagnostic.RS0031.severity = error
+# Implicit culture ToString in interpolation - project standard is $"" instead of string.Format / FormattableString.
+dotnet_diagnostic.MA0076.severity = none
 
 # Async/Cancellation correctness
 # Forward CancellationToken
@@ -221,7 +223,7 @@ dotnet_diagnostic.MA0003.severity = none
 dotnet_diagnostic.MA0157.severity = none
 # MA0038: Make instance method static (deprecated; prefer CA1822).
 dotnet_diagnostic.MA0038.severity = none
-# MA0111: Prefer string.Create over FormattableString - conflicts with BannedSymbols.txt (String.Create is banned).
+# MA0111: Prefer string.Create over FormattableString - conflicts with BannedSymbols.txt string formatting policy.
 dotnet_diagnostic.MA0111.severity = none
 # MA0174: Record declarations should use explicit 'record class' keyword.
 dotnet_diagnostic.MA0174.severity = none
