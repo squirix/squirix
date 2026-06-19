@@ -75,6 +75,11 @@ call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conform
 are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
 
+In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
+instead of minting a new id. Idempotency records are per-node in memory; when a retry lands on a different entry node
+(bootstrap endpoint switch or transport failover), the owner node replays the cached outcome for the same
+`operation_id` and fingerprint so the mutation is not applied twice.
+
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.
 
