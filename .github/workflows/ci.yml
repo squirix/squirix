@@ -47,6 +47,7 @@ jobs:
                           - 'Directory.Packages.props'
                           - 'global.json'
                           - 'stylecop.json'
+                          - 'BannedSymbols.txt'
                           - '.editorconfig'
                           - 'squirix.slnx'
                           - 'squirix.slnx.DotSettings'
@@ -72,6 +73,7 @@ jobs:
                           - 'Directory.Packages.props'
                           - 'global.json'
                           - 'stylecop.json'
+                          - 'BannedSymbols.txt'
                           - '.editorconfig'
                           - 'squirix.slnx'
 

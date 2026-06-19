@@ -7,6 +7,7 @@ COPY Directory.Build.props ./
 COPY Directory.Packages.props ./
 COPY global.json ./
 COPY stylecop.json ./
+COPY BannedSymbols.txt ./
 COPY .editorconfig ./
 COPY src/squirix/Squirix.csproj src/squirix/
 COPY src/squirix.server/Squirix.Server.csproj src/squirix.server/
