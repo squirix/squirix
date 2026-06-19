@@ -247,43 +247,11 @@ internal sealed class RemoteCache<T> : ICache<T>
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
-        var response = await _rpc.ExecuteAsync(
-            static (client, state, ct) =>
-            {
-                var responseAsync = client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = state.CacheName, Key = state.Key }, cancellationToken: ct).ResponseAsync;
-                return new ValueTask<GetEntryAsyncResponse>(responseAsync);
-            },
-            (CacheName: _cacheName, Key: key),
+        var response = await ExecuteAsync(
+            async (client, ct) => await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
-    }
-
-    private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
-
-    /// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
-    private static class ExpirationInputValidator
-    {
-        /// <summary>
-        /// Ensures <paramref name="expiration" /> is greater than zero.
-        /// </summary>
-        /// <param name="expiration">The expiration to validate.</param>
-        /// <param name="parameterName">The caller parameter name for exceptions.</param>
-        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
-        internal static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
-        {
-            return await ExecuteAsync(
-                async (client, ct) =>
-                {
-                    var response = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-                    return await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (RpcException ex) when (ex.StatusCode is StatusCode.NotFound)
-        {
-            return null;
-        }
+        return response.Found ? await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false) : null;
     }
 
     private GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()

@@ -52,7 +52,7 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 | `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
 | `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; missing key → gRPC `NotFound`                                                                        |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error)                                  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
 | `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
@@ -77,6 +77,11 @@ hyphens, for example `a1b2c3d4e5f6478990abcdef012345678`). The `Squirix` client 
 call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conforming value. Over-length or malformed ids
 are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
+
+In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
+instead of minting a new id. Idempotency records are per-node in memory; when a retry lands on a different entry node
+(bootstrap endpoint switch or transport failover), the owner node replays the cached outcome for the same
+`operation_id` and fingerprint so the mutation is not applied twice.
 
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.

@@ -30,27 +30,23 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationClassifier.ClassifyNullableReferenceResult,
         cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.RemoveExpiration,
-        static (inner, args, ct) => inner.RemoveExpirationAsync(args.OperationId, args.CacheName, args.Key, ct),
-        new MutationKeyArgs(operationId, cacheName, key),
-        CacheOperationClassifier.ClassifyFoundBool,
-        cancellationToken);
+        () => _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Set,
-        () => _inner.SetEntryAsync(cacheName, key, entry, cancellationToken));
+        () => _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken));
 
-    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Touch,
-        static (inner, args, ct) => inner.TouchAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct),
-        new TouchArgs(operationId, cacheName, key, expiration),
-        CacheOperationClassifier.ClassifyFoundBool,
-        cancellationToken);
+        () => _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.TryAdd,
-        () => _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken),
+        () => _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
@@ -58,17 +54,15 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheValueResult);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
+        () => _inner.RemoveAsync(operationId, cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheRemoveResult);
 
-    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Update,
-        static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
-        new UpdateArgs(operationId, cacheName, key, value),
-        CacheOperationClassifier.ClassifyFoundBool,
-        cancellationToken);
+        () => _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken),
+        CacheOperationClassifier.ClassifyFoundBool);
 
     private static string GetSpanName(string operation) => operation switch
     {

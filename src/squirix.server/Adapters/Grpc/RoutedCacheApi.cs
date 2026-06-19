@@ -23,18 +23,16 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken) => _namespaced.GetValueAsync(_cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string key, CancellationToken cancellationToken) => _namespaced.RemoveAsync(_cacheName, key, cancellationToken);
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) => _namespaced.RemoveAsync(operationId, _cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) =>
-        _namespaced.RemoveAsync(operationId, _cacheName, key, cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken) => _namespaced.RemoveExpirationAsync(operationId, _cacheName, key, cancellationToken);
 
-    public ValueTask SetEntryAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _namespaced.SetEntryAsync(_cacheName, key, entry, cancellationToken);
+    public ValueTask SetEntryAsync(string operationId, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _namespaced.SetEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
 
-    public ValueTask<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        _namespaced.TouchAsync(_cacheName, key, expiration, cancellationToken);
+    public ValueTask<bool> TouchAsync(string operationId, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        _namespaced.TouchAsync(operationId, _cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _namespaced.TryAddEntryAsync(_cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _namespaced.TryAddEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
 
-    public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken) =>
-        _namespaced.UpdateAsync(operationId, _cacheName, key, value, cancellationToken);
+    public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken) => _namespaced.UpdateAsync(operationId, _cacheName, key, value, cancellationToken);
 }

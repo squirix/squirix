@@ -14,6 +14,43 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
+    public static async ValueTask<CacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
+    {
+        var value = await FromStructAsync<T>(e.Value).ConfigureAwait(false);
+        DateTime? expires = null;
+        if (e.ExpiresUtc is not null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos is not 0))
+            expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
+
+        if (typeof(T) == typeof(object))
+            value = Coerce<T>(NormalizeUntypedScalarForUntypedCache(value));
+
+        return new CacheEntry<T>
+        {
+            Value = value,
+            ExpiresUtc = expires,
+            Expiration = e.Expiration?.ToTimeSpan(),
+        };
+    }
+
+    public static RpcEntry MapToProto<T>(this CacheEntry<T> e) => new()
+    {
+        Value = ToStruct(e.Value),
+        ExpiresUtc = e.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
+        Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
+    };
+
+    internal static async ValueTask<CacheEntry<T>> CacheValueFromGrpcValueAsync<T>(CacheValue value, Timestamp? expiresUtc, Duration? expiration)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        return new CacheEntry<T>
+        {
+            Value = await MapCacheValueAsync<T>(value).ConfigureAwait(false),
+            ExpiresUtc = expiresUtc?.ToDateTime().ToUniversalTime(),
+            Expiration = expiration?.ToTimeSpan(),
+        };
+    }
+
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
@@ -32,7 +69,7 @@ internal static class ServerProtoEx
         };
     }
 
-    internal static ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
+    internal static async ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
     {
         if (typeof(T) == typeof(object))
             return new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value)));
@@ -78,32 +115,6 @@ internal static class ServerProtoEx
         return new ValueTask<T?>(FromStruct<T>(CacheValueToStruct(value)));
     }
 
-    internal static ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
-    {
-        var value = FromStruct<T>(e.Value);
-        DateTime? expires = null;
-        if (e.ExpiresUtc is not null && (e.ExpiresUtc.Seconds != 0 || e.ExpiresUtc.Nanos is not 0))
-            expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
-
-        if (typeof(T) == typeof(object))
-            value = Coerce<T>(value);
-
-        return new ValueTask<NodeCacheEntry<T>>(
-            new NodeCacheEntry<T>
-            {
-                Value = value,
-                ExpiresUtc = expires,
-                Expiration = e.Expiration?.ToTimeSpan(),
-            });
-    }
-
-    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
-    {
-        Value = ToStruct(e.Value),
-        ExpiresUtc = e.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
-        Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
-    };
-
     private static Struct CacheValueToStruct(CacheValue value) => value.KindCase switch
     {
         CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
@@ -118,20 +129,20 @@ internal static class ServerProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    private static T? DeserializeFromProtoValue<T>(Value value)
+    private static async ValueTask<T?> DeserializeFromProtoValueAsync<T>(Value value)
     {
         var buffer = WriteValueToBuffer(value);
         return SerializationProvider.Deserialize<T>(buffer.WrittenSpan);
     }
 
-    private static T? FromStruct<T>(Struct s)
+    private static async ValueTask<T?> FromStructAsync<T>(Struct s)
     {
         if (typeof(T) != typeof(object))
         {
             if (s.Fields.Count is not 1 || !s.Fields.TryGetValue("value", out var onlyWrapped))
                 return DeserializeFromProtoValue<T>(Value.ForStruct(s));
 
-            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : DeserializeFromProtoValue<T>(onlyWrapped);
+            return TryReadScalarValue<T>(onlyWrapped, out var scalar) ? scalar : await DeserializeFromProtoValueAsync<T>(onlyWrapped).ConfigureAwait(false);
         }
 
         if (s.Fields.Count is 1 && s.Fields.TryGetValue("value", out var only))
@@ -153,7 +164,36 @@ internal static class ServerProtoEx
         return list;
     }
 
-    private static object? MapCacheValueAsObject(CacheValue value) => value.KindCase switch
+    private static async ValueTask<object?> MapCacheValueAsObjectAsync(CacheValue value)
+    {
+        return value.KindCase switch
+        {
+            CacheValue.KindOneofCase.StringValue => value.StringValue,
+            CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue).ConfigureAwait(false),
+            _ => await FromStructAsync<object?>(CacheValueToStruct(value)).ConfigureAwait(false),
+        };
+    }
+
+    /// <summary>
+    /// Narrows numeric scalars for untyped (<c>object?</c>) cache values so callers see stable CLR types.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     Protobuf well-known <c>Value</c> numbers are carried as <see cref="double" />.
+    ///     Parsing may also produce <see cref="long" /> (for example JSON numbers decoded with <c>TryGetInt64</c> before
+    ///     conversion to proto). Those values are semantically integers but boxed as <see cref="long" /> or <see cref="double" />,
+    ///     while many tests and APIs compare against <see cref="int" /> literals (for example xUnit <c>Assert.Equal(0, value)</c>),
+    ///     which fails when the runtime type is <see cref="long" /> even though both sides print as <c>0</c>.
+    ///     </para>
+    ///     <para>
+    ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
+    ///     </para>
+    /// </remarks>
+    private static object? NormalizeUntypedScalarForUntypedCache(object? value)
     {
         CacheValue.KindOneofCase.StringValue => value.StringValue,
         CacheValue.KindOneofCase.BoolValue => value.BoolValue,
@@ -354,16 +394,15 @@ internal static class ServerProtoEx
         }
     }
 
-    private static ArrayBufferWriter<byte> WriteValueToBuffer(Value value)
+    private static async ValueTask<ArrayBufferWriter<byte>> WriteValueToBufferAsync(Value value)
     {
-        var buffer = new ArrayBufferWriter<byte>(256);
-
-        // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decode.
-#pragma warning disable MA0045
-        using var writer = new Utf8JsonWriter(buffer);
-        WriteValue(writer, value);
-        writer.Flush();
-#pragma warning restore MA0045
+        var buffer = new ArrayBufferWriter<byte>();
+        var writer = new Utf8JsonWriter(buffer);
+        await using (writer.ConfigureAwait(false))
+        {
+            WriteValue(writer, value);
+            await writer.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+        }
 
         return buffer;
     }

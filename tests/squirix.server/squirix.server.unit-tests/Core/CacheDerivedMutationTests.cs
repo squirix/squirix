@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -18,9 +19,9 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         await using var physical = new PhysicalCache<string>(timeProvider);
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
-        await clientCache.SetEntryAsync("orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await clientCache.SetEntryAsync(TestOperationIds.Default, "orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
-        var updated = await clientCache.UpdateAsync(UnitMutationOpIds.Default, "orders", "k", "new", DefaultCancellationToken);
+        var updated = await clientCache.UpdateAsync(TestOperationIds.Default, "orders", "k", "new", DefaultCancellationToken);
 
         Assert.True(updated);
         var entry = await clientCache.GetEntryAsync("orders", "k", DefaultCancellationToken);

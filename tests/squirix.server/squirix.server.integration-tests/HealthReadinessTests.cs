@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests;
@@ -44,7 +44,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         await using var node = await StartNodeAsync(uri, "node_health_A", new NodeStartOptions { UsePersistence = true });
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
         var json = await FetchReadyDetailsAsync(node.Uri);
 
