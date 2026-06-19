@@ -28,7 +28,7 @@ public sealed class ClientCacheArchitectureTests
     [Fact]
     public void ClientAssemblyGrpcTransportTypesShouldRemainInternalClientSurface()
     {
-        var entryType = ClientArchitecture.MainAssembly.GetType("Squirix.Transport.Grpc.Cache.Entry", true)!;
+        var entryType = ClientArchitecture.MainAssembly.GetType("Squirix.Transport.Grpc.Cache.CacheEntryWire", true)!;
 
         Assert.Same(ClientArchitecture.MainAssembly, entryType.Assembly);
         Assert.False(entryType.IsPublic);

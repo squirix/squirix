@@ -1,12 +1,10 @@
-squirix.cache.SquirixCacheService/Get
+squirix.cache.SquirixCacheService/GetEntry
 squirix.cache.SquirixCacheService/GetExpiration
-squirix.cache.SquirixCacheService/GetOrAddValue
+squirix.cache.SquirixCacheService/GetOrAdd
 squirix.cache.SquirixCacheService/GetValue
 squirix.cache.SquirixCacheService/Remove
 squirix.cache.SquirixCacheService/RemoveExpiration
-squirix.cache.SquirixCacheService/Set
-squirix.cache.SquirixCacheService/SetValue
+squirix.cache.SquirixCacheService/SetEntry
 squirix.cache.SquirixCacheService/Touch
-squirix.cache.SquirixCacheService/TrySet
-squirix.cache.SquirixCacheService/TrySetValue
-squirix.cache.SquirixCacheService/UpdateValue
+squirix.cache.SquirixCacheService/TryAddEntry
+squirix.cache.SquirixCacheService/Update

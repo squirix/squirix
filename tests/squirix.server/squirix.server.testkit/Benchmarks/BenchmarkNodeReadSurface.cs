@@ -39,7 +39,7 @@ public sealed class BenchmarkNodeReadSurface
     /// <returns>The stored value when present; otherwise <see langword="null" />.</returns>
     public async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
-        var result = await _cacheApi.TryGetValueAsync(key, cancellationToken).ConfigureAwait(false);
+        var result = await _cacheApi.GetValueAsync(key, cancellationToken).ConfigureAwait(false);
         return result.Found ? result.Value as string : null;
     }
 }

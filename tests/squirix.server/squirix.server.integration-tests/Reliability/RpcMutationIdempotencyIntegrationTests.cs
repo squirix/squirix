@@ -31,8 +31,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.TrySetAsync(
-                new TrySetRequest
+            _ = await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
                 {
                     CacheName = "default",
                     Key = "missing-operation-id",
@@ -59,8 +59,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.TrySetAsync(
-                new TrySetRequest
+            _ = await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
                 {
                     OperationId = tooLong,
                     CacheName = "default",
@@ -87,8 +87,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.TrySetAsync(
-                new TrySetRequest
+            _ = await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
                 {
                     OperationId = "integration-replay-op",
                     CacheName = "default",
@@ -112,7 +112,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var request = new TrySetRequest
+        var request = new TryAddEntryAsyncRequest
         {
             OperationId = ValidOperationId,
             CacheName = "default",
@@ -120,8 +120,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
             Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        var first = await client.TrySetAsync(request, cancellationToken: DefaultCancellationToken);
-        var second = await client.TrySetAsync(request, cancellationToken: DefaultCancellationToken);
+        var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
+        var second = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
 
         Assert.True(first.Added);
         Assert.True(second.Added);
@@ -138,8 +138,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        _ = await client.TrySetAsync(
-            new TrySetRequest
+        _ = await client.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
             {
                 OperationId = MismatchOperationId,
                 CacheName = "default",
@@ -150,8 +150,8 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.TrySetAsync(
-                new TrySetRequest
+            _ = await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
                 {
                     OperationId = MismatchOperationId,
                     CacheName = "default",

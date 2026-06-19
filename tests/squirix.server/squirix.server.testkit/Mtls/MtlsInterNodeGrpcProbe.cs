@@ -56,7 +56,7 @@ public static class MtlsInterNodeGrpcProbe
         try
         {
             _ = await client.GetValueAsync(
-                new GetValueRequest { CacheName = "default", Key = "internal-owner-probe" },
+                new GetValueAsyncRequest { CacheName = "default", Key = "internal-owner-probe" },
                 new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync.ConfigureAwait(false);
             return StatusCode.OK;
         }

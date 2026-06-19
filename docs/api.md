@@ -13,21 +13,25 @@ var cache = await client.GetCacheAsync<T>("cache-name", cancellationToken);
 
 `ICache<T>` methods (v0.1 exported surface):
 
-| Method                                 | Purpose                         |
-|----------------------------------------|---------------------------------|
-| `AddAsync` / `TryAddAsync`             | Insert if absent                |
-| `SetAsync`                             | Upsert with optional expiration |
-| `UpdateAsync`                          | Update existing entry           |
-| `GetValueAsync` / `GetEntryAsync`      | Read with explicit presence     |
-| `GetExpirationAsync`                   | Read expiration metadata        |
-| `GetOrAddAsync`                        | Read or insert factory value    |
-| `RemoveAsync`                          | Delete key                      |
-| `TouchAsync` / `RemoveExpirationAsync` | Expiration management           |
+| Method                                   | Purpose                           |
+| :--------------------------------------- | :-------------------------------- |
+| `AddAsync` / `TryAddAsync`               | Insert if absent                  |
+| `SetAsync`                               | Upsert with optional expiration   |
+| `UpdateAsync`                            | Update existing entry             |
+| `GetValueAsync` / `GetEntryAsync`        | Read with explicit presence       |
+| `GetExpirationAsync`                     | Read expiration metadata          |
+| `GetOrAddAsync`                          | Read or insert factory value      |
+| `RemoveAsync`                            | Delete key                        |
+| `TouchAsync` / `RemoveExpirationAsync`   | Expiration management             |
 
 Prefer `GetValueAsync` for reads with explicit presence.
 
 Writes accept `(key, value, options?, cancellationToken)`. Expiration uses `CacheEntryOptions`, not `CacheEntry<T>`
 write overloads.
+
+When `options` is omitted or null, or neither `CacheEntryOptions.Expiration` nor `CacheEntryOptions.ExpiresAt` is set,
+the entry is stored **without expiration** and **does not expire by TTL**. Pass an explicit relative or absolute expiration
+when you need TTL eviction.
 
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
@@ -38,24 +42,32 @@ See [configuration.md](configuration.md) and [serialization.md](serialization.md
 
 gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
 
-`SquirixCacheService` exposes the next unary RPCs on the v0.1 server surface:
+`SquirixCacheService` exposes **10** unary RPCs on the v0.1 server surface:
 
-| gRPC RPC           | `ICache<T>` mapping     | Notes                                                       |
-|--------------------|-------------------------|-------------------------------------------------------------|
-| `TrySetValue`      | `TryAddAsync`           | Typed `CacheValue` payload                                  |
-| `SetValue`         | `SetAsync`              | Typed `CacheValue` payload                                  |
-| `GetValue`         | `GetValueAsync`         | Returns `found` + value                                     |
-| `Get`              | `GetEntryAsync`         | Returns full `Entry`; missing key → gRPC `NotFound`         |
-| `GetExpiration`    | `GetExpirationAsync`    | Returns `found`, `has_expiration`, `remaining`              |
-| `GetOrAddValue`    | `GetOrAddAsync`         | Client runs factory; server atomically get-or-insert        |
-| `UpdateValue`      | `UpdateAsync`           | Update value if key exists                                  |
-| `Remove`           | `RemoveAsync`           |                                                             |
-| `Touch`            | `TouchAsync`            | Relative expiration (`Duration`)                            |
-| `RemoveExpiration` | `RemoveExpirationAsync` |                                                             |
-| `TrySet`           | —                       | `Entry` / `Struct` payload; cluster and legacy struct paths |
-| `Set`              | —                       | `Entry` / `Struct` payload; cluster and legacy struct paths |
+| Wire RPC (`SquirixCache.proto`)   | gRPC client / `ICache<T>`   | Notes                                                                                                                 |
+| :-------------------------------- | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
+| `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
+| `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; missing key → gRPC `NotFound`                                                                        |
+| `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
+| `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
+| `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
+| `Remove`                          | `RemoveAsync`               |                                                                                                                       |
+| `Touch`                           | `TouchAsync`                | Relative expiration (`Duration`)                                                                                      |
+| `RemoveExpiration`                | `RemoveExpirationAsync`     |                                                                                                                       |
 
-There is no `Contains` RPC. Prefer `GetValue` or REST `HEAD` for presence checks.
+Mutations that accept expiration use `SetEntry` / `TryAddEntry` with `CacheEntryWire`. There are no flat `Set` / `TryAdd`
+value-only mutation RPCs on the wire surface.
+
+The server runtime pipeline (`ICacheApi`) is entry-based only (nine methods). gRPC handlers translate wire requests into
+that runtime surface; `GetExpiration` and `GetOrAdd` are wire convenience RPCs whose handlers may compose runtime calls
+internally — the client SDK calls one RPC per exported method and does not stitch multiple RPCs together.
+
+Wire RPC names omit the `Async` suffix; grpc-dotnet appends it on generated client methods (for example `SetEntry` →
+`SetEntryAsync`). Public `ICache<T>` names stay `SetAsync` / `TryAddAsync`.
+
+There is no `Contains` RPC. Prefer `GetValueAsync` or REST `HEAD` for presence checks.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
 hyphens, for example `a1b2c3d4e5f6478990abcdef012345678`). The `Squirix` client SDK generates a fresh id per mutating

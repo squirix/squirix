@@ -23,80 +23,38 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         _nodeId = string.IsNullOrWhiteSpace(nodeId) ? throw new ArgumentException("Node id is required.", nameof(nodeId)) : nodeId;
     }
 
-    public ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Add,
-        () => _inner.AddAsync(cacheName, key, value, cancellationToken));
-
-    public ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Add,
-        () => _inner.AddAsync(cacheName, key, entry, cancellationToken));
-
-    public ValueTask<bool> ContainsAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Contains,
-        () => _inner.ContainsAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
-
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.GetEntry,
         () => _inner.GetEntryAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyNullableReferenceResult);
-
-    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.GetExpiration,
-        () => _inner.GetExpirationAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyNullableValueResult);
-
-    public ValueTask<CacheValueResult<T>> GetOrAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.GetOrAdd,
-        () => _inner.GetOrAddAsync(cacheName, key, entry, cancellationToken),
-        CacheOperationClassifier.ClassifyCacheValueResult);
-
-    public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Get,
-        () => _inner.GetValueAsync(cacheName, key, cancellationToken),
-        static _ => CacheOperationResults.Ok);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
 
     public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.RemoveExpiration,
         () => _inner.RemoveExpirationAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask SetAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Set,
-        () => _inner.SetAsync(cacheName, key, value, cancellationToken));
-
-    public ValueTask SetAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Set,
-        () => _inner.SetAsync(cacheName, key, entry, cancellationToken));
+        () => _inner.SetEntryAsync(cacheName, key, entry, cancellationToken));
 
     public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Touch,
         () => _inner.TouchAsync(cacheName, key, expiration, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
+    public ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.TryAdd,
-        () => _inner.TryAddAsync(cacheName, key, value, cancellationToken),
+        () => _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.TryAdd,
-        () => _inner.TryAddAsync(cacheName, key, entry, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
-
-    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.TryGet,
-        () => _inner.TryGetValueAsync(cacheName, key, cancellationToken),
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Get,
+        () => _inner.GetValueAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheValueResult);
 
-    public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.TryRemove,
-        () => _inner.TryRemoveAsync(cacheName, key, cancellationToken),
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Remove,
+        () => _inner.RemoveAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyCacheRemoveResult);
 
     public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(

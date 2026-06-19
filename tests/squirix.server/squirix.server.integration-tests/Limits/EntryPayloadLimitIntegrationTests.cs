@@ -35,8 +35,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await clientA.TrySetAsync(
-                new TrySetRequest
+            _ = await clientA.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
@@ -52,7 +52,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await clientB.GetAsync(new GetRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+            _ = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
         });
         Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
     }
@@ -71,8 +71,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.SetAsync(
-                new SetRequest
+            _ = await client.SetEntryAsync(
+                new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
@@ -87,7 +87,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
+            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
         });
         Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
     }

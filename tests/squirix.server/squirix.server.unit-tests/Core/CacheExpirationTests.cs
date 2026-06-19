@@ -14,9 +14,9 @@ namespace Squirix.Server.UnitTests.Core;
 /// </summary>
 public sealed class CacheExpirationTests : UnitTestBase
 {
-    /// <summary>Verifies AddAsync treats an expired existing entry as absent and inserts a new value.</summary>
+    /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
     [Fact]
-    public async Task AddShouldSucceedWhenExistingEntryExpired()
+    public async Task TryAddShouldSucceedWhenExistingEntryExpired()
     {
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
@@ -25,8 +25,8 @@ public sealed class CacheExpirationTests : UnitTestBase
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(25));
 
-        await cache.AddAsync("k", "new", DefaultCancellationToken);
-        Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken))?.Value);
+        Assert.True(await cache.TryAddAsync("k", new CacheEntry<string> { Value = "new" }, DefaultCancellationToken));
+        Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken)).Value);
     }
 
     /// <summary>Ensures entries expire correctly when inserted with either relative expiration or absolute expiration.</summary>
@@ -46,13 +46,11 @@ public sealed class CacheExpirationTests : UnitTestBase
         var entry = useAbsoluteExpires ? new CacheEntry<string> { Value = "v", ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expirationMs) }
             : new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(expirationMs) };
 
-        await cache.InsertAsync("k", entry, DefaultCancellationToken);
-        Assert.True(await cache.ContainsAsync("k", DefaultCancellationToken));
-        Assert.NotNull(await cache.GetValueAsync("k", DefaultCancellationToken));
+        await cache.SetAsync("k", entry, DefaultCancellationToken);
+        Assert.True((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(sleepMs));
-        Assert.False(await cache.ContainsAsync("k", DefaultCancellationToken));
-        Assert.Null(await cache.GetValueAsync("k", DefaultCancellationToken));
+        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -78,10 +76,10 @@ public sealed class CacheExpirationTests : UnitTestBase
             ExpiresUtc = expiresMs is not null ? timeProvider.GetUtcNow().UtcDateTime.AddMilliseconds(expiresMs.Value) : null,
         };
 
-        await cache.InsertAsync("k", entry, DefaultCancellationToken);
+        await cache.SetAsync("k", entry, DefaultCancellationToken);
         timeProvider.Advance(TimeSpan.FromMilliseconds(60));
 
-        var exists = await cache.ContainsAsync("k", DefaultCancellationToken);
+        var exists = (await cache.GetValueAsync("k", DefaultCancellationToken)).Found;
         Assert.Equal(shouldStillExist, exists);
     }
 
@@ -92,15 +90,15 @@ public sealed class CacheExpirationTests : UnitTestBase
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
 
-        await cache.InsertAsync("k", new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken);
+        await cache.SetAsync("k", new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken);
 
         timeProvider.Advance(TimeSpan.FromMilliseconds(25));
 
-        Assert.False(await cache.RemoveAsync("k", DefaultCancellationToken));
-        Assert.False((await cache.TryRemoveAsync("k", DefaultCancellationToken)).Removed);
+        Assert.False((await cache.RemoveAsync("k", DefaultCancellationToken)).Removed);
+        Assert.False((await cache.RemoveAsync("k", DefaultCancellationToken)).Removed);
     }
 
-    /// <summary>Verifies TryAddAsync stores absolute expiration metadata that GetExpirationAsync can read back.</summary>
+    /// <summary>Verifies TryAddAsync stores absolute expiration metadata that GetEntryAsync can read back.</summary>
     [Fact]
     public async Task TryAddAsyncPreservesAbsoluteExpiration()
     {
@@ -112,23 +110,11 @@ public sealed class CacheExpirationTests : UnitTestBase
 
         Assert.True(added);
 
-        var remaining = Assert.NotNull(await cache.GetExpirationAsync("k", DefaultCancellationToken));
+        var stored = await cache.GetEntryAsync("k", DefaultCancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(expiresUtc, stored.ExpiresUtc);
+        var remaining = stored.ExpiresUtc!.Value - timeProvider.GetUtcNow().UtcDateTime;
         Assert.True(remaining > TimeSpan.Zero);
         Assert.True(remaining <= TimeSpan.FromSeconds(5));
-    }
-
-    /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
-    [Fact]
-    public async Task TryAddShouldSucceedWhenExistingEntryExpired()
-    {
-        var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
-
-        Assert.True(await cache.TryAddAsync("k", new CacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));
-
-        timeProvider.Advance(TimeSpan.FromMilliseconds(25));
-
-        Assert.True(await cache.TryAddAsync("k", "new", DefaultCancellationToken));
-        Assert.Equal("new", (await cache.GetValueAsync("k", DefaultCancellationToken))?.Value);
     }
 }

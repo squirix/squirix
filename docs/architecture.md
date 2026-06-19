@@ -55,13 +55,15 @@ v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (
 on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or the gRPC wire surface because existence
 can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` or REST `HEAD` instead.
 Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read model returned by lookup APIs, not a
-mutation parameter. Compare-and-set, counters, batch, scan, watch, and tag invalidation are not part of the v0.1 exported
-client surface.
+mutation parameter. When write options omit expiration (`options` is null, or neither `Expiration` nor `ExpiresAt` is
+set), the entry is stored without TTL and does not expire by time. Compare-and-set, counters, batch, scan, watch, and tag
+invalidation are not part of the v0.1 exported client surface.
 
-The v0.1 gRPC service surface in `SquirixCache.proto` uses `Set` / `SetValue` and `TrySet` / `TrySetValue` names
-(overwrite and add-if-absent semantics). Typed client traffic uses the `*Value` RPCs; `Set` / `TrySet` with `Entry`
-remain for cluster routing and struct-shaped payloads. See [api.md](api.md#wire-contract). Regressions are caught by
-`SquirixGrpcEndpointSurface.golden.txt` in server unit tests.
+The v0.1 gRPC service surface in `SquirixCache.proto` exposes ten unary cache RPCs. Mutations with expiration use
+`SetEntry` / `TryAddEntry` with `CacheEntryWire`; the client SDK maps them to public `SetAsync` / `TryAddAsync`.
+`GetValue` and `GetEntry` are separate read paths; `GetExpiration` and `GetOrAdd` are additional wire RPCs aligned with
+`ICache<T>` without requiring the client to compose multiple calls. See [api.md](api.md#wire-contract). Regressions are
+caught by `SquirixGrpcEndpointSurface.golden.txt` in server unit tests.
 
 The exported client entry point is asynchronous and remote:
 

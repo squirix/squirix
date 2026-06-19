@@ -7,7 +7,7 @@ namespace Squirix.Utils;
 
 internal static class CacheEntryProtoExtensions
 {
-    public static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(this Entry entry, ISquirixSerializer serializer)
+    public static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(this CacheEntryWire entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
         return new CacheEntry<T>

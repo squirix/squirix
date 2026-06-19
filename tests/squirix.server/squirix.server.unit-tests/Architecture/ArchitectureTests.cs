@@ -195,7 +195,7 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerAssemblyShouldGenerateGrpcServiceBaseFromSharedTransportNamespace()
     {
-        var entryType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.Entry", true)!;
+        var entryType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.CacheEntryWire", true)!;
         var serviceType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService", true)!;
         var serviceBaseType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService+SquirixCacheServiceBase", true)!;
 

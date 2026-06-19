@@ -21,18 +21,18 @@ public sealed class EvictionTests : UnitTestBase
     {
         await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
 
-        await cache.InsertAsync("a", new CacheEntry<int> { Value = 1 }, DefaultCancellationToken);
-        await cache.InsertAsync("b", new CacheEntry<int> { Value = 2 }, DefaultCancellationToken);
+        await cache.SetAsync("a", new CacheEntry<int> { Value = 1 }, DefaultCancellationToken);
+        await cache.SetAsync("b", new CacheEntry<int> { Value = 2 }, DefaultCancellationToken);
 
         // Touch "a" to make it most recently used
-        Assert.Equal(1, (await cache.GetValueAsync("a", DefaultCancellationToken))!.Value);
+        Assert.Equal(1, (await cache.GetValueAsync("a", DefaultCancellationToken)).Value);
 
         // Insert third; should evict least recently used = "b"
-        await cache.InsertAsync("c", new CacheEntry<int> { Value = 3 }, DefaultCancellationToken);
+        await cache.SetAsync("c", new CacheEntry<int> { Value = 3 }, DefaultCancellationToken);
 
-        Assert.NotNull(await cache.GetValueAsync("a", DefaultCancellationToken));
-        Assert.Null(await cache.GetValueAsync("b", DefaultCancellationToken));
-        Assert.NotNull(await cache.GetValueAsync("c", DefaultCancellationToken));
+        Assert.True((await cache.GetValueAsync("a", DefaultCancellationToken)).Found);
+        Assert.False((await cache.GetValueAsync("b", DefaultCancellationToken)).Found);
+        Assert.True((await cache.GetValueAsync("c", DefaultCancellationToken)).Found);
     }
 
     /// <summary>
@@ -45,17 +45,17 @@ public sealed class EvictionTests : UnitTestBase
     {
         await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2, Policy = EvictionPolicyType.Fifo });
 
-        await cache.InsertAsync("a", new CacheEntry<int> { Value = 1 }, DefaultCancellationToken);
-        await cache.InsertAsync("b", new CacheEntry<int> { Value = 2 }, DefaultCancellationToken);
+        await cache.SetAsync("a", new CacheEntry<int> { Value = 1 }, DefaultCancellationToken);
+        await cache.SetAsync("b", new CacheEntry<int> { Value = 2 }, DefaultCancellationToken);
 
         // Access should NOT affect FIFO order
         _ = await cache.GetValueAsync("a", DefaultCancellationToken);
 
-        await cache.InsertAsync("c", new CacheEntry<int> { Value = 3 }, DefaultCancellationToken);
+        await cache.SetAsync("c", new CacheEntry<int> { Value = 3 }, DefaultCancellationToken);
 
         // Oldest ("a") should be evicted
-        Assert.Null(await cache.GetValueAsync("a", DefaultCancellationToken));
-        Assert.NotNull(await cache.GetValueAsync("b", DefaultCancellationToken));
-        Assert.NotNull(await cache.GetValueAsync("c", DefaultCancellationToken));
+        Assert.False((await cache.GetValueAsync("a", DefaultCancellationToken)).Found);
+        Assert.True((await cache.GetValueAsync("b", DefaultCancellationToken)).Found);
+        Assert.True((await cache.GetValueAsync("c", DefaultCancellationToken)).Found);
     }
 }

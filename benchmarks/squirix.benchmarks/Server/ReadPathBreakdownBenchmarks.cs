@@ -35,7 +35,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private BenchmarkClientLease? _publicClient;
     private ICache<string>? _publicSdk;
     private BenchmarkRawGrpcCache? _rawGrpc;
-    private GetValueRequest? _reusedRequest;
+    private GetValueAsyncRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
 
     /// <summary>Stops benchmark dependencies.</summary>
@@ -56,7 +56,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _publicSdk = await _publicClient.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
-        _reusedRequest = new GetValueRequest { CacheName = CacheName };
+        _reusedRequest = new GetValueAsyncRequest { CacheName = CacheName };
 
         await SeedNodeAsync().ConfigureAwait(false);
     }
@@ -77,13 +77,13 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
         return;
 
-        static async ValueTask<GetValueResponse> GetValueViaClientAsync(
+        static async ValueTask<GetValueAsyncResponse> GetValueViaClientAsync(
             SquirixCacheService.SquirixCacheServiceClient client,
             string cacheName,
             string key,
             CancellationToken cancellationToken)
         {
-            return await client.GetValueAsync(new GetValueRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
+            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
         }
     }
 

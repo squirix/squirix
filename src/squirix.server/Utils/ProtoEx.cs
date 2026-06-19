@@ -9,7 +9,7 @@ using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
 using Squirix.Transport.Grpc.Cache;
-using RpcEntry = Squirix.Transport.Grpc.Cache.Entry;
+using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
 namespace Squirix.Server.Utils;
 

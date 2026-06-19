@@ -63,6 +63,16 @@ Documentation-only pull requests must pass `npx markdownlint-cli2` (see `.markdo
 root). CI runs the same check automatically when a pull request changes Markdown files under `docs/`, `README.md`, or
 other `*.md` paths matched by the workflow filter.
 
+Optional local hook (auto-fix on commit for staged `*.md`, then fail if issues remain):
+
+```bash
+bash tools/ci/install-git-hooks.sh
+```
+
+This sets `core.hooksPath` to `.githooks` in your local clone. The pre-commit hook runs
+`tools/ci/markdownlint-staged.sh`, which calls `npx markdownlint-cli2 --fix` on staged Markdown and re-stages fixes.
+Requires Node.js (`npx`).
+
 ## License
 
 By contributing, you agree your code is under the [Apache 2.0 License](./LICENSE).

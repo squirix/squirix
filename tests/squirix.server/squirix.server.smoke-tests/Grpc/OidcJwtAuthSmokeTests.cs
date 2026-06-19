@@ -31,7 +31,7 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var request = new GetValueRequest { CacheName = "default", Key = "oidc-smoke" };
+        var request = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-smoke" };
 
         var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetValueAsync(request, cancellationToken: DefaultCancellationToken); });
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);

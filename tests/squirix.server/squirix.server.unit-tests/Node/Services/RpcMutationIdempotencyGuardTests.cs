@@ -20,7 +20,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public void TryReplayReturnsFalseWhenOperationIdIsUnknown()
     {
         var guard = new RpcMutationIdempotencyGuard();
-        var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.False(replayed);
         Assert.Null(response);
@@ -31,10 +31,10 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public void RecordSuccessThenTryReplayReturnsCachedResponse()
     {
         var guard = new RpcMutationIdempotencyGuard();
-        var original = new TrySetResponse { Added = true };
+        var original = new TryAddAsyncResponse { Added = true };
         guard.RecordSuccess("op-1", "fp-1", original);
 
-        var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.True(replayed);
         Assert.NotNull(response);
@@ -46,11 +46,11 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public void ReuseWithDifferentFingerprintThrowsTypedException()
     {
         var guard = new RpcMutationIdempotencyGuard();
-        guard.RecordSuccess("op-1", "fp-1", new TrySetResponse { Added = true });
+        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
 
         var ex = Assert.Throws<OperationIdReuseMismatchException>(() =>
         {
-            var replayed = guard.TryReplay("op-1", "fp-2", TrySetResponse.Parser, out var replay);
+            var replayed = guard.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
             Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
         });
 
@@ -115,7 +115,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
         var coordinator = new RpcMutationIdempotencyCoordinator(guard);
         var executions = 0;
         var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
-        var fingerprint = RpcMutationFingerprints.TrySet("default", "k", entry);
+        var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "k", entry);
 
         var first = await coordinator.ExecuteAsync(
             ValidOperationId,
@@ -123,7 +123,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
             _ =>
             {
                 executions++;
-                return Task.FromResult(new TrySetResponse { Added = true });
+                return Task.FromResult(new TryAddAsyncResponse { Added = true });
             },
             DefaultCancellationToken);
 
@@ -133,7 +133,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
             _ =>
             {
                 executions++;
-                return Task.FromResult(new TrySetResponse { Added = false });
+                return Task.FromResult(new TryAddAsyncResponse { Added = false });
             },
             DefaultCancellationToken);
 
@@ -147,11 +147,11 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public async Task ExpiredRecordsAreNotReplayed()
     {
         var guard = new RpcMutationIdempotencyGuard(TimeSpan.FromMilliseconds(50));
-        guard.RecordSuccess("op-1", "fp-1", new TrySetResponse { Added = true });
+        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
 
         await Task.Delay(100, DefaultCancellationToken);
 
-        var replayed = guard.TryReplay("op-1", "fp-1", TrySetResponse.Parser, out var response);
+        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.False(replayed);
         Assert.Null(response);
