@@ -15,6 +15,8 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
         SquirixErrorCode.MemoryPressure => ResourceExhaustedException.PublicErrorCode,
         SquirixErrorCode.OperationIdRequired => "OPERATION_ID_REQUIRED",
+        SquirixErrorCode.OperationIdInvalidFormat => "OPERATION_ID_INVALID_FORMAT",
+        SquirixErrorCode.OperationIdTooLong => "OPERATION_ID_TOO_LONG",
         SquirixErrorCode.OperationIdReuseMismatch => "OPERATION_ID_REUSE_MISMATCH",
         _ => "INTERNAL_ERROR",
     };
@@ -30,6 +32,8 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.TooManyRequests => StatusCode.ResourceExhausted,
         SquirixErrorCode.MemoryPressure => StatusCode.ResourceExhausted,
         SquirixErrorCode.OperationIdRequired => StatusCode.InvalidArgument,
+        SquirixErrorCode.OperationIdInvalidFormat => StatusCode.InvalidArgument,
+        SquirixErrorCode.OperationIdTooLong => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdReuseMismatch => StatusCode.FailedPrecondition,
         _ => StatusCode.Internal,
     };

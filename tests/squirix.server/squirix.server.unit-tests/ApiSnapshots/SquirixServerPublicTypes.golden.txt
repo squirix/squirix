@@ -28,8 +28,10 @@ F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheKey
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheName
 F:Squirix.Server.Errors.SquirixErrorCode::MemoryPressure
 F:Squirix.Server.Errors.SquirixErrorCode::NotFound
+F:Squirix.Server.Errors.SquirixErrorCode::OperationIdInvalidFormat
 F:Squirix.Server.Errors.SquirixErrorCode::OperationIdRequired
 F:Squirix.Server.Errors.SquirixErrorCode::OperationIdReuseMismatch
+F:Squirix.Server.Errors.SquirixErrorCode::OperationIdTooLong
 F:Squirix.Server.Errors.SquirixErrorCode::PayloadTooLarge
 F:Squirix.Server.Errors.SquirixErrorCode::TooManyRequests
 T:Squirix.Server.Errors.SquirixException
