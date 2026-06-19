@@ -169,8 +169,7 @@ dotnet_diagnostic.CA2201.severity = warning
 dotnet_diagnostic.CA2208.severity = warning
 
 # Banned API symbols (BannedSymbols.txt)
-# ECMA documentation IDs with full parameter lists are required; partial names are ignored silently.
-# exclude_generated_code is in .globalconfig (EditorConfig does not apply to in-memory source generators).
+dotnet_banned_api_analyzer.exclude_generated_code = true
 # Symbol has been banned
 dotnet_diagnostic.RS0030.severity = error
 # Symbol has been banned for use in declarations

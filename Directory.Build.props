@@ -25,85 +25,17 @@
         <MeziantouAnalysisMode>all-errors</MeziantouAnalysisMode>
     </PropertyGroup>
 
-    <!-- Classify projects once; reuse in conditions below. -->
-    <PropertyGroup Label="ProjectKind">
-        <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
-        <IsSquirixTestProject>false</IsSquirixTestProject>
-        <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
-        <IsSquirixProductionProject>false</IsSquirixProductionProject>
-        <IsSquirixAnalyzerProject>false</IsSquirixAnalyzerProject>
-    </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.analyzers'))">
-        <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
-        <!-- Skip Sonar.NET on the Roslyn analyzer project itself. -->
-        <SonarQubeExclude>true</SonarQubeExclude>
-        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; shared obj/ races under parallel solution builds. -->
-        <GenerateDependencyFile>false</GenerateDependencyFile>
-        <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
-        <!-- Avoid MSB3491 on AssemblyInfoInputs.cache when many ProjectReferences build this project in parallel. -->
-        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true'">
-        <IsSquirixProductionProject>true</IsSquirixProductionProject>
-    </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
-        <IsSquirixTestProject>true</IsSquirixTestProject>
-    </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/benchmarks/'))">
-        <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
-    </PropertyGroup>
-
-    <PropertyGroup Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058;ZA0901</NoWarn>
-    </PropertyGroup>
-
-    <PropertyGroup Condition="'$(IsSquirixTestProject)' == 'true'">
-        <NoWarn>$(NoWarn);CA1515;CA2007;MA0004</NoWarn>
-    </PropertyGroup>
-
-    <!-- In-repo Roslyn analyzers (skip the analyzer project itself). -->
-    <ItemGroup Label="SquirixAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
-        <ProjectReference Include="$(MSBuildThisFileDirectory)src\squirix.analyzers\Squirix.Analyzers.csproj"
-                          ReferenceOutputAssembly="false"
-                          OutputItemType="Analyzer"
-                          PrivateAssets="all"
-                          SetTargetFramework="TargetFramework=netstandard2.0"
-                          GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishAot;PublishTrimmed;PublishSingleFile;PublishReadyToRun"/>
-    </ItemGroup>
-
-    <!-- Solution-wide Roslyn analyzers (all projects except Squirix.Analyzers). -->
-    <ItemGroup Label="GlobalAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
-        <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
-        <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
-        <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
-        <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
+    <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" PrivateAssets="all"/>
+        <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all"/>
-        <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all"/>
         <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all"/>
-        <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <!-- Namespace dependency rules for production packages under src/** and server tests under tests/squirix.server/**. -->
-    <ItemGroup Label="NsDepCop" Condition="'$(IsSquirixProductionProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
-        <PackageReference Include="NsDepCop" PrivateAssets="all"/>
-    </ItemGroup>
-
-    <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
-    <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
-        <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
-    </ItemGroup>
-
-    <!-- BDN Roslyn rules ship inside BenchmarkDotNet.Annotations (BenchmarkDotNet excludes analyzer assets). -->
-    <ItemGroup Label="BenchmarkAnalyzers" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <PackageReference Include="BenchmarkDotNet.Annotations" PrivateAssets="all"/>
-    </ItemGroup>
-
-    <ItemGroup Label="AnalyzerConfig">
+    <ItemGroup>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
-        <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
 </Project>
