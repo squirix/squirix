@@ -50,11 +50,8 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
 
         using var channelB = CreateGrpcChannel(urlB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
-        });
-        Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
+        var getResponse = await clientB.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+        Assert.False(getResponse.Found);
     }
 
     /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
@@ -85,10 +82,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
         Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
 
-        var getEx = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
-        });
-        Assert.Equal(StatusCode.NotFound, getEx.StatusCode);
+        var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
+        Assert.False(getResponse.Found);
     }
 }

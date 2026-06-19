@@ -12,7 +12,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _local;
     private readonly INodeLocator _locator;
-    private readonly ClusterRemote<T> _remote;
+    private readonly OwnerPeerCacheClient<T> _remote;
     private readonly string _selfId;
 
     public ClusteredCache(string selfId, ILogicalNamespacedCache<T> local, INodeLocator locator, IClientPool clients)
@@ -20,7 +20,7 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
         _selfId = selfId ?? throw new ArgumentNullException(nameof(selfId));
         _local = local ?? throw new ArgumentNullException(nameof(local));
         _locator = locator ?? throw new ArgumentNullException(nameof(locator));
-        _remote = new ClusterRemote<T>(clients ?? throw new ArgumentNullException(nameof(clients)));
+        _remote = new OwnerPeerCacheClient<T>(clients ?? throw new ArgumentNullException(nameof(clients)));
     }
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)

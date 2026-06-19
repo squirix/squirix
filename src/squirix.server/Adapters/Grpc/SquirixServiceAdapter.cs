@@ -37,7 +37,10 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     {
         RequireValidCacheKey(request.Key);
         var entry = await ApiForRequest(request.CacheName).GetEntryAsync(request.Key, context.CancellationToken).ConfigureAwait(false);
-        return entry is null ? throw CacheOperationContract.NotFound().ToRpcException() : new GetEntryAsyncResponse { Entry = entry.MapToProto() };
+        if (entry is null)
+            return new GetEntryAsyncResponse { Found = false };
+
+        return new GetEntryAsyncResponse { Found = true, Entry = entry.MapToProto() };
     }
 
     public override async Task<GetExpirationAsyncResponse> GetExpiration(GetExpirationAsyncRequest request, ServerCallContext context)

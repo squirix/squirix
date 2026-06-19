@@ -49,7 +49,7 @@ gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared sou
 | `SetEntry`                        | `SetAsync`                  | Upsert via `CacheEntryWire` (`SetEntryAsync` on generated client)                                                     |
 | `TryAddEntry`                     | `TryAddAsync` / `AddAsync`  | Insert-if-absent via `CacheEntryWire` (`TryAddEntryAsync` on generated client); `AddAsync` throws when the key exists |
 | `GetValue`                        | `GetValueAsync`             | Value-only read; returns `found` + value                                                                              |
-| `GetEntry`                        | `GetEntryAsync`             | Full entry read; missing key → gRPC `NotFound`                                                                        |
+| `GetEntry`                        | `GetEntryAsync`             | Full entry read; returns `found` + entry (missing key → `found=false`, not an error)                                  |
 | `GetExpiration`                   | `GetExpirationAsync`        | Expiration metadata only; handler reads via runtime `GetEntry`                                                        |
 | `GetOrAdd`                        | `GetOrAddAsync`             | Single RPC with `CacheEntryWire`; client runs factory locally, server get-or-insert atomically                        |
 | `Update`                          | `UpdateAsync`               | Update value if key exists via `CacheEntryWire` (value field only)                                                    |
