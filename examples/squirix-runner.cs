@@ -29,6 +29,7 @@ foreach (var arg in argv)
         break;
     }
 }
+
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
