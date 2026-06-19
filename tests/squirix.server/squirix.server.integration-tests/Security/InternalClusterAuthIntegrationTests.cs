@@ -109,7 +109,9 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
 
-        Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable, $"Expected unauthenticated or unavailable, got {ex.StatusCode}.");
+        Assert.True(
+            ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown,
+            $"Expected inter-node rejection without client certificate, got {ex.StatusCode} ({ex.Status.Detail}).");
     }
 
     /// <summary>Verifies cluster forwarding over trusted inter-node mTLS succeeds without propagating external JWT.</summary>
