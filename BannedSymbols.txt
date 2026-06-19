@@ -1,0 +1,3 @@
+M:System.String.Create;Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
+M:System.String.Format;Use string interpolation ($"") instead.
+M:System.FormattableString.Invariant;Use string interpolation ($"") instead.
