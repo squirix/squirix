@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Server.Cluster.Routing;
@@ -50,7 +49,7 @@ internal sealed class OwnerPeerCacheClient<T>
         return new CacheValueResult<T>(false, default);
     }
 
-    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string owner, string cacheName, string key, CancellationToken cancellationToken)
     {
         var response = await ExecuteOwnerAsync(
             owner,
@@ -58,7 +57,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new RemoveAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                 };
@@ -71,7 +70,7 @@ internal sealed class OwnerPeerCacheClient<T>
         return new CacheRemoveResult<T>(false, default);
     }
 
-    public async ValueTask<bool> RemoveExpirationAsync(string owner, string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<bool> RemoveExpirationAsync(string operationId, string owner, string cacheName, string key, CancellationToken cancellationToken)
     {
         var response = await ExecuteOwnerAsync(
             owner,
@@ -79,7 +78,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new RemoveExpirationAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                 };
@@ -90,7 +89,7 @@ internal sealed class OwnerPeerCacheClient<T>
         return response.Found;
     }
 
-    public async ValueTask SetEntryAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetEntryAsync(string operationId, string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = await ExecuteOwnerAsync(
             owner,
@@ -98,7 +97,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new SetEntryAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                     Entry = entry.MapToProto(),
@@ -108,7 +107,7 @@ internal sealed class OwnerPeerCacheClient<T>
             cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<bool> TouchAsync(string owner, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public async ValueTask<bool> TouchAsync(string operationId, string owner, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         var response = await ExecuteOwnerAsync(
             owner,
@@ -116,7 +115,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new TouchAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                     Expiration = Duration.FromTimeSpan(expiration),
@@ -128,7 +127,7 @@ internal sealed class OwnerPeerCacheClient<T>
         return response.Found;
     }
 
-    public async ValueTask<bool> TryAddEntryAsync(string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddEntryAsync(string operationId, string owner, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         var response = await ExecuteOwnerAsync(
             owner,
@@ -136,7 +135,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new TryAddEntryAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                     Entry = entry.MapToProto(),
@@ -148,7 +147,7 @@ internal sealed class OwnerPeerCacheClient<T>
         return response.Added;
     }
 
-    public async ValueTask<bool> UpdateAsync(string owner, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public async ValueTask<bool> UpdateAsync(string operationId, string owner, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         var response = await ExecuteOwnerAsync(
             owner,
@@ -156,7 +155,7 @@ internal sealed class OwnerPeerCacheClient<T>
             {
                 var request = new UpdateAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = operationId,
                     CacheName = cacheName,
                     Key = key,
                     Entry = new CacheEntry<T> { Value = value }.MapToProto(),

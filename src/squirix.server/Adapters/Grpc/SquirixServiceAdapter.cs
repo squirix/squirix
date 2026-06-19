@@ -154,7 +154,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         }
 
         var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
-        if (await api.TryAddEntryAsync(request.Key, entry, cancellationToken).ConfigureAwait(false))
+        if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
         {
             return new GetOrAddAsyncResponse
             {
@@ -176,7 +176,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        var result = await _cacheOperations.ForCache(cacheName).RemoveAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken).ConfigureAwait(false);
         var response = new RemoveAsyncResponse { Removed = result.Removed };
         if (result.Removed)
             response.PreviousValue = ProtoEx.CacheValueToGrpcValue(result.Value);
@@ -189,7 +189,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var found = await _cacheOperations.ForCache(cacheName).RemoveExpirationAsync(request.Key, cancellationToken).ConfigureAwait(false);
+        var found = await _cacheOperations.ForCache(cacheName).RemoveExpirationAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, cancellationToken).ConfigureAwait(false);
         return new RemoveExpirationAsyncResponse { Found = found };
     }
 
@@ -198,7 +198,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        await _cacheOperations.ForCache(cacheName).SetEntryAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+        await _cacheOperations.ForCache(cacheName).SetEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
         return new SetAsyncResponse();
     }
 
@@ -207,7 +207,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var found = await _cacheOperations.ForCache(cacheName).TouchAsync(request.Key, request.Expiration.ToTimeSpan(), cancellationToken).ConfigureAwait(false);
+        var found = await _cacheOperations.ForCache(cacheName).TouchAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, request.Expiration.ToTimeSpan(), cancellationToken).ConfigureAwait(false);
         return new TouchAsyncResponse { Found = found };
     }
 
@@ -216,7 +216,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         var cacheName = RequireCacheName(request.CacheName);
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
-        var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken)
+        var added = await _cacheOperations.ForCache(cacheName).TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false), cancellationToken)
                                           .ConfigureAwait(false);
         return new TryAddAsyncResponse { Added = added };
     }
@@ -227,6 +227,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
         RequireValidCacheKey(request.Key);
         EnsureLocalOwnerForInternalOwnerRpc(cacheName, request.Key);
         var updated = await _cacheOperations.ForCache(cacheName).UpdateAsync(
+            RpcMutationContracts.RequireOperationId(request.OperationId),
             request.Key,
             (await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false)).Value,
             cancellationToken).ConfigureAwait(false);

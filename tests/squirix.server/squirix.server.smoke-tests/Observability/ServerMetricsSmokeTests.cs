@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.SmokeTests.Support;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
 using Xunit.Sdk;
@@ -31,7 +32,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
         var cache = GetCacheApiClient(node);
 
         const string key = "smoke:1";
-        await cache.SetEntryAsync(key, BuildEntry("value", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, key, BuildEntry("value", version: 1), DefaultCancellationToken);
 
         await Task.Delay(10, DefaultCancellationToken);
 

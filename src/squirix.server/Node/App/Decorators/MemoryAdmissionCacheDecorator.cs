@@ -41,30 +41,30 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public async ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
-            return await _inner.RemoveExpirationAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing?.ExpiresUtc is null)
-            return await _inner.RemoveExpirationAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, false);
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
-        var removed = await _inner.RemoveExpirationAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var removed = await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (removed)
             AccountReplaceOrInsert(keyValue, existing, replacement);
 
         return removed;
     }
 
-    public async ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
         {
-            await _inner.SetEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -74,43 +74,43 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
 
         if (existing is null)
         {
-            if (await _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+            if (await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             {
                 AccountInsert(keyValue, entry);
                 return;
             }
 
-            await _inner.SetEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
             return;
         }
 
-        await _inner.SetEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+        await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
         AccountReplaceOrInsert(keyValue, existing, entry);
     }
 
-    public async ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
-            return await _inner.TouchAsync(cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
         if (existing is null)
-            return await _inner.TouchAsync(cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
 
         var replacement = CreateExpirationMetadataReplacement(existing, true);
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
-        var touched = await _inner.TouchAsync(cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+        var touched = await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
         if (touched)
             AccountReplaceOrInsert(keyValue, existing, replacement);
 
         return touched;
     }
 
-    public async ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
-            return await _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false);
+            return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -118,7 +118,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             return false;
 
         AdmitReplaceOrInsert(keyValue, null, entry, MemoryPressureAdmissionOperations.TryAdd);
-        if (!await _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken).ConfigureAwait(false))
+        if (!await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false))
             return false;
 
         AccountInsert(keyValue, entry);
@@ -128,24 +128,24 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
-            return await _inner.RemoveAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+            return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        var result = await _inner.RemoveAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
+        var result = await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
         if (result.Removed && existing is not null)
             AccountRemove(keyValue, existing);
 
         return result;
     }
 
-    public async ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         if (!IsLocal(cacheName, key))
-            return await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
 
         var keyValue = new CacheKey(cacheName, key);
         var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
@@ -160,7 +160,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             Version = existing.Version,
         };
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
-        var updated = await _inner.UpdateAsync(cacheName, key, value, cancellationToken).ConfigureAwait(false);
+        var updated = await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
         if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))
             return updated;
 

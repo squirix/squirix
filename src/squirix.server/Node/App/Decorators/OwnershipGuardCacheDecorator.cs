@@ -23,43 +23,43 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveExpirationAsync(cacheName, key, cancellationToken);
+        return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
     }
 
-    public ValueTask SetEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.SetEntryAsync(cacheName, key, entry, cancellationToken);
+        return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
-    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.TouchAsync(cacheName, key, expiration, cancellationToken);
+        return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
     }
 
-    public ValueTask<bool> TryAddEntryAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.TryAddEntryAsync(cacheName, key, entry, cancellationToken);
+        return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
     }
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveAsync(cacheName, key, cancellationToken);
+        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
     }
 
-    public ValueTask<bool> UpdateAsync(string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
-        return _inner.UpdateAsync(cacheName, key, value, cancellationToken);
+        return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 
     private void EnsureLocalOwner(string cacheName, string key)

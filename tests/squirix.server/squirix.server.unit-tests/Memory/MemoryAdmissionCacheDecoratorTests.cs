@@ -9,6 +9,7 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -32,12 +33,12 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical);
         var entry = CreateEntry("v");
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         Assert.Equal(1, accounting.EntryCount);
 
         var results = await RunSynchronizedConcurrentlyAsync(
             ConcurrentRaceWidth,
-            _ => cache.RemoveAsync(CacheName, key, DefaultCancellationToken).AsTask(),
+            _ => cache.RemoveAsync(TestOperationIds.Default, CacheName, key, DefaultCancellationToken).AsTask(),
             DefaultCancellationToken);
 
         Assert.Equal(1, results.Count(static result => result.Removed));
@@ -63,10 +64,10 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         };
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesWithExpiration = accounting.EstimatedBytes;
 
-        Assert.True(await cache.RemoveExpirationAsync(CacheName, key, DefaultCancellationToken));
+        Assert.True(await cache.RemoveExpirationAsync(TestOperationIds.Default, CacheName, key, DefaultCancellationToken));
         Assert.Equal(bytesWithExpiration - expirationGrowth, accounting.EstimatedBytes);
         Assert.Equal(1, accounting.EntryCount);
     }
@@ -81,7 +82,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var entry = CreateEntry("v");
         var expectedBytes = EstimateEntryBytes(estimator, CacheName, key, entry);
 
-        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, _ => cache.SetEntryAsync(CacheName, key, entry, DefaultCancellationToken).AsTask(), DefaultCancellationToken);
+        await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, _ => cache.SetEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken).AsTask(), DefaultCancellationToken);
 
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(expectedBytes, accounting.EstimatedBytes);
@@ -98,11 +99,11 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeReplace = accounting.EstimatedBytes;
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        await cache.SetEntryAsync(CacheName, key, replacement, DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, CacheName, key, replacement, DefaultCancellationToken);
 
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(bytesBeforeReplace + expectedDelta, accounting.EstimatedBytes);
@@ -120,10 +121,10 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var entry = CreateEntry("v");
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesBeforeTouch = accounting.EstimatedBytes;
 
-        Assert.True(await cache.TouchAsync(CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
+        Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
         Assert.Equal(bytesBeforeTouch + expirationGrowth, accounting.EstimatedBytes);
         Assert.Equal(1, accounting.EntryCount);
     }
@@ -143,10 +144,10 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
             ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesBeforeTouch = accounting.EstimatedBytes;
 
-        Assert.True(await cache.TouchAsync(CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
+        Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
         Assert.Equal(bytesBeforeTouch, accounting.EstimatedBytes);
         Assert.Equal(1, accounting.EntryCount);
     }
@@ -163,7 +164,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
 
         var results = await RunSynchronizedConcurrentlyAsync(
             ConcurrentRaceWidth,
-            _ => cache.TryAddEntryAsync(CacheName, key, entry, DefaultCancellationToken).AsTask(),
+            _ => cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken).AsTask(),
             DefaultCancellationToken);
 
         Assert.Equal(1, results.Count(static added => added));
@@ -181,13 +182,13 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var initial = CreateEntry("a");
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeUpdate = accounting.EstimatedBytes;
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
-        Assert.True(await cache.UpdateAsync(CacheName, key, updatedValue, DefaultCancellationToken));
+        Assert.True(await cache.UpdateAsync(TestOperationIds.Default, CacheName, key, updatedValue, DefaultCancellationToken));
 
         Assert.Equal(1, accounting.EntryCount);
         Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.EstimatedBytes);
@@ -204,13 +205,13 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
 
-        Assert.True(await cache.TryAddEntryAsync(CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeUpdate = accounting.EstimatedBytes;
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
         var results = await RunSynchronizedConcurrentlyAsync(
             ConcurrentRaceWidth,
-            _ => cache.UpdateAsync(CacheName, key, updatedValue, DefaultCancellationToken).AsTask(),
+            _ => cache.UpdateAsync(TestOperationIds.Default, CacheName, key, updatedValue, DefaultCancellationToken).AsTask(),
             DefaultCancellationToken);
 
         Assert.All(results, Assert.True);
