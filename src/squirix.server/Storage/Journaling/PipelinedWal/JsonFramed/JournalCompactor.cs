@@ -6,8 +6,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling.Json;
-using Squirix.Server.Storage.JournalProto;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
+using Squirix.Server.Storage.Journaling.PipelinedWal.Codec;
+using Squirix.Server.Storage.Journaling.PipelinedWal.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Utils;
 
@@ -36,39 +37,36 @@ internal static class JournalCompactor
         var newFirstIdx = GetNextJournalSegmentIndex(CollectJournalSegments(options.DataDir));
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
+        await WriteCompactedJournalAsync(options, tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, lastSeq, cancellationToken).ConfigureAwait(false);
     }
 
-    private static void Apply(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    private static void Apply(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
-        switch (env.OpCase)
+        switch (record.Operation)
         {
-            case JournalEnvelope.OpOneofCase.Put:
-                ApplyPut(env, state);
+            case JournalOperationKind.Put:
+                ApplyPut(record, state);
                 break;
-            case JournalEnvelope.OpOneofCase.Remove:
-                ApplyRemove(env, state);
+            case JournalOperationKind.Remove:
+                ApplyRemove(record, state);
                 break;
-            case JournalEnvelope.OpOneofCase.RemoveExpiration:
-                ApplyRemoveExpiration(env, state);
+            case JournalOperationKind.RemoveExpiration:
+                ApplyRemoveExpiration(record, state);
                 break;
-            case JournalEnvelope.OpOneofCase.TouchExpiration:
-                ApplyTouchExpiration(env, state);
-                break;
-            case JournalEnvelope.OpOneofCase.None:
+            case JournalOperationKind.TouchExpiration:
+                ApplyTouchExpiration(record, state);
                 break;
             default:
-                throw new ArgumentOutOfRangeException(nameof(env));
+                throw new ArgumentOutOfRangeException(nameof(record), record.Operation, "Unsupported journal op.");
         }
     }
 
-    private static void ApplyPut(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    private static void ApplyPut(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
-        var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
-        var key = new CacheKey(put.Item.Namespace, put.Item.Key);
-
-        if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<object?>(put.Item.EntryJson.Memory, out var entry))
+        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
+        var payload = record.PutDiscriminatedEntryJson ?? [];
+        if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<object?>(payload, out var entry))
             throw CreateCompactionDecodeFailure("put", key.Key);
 
         if (IsExpired(entry))
@@ -77,16 +75,12 @@ internal static class JournalCompactor
             state[key] = entry!;
     }
 
-    private static void ApplyRemove(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
-    {
-        var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
-        _ = state.Remove(new CacheKey(remove.Namespace, remove.Key));
-    }
+    private static void ApplyRemove(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state) =>
+        _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
 
-    private static void ApplyRemoveExpiration(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    private static void ApplyRemoveExpiration(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
-        var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
-        var key = new CacheKey(removeExpiration.Namespace, removeExpiration.Key);
+        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
         if (!state.TryGetValue(key, out var entry))
             return;
 
@@ -98,17 +92,16 @@ internal static class JournalCompactor
         };
     }
 
-    private static void ApplyTouchExpiration(JournalEnvelope env, Dictionary<CacheKey, CacheEntry<object?>> state)
+    private static void ApplyTouchExpiration(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
-        var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
-        var key = new CacheKey(touchExpiration.Namespace, touchExpiration.Key);
+        var key = new CacheKey(record.Key.Namespace, record.Key.Key);
         if (!state.TryGetValue(key, out var entry))
             return;
 
         state[key] = new CacheEntry<object?>
         {
             Value = entry.Value,
-            ExpiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime,
+            ExpiresUtc = record.TouchExpirationUtc,
             Tags = entry.Tags,
             Version = entry.Version,
         };
@@ -130,10 +123,10 @@ internal static class JournalCompactor
 
         ulong lastSeq = 0;
         var fromSeg = Math.Max(1, replayFromSegment);
-        foreach (var env in JournalReader.ReadAll(options.DataDir, fromSeg, cancellationToken))
+        foreach (var record in JournalReadPath.ReadAll(options.DataDir, fromSeg, cancellationToken))
         {
-            lastSeq = Math.Max(lastSeq, env.Seq);
-            Apply(env, state);
+            lastSeq = Math.Max(lastSeq, record.Sequence);
+            Apply(record, state);
         }
 
         return (state, lastSeq);
@@ -142,7 +135,7 @@ internal static class JournalCompactor
     private static JournalSegment[] CollectJournalSegments(string dataDir)
     {
         var result = new List<JournalSegment>();
-        foreach (var segment in JournalReader.EnumerateSegments(dataDir, 1))
+        foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
             result.Add(segment);
 
         return [.. result];
@@ -204,45 +197,80 @@ internal static class JournalCompactor
 
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
-    private static async Task WriteCompactedJournalAsync(string tmpPath, Dictionary<CacheKey, CacheEntry<object?>> state, ulong lastSeq, CancellationToken cancellationToken)
+    private static async Task WriteCompactedJournalAsync(PersistenceOptions options, string tmpPath, Dictionary<CacheKey, CacheEntry<object?>> state, ulong lastSeq, CancellationToken cancellationToken)
     {
         var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         await using (fs.ConfigureAwait(false))
         {
-            JournalFraming.WriteFileHeader(fs);
-            var seq = lastSeq is 0UL ? 1UL : lastSeq + 1UL;
+            await WriteCompactedJournalHeaderAsync(fs, options, cancellationToken).ConfigureAwait(false);
 
+            var seq = lastSeq is 0UL ? 1UL : lastSeq + 1UL;
             var i = 0;
             foreach (var (k, e) in state)
             {
-                if ((i++ & 0x3FF) is 0) // every 1024 items
+                if ((i++ & 0x3FF) is 0)
                     cancellationToken.ThrowIfCancellationRequested();
 
                 if (IsExpired(e))
                     continue;
 
                 var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(e.Value, e.ExpiresUtc, e.Expiration, e.Version, e.Tags).ConfigureAwait(false);
-
-                var env = new JournalEnvelope
-                {
-                    Seq = seq++,
-                    UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    Put = new Put
-                    {
-                        Item = new EntryPair
-                        {
-                            Key = k.Key,
-                            Namespace = k.Namespace,
-                            EntryJson = ByteString.CopyFrom(body),
-                        },
-                    },
-                };
-
-                var payload = RecordCodec.Serialize(env);
-                JournalFraming.WriteFrame(fs, payload);
+                seq = await WriteCompactedPutEntryAsync(fs, options, k, body, seq, cancellationToken).ConfigureAwait(false);
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static async Task WriteCompactedJournalHeaderAsync(FileStream fs, PersistenceOptions options, CancellationToken cancellationToken)
+    {
+        if (options.JournalBackend is JournalBackend.PipelinedWal)
+        {
+            var header = new byte[WalBinaryFraming.FileHeaderSize];
+            WalBinaryFraming.WriteFileHeader(header);
+            await fs.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        JournalFraming.WriteFileHeader(fs);
+    }
+
+    private static async Task<ulong> WriteCompactedPutEntryAsync(
+        FileStream fs,
+        PersistenceOptions options,
+        CacheKey key,
+        byte[] body,
+        ulong sequence,
+        CancellationToken cancellationToken)
+    {
+        var record = new JournalRecord
+        {
+            Sequence = sequence,
+            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Operation = JournalOperationKind.Put,
+            Key = key,
+            PutDiscriminatedEntryJson = body,
+            PutOperationId = string.Empty,
+        };
+
+        if (options.JournalBackend is JournalBackend.PipelinedWal)
+        {
+            var bodyLen = BinaryWalJournalCodec.ComputeFrameBodyLength(record);
+            var frameLen = WalBinaryFraming.FrameTotalLength(bodyLen);
+            var frame = new byte[frameLen];
+            var bodySpan = frame.AsSpan(WalBinaryFraming.FrameHeaderSize, bodyLen);
+            var encodedLength = BinaryWalJournalCodec.Instance.Encode(record, bodySpan);
+            if (encodedLength != bodyLen)
+                throw new InvalidOperationException("unexpected WAL frame length after encode.");
+
+            WalBinaryFraming.WriteFrame(frame, bodySpan);
+            await fs.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
+            return sequence + 1UL;
+        }
+
+        var env = JsonFramedJournalCodec.ToEnvelope(record);
+        var payload = Json.RecordCodec.Serialize(env);
+        JournalFraming.WriteFrame(fs, payload);
+        return sequence + 1UL;
     }
 }

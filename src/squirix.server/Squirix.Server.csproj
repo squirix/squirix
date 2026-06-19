@@ -24,7 +24,7 @@
 
     <ItemGroup>
         <Protobuf Include="..\shared\transport\grpc\Protos\SquirixCache.proto" GrpcServices="Server;Client" ProtoRoot="..\shared\transport\grpc\Protos" Access="Internal"/>
-        <Protobuf Include="Storage\Journaling\Protos\JournalEnvelope.proto" GrpcServices="Server" ProtoRoot="Storage\Journaling\Protos" Access="Internal"/>
+        <Protobuf Include="Storage\Journaling\PipelinedWal\JsonFramed\Protos\JournalEnvelope.proto" GrpcServices="Server" ProtoRoot="Storage\Journaling\PipelinedWal\JsonFramed\Protos" Access="Internal"/>
     </ItemGroup>
 
     <ItemGroup>
