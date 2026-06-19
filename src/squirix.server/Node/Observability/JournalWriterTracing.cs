@@ -48,8 +48,8 @@ internal static class JournalWriterTracing
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void TraceFrameBytes(IJournalOperationTraceScope? scope, int payloadBytes) => scope?.SetFrameBytes(payloadBytes);
 
-    public static JournalOperationTraceContext WithDurability(in JournalOperationTraceContext context, JournalWriter writer) => context with
+    public static JournalOperationTraceContext WithDurability(in JournalOperationTraceContext context, IJournalCoordinator coordinator) => context with
     {
-        GroupCommitEnabled = writer.IsJournalGroupCommitEnabled,
+        GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
     };
 }

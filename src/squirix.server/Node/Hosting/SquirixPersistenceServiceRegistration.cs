@@ -33,17 +33,16 @@ internal static class SquirixPersistenceServiceRegistration
         _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
         _ = services.AddSingleton(runtime.ManifestStore);
         _ = services.AddSingleton(runtime.Gate);
-        _ = services.AddSingleton(runtime.JournalWriter);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<JournalWriterSingleton>().Writer);
+        _ = services.AddSingleton(runtime.JournalCoordinator);
+        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalWriterDecorator(
+            sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
+            sp.GetRequiredService<IJournalOperationTracer>()));
+        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
+        _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
         _ = services.AddHealthChecks().AddCheck<JournalRecoveryReadinessHealthCheck>("journal_recovery", HealthStatus.Unhealthy, ["ready"])
                     .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"])
                     .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalWriterDecorator(
-            sp.GetRequiredService<JournalWriter>(),
-            sp.GetRequiredService<IJournalOperationTracer>()));
-        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalWriter>());
-        _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
 
         _ = services.AddSingleton<ISnapshotWriter>(static sp => new SnapshotWriter(sp.GetRequiredService<PersistenceOptions>().DataDir));
         _ = services.AddSingleton<SnapshotReader>();

@@ -1,5 +1,7 @@
 using System;
 using System.Text.Json.Serialization;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
+using Squirix.Server.Storage.Journaling.PipelinedWal.Limits;
 
 namespace Squirix.Server.Storage;
 
@@ -11,7 +13,9 @@ internal sealed record PersistenceOptions
         ManifestRetentionCount = 3;
         SnapshotIntervalSec = 60;
         SnapshotRetentionCount = 3;
-        JournalMaxSegmentMb = 128;
+        JournalMaxSegmentMb = WalSegmentLimits.DefaultMaxSegmentMb;
+        JournalMaxSegmentCount = WalSegmentLimits.DefaultMaxSegmentCount;
+        JournalMaxTotalBytesMb = WalSegmentLimits.DefaultMaxTotalBytesMb;
         JournalGroupCommitMaxBatch = 32;
     }
 
@@ -75,6 +79,38 @@ internal sealed record PersistenceOptions
             field = value;
         }
     }
+
+    [JsonPropertyName("journalMaxSegmentCount")]
+    public int JournalMaxSegmentCount
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentCount must be greater than zero.");
+
+            field = value;
+        }
+    }
+
+    [JsonPropertyName("journalMaxTotalBytesMb")]
+    public int JournalMaxTotalBytesMb
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxTotalBytesMb must be greater than zero.");
+
+            field = value;
+        }
+    }
+
+    [JsonPropertyName("journalBackend")]
+    public JournalBackend JournalBackend { get; init; } = JournalBackend.PipelinedWal;
+
+    [JsonPropertyName("walPlatformBackend")]
+    public WalPlatformBackend WalPlatformBackend { get; init; } = WalPlatformBackend.Auto;
 
     public int ManifestRetentionCount
     {

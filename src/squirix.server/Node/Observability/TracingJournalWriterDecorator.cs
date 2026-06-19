@@ -9,10 +9,10 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
 internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
 {
-    private readonly JournalWriter _inner;
+    private readonly IJournalCoordinator _inner;
     private readonly IJournalOperationTracer _tracer;
 
-    public TracingJournalWriterDecorator(JournalWriter inner, IJournalOperationTracer tracer)
+    public TracingJournalWriterDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
