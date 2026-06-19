@@ -7,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -21,7 +22,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
     public async Task JournalWriterWritesHeaderAfterInvalidSegmentRepair()
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
-        var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        var persistence = new PersistenceOptions { DataDir = dir, JournalBackend = JournalBackend.JsonFramed, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new ManifestStore(persistence);
         var journalSegmentPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);

@@ -5,6 +5,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -22,6 +23,7 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,

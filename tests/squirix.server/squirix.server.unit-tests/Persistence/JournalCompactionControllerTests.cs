@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -25,7 +26,7 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task DisposeIsIdempotent()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-double");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalBackend = JournalBackend.JsonFramed, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
         await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
@@ -42,6 +43,7 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
         var opt = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 1000,
         };
@@ -73,7 +75,7 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-dispose");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalBackend = JournalBackend.JsonFramed, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
         await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);

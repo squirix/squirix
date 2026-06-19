@@ -8,6 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Json;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -264,6 +265,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
     private static PersistenceOptions NewPersistence(string dataDir) => new()
     {
         DataDir = dataDir,
+        JournalBackend = JournalBackend.JsonFramed,
         JournalMaxSegmentMb = 16,
         FlushIntervalMs = 5,
         ManifestRetentionCount = 1,

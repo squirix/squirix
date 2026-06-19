@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -22,6 +23,7 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
@@ -53,6 +55,7 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -90,6 +93,7 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,

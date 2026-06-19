@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.PipelinedWal;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -22,6 +23,7 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBas
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
+            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 100,
         };
