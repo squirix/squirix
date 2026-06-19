@@ -98,7 +98,21 @@ internal sealed class RecoveryService<T> : IHostedService
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
         if (!missingInitialSegment && !journalGapDetected)
             return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
-        throw CreateJournalReplayBoundaryFailure();
+        throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
+    }
+
+    private static string FingerprintKey(CacheKey key) => key.ToString();
+
+    private static bool IsExpiredForRecovery(CacheEntry<T>? entry)
+    {
+        if (entry is null)
+        {
+            return false;
+        }
+
+        var isUtcExpired = entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
+        var isRelativeExpired = entry.Expiration is { } expiration && expiration <= TimeSpan.Zero;
+        return isUtcExpired || isRelativeExpired;
     }
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
