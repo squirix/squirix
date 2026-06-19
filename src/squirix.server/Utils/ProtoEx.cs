@@ -52,14 +52,6 @@ internal static class ProtoEx
         };
     }
 
-    /// <summary>
-    /// Maps a cache value to protobuf <c>Struct</c> wire form (single-field wrapper or JSON-derived struct).
-    /// </summary>
-    /// <typeparam name="T">Logical cache value type.</typeparam>
-    /// <param name="value">Value to encode.</param>
-    /// <returns>Protobuf struct suitable for well-known <c>Value</c> payloads.</returns>
-    internal static Struct CacheValueToGrpcStruct<T>(T? value) => ToStruct(value);
-
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
     /// <param name="value">Value to encode.</param>
