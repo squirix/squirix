@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 namespace Squirix.Server.Storage.Journaling.Pipelined;
 
 /// <summary>Bounded ring queue for journal work items (multi-producer, single consumer).</summary>
-#pragma warning disable CA1001 // SemaphoreSlim lifetime matches the journal coordinator.
-internal sealed class BoundedJournalRing
+internal sealed class BoundedJournalRing : IDisposable
 {
     private readonly JournalWorkItem[] _slots;
     private readonly int[] _published;
@@ -26,23 +25,6 @@ internal sealed class BoundedJournalRing
         _mask = capacity - 1;
         _availableSlots = new SemaphoreSlim(capacity, capacity);
     }
-
-#pragma warning disable MA0045, MA0032 // Shutdown enqueue is synchronous from journal dispose.
-    public void EnqueueBlocking(JournalWorkItem item)
-    {
-        _availableSlots.Wait(CancellationToken.None);
-        try
-        {
-            while (!TryEnqueueCore(in item))
-                Thread.SpinWait(32);
-        }
-        catch
-        {
-            _ = _availableSlots.Release();
-            throw;
-        }
-    }
-#pragma warning restore MA0045, MA0032
 
     public async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken)
     {
@@ -78,6 +60,8 @@ internal sealed class BoundedJournalRing
             Thread.SpinWait(64);
         }
     }
+
+    public void Dispose() => _availableSlots.Dispose();
 
     private bool TryEnqueueCore(ref readonly JournalWorkItem item)
     {
@@ -121,4 +105,3 @@ internal sealed class BoundedJournalRing
         return true;
     }
 }
-#pragma warning restore CA1001

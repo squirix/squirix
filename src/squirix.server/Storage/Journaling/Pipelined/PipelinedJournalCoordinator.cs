@@ -183,9 +183,10 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         FailPendingDurabilityWaiters(new ObjectDisposedException(nameof(PipelinedJournalCoordinator)));
 
-        EnqueueShutdown();
+        await EnqueueShutdownAsync().ConfigureAwait(false);
         await AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
         await _segmentWriter.DisposeAsync().ConfigureAwait(false);
+        _ring.Dispose();
         _bgCts.Dispose();
         _mutationGate.Dispose();
         ThrowDisposeFailures(failures);
@@ -573,10 +574,10 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private void EnqueueShutdown()
+    private async ValueTask EnqueueShutdownAsync()
     {
         var shutdownItem = new JournalWorkItem { Kind = JournalWorkKind.Shutdown };
-        _ring.EnqueueBlocking(shutdownItem);
+        await _ring.EnqueueAsync(shutdownItem, CancellationToken.None).ConfigureAwait(false);
     }
 
     private void EnsureSegmentOpen()

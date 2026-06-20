@@ -11,13 +11,9 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
 {
     private static readonly ConcurrentBag<JournalDurabilityWaiter> Pool = [];
 
-#pragma warning disable S3459 // Reset before each use initializes the struct core.
     private ManualResetValueTaskSourceCore<bool> _core;
-#pragma warning restore S3459
 
-    private JournalDurabilityWaiter()
-    {
-    }
+    private JournalDurabilityWaiter() => _core = default;
 
     public static JournalDurabilityWaiter Rent() => Pool.TryTake(out var waiter) ? waiter : new JournalDurabilityWaiter();
 

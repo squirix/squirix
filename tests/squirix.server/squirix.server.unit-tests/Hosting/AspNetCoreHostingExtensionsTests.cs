@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -55,19 +54,19 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
     [Fact]
     public async Task DataDirectoryOverridePreservesStrictFsyncDefault()
     {
+        using var dir = new TempDirectory("squirix-aspnet-tests");
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
                 EnvironmentName = "Development",
             });
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = await builder.AddSquirixServerAsync(
             options =>
             {
                 options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dataDir);
+                options.UsePersistence(dir);
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -75,10 +74,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
-        Assert.Equal(dataDir, persistence.DataDir);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
+        Assert.Equal(dir.Path, persistence.DataDir);
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>

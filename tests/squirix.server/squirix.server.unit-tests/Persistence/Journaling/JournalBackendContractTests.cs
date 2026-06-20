@@ -29,7 +29,7 @@ public sealed class JournalBackendContractTests
             _ => throw new ArgumentOutOfRangeException(nameof(backendOrdinal), backendOrdinal, null),
         };
 
-        var dir = DirectoryKit.CreateTempDirectory("journal-contract");
+        using var dir = new TempDirectory("journal-contract");
         var options = new PersistenceOptions { DataDir = dir, JournalBackend = backend, JournalMaxSegmentMb = 64 };
         using var manifestStore = new ManifestStore(options);
         var gate = new JournalStartupGate();

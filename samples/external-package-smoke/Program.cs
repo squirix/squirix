@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -16,20 +15,25 @@ internal static class Program
 
     public static async Task<int> Main()
     {
-        // Isolated temp root for testkit-scoped paths when persistence is enabled in samples or tests.
-        var testRoot = Path.Join(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(testRoot);
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
+        var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
+        try
+        {
+            Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot.FullName);
 
-        var endpoint = $"https://localhost:{NextFreePort().ToString(CultureInfo.InvariantCulture)}";
-        await WriteSettingsAsync("external-smoke", endpoint, CancellationToken.None).ConfigureAwait(false);
-        _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
-        var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+            var endpoint = new UriBuilder(Uri.UriSchemeHttps, "localhost", NextFreePort()).Uri.AbsoluteUri;
+            await WriteSettingsAsync("external-smoke", endpoint, CancellationToken.None).ConfigureAwait(false);
+            _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
 
-        await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
-        await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
+            await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
+            await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
 
-        return 0;
+            return 0;
+        }
+        finally
+        {
+            testRoot.Delete(true);
+        }
     }
 
     private static int NextFreePort()

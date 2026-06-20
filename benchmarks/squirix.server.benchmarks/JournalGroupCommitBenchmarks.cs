@@ -1,19 +1,16 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Compares JsonFramed vs Pipelined under concurrent durable writers with group commit enabled.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
 public class JournalGroupCommitBenchmarks
 {
     private const int OperationsPerWriter = 2_000;
@@ -24,37 +21,32 @@ public class JournalGroupCommitBenchmarks
 
     /// <summary>Gets or sets the journal backend under test.</summary>
     [Params(JournalBackend.JsonFramed, JournalBackend.Pipelined)]
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public JournalBackend Backend { get; set; }
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
-    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public int PutPayloadBytes { get; set; }
 
     /// <summary>Creates the journal coordinator and payload for the current parameter set.</summary>
     /// <returns>A task that completes when setup finishes.</returns>
     [GlobalSetup]
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _host disposed in GlobalCleanup.")]
     public async Task SetupAsync()
     {
-        var dir = DirectoryKit.CreateTempDirectory("journal-gc-bench");
         var options = new PersistenceOptions
         {
-            DataDir = dir,
             JournalBackend = Backend,
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
             JournalGroupCommitMaxBatch = 32,
             JournalMaxSegmentMb = 64,
         };
-        _host = await JournalBenchmarkHost.CreateAsync(options, CancellationToken.None).ConfigureAwait(false);
+        _host = await JournalBenchmarkHost.CreateAsync("journal-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('a'));
         _nextWriterId = 0;
     }
 
-    /// <summary>Disposes the journal coordinator created during setup.</summary>
+    /// <summary>Disposes the journal coordinator and temporary data directory.</summary>
     /// <returns>A task that completes when cleanup finishes.</returns>
     [GlobalCleanup]
     public async Task CleanupAsync()

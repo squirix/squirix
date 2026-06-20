@@ -92,19 +92,7 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
         var key = record.Key.Key;
         var nsLen = Encoding.UTF8.GetByteCount(ns);
         var keyLen = Encoding.UTF8.GetByteCount(key);
-        var opIdLen = 0;
-        var payloadLen = 0;
-        switch (record.Operation)
-        {
-            case JournalOperationKind.Put:
-                payloadLen = record.PutDiscriminatedEntryJson?.Length ?? 0;
-                opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
-                break;
-
-            case JournalOperationKind.TouchExpiration:
-                payloadLen = 8;
-                break;
-        }
+        GetPayloadLengths(record, out var opIdLen, out var payloadLen);
 
         BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
         BinaryPrimitives.WriteInt64LittleEndian(destination[8..], record.UnixMs);
@@ -141,6 +129,32 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
                 throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
+        }
+    }
+
+    private static void GetPayloadLengths(JournalRecord record, out int opIdLen, out int payloadLen)
+    {
+        opIdLen = 0;
+        payloadLen = 0;
+        switch (record.Operation)
+        {
+            case JournalOperationKind.Put:
+                payloadLen = record.PutDiscriminatedEntryJson?.Length ?? 0;
+                opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
+                break;
+
+            case JournalOperationKind.TouchExpiration:
+                payloadLen = 8;
+                break;
+
+            case JournalOperationKind.Remove:
+            case JournalOperationKind.RemoveExpiration:
+            case JournalOperationKind.AwaitDurabilityCommit:
+            case JournalOperationKind.WaitForStartup:
+            case JournalOperationKind.MaintenanceExclusive:
+            case JournalOperationKind.SnapshotCut:
+            case JournalOperationKind.UnderSnapshotBarrier:
+                break;
         }
     }
 
