@@ -40,6 +40,13 @@ internal sealed class RandomAccessJournalSegmentWriter : IJournalSegmentWriter
     public void Fsync()
     {
         var handle = _handle ?? throw new InvalidOperationException("segment is not open.");
+        if (OperatingSystem.IsWindows())
+        {
+            // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
+            // Matches JsonFramed strict path (WriteThrough + FlushAsync, not full disk flush per op).
+            return;
+        }
+
         RandomAccess.FlushToDisk(handle);
     }
 

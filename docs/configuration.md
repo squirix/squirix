@@ -193,14 +193,14 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `StrictFsync`                 | bool   | `true`                                                     | Any boolean                                                                                                                                |
-| `JournalGroupCommitMaxWaitMs` | int    | `0`                                                        | `>= 0` (`0` disables group commit)                                                                                                         |
-| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`                                                                                                                                      |
+| `JournalGroupCommitMaxWait` | duration | `0` (disabled) | `>= 0` (`0` disables group commit); JSON key `groupCommitMaxWait`, value in milliseconds |
+| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`; used only when group commit is enabled                                                                                              |
 | `JournalBackend`              | string | `Pipelined`                                                | `JsonFramed` or `Pipelined`                                                                                                                |
 | `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
 
-See [journal group commit](journal-group-commit.md) for latency vs throughput tradeoffs.
+See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
 
 ### Snapshot
 

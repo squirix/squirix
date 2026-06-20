@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.ExceptionServices;
@@ -36,7 +35,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private readonly Lock _pendingMemoryApplyLock = new();
     private readonly JournalSegmentPolicy _policy;
 
-    private readonly BoundedMpscRing _ring = new(RingCapacity);
+    private readonly BoundedJournalRing _ring = new(RingCapacity);
     private readonly IJournalSegmentWriter _segmentWriter;
     private readonly Lock _sequenceLock = new();
     private readonly JournalStartupGate _startupGate;
@@ -54,7 +53,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private long _ops;
     private int _pendingMemoryApplyCount;
     private TaskCompletionSource? _pendingMemoryApplyDrained;
-    private List<TaskCompletionSource>? _durabilityWaiters;
+    private List<JournalDurabilityWaiter>? _durabilityWaiters;
     private int _durabilityFlushScheduled;
     private int _queuedAppends;
 
@@ -451,11 +450,9 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         _ = FrameCodec.Encode(record, body);
         JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
 
-        var sw = Stopwatch.StartNew();
+        var startedMs = Environment.TickCount64;
         await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
-        sw.Stop();
-
-        var elapsedMs = sw.Elapsed.TotalMilliseconds;
+        var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
         var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
         Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
 
@@ -489,8 +486,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         try
         {
             var item = new JournalWorkItem { Kind = JournalWorkKind.Append, FrameBytes = frameBytes, FrameLength = frameLength };
-            while (!_ring.TryEnqueue(in item))
-                await Task.Yield();
+            await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
         }
@@ -503,63 +499,59 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
     private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
     {
-        var waiter = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiter = JournalDurabilityWaiter.Rent();
         lock (_durabilityWaitersLock)
             (_durabilityWaiters ??= []).Add(waiter);
 
-        if (Volatile.Read(ref _queuedAppends) > 0)
-        {
-            try
-            {
-                await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                RemoveDurabilityWaiter(waiter, cancellationToken);
-                throw;
-            }
-
-            return;
-        }
-
-        if (!_dirty)
-        {
-            CompleteDurabilityWaiterImmediately(waiter);
-            return;
-        }
-
-        if (Interlocked.CompareExchange(ref _durabilityFlushScheduled, 1, 0) is 0)
-        {
-            var item = new JournalWorkItem { Kind = JournalWorkKind.Flush };
-            while (!_ring.TryEnqueue(in item))
-                await Task.Yield();
-        }
-
         try
         {
-            await waiter.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var waitTask = waiter.AwaitAsync(cancellationToken);
+
+            if (Volatile.Read(ref _queuedAppends) > 0)
+            {
+                await waitTask.ConfigureAwait(false);
+                return;
+            }
+
+            if (!_dirty)
+            {
+                CompleteDurabilityWaiterImmediately(waiter);
+                await waitTask.ConfigureAwait(false);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _durabilityFlushScheduled, 1, 0) is 0)
+            {
+                var item = new JournalWorkItem { Kind = JournalWorkKind.Flush };
+                await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+
+            await waitTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             RemoveDurabilityWaiter(waiter, cancellationToken);
             throw;
         }
+        finally
+        {
+            waiter.ReturnToPool();
+        }
     }
 
-    private void CompleteDurabilityWaiterImmediately(TaskCompletionSource waiter)
+    private void CompleteDurabilityWaiterImmediately(JournalDurabilityWaiter waiter)
     {
         lock (_durabilityWaitersLock)
             _ = _durabilityWaiters?.Remove(waiter);
 
-        _ = waiter.TrySetResult();
+        waiter.SetResult();
     }
 
     private async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
         var begin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var beginItem = new JournalWorkItem { Kind = JournalWorkKind.MaintenanceBegin, Completion = begin };
-        while (!_ring.TryEnqueue(in beginItem))
-            await Task.Yield();
+        await _ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
         await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         await action(cancellationToken).ConfigureAwait(false);
@@ -576,8 +568,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             ResetSegmentIndex = resetSegmentIndex,
             ResetSequence = resetSequence,
         };
-        while (!_ring.TryEnqueue(in endItem))
-            await Task.Yield();
+        await _ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
         await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -585,8 +576,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private void EnqueueShutdown()
     {
         var shutdownItem = new JournalWorkItem { Kind = JournalWorkKind.Shutdown };
-        while (!_ring.TryEnqueue(in shutdownItem))
-            Thread.SpinWait(32);
+        _ring.EnqueueBlocking(shutdownItem);
     }
 
     private void EnsureSegmentOpen()
@@ -732,8 +722,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             _dirty = true;
             if (_opt.IsJournalGroupCommitEnabled)
                 MaybeTimeOrSizeFlush();
-            else
-                CompleteDurabilityWaitersOnJournalThread();
         }
         finally
         {
@@ -750,7 +738,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         if (_opt.IsJournalGroupCommitEnabled)
             return;
 
-        List<TaskCompletionSource>? waiters;
+        List<JournalDurabilityWaiter>? waiters;
         lock (_durabilityWaitersLock)
         {
             if (_durabilityWaiters is null || _durabilityWaiters.Count is 0)
@@ -767,14 +755,14 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             FsyncOnJournalThread();
 
         foreach (var waiter in waiters)
-            _ = waiter.TrySetResult();
+            waiter.SetResult();
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
     private void FailPendingDurabilityWaiters(Exception reason)
     {
-        List<TaskCompletionSource>? waiters;
+        List<JournalDurabilityWaiter>? waiters;
         lock (_durabilityWaitersLock)
         {
             waiters = _durabilityWaiters;
@@ -785,12 +773,12 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             return;
 
         foreach (var waiter in waiters)
-            _ = waiter.TrySetException(reason);
+            waiter.SetException(reason);
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
-    private void RemoveDurabilityWaiter(TaskCompletionSource waiter, CancellationToken cancellationToken)
+    private void RemoveDurabilityWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
         lock (_durabilityWaitersLock)
@@ -799,7 +787,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         if (!removed)
             return;
 
-        _ = waiter.TrySetCanceled(cancellationToken);
+        waiter.SetCanceled(cancellationToken);
     }
 
     private void RollSegmentOnJournalThread()

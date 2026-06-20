@@ -220,7 +220,7 @@ internal sealed class JournalDurabilityGroupCommit
 
         try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(_opt.JournalGroupCommitMaxWaitMs), _timeProvider, delayCts.Token).ConfigureAwait(false);
+            await Task.Delay(_opt.JournalGroupCommitMaxWait, _timeProvider, delayCts.Token).ConfigureAwait(false);
             await DrainPendingCommitsAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (delayCts.IsCancellationRequested)

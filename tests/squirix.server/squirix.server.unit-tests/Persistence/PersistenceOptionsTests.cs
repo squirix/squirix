@@ -35,6 +35,9 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(10, o.FlushIntervalMs);
         Assert.Equal(60, o.SnapshotIntervalSec);
         Assert.Equal(3, o.ManifestRetentionCount);
+        Assert.Equal(TimeSpan.Zero, o.JournalGroupCommitMaxWait);
+        Assert.Equal(32, o.JournalGroupCommitMaxBatch);
+        Assert.False(o.IsJournalGroupCommitEnabled);
     }
 
     /// <summary>

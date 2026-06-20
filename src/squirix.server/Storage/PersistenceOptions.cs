@@ -17,6 +17,7 @@ internal sealed record PersistenceOptions
         JournalMaxSegmentCount = JournalSegmentLimits.DefaultMaxSegmentCount;
         JournalMaxTotalBytesMb = JournalSegmentLimits.DefaultMaxTotalBytesMb;
         JournalGroupCommitMaxBatch = 32;
+        JournalGroupCommitMaxWait = TimeSpan.Zero;
     }
 
     public string DataDir { get; init; } = string.Empty;
@@ -34,7 +35,7 @@ internal sealed record PersistenceOptions
     }
 
     /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
-    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
     [JsonPropertyName("groupCommitMaxBatch")]
@@ -51,17 +52,18 @@ internal sealed record PersistenceOptions
     }
 
     /// <summary>
-    /// Gets the maximum time in milliseconds to wait for additional journal appends before issuing a shared durability flush.
+    /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
     /// When zero, group commit is disabled and each durable mutation flushes independently.
     /// </summary>
-    [JsonPropertyName("groupCommitMaxWaitMs")]
-    public int JournalGroupCommitMaxWaitMs
+    [JsonPropertyName("groupCommitMaxWait")]
+    [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
+    public TimeSpan JournalGroupCommitMaxWait
     {
         get;
         init
         {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
+            if (value < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWait cannot be negative.");
 
             field = value;
         }
@@ -154,8 +156,6 @@ internal sealed record PersistenceOptions
     /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
     public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
 
-    /// <summary>
-    /// Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.
-    /// </summary>
+    /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
     public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
 }

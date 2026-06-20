@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Storage.Journaling.Read;
@@ -115,18 +116,6 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
 
-    private static bool IsExpiredForRecovery(CacheEntry<T>? entry)
-    {
-        if (entry is null)
-        {
-            return false;
-        }
-
-        var isUtcExpired = entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
-        var isRelativeExpired = entry.Expiration is { } expiration && expiration <= TimeSpan.Zero;
-        return isUtcExpired || isRelativeExpired;
-    }
-
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
@@ -140,10 +129,11 @@ internal sealed class RecoveryService<T> : IHostedService
                 if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(payload, out var entry))
                     throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
-                if (IsExpiredForRecovery(entry))
+                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;
 
-                await _localCache.InsertForDurableRecoveryAsync(key, entry!, cancellationToken).ConfigureAwait(false);
+                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
+                await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
                 _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), payload));
                 break;
             }

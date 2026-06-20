@@ -129,8 +129,8 @@ internal static class SquirixOptionsValidators
                 failures.Add("Persistence ManifestRetentionCount must be greater than zero.");
             if (options.SnapshotRetentionCount <= 0)
                 failures.Add("Persistence SnapshotRetentionCount must be greater than zero.");
-            if (options.JournalGroupCommitMaxWaitMs < 0)
-                failures.Add("Persistence JournalGroupCommitMaxWaitMs cannot be negative.");
+            if (options.JournalGroupCommitMaxWait < TimeSpan.Zero)
+                failures.Add("Persistence JournalGroupCommitMaxWait cannot be negative.");
             if (options.JournalGroupCommitMaxBatch <= 0)
                 failures.Add("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
 

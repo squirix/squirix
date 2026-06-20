@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
@@ -36,18 +37,18 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
     }
 
     /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>
-    /// <param name="groupCommitMaxWaitMs">Group-commit wait window; zero disables group commit.</param>
+    /// <param name="groupCommitMaxWaitMilliseconds">Group-commit wait window; zero disables group commit.</param>
     [Theory]
     [InlineData(5)]
     [InlineData(0)]
-    public async Task AppendPutAsyncPutContextReflectsDurabilitySettings(int groupCommitMaxWaitMs)
+    public async Task AppendPutAsyncPutContextReflectsDurabilitySettings(int groupCommitMaxWaitMilliseconds)
     {
         using var dir = new TempDirectory("squirix-tracing-journal-durability");
         var options = new PersistenceOptions
         {
             DataDir = dir,
             JournalBackend = JournalBackend.JsonFramed,
-            JournalGroupCommitMaxWaitMs = groupCommitMaxWaitMs,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 600_000,
         };
@@ -58,10 +59,10 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
 
         var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
-        if (groupCommitMaxWaitMs > 0)
+        if (groupCommitMaxWaitMilliseconds > 0)
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
         var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
-        Assert.Equal(groupCommitMaxWaitMs > 0, context.GroupCommitEnabled);
+        Assert.Equal(groupCommitMaxWaitMilliseconds > 0, context.GroupCommitEnabled);
     }
 }

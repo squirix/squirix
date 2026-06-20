@@ -23,7 +23,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWaitMs = 25,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(25),
             JournalGroupCommitMaxBatch = 8,
         };
 
@@ -56,7 +56,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWaitMs = 5,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(5),
             JournalGroupCommitMaxBatch = 8,
         };
         var flushFailure = new InvalidOperationException("flush failed");
@@ -80,7 +80,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
     {
         var options = new PersistenceOptions
         {
-            JournalGroupCommitMaxWaitMs = 25,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(25),
             JournalGroupCommitMaxBatch = 8,
         };
 
@@ -121,7 +121,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
-            JournalGroupCommitMaxWaitMs = 2,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(2),
             JournalGroupCommitMaxBatch = 8,
         };
         using var manifestStore = new ManifestStore(options);
@@ -156,7 +156,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
-            JournalGroupCommitMaxWaitMs = 50,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(50),
             JournalGroupCommitMaxBatch = 8,
         };
 
