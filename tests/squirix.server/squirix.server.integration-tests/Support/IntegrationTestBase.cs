@@ -4,7 +4,6 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -299,9 +298,7 @@ public abstract class IntegrationTestBase : IDisposable
         [CallerMemberName] string? testName = null)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ?? throw new ArgumentException(
-            "The peers list must contain an entry for the node being started",
-            nameof(peers));
+        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
@@ -399,6 +396,17 @@ public abstract class IntegrationTestBase : IDisposable
             scope = $"{scope}__{tfm}";
 
         return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
+    {
+        foreach (var peer in peers)
+        {
+            if (ListenUrls.SameAuthority(peer.Url, urlString))
+                return peer.NodeId;
+        }
+
+        return null;
     }
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)

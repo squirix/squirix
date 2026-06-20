@@ -99,11 +99,7 @@ try
         distribution[node] = 0;
 
     for (var i = 0; i < sampleSize; i++)
-    {
-        var key = $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}";
-        var owner = ring.GetOwner(cacheName, key);
-        distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
-    }
+        distribution[ring.GetOwner(cacheName, $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
     await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
     await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);

@@ -88,49 +88,48 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
 
     public int Encode(JournalRecord record, Span<byte> destination)
     {
-        var nsBytes = Encoding.UTF8.GetBytes(record.Key.Namespace);
-        var keyBytes = Encoding.UTF8.GetBytes(record.Key.Key);
-        nsBytes.CopyTo(destination[FixedPrefixSize..]);
-        keyBytes.CopyTo(destination[(FixedPrefixSize + nsBytes.Length)..]);
-        var offset = FixedPrefixSize + nsBytes.Length + keyBytes.Length;
+        var ns = record.Key.Namespace;
+        var key = record.Key.Key;
+        var nsLen = Encoding.UTF8.GetByteCount(ns);
+        var keyLen = Encoding.UTF8.GetByteCount(key);
+        var opIdLen = 0;
+        var payloadLen = 0;
+        switch (record.Operation)
+        {
+            case JournalOperationKind.Put:
+                payloadLen = record.PutDiscriminatedEntryJson?.Length ?? 0;
+                opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
+                break;
+
+            case JournalOperationKind.TouchExpiration:
+                payloadLen = 8;
+                break;
+        }
 
         BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
         BinaryPrimitives.WriteInt64LittleEndian(destination[8..], record.UnixMs);
         destination[16] = JournalOpcodeWire.ToWireValue(ToOpcode(record.Operation));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[17..], Convert.ToUInt16(nsBytes.Length));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[19..], Convert.ToUInt16(keyBytes.Length));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[17..], Convert.ToUInt16(nsLen));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[19..], Convert.ToUInt16(keyLen));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], Convert.ToUInt16(opIdLen));
+        BinaryPrimitives.WriteInt32LittleEndian(destination[23..], payloadLen);
+
+        var offset = FixedPrefixSize;
+        offset += Encoding.UTF8.GetBytes(ns, destination[offset..]);
+        offset += Encoding.UTF8.GetBytes(key, destination[offset..]);
 
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
-            {
-                var payload = record.PutDiscriminatedEntryJson ?? [];
-                var opIdBytes = Encoding.UTF8.GetBytes(record.PutOperationId ?? string.Empty);
-                BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], Convert.ToUInt16(opIdBytes.Length));
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[23..], Convert.ToUInt32(payload.Length));
-                nsBytes.CopyTo(destination[FixedPrefixSize..]);
-                keyBytes.CopyTo(destination[(FixedPrefixSize + nsBytes.Length)..]);
-                payload.CopyTo(destination[offset..]);
-                offset += payload.Length;
-                opIdBytes.CopyTo(destination[offset..]);
-                return offset + opIdBytes.Length;
-            }
+                return EncodePut(record, destination, offset, opIdLen);
 
             case JournalOperationKind.Remove:
             case JournalOperationKind.RemoveExpiration:
-                BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], 0);
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[23..], 0);
-                nsBytes.CopyTo(destination[FixedPrefixSize..]);
-                keyBytes.CopyTo(destination[(FixedPrefixSize + nsBytes.Length)..]);
                 return offset;
 
             case JournalOperationKind.TouchExpiration:
             {
                 var expiresMs = record.TouchExpirationUtc is { } utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : 0L;
-                BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], 0);
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[23..], 8);
-                nsBytes.CopyTo(destination[FixedPrefixSize..]);
-                keyBytes.CopyTo(destination[(FixedPrefixSize + nsBytes.Length)..]);
                 BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiresMs);
                 return offset + 8;
             }
@@ -143,6 +142,16 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
             default:
                 throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
         }
+    }
+
+    private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
+    {
+        var payload = record.PutDiscriminatedEntryJson ?? [];
+        payload.CopyTo(destination[offset..]);
+        offset += payload.Length;
+        if (opIdLen > 0)
+            offset += Encoding.UTF8.GetBytes(record.PutOperationId!, destination[offset..]);
+        return offset;
     }
 
     private static JournalOpcode ToOpcode(JournalOperationKind operation)

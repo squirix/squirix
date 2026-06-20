@@ -70,11 +70,10 @@ public sealed class MeasurementSink : IDisposable
             var found = false;
             foreach (var tag in tags)
             {
-                if (string.Equals(tag.Key, k, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, v))
-                {
-                    found = true;
-                    break;
-                }
+                if (!string.Equals(tag.Key, k, StringComparison.OrdinalIgnoreCase) || !TagValueEquals(tag.Value, v))
+                    continue;
+                found = true;
+                break;
             }
 
             if (!found)
