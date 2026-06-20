@@ -2,7 +2,7 @@ using System;
 using System.Text;
 using System.Text.Json;
 using Google.Protobuf;
-using Squirix.Server.Storage.Journaling.Json;
+using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.UnitTests.Support;

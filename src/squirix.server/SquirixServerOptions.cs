@@ -18,7 +18,7 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = [];
 
-    /// <summary>Gets or sets a value indicating whether WAL/snapshot persistence is enabled.</summary>
+    /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
 
     /// <summary>Gets or sets the primary HTTP/2 URL used for gRPC and node traffic.</summary>
@@ -35,7 +35,7 @@ public sealed class SquirixServerOptions
     /// <returns><see langword="true" /> when configuration is valid.</returns>
     public bool TryValidate(out IReadOnlyList<string> errors) => ClusterTopologyValidator.TryValidate(this, out errors);
 
-    /// <summary>Enables WAL/snapshot persistence for this node.</summary>
+    /// <summary>Enables journal/snapshot persistence for this node.</summary>
     /// <param name="dataDirectory">Optional data directory override.</param>
     public void UsePersistence(string? dataDirectory = null)
     {

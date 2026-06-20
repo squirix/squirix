@@ -5,7 +5,7 @@ using Google.Protobuf;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Json;
+using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;

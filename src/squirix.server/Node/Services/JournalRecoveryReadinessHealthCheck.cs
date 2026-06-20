@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Node.Services;
 

@@ -1,6 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server;
 

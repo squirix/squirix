@@ -6,9 +6,9 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark parameter enum is part of public benchmark parameterization.")]
 public enum E2EBenchmarkDurabilityMode
 {
-    /// <summary>In-memory cache without WAL/snapshot persistence.</summary>
+    /// <summary>In-memory cache without journal/snapshot persistence.</summary>
     Ephemeral,
 
-    /// <summary>WAL/snapshot persistence enabled.</summary>
+    /// <summary>journal/snapshot persistence enabled.</summary>
     Persistence,
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -61,7 +62,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         public void SetFrameBytes(int payloadBytes)
         {
             _ = _activity.SetTag("journal.frame.payload_bytes", payloadBytes);
-            _ = _activity.SetTag("journal.frame.total_bytes", JournalFraming.FrameHeaderSize + payloadBytes + JournalFraming.FrameFooterSize);
+            _ = _activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
         }
     }
 }

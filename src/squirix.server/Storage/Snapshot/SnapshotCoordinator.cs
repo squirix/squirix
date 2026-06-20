@@ -10,7 +10,8 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Storage.Snapshot;
 

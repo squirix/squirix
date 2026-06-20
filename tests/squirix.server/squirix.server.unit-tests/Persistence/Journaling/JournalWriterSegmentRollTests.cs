@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.PipelinedWal;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -25,7 +25,12 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
 
         var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowFrameLen = FrameLength(overflowPayload);
@@ -52,7 +57,12 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
 
         var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowFrameLen = FrameLength(overflowPayload);
@@ -79,8 +89,7 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
         await File.WriteAllTextAsync(PathKit.Combine(dataDir, blockedName), string.Empty, DefaultCancellationToken);
     }
 
-    private static Task<byte[]> BuildLargePutPayloadAsync() =>
-        DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('y', 16_000), null, null, 1, null);
+    private static Task<byte[]> BuildLargePutPayloadAsync() => DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('y', 16_000), null, null, 1, null);
 
     private static bool ContainsPutKey(IEnumerable<JournalEnvelope> envelopes, string key)
     {
@@ -120,7 +129,7 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
         Assert.True(journal.ActiveSegmentWrittenBytes + overflowFrameLen > maxBytes);
     }
 
-    private static int FrameLength(byte[] payload) => JournalFraming.FrameHeaderSize + payload.Length + JournalFraming.FrameFooterSize;
+    private static int FrameLength(byte[] payload) => JournalFraming.FrameTotalLength(payload.Length);
 
     private static List<JournalEnvelope> ReadSingleSegment(string dataDir, int segmentIndex)
     {

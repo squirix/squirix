@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Node.Hosting;
 

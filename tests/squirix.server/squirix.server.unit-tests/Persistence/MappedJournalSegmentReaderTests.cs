@@ -7,7 +7,8 @@ using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Json;
+using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -194,7 +195,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
         stream.Write(payloadLength);
         stream.Write(payload);
 
-        Span<byte> footer = stackalloc byte[JournalFraming.FrameFooterSize];
+        Span<byte> footer = stackalloc byte[JournalFrameEnvelope.FooterSize];
         BinaryPrimitives.WriteUInt32LittleEndian(footer, crc);
         stream.Write(footer);
     }
@@ -228,5 +229,7 @@ public sealed class MappedJournalSegmentReaderTests : UnitTestBase, IAsyncLifeti
         }
     }
 
-    private string JournalPath(int index) => PathKit.Combine(Dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+    private string JournalPath(int index) => PathKit.Combine(
+        Dir,
+        $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 }

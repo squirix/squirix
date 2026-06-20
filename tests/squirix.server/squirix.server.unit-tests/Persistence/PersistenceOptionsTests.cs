@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -26,7 +27,11 @@ public sealed class PersistenceOptionsTests
         var o = new PersistenceOptions();
 
         Assert.Equal(string.Empty, o.DataDir);
-        Assert.Equal(128, o.JournalMaxSegmentMb);
+        Assert.Equal(64, o.JournalMaxSegmentMb);
+        Assert.Equal(32, o.JournalMaxSegmentCount);
+        Assert.Equal(2048, o.JournalMaxTotalBytesMb);
+        Assert.Equal(JournalBackend.Pipelined, o.JournalBackend);
+        Assert.Equal(JournalPlatformBackend.Auto, o.JournalPlatformBackend);
         Assert.Equal(10, o.FlushIntervalMs);
         Assert.Equal(60, o.SnapshotIntervalSec);
         Assert.Equal(3, o.ManifestRetentionCount);

@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Node.Services;
 

@@ -7,5 +7,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Squirix.Server.TestKit")]
 [assembly: InternalsVisibleTo("squirix-test-host")]
 [assembly: InternalsVisibleTo("sqr-ring-distribution")]
-[assembly: InternalsVisibleTo("Squirix.Wal.Benchmarks")]
+[assembly: InternalsVisibleTo("Squirix.Server.Benchmarks")]
 [assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]

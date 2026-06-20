@@ -4,6 +4,7 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -109,7 +110,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="servicesConfigure">Optional action to configure DI services.</param>
     /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
     /// <param name="persistenceOptions">Optional persistence options.</param>
-    /// <param name="usePersistence">When <see langword="true" />, starts the node with WAL/snapshot persistence enabled.</param>
+    /// <param name="usePersistence">When <see langword="true" />, starts the node with journal/snapshot persistence enabled.</param>
     /// <param name="output">Optional xUnit output helper for log capture.</param>
     /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
     /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
@@ -184,7 +185,9 @@ public abstract class SmokeTestBase : IDisposable
         CancellationToken cancellationToken = default)
     {
         var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        var selfNodeId = peers.FirstOrDefault(p => ListenUrls.SameAuthority(p.Url, urlString))?.NodeId ?? throw new ArgumentException(
+            "The peers list must contain an entry for the node being started",
+            nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
@@ -318,17 +321,6 @@ public abstract class SmokeTestBase : IDisposable
         var baseName = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
         var combined = string.IsNullOrWhiteSpace(extra) ? baseName : $"{baseName}__{extra}";
         return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
-    }
-
-    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
-    {
-        foreach (var peer in peers)
-        {
-            if (ListenUrls.SameAuthority(peer.Url, urlString))
-                return peer.NodeId;
-        }
-
-        return null;
     }
 
     /// <summary>

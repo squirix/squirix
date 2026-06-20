@@ -7,7 +7,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// </summary>
 public sealed class TestNodeHostStartOptions
 {
-    /// <summary>Gets the persistence data directory. When set, the node starts with WAL/snapshot persistence enabled.</summary>
+    /// <summary>Gets the persistence data directory. When set, the node starts with journal/snapshot persistence enabled.</summary>
     public string? DataDir { get; init; }
 
     /// <summary>Gets shared cluster mTLS context for multi-node topologies in the same test case.</summary>

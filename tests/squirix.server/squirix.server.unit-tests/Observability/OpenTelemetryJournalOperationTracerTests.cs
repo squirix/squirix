@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;

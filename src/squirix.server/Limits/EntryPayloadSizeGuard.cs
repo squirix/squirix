@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Limits;
 

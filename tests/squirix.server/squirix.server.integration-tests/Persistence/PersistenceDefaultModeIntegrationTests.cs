@@ -27,7 +27,7 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         Assert.Equal("value", value.Value);
     }
 
-    /// <summary>Ensures default startup does not create WAL, manifest, or snapshot files.</summary>
+    /// <summary>Ensures default startup does not create journal, manifest, or snapshot files.</summary>
     [Fact]
     public async Task DefaultStartupDoesNotCreatePersistenceFiles()
     {

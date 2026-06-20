@@ -2,7 +2,8 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Node.Observability;
 

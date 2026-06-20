@@ -145,7 +145,7 @@ section in settings (mapped into the same options model).
 | `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
 | `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
 
-Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable WAL/snapshot persistence. The standalone
+Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
 
 Example:
@@ -195,10 +195,10 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `StrictFsync`                 | bool   | `true`                                                     | Any boolean                                                                                                                                |
 | `JournalGroupCommitMaxWaitMs` | int    | `0`                                                        | `>= 0` (`0` disables group commit)                                                                                                         |
 | `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`                                                                                                                                      |
-| `JournalBackend`              | string | `PipelinedWal`                                             | `JsonFramed` or `PipelinedWal`                                                                                                             |
-| `WalPlatformBackend`          | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
-| `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (PipelinedWal segment count cap)                                                                                                     |
-| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (PipelinedWal total WAL size cap)                                                                                                    |
+| `JournalBackend`              | string | `Pipelined`                                                | `JsonFramed` or `Pipelined`                                                                                                                |
+| `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
+| `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
 
 See [journal group commit](journal-group-commit.md) for latency vs throughput tradeoffs.
 

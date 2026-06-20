@@ -1,0 +1,755 @@
+using System;
+using System.Buffers;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Core;
+using Squirix.Server.Limits;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Limits;
+using Squirix.Server.Storage.Journaling.Pipelined.Codec;
+using Squirix.Server.Storage.Journaling.Pipelined.Platform;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Utils;
+
+namespace Squirix.Server.Storage.Journaling.Pipelined;
+
+/// <summary>Single-writer pipelined journal coordinator with binary frames and dedicated I/O thread.</summary>
+internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
+{
+    private const int BatchFlushBytes = 4 * 1024 * 1024;
+    private const int BatchFlushIntervalMs = 1;
+    private const int RingCapacity = 4096;
+    private static readonly IJournalFrameCodec FrameCodec = JournalFrameCodecFactory.Binary;
+    private readonly CancellationTokenSource _bgCts = new();
+    private readonly JournalDurabilityGroupCommit? _groupCommit;
+    private readonly Thread _journalThread;
+    private readonly ManifestStore _manifestStore;
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
+    private readonly PersistenceOptions _opt;
+    private readonly Lock _pendingMemoryApplyLock = new();
+    private readonly JournalSegmentPolicy _policy;
+
+    private readonly BoundedMpscRing _ring = new(RingCapacity);
+    private readonly IJournalSegmentWriter _segmentWriter;
+    private readonly Lock _sequenceLock = new();
+    private readonly JournalStartupGate _startupGate;
+    private string? _activeSegmentPath;
+    private long _activeSegmentWrittenBytes;
+    private double _avgAppendLatencyMs;
+    private long _batchBytesSinceFlush;
+    private long _bytes;
+    private volatile bool _dirty;
+    private int _disposed;
+    private Exception? _journalThreadFailure;
+    private long _journalTotalBytes;
+    private long _lastFlushTimestampMs;
+    private ulong _nextSequence;
+    private long _ops;
+    private int _pendingMemoryApplyCount;
+    private TaskCompletionSource? _pendingMemoryApplyDrained;
+
+    private PipelinedJournalCoordinator(PersistenceOptions opt, Manifest manifest, ManifestStore manifestStore, JournalStartupGate startupGate, IJournalSegmentWriter segmentWriter)
+    {
+        _opt = opt;
+        _manifestStore = manifestStore;
+        _startupGate = startupGate;
+        _segmentWriter = segmentWriter;
+        _policy = new JournalSegmentPolicy(opt);
+        _journalTotalBytes = JournalReader.GetOnDiskTotalBytes(_opt.DataDir);
+        _groupCommit = _opt.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(FlushAsync, _opt) : null;
+        _ = DirectoryEx.CreateDirectory(_opt.DataDir);
+        CurrentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        _nextSequence = DetermineNextSequence(manifest, _opt);
+        _journalThread = new Thread(JournalThreadMain) { IsBackground = true, Name = "squirix-journal-io" };
+        _journalThread.Start();
+    }
+
+    public event EventHandler? OnAppended;
+
+    public long AppendedBytes => Interlocked.Read(ref _bytes);
+
+    public long AppendedOps => Interlocked.Read(ref _ops);
+
+    public int CurrentSegmentIndex { get; private set; }
+
+    public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
+
+    public bool IsJournalGroupCommitEnabled => _opt.IsJournalGroupCommitEnabled;
+
+    public ulong NextSequence
+    {
+        get
+        {
+            lock (_sequenceLock)
+                return _nextSequence;
+        }
+    }
+
+    public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
+
+    public static async Task<PipelinedJournalCoordinator> CreateAsync(
+        PersistenceOptions opt,
+        Manifest manifest,
+        ManifestStore manifestStore,
+        JournalStartupGate startupGate,
+        CancellationToken cancellationToken = default)
+    {
+        await PrepareActiveSegmentForSequenceScanAsync(manifest, opt, cancellationToken).ConfigureAwait(false);
+        var writer = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
+        return new PipelinedJournalCoordinator(opt, manifest, manifestStore, startupGate, writer);
+    }
+
+    public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    {
+        EntryPayloadSizeGuard.EnsureDiscriminatedJsonWithinLimit(discriminatedEntryJson);
+        return AppendRecordAsync(
+            new JournalRecord
+            {
+                Sequence = AllocateSequence(),
+                UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Operation = JournalOperationKind.Put,
+                Key = key,
+                PutDiscriminatedEntryJson = discriminatedEntryJson,
+                PutOperationId = operationId ?? string.Empty,
+            },
+            cancellationToken);
+    }
+
+    public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendRecordAsync(CreateRecord(key, JournalOperationKind.Remove), cancellationToken);
+
+    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => AppendRecordAsync(
+        CreateRecord(key, JournalOperationKind.RemoveExpiration),
+        cancellationToken);
+
+    public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => AppendRecordAsync(
+        new JournalRecord
+        {
+            Sequence = AllocateSequence(),
+            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Operation = JournalOperationKind.TouchExpiration,
+            Key = key,
+            TouchExpirationUtc = expiresUtc,
+        },
+        cancellationToken);
+
+    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfJournalThreadFailed();
+        return _groupCommit?.AwaitCommitAsync(cancellationToken) ?? FlushAsync(cancellationToken);
+    }
+
+    public void BeginPendingMemoryApply()
+    {
+        lock (_pendingMemoryApplyLock)
+            _pendingMemoryApplyCount++;
+    }
+
+    public void CompletePendingMemoryApply()
+    {
+        TaskCompletionSource? drained = null;
+        lock (_pendingMemoryApplyLock)
+        {
+            if (_pendingMemoryApplyCount <= 0)
+                throw new InvalidOperationException("No pending journal memory apply is registered.");
+
+            _pendingMemoryApplyCount--;
+            if (_pendingMemoryApplyCount is 0)
+            {
+                drained = _pendingMemoryApplyDrained;
+                _pendingMemoryApplyDrained = null;
+            }
+        }
+
+        drained?.SetResult();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+            return;
+
+        var failures = new List<Exception>();
+        try
+        {
+            await _bgCts.CancelAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Concurrent teardown can dispose the CTS before cancellation is observed.
+        }
+
+        if (_groupCommit is not null)
+            await _groupCommit.CancelPendingAsync(new ObjectDisposedException(nameof(PipelinedJournalCoordinator))).ConfigureAwait(false);
+
+        EnqueueShutdown();
+        await AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
+        await _segmentWriter.DisposeAsync().ConfigureAwait(false);
+        _bgCts.Dispose();
+        _mutationGate.Dispose();
+        ThrowDisposeFailures(failures);
+    }
+
+    public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ThrowIfJournalThreadFailed();
+        await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await EnqueueMaintenanceAsync(action, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _mutationGate.Release();
+        }
+    }
+
+    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
+        TState state,
+        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(captureUnderBarrier);
+        ArgumentNullException.ThrowIfNull(buildOutsideBarrier);
+        ThrowIfJournalThreadFailed();
+
+        await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForSnapshotCutAdmissionAsync(cancellationToken).ConfigureAwait(false);
+        ulong seqAtFlush;
+        TBarrier barrierState;
+        try
+        {
+            await FlushAsync(cancellationToken).ConfigureAwait(false);
+            seqAtFlush = NextSequence > 0 ? NextSequence - 1UL : 0UL;
+            barrierState = await captureUnderBarrier(state, seqAtFlush, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _mutationGate.Release();
+        }
+
+        return await buildOutsideBarrier(state, seqAtFlush, barrierState, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ThrowIfJournalThreadFailed();
+
+        try
+        {
+            await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("journal coordinator is disposed.", ex);
+        }
+
+        try
+        {
+            return await action(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = _mutationGate.Release();
+        }
+    }
+
+    public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _startupGate.WaitAsync(cancellationToken);
+
+    private static void CompleteJournalWorkItem(JournalWorkItem item) => item.Completion?.SetResult();
+
+    private static long ComputeValidLength(FileStream stream)
+    {
+        if (stream.Length == 0)
+            return 0;
+
+        stream.Position = 0;
+        Span<byte> header = stackalloc byte[JournalBinaryFraming.FileHeaderSize];
+        if (!StreamEx.TryReadExact(stream, header))
+            throw new InvalidDataException("journal segment has a truncated file header.");
+
+        JournalBinaryFraming.ValidateFileHeader(header);
+
+        long validLength = JournalBinaryFraming.FileHeaderSize;
+        while (true)
+        {
+            var read = JournalFrameReader.ReadNext(stream, validLength, out var rentedBuffer, out _);
+            if (read.Status is JournalFrameReadStatus.EndOfFile or not JournalFrameReadStatus.Success)
+                return validLength;
+
+            validLength = read.NextFrameOffset;
+            if (rentedBuffer is not null)
+                ArrayPool<byte>.Shared.Return(rentedBuffer);
+        }
+    }
+
+    private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment) => new(
+        $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent=False.");
+
+    private static JournalRecord CreateRecord(CacheKey key, JournalOperationKind operation) => new()
+    {
+        Sequence = 0,
+        UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        Operation = operation,
+        Key = key,
+    };
+
+    private static ulong DetermineNextSequence(Manifest manifest, PersistenceOptions options)
+    {
+        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
+        if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
+            next = lastApplied + 1UL;
+
+        var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
+        var firstAvailableSegment = 0;
+        var lastAvailableSegment = 0;
+        foreach (var segment in JournalReadPath.EnumerateSegments(options.DataDir, 1))
+        {
+            if (firstAvailableSegment is 0)
+                firstAvailableSegment = segment.Index;
+
+            lastAvailableSegment = segment.Index;
+        }
+
+        ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
+
+        foreach (var record in JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None))
+        {
+            if (record.Sequence >= next)
+                next = record.Sequence + 1UL;
+        }
+
+        return next;
+    }
+
+    private static async Task PrepareActiveSegmentForSequenceScanAsync(Manifest manifest, PersistenceOptions options, CancellationToken cancellationToken)
+    {
+        var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
+        if (!File.Exists(path))
+            return;
+
+        var writer = JournalSegmentWriterFactory.Create(options.JournalPlatformBackend);
+        await using (writer.ConfigureAwait(false))
+        {
+            writer.OpenSegment(path, true);
+            if (writer.Length == 0)
+                return;
+
+            await RepairTornTailIfNeededAsync(writer, path, cancellationToken).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ComputeValidLength(stream);
+        }
+        finally
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private static async Task RepairTornTailIfNeededAsync(IJournalSegmentWriter writer, string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var validLength = await ReadValidSegmentLengthAsync(path, cancellationToken).ConfigureAwait(false);
+            if (validLength == writer.Length)
+                return;
+
+            writer.Truncate(validLength);
+            if (validLength == 0)
+                WriteFreshFileHeader(writer);
+
+            writer.Fsync();
+        }
+        catch (InvalidDataException) when (writer.Length > 0)
+        {
+            writer.Truncate(0);
+            WriteFreshFileHeader(writer);
+            writer.Fsync();
+        }
+    }
+
+    private static void ThrowDisposeFailures(List<Exception> failures)
+    {
+        switch (failures.Count)
+        {
+            case 0:
+                return;
+            case 1:
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+                break;
+            default:
+                throw new AggregateException("journal coordinator disposal failed.", failures);
+        }
+    }
+
+    private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)
+    {
+        if (firstAvailableSegment is 0)
+        {
+            if (manifestCurrentJournal is not 1)
+                throw CreateJournalTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+
+            return;
+        }
+
+        if (lastAvailableSegment < manifestCurrentJournal)
+            throw CreateJournalTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+    }
+
+    private static void WriteFreshFileHeader(IJournalSegmentWriter writer)
+    {
+        Span<byte> header = stackalloc byte[JournalBinaryFraming.FileHeaderSize];
+        JournalBinaryFraming.WriteFileHeader(header);
+        writer.Write(header, 0);
+    }
+
+    private ulong AllocateSequence()
+    {
+        lock (_sequenceLock)
+            return ++_nextSequence;
+    }
+
+    private ValueTask AppendRecordAsync(JournalRecord template, CancellationToken cancellationToken)
+    {
+        ThrowIfJournalThreadFailed();
+        var journalRecord = new JournalRecord
+        {
+            Sequence = AllocateSequence(),
+            UnixMs = template.UnixMs,
+            Operation = template.Operation,
+            Key = template.Key,
+            PutDiscriminatedEntryJson = template.PutDiscriminatedEntryJson,
+            PutOperationId = template.PutOperationId,
+            TouchExpirationUtc = template.TouchExpirationUtc,
+        };
+        var record = template.Sequence is 0 ? journalRecord : template;
+        return AppendRecordCoreAsync(record, cancellationToken);
+    }
+
+    private async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
+    {
+        ThrowIfJournalThreadFailed();
+
+        await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
+        var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
+        try
+        {
+            var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
+            _ = FrameCodec.Encode(record, body);
+            JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
+
+            var sw = Stopwatch.StartNew();
+            await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
+            sw.Stop();
+
+            var elapsedMs = sw.Elapsed.TotalMilliseconds;
+            var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
+            Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+
+            _ = Interlocked.Add(ref _bytes, frameLen);
+            _ = Interlocked.Increment(ref _ops);
+            OnAppended?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(frameBytes);
+        }
+    }
+
+    private async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures)
+    {
+        try
+        {
+            if (!await Task.Run(() => _journalThread.Join(TimeSpan.FromSeconds(30)), _bgCts.Token).ConfigureAwait(false))
+            {
+                failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
+            }
+        }
+        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
+        {
+            // Dispose cancelled the join wait when teardown already completed.
+        }
+        catch (ObjectDisposedException ex)
+        {
+            failures.Add(ex);
+        }
+    }
+
+    private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
+    {
+        var copy = new byte[frameLength];
+        Buffer.BlockCopy(frameBytes, 0, copy, 0, frameLength);
+        var item = new JournalWorkItem { Kind = JournalWorkKind.Append, FrameBytes = copy, FrameLength = frameLength };
+        while (!_ring.TryEnqueue(in item))
+            await Task.Yield();
+
+        _dirty = true;
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    private async ValueTask EnqueueFlushAsync(CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = new JournalWorkItem { Kind = JournalWorkKind.Flush, Completion = tcs };
+        while (!_ring.TryEnqueue(in item))
+            await Task.Yield();
+
+        await tcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    {
+        var begin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var beginItem = new JournalWorkItem { Kind = JournalWorkKind.MaintenanceBegin, Completion = begin };
+        while (!_ring.TryEnqueue(in beginItem))
+            await Task.Yield();
+
+        await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await action(cancellationToken).ConfigureAwait(false);
+
+        var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+        var resetSequence = DetermineNextSequence(manifest, _opt);
+
+        var end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var endItem = new JournalWorkItem
+        {
+            Kind = JournalWorkKind.MaintenanceEnd,
+            Completion = end,
+            ResetSegmentIndex = resetSegmentIndex,
+            ResetSequence = resetSequence,
+        };
+        while (!_ring.TryEnqueue(in endItem))
+            await Task.Yield();
+
+        await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private void EnqueueShutdown()
+    {
+        var shutdownItem = new JournalWorkItem { Kind = JournalWorkKind.Shutdown };
+        while (!_ring.TryEnqueue(in shutdownItem))
+            Thread.SpinWait(32);
+    }
+
+    private void EnsureSegmentOpen()
+    {
+        if (_activeSegmentPath is not null)
+            return;
+
+        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
+        var append = File.Exists(_activeSegmentPath);
+        _segmentWriter.OpenSegment(_activeSegmentPath, append);
+        if (_segmentWriter.Length == 0)
+        {
+            Span<byte> header = stackalloc byte[JournalBinaryFraming.FileHeaderSize];
+            JournalBinaryFraming.WriteFileHeader(header);
+            _segmentWriter.Write(header, 0);
+        }
+
+        _activeSegmentWrittenBytes = _segmentWriter.Length;
+    }
+
+    private ValueTask FlushAsync(CancellationToken cancellationToken) => EnqueueFlushAsync(cancellationToken);
+
+    private void FsyncOnJournalThread()
+    {
+        if (!_dirty)
+            return;
+
+        _segmentWriter.Fsync();
+        _dirty = false;
+        _batchBytesSinceFlush = 0;
+        _lastFlushTimestampMs = Environment.TickCount64;
+    }
+
+    private bool HasPendingMemoryApply()
+    {
+        lock (_pendingMemoryApplyLock)
+            return _pendingMemoryApplyCount > 0;
+    }
+
+    private void JournalThreadMain()
+    {
+        try
+        {
+            while (true)
+            {
+                if (!_ring.TryDequeue(out var item))
+                {
+                    _ring.SpinWaitForWork(_bgCts.Token);
+                    if (!_ring.TryDequeue(out item))
+                        continue;
+                }
+
+                switch (item.Kind)
+                {
+                    case JournalWorkKind.Append:
+                        ProcessAppend(item);
+                        break;
+
+                    case JournalWorkKind.Flush:
+                        FsyncOnJournalThread();
+                        CompleteJournalWorkItem(item);
+                        break;
+
+                    case JournalWorkKind.Shutdown:
+                        FsyncOnJournalThread();
+                        return;
+
+                    case JournalWorkKind.MaintenanceBegin:
+                        FsyncOnJournalThread();
+                        _activeSegmentPath = null;
+                        CompleteJournalWorkItem(item);
+                        break;
+
+                    case JournalWorkKind.MaintenanceEnd:
+                        CurrentSegmentIndex = item.ResetSegmentIndex;
+                        lock (_sequenceLock)
+                            _nextSequence = item.ResetSequence;
+                        _activeSegmentWrittenBytes = 0;
+                        _dirty = false;
+                        CompleteJournalWorkItem(item);
+                        break;
+
+                    default:
+                        throw new InvalidOperationException($"unknown journal work kind {item.Kind}.");
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            Volatile.Write(ref _journalThreadFailure, ex);
+        }
+        catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
+        {
+            // journal I/O thread exits when background cancellation is requested during dispose.
+        }
+    }
+
+    private void MaybeRollSegment(int incomingFrameBytes)
+    {
+        if (!_policy.ShouldRollSegment(_activeSegmentWrittenBytes, incomingFrameBytes))
+            return;
+
+        JournalReadPath.EnsureSegmentRollCapacityOrThrow(_opt.DataDir, _policy);
+        RollSegmentOnJournalThread();
+    }
+
+    private void MaybeTimeOrSizeFlush()
+    {
+        var now = Environment.TickCount64;
+        if (_batchBytesSinceFlush < BatchFlushBytes && now - _lastFlushTimestampMs < BatchFlushIntervalMs)
+            return;
+
+        FsyncOnJournalThread();
+    }
+
+    private void ProcessAppend(JournalWorkItem item)
+    {
+        EnsureSegmentOpen();
+        _policy.EnsureAppendCapacityOrThrow(_journalTotalBytes, item.FrameLength);
+        MaybeRollSegment(item.FrameLength);
+        var offset = _activeSegmentWrittenBytes;
+        try
+        {
+            _segmentWriter.Write(item.FrameBytes!.AsSpan(0, item.FrameLength), offset);
+        }
+        catch (IOException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+        catch (ObjectDisposedException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+
+        Volatile.Write(ref _activeSegmentWrittenBytes, offset + item.FrameLength);
+        _journalTotalBytes += item.FrameLength;
+        _batchBytesSinceFlush += item.FrameLength;
+        _dirty = true;
+        MaybeTimeOrSizeFlush();
+    }
+
+    private void RollSegmentOnJournalThread()
+    {
+        FsyncOnJournalThread();
+        CurrentSegmentIndex++;
+        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
+        _segmentWriter.OpenSegment(_activeSegmentPath, false);
+        Span<byte> header = stackalloc byte[JournalBinaryFraming.FileHeaderSize];
+        JournalBinaryFraming.WriteFileHeader(header);
+        _segmentWriter.Write(header, 0);
+        Volatile.Write(ref _activeSegmentWrittenBytes, JournalBinaryFraming.FileHeaderSize);
+        _journalTotalBytes += JournalBinaryFraming.FileHeaderSize;
+        _dirty = false;
+        _batchBytesSinceFlush = 0;
+    }
+
+    private void ThrowIfJournalThreadFailed()
+    {
+        if (Volatile.Read(ref _journalThreadFailure) is { } failure)
+            throw new InvalidOperationException("journal I/O thread failed.", failure);
+    }
+
+    private void TruncateActiveSegmentAfterFailedFrame(long frameStart)
+    {
+        _segmentWriter.Truncate(frameStart);
+        Volatile.Write(ref _activeSegmentWrittenBytes, frameStart);
+        _dirty = frameStart > 0;
+    }
+
+    private ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken)
+    {
+        Task waitTask;
+        lock (_pendingMemoryApplyLock)
+        {
+            if (_pendingMemoryApplyCount is 0)
+                return ValueTask.CompletedTask;
+
+            _pendingMemoryApplyDrained ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            waitTask = _pendingMemoryApplyDrained.Task;
+        }
+
+        return new ValueTask(waitTask.WaitAsync(cancellationToken));
+    }
+
+    private async ValueTask WaitForSnapshotCutAdmissionAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
+            await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (!HasPendingMemoryApply())
+                return;
+
+            _ = _mutationGate.Release();
+        }
+    }
+}

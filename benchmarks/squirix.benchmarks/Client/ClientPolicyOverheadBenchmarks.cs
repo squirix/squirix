@@ -30,19 +30,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
         var policy = _policy!;
         for (var i = 0; i < Batch; i++)
         {
-            var result = await failover.ExecuteAsync((_, ct) => policy.ExecuteAsync(static token => CompletedValueTaskAsync(token), ct), CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result);
-        }
-    }
-
-    /// <summary>Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.</summary>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatchedAsync()
-    {
-        var failover = _failover!;
-        var policy = _policy!;
-        for (var i = 0; i < Batch; i++)
-        {
             var result = await failover.ExecuteAsync(
                 static (_, policyState, ct) => policyState.ExecuteAsync(static (_, token) => CompletedValueTaskAsync(token), 0, ct),
                 policy,

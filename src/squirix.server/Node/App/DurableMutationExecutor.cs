@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
 

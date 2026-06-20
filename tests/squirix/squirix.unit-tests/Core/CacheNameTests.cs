@@ -48,11 +48,7 @@ public sealed class CacheNameTests : UnitTestBase
 
     /// <summary>Verifies excessive length is rejected.</summary>
     [Fact]
-    public void ParsePublicRejectsTooLongNames()
-    {
-        var tooLong = new string('a', CacheNameValidator.MaxLength + 1);
-        _ = Assert.Throws<ArgumentException>(() => CacheName.ParsePublic(tooLong));
-    }
+    public void ParsePublicRejectsTooLongNames() => _ = Assert.Throws<ArgumentException>(static () => CacheName.ParsePublic(new string('a', CacheNameValidator.MaxLength + 1)));
 
     /// <summary>Verifies string projection returns the canonical cache name.</summary>
     [Fact]

@@ -9,8 +9,9 @@ using Microsoft.Extensions.Logging;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.PipelinedWal.Read;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -134,7 +135,7 @@ internal sealed class RecoveryService<T> : IHostedService
         {
             case JournalOperationKind.Put:
             {
-                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var payload = record.PutDiscriminatedEntryJson ?? [];
                 if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(payload, out var entry))
                     throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
@@ -149,26 +150,31 @@ internal sealed class RecoveryService<T> : IHostedService
 
             case JournalOperationKind.Remove:
             {
-                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 _ = await _localCache.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.RemoveExpiration:
             {
-                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
             case JournalOperationKind.TouchExpiration:
             {
-                var key = new CacheKey(PersistedCacheNamespace.Normalize(record.Key.Namespace), record.Key.Key);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
                 _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
+            case JournalOperationKind.AwaitDurabilityCommit:
+            case JournalOperationKind.WaitForStartup:
+            case JournalOperationKind.MaintenanceExclusive:
+            case JournalOperationKind.SnapshotCut:
+            case JournalOperationKind.UnderSnapshotBarrier:
             default:
                 throw new ArgumentOutOfRangeException(nameof(record), record.Operation, "Unsupported journal op.");
         }

@@ -24,7 +24,7 @@
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.7.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Tokens" Version="8.19.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
-    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.104" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.105" />
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageVersion Include="squirix" Version="[$(SquirixPackageVersion)]" />
     <PackageVersion Include="squirix.server" Version="[$(SquirixPackageVersion)]" />

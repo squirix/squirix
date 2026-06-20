@@ -4,8 +4,8 @@ using System.Buffers.Binary;
 using System.IO;
 using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Json;
+using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -42,7 +42,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         try
         {
             Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
-            Assert.Equal(first.Length + JournalFraming.FrameHeaderSize + JournalFraming.FrameFooterSize, firstRead.NextFrameOffset);
+            Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
             Assert.Equal("first", RecordCodec.Deserialize(firstBuffer.AsSpan(0, firstLength)).Put.Item.Key);
         }
         finally

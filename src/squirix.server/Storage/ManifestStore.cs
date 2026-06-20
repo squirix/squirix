@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage;

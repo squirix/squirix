@@ -10,7 +10,8 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;

@@ -91,7 +91,7 @@ public sealed class ArchitectureTests : UnitTestBase
     public async Task JournalWriterFlushLoopShouldBeObservedByDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "PipelinedWal", "JsonFramed", "JournalWriter.cs"), DefaultCancellationToken);
+        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JsonFramed", "JournalWriter.cs"), DefaultCancellationToken);
 
         Assert.Contains("_flushLoopTask = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
         Assert.Contains("await _flushLoopTask.ConfigureAwait(false);", text, StringComparison.Ordinal);
@@ -255,6 +255,7 @@ public sealed class ArchitectureTests : UnitTestBase
             "Squirix.Server.IntegrationTests",
             "Squirix.Server.SmokeTests",
             "Squirix.Server.TestKit",
+            "Squirix.Server.Benchmarks",
             "squirix-test-host",
             "sqr-ring-distribution",
             "DynamicProxyGenAssembly2",
@@ -329,17 +330,17 @@ public sealed class ArchitectureTests : UnitTestBase
         var protobuf = LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants().SingleOrDefault(static element =>
             string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase) && string.Equals(
                 element.Attribute("Include")?.Value,
-                @"Storage\Journaling\PipelinedWal\JsonFramed\Protos\JournalEnvelope.proto",
+                @"Storage\Journaling\JsonFramed\Protos\JournalEnvelope.proto",
                 StringComparison.Ordinal));
 
         Assert.NotNull(protobuf);
         Assert.Equal("Server", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"Storage\Journaling\PipelinedWal\JsonFramed\Protos", protobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal(@"Storage\Journaling\JsonFramed\Protos", protobuf.Attribute("ProtoRoot")?.Value);
         Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
         var protoText = await File.ReadAllTextAsync(
-            PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "PipelinedWal", "JsonFramed", "Protos", "JournalEnvelope.proto"),
+            PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JsonFramed", "Protos", "JournalEnvelope.proto"),
             DefaultCancellationToken);
         Assert.Contains("option csharp_namespace = \"Squirix.Server.Storage.JournalProto\";", protoText, StringComparison.Ordinal);
         Assert.Contains("message JournalEnvelope", protoText, StringComparison.Ordinal);

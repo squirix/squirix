@@ -6,9 +6,9 @@ namespace Squirix.Benchmarks.Support.Cluster;
 [SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark parameter enum is consumed by public benchmark classes.")]
 public enum BenchmarkDurabilityMode
 {
-    /// <summary>In-memory cache without WAL/snapshot persistence.</summary>
+    /// <summary>In-memory cache without journal/snapshot persistence.</summary>
     Ephemeral,
 
-    /// <summary>WAL/snapshot persistence enabled.</summary>
+    /// <summary>journal/snapshot persistence enabled.</summary>
     Persistence,
 }

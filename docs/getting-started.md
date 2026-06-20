@@ -21,7 +21,7 @@ ready-to-use client and operational endpoint URLs. **No JWT is required** on thi
 access the cache API. This is a development convenience, not production hardening. See
 [server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
 
-For WAL/snapshot durability:
+For journal/snapshot durability:
 
 ```bash
 squirix-server run --persist --data-dir ./data
