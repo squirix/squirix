@@ -60,14 +60,18 @@ Raw path still slower; 4096 B gap narrowed vs baseline.
 
 ## Breakdown @ 256 B (`SQUIRIX_BENCH_QUICK=1`, 1k ops/invoke)
 
-| Method (Pipelined)              | Mean   | Alloc |
-|---------------------------------|--------|-------|
-| AppendPutWithDurabilityAsync    | 793 ns | 4 B   |
-| EncodeOnly                      | 5 ns   | 1 B   |
-| EnqueueOnlyAsync                | 738 ns | 8 B   |
-| FsyncOnlyAsync                  | 753 ns | 5 B   |
+Post–JournalRecord pool (`35bc0840`):
 
-Encode ≈ 0.6% of baseline; cross-thread + durability dominate.
+| Method (Pipelined)              | Mean     | Alloc |
+|---------------------------------|----------|-------|
+| AppendPutWithDurabilityAsync    | 611 ns   | **3 B** |
+| EncodeOnly                      | 4 ns     | 1 B   |
+| EnqueueOnlyAsync                | 727 ns   | 7 B   |
+| FsyncOnlyAsync                  | 765 ns   | 4 B   |
+
+Pre-pool baseline: AppendPutWithDurabilityAsync **793 ns / 496 B** (strict gate).
+
+Encode ≈ 0.7% of baseline; cross-thread + durability dominate.
 
 ---
 
@@ -75,5 +79,4 @@ Encode ≈ 0.6% of baseline; cross-thread + durability dominate.
 
 - Full (non-quick) `JournalGroupCommitBenchmarks` + `DurableMutationGroupCommitBenchmarks` on CI/Linux when needed.
 - Raw coordinator path: further profiling (append+await double call vs executor single barrier).
-- `JournalRecord` pool — strict alloc ~496 B/op.
-- Production tuning doc (`MaxWaitMs`, `MaxBatch`).
+- `io_uring` — real Linux implementation (currently delegates to `RandomAccessJournalSegmentWriter`).
