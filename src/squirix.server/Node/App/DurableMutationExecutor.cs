@@ -3,13 +3,14 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
 
 internal sealed class DurableMutationExecutor
 {
-    private readonly ConcurrentDictionary<string, byte> _inFlight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
     private readonly IJournalCoordinator _journal;
 
     public DurableMutationExecutor(IJournalCoordinator journal)
@@ -24,7 +25,7 @@ internal sealed class DurableMutationExecutor
         CancellationToken cancellationToken) => ExecuteAsync(null, precondition, appendJournal, applyMemory, cancellationToken);
 
     public async ValueTask<TResult> ExecuteAsync<TResult>(
-        string? conflictKey,
+        CacheKey? conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         Func<CancellationToken, ValueTask> appendJournal,
         Func<CancellationToken, ValueTask<TResult>> applyMemory,
@@ -37,7 +38,7 @@ internal sealed class DurableMutationExecutor
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
         return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
-            ? await ExecuteGroupCommitAsync(conflictKey, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
+            ? await ExecuteGroupCommitAsync(conflictKey.Value, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
             : await ExecuteMonolithicAsync(precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }
 
@@ -63,7 +64,7 @@ internal sealed class DurableMutationExecutor
     }
 
     private async ValueTask<TResult> ExecuteGroupCommitAsync<TResult>(
-        string conflictKey,
+        CacheKey conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         Func<CancellationToken, ValueTask> appendJournal,
         Func<CancellationToken, ValueTask<TResult>> applyMemory,
@@ -102,14 +103,14 @@ internal sealed class DurableMutationExecutor
         cancellationToken).ConfigureAwait(false);
 
     private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanAsync<TResult>(
-        string conflictKey,
+        CacheKey conflictKey,
         GroupCommitExecutionState state,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         Func<CancellationToken, ValueTask> appendJournal,
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
-            throw new InvalidOperationException($"Key already exists: {conflictKey}");
+            throw new InvalidOperationException($"Key already exists: {conflictKey.Namespace}:{conflictKey.Key}");
 
         state.Admitted = true;
         try
@@ -134,7 +135,7 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private void RollbackGroupCommitBarrierState(string conflictKey, GroupCommitExecutionState state)
+    private void RollbackGroupCommitBarrierState(CacheKey conflictKey, GroupCommitExecutionState state)
     {
         if (state.PendingMemoryApply)
             _journal.CompletePendingMemoryApply();

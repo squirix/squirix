@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -17,17 +18,58 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
 
     public byte FileVersion => JournalBinaryFraming.FileVersion;
 
-    public static int ComputeFrameBodyLength(JournalRecord record)
+    public static int ComputeFrameBodyLength(JournalRecord record) => ComputeFrameBodyLength(record, Utf8KeyLengths.From(record.Key));
+
+    public static int Encode(JournalRecord record, Span<byte> destination, Utf8KeyLengths keyUtf8)
     {
-        var nsLen = Encoding.UTF8.GetByteCount(record.Key.Namespace);
-        var keyLen = Encoding.UTF8.GetByteCount(record.Key.Key);
-        var extra = record.Operation switch
+        var ns = record.Key.Namespace;
+        var key = record.Key.Key;
+        var nsLen = keyUtf8.NamespaceLength;
+        var keyLen = keyUtf8.KeyLength;
+        GetPayloadLengths(record, out var opIdLen, out var payloadLen);
+
+        BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
+        BinaryPrimitives.WriteInt64LittleEndian(destination[8..], record.UnixMs);
+        destination[16] = JournalOpcodeWire.ToWireValue(ToOpcode(record.Operation));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[17..], Convert.ToUInt16(nsLen));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[19..], Convert.ToUInt16(keyLen));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], Convert.ToUInt16(opIdLen));
+        BinaryPrimitives.WriteInt32LittleEndian(destination[23..], payloadLen);
+
+        var offset = FixedPrefixSize;
+        offset += Encoding.UTF8.GetBytes(ns, destination[offset..]);
+        offset += Encoding.UTF8.GetBytes(key, destination[offset..]);
+
+        switch (record.Operation)
         {
-            JournalOperationKind.Put => (record.PutDiscriminatedEntryJson?.Length ?? 0) + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
-            JournalOperationKind.TouchExpiration => 8,
-            _ => 0,
-        };
-        return FixedPrefixSize + nsLen + keyLen + extra;
+            case JournalOperationKind.Put:
+                return EncodePut(record, destination, offset, opIdLen);
+
+            case JournalOperationKind.Remove:
+            case JournalOperationKind.RemoveExpiration:
+                return offset;
+
+            case JournalOperationKind.TouchExpiration:
+            {
+                var expiresMs = record.TouchExpirationUtc is { } utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : 0L;
+                BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiresMs);
+                return offset + 8;
+            }
+
+            case JournalOperationKind.AwaitDurabilityCommit:
+            case JournalOperationKind.WaitForStartup:
+            case JournalOperationKind.MaintenanceExclusive:
+            case JournalOperationKind.SnapshotCut:
+            case JournalOperationKind.UnderSnapshotBarrier:
+            default:
+                throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
+        }
+    }
+
+    public static (int BodyLength, Utf8KeyLengths KeyUtf8) PrepareEncode(JournalRecord record)
+    {
+        var keyUtf8 = Utf8KeyLengths.From(record.Key);
+        return (ComputeFrameBodyLength(record, keyUtf8), keyUtf8);
     }
 
     public JournalRecord Decode(ReadOnlySpan<byte> frameBody)
@@ -86,50 +128,17 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
         };
     }
 
-    public int Encode(JournalRecord record, Span<byte> destination)
+    public int Encode(JournalRecord record, Span<byte> destination) => Encode(record, destination, Utf8KeyLengths.From(record.Key));
+
+    private static int ComputeFrameBodyLength(JournalRecord record, Utf8KeyLengths keyUtf8)
     {
-        var ns = record.Key.Namespace;
-        var key = record.Key.Key;
-        var nsLen = Encoding.UTF8.GetByteCount(ns);
-        var keyLen = Encoding.UTF8.GetByteCount(key);
-        GetPayloadLengths(record, out var opIdLen, out var payloadLen);
-
-        BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
-        BinaryPrimitives.WriteInt64LittleEndian(destination[8..], record.UnixMs);
-        destination[16] = JournalOpcodeWire.ToWireValue(ToOpcode(record.Operation));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[17..], Convert.ToUInt16(nsLen));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[19..], Convert.ToUInt16(keyLen));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], Convert.ToUInt16(opIdLen));
-        BinaryPrimitives.WriteInt32LittleEndian(destination[23..], payloadLen);
-
-        var offset = FixedPrefixSize;
-        offset += Encoding.UTF8.GetBytes(ns, destination[offset..]);
-        offset += Encoding.UTF8.GetBytes(key, destination[offset..]);
-
-        switch (record.Operation)
+        var extra = record.Operation switch
         {
-            case JournalOperationKind.Put:
-                return EncodePut(record, destination, offset, opIdLen);
-
-            case JournalOperationKind.Remove:
-            case JournalOperationKind.RemoveExpiration:
-                return offset;
-
-            case JournalOperationKind.TouchExpiration:
-            {
-                var expiresMs = record.TouchExpirationUtc is { } utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : 0L;
-                BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiresMs);
-                return offset + 8;
-            }
-
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
-            default:
-                throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
-        }
+            JournalOperationKind.Put => (record.PutDiscriminatedEntryJson?.Length ?? 0) + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
+            JournalOperationKind.TouchExpiration => 8,
+            _ => 0,
+        };
+        return FixedPrefixSize + keyUtf8.TotalLength + extra;
     }
 
     private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
@@ -183,5 +192,23 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
             JournalOperationKind.UnderSnapshotBarrier => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
             _ => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
         };
+    }
+
+    [StructLayout(LayoutKind.Auto)]
+    internal readonly struct Utf8KeyLengths
+    {
+        public Utf8KeyLengths(int namespaceLength, int keyLength)
+        {
+            NamespaceLength = namespaceLength;
+            KeyLength = keyLength;
+        }
+
+        public int KeyLength { get; }
+
+        public int NamespaceLength { get; }
+
+        public int TotalLength => NamespaceLength + KeyLength;
+
+        public static Utf8KeyLengths From(CacheKey key) => new(Encoding.UTF8.GetByteCount(key.Namespace), Encoding.UTF8.GetByteCount(key.Key));
     }
 }

@@ -15,8 +15,6 @@ internal sealed class PooledByteBufferWriter : IBufferWriter<byte>, IDisposable
         _buffer = ArrayPool<byte>.Shared.Rent(Math.Max(1, initialCapacity));
     }
 
-    public ReadOnlySpan<byte> WrittenSpan => _buffer.AsSpan(0, _index);
-
     public void Advance(int count)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -49,6 +47,28 @@ internal sealed class PooledByteBufferWriter : IBufferWriter<byte>, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureCapacity(sizeHint);
         return _buffer.AsSpan(_index);
+    }
+
+    internal byte[] ExtractBytes()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        byte[] result;
+        if (_index == _buffer.Length)
+        {
+            result = _buffer;
+        }
+        else
+        {
+            result = GC.AllocateUninitializedArray<byte>(_index);
+            _buffer.AsSpan(0, _index).CopyTo(result);
+            ArrayPool<byte>.Shared.Return(_buffer);
+        }
+
+        _buffer = [];
+        _index = 0;
+        _disposed = true;
+        return result;
     }
 
     private void EnsureCapacity(int sizeHint)

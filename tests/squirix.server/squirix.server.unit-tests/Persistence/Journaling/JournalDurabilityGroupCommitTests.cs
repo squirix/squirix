@@ -130,7 +130,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         var observedPendingFlushDuringMemoryApply = false;
 
         _ = await executor.ExecuteAsync(
-            "default:k",
+            CacheKey.Default("k"),
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, ct); },
             _ =>

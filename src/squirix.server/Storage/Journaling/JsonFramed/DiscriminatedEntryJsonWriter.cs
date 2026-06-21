@@ -26,7 +26,7 @@ internal static class DiscriminatedEntryJsonWriter
             await writer.DisposeAsync().ConfigureAwait(false);
         }
 
-        return [.. buffer.WrittenSpan];
+        return buffer.ExtractBytes();
     }
 
     private static void WriteBoolDiscriminant(Utf8JsonWriter w, bool value)

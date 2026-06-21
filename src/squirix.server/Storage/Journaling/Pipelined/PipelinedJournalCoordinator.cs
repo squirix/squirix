@@ -22,7 +22,6 @@ namespace Squirix.Server.Storage.Journaling.Pipelined;
 internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 {
     private const int RingCapacity = 4096;
-    private static readonly IJournalFrameCodec FrameCodec = JournalFrameCodecFactory.Binary;
     private readonly CancellationTokenSource _bgCts = new();
     private readonly JournalDurabilityGroupCommit? _groupCommit;
     private readonly Thread _journalThread;
@@ -459,11 +458,11 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
         var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
         var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
         var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-        _ = FrameCodec.Encode(record, body);
+        _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
         JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
 
         var startedMs = Environment.TickCount64;
@@ -493,11 +492,11 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
         var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
         var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
         var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-        _ = FrameCodec.Encode(record, body);
+        _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
         JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
 
         var startedMs = Environment.TickCount64;
@@ -543,9 +542,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
     {
         _ = Interlocked.Increment(ref _queuedAppends);
-        var appendCompleted = _opt.IsJournalGroupCommitEnabled
-            ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
-            : null;
+        var appendCompleted = _opt.IsJournalGroupCommitEnabled ? JournalDurabilityWaiter.Rent() : null;
         try
         {
             var item = new JournalWorkItem
@@ -558,12 +555,16 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 
             if (appendCompleted is not null)
-                await appendCompleted.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            {
+                await appendCompleted.AwaitAsync(cancellationToken).ConfigureAwait(false);
+                appendCompleted.ReturnToPool();
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch
         {
+            appendCompleted?.ReturnToPool();
             _ = Interlocked.Decrement(ref _queuedAppends);
             throw;
         }
@@ -648,28 +649,42 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
     private async ValueTask EnqueueMaintenanceAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
-        var begin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var beginItem = new JournalWorkItem { Kind = JournalWorkKind.MaintenanceBegin, Completion = begin };
-        await _ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
-
-        await begin.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        await action(cancellationToken).ConfigureAwait(false);
-
-        var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-        var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
-        var resetSequence = DetermineNextSequence(manifest, _opt);
-
-        var end = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var endItem = new JournalWorkItem
+        var begin = JournalDurabilityWaiter.Rent();
+        try
         {
-            Kind = JournalWorkKind.MaintenanceEnd,
-            Completion = end,
-            ResetSegmentIndex = resetSegmentIndex,
-            ResetSequence = resetSequence,
-        };
-        await _ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+            var beginItem = new JournalWorkItem { Kind = JournalWorkKind.MaintenanceBegin, Completion = begin };
+            await _ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
-        await end.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await begin.AwaitAsync(cancellationToken).ConfigureAwait(false);
+            await action(cancellationToken).ConfigureAwait(false);
+
+            var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+            var resetSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
+            var resetSequence = DetermineNextSequence(manifest, _opt);
+
+            var end = JournalDurabilityWaiter.Rent();
+            try
+            {
+                var endItem = new JournalWorkItem
+                {
+                    Kind = JournalWorkKind.MaintenanceEnd,
+                    Completion = end,
+                    ResetSegmentIndex = resetSegmentIndex,
+                    ResetSequence = resetSequence,
+                };
+                await _ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
+
+                await end.AwaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                end.ReturnToPool();
+            }
+        }
+        finally
+        {
+            begin.ReturnToPool();
+        }
     }
 
     private async ValueTask EnqueueShutdownAsync()

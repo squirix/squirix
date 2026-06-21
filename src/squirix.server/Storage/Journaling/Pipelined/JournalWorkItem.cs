@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-
 namespace Squirix.Server.Storage.Journaling.Pipelined;
 
 internal readonly struct JournalWorkItem
@@ -12,7 +10,7 @@ internal readonly struct JournalWorkItem
 
     public JournalDurabilityWaiter? DurabilityWaiter { get; init; }
 
-    public TaskCompletionSource? Completion { get; init; }
+    public JournalDurabilityWaiter? Completion { get; init; }
 
     public int ResetSegmentIndex { get; init; }
 

@@ -36,7 +36,7 @@ public sealed class CacheEntry<T>
     public FrozenDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
-    /// Gets the value to store. May be <see langword="null"/>.
+    /// Gets the value to store. May be <see langword="null" />.
     /// </summary>
     public required T? Value { get; init; }
 
@@ -55,4 +55,7 @@ public sealed class CacheEntry<T>
             field = value;
         }
     }
+
+    /// <summary>Gets or sets journal discriminated JSON prepared during payload size validation for reuse on durable write.</summary>
+    internal byte[]? PreparedJournalDiscriminatedJson { get; set; }
 }

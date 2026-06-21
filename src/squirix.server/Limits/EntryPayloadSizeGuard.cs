@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Errors;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Limits;
@@ -18,10 +19,17 @@ internal static class EntryPayloadSizeGuard
 
     public static async Task EnsureWithinLimitAsync<T>(CacheEntry<T> entry)
     {
-        if (await MeasureSerializedBytesAsync(entry).ConfigureAwait(false) > SquirixEntryLimits.MaxEntrySizeBytes)
-            throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
+        var bytes = await BuildJournalDiscriminatedJsonAsync(entry).ConfigureAwait(false);
+        entry.PreparedJournalDiscriminatedJson = bytes;
+        EnsureDiscriminatedJsonWithinLimit(bytes);
     }
 
     public static async Task<int> MeasureSerializedBytesAsync<T>(CacheEntry<T> entry) =>
-        (await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false)).Length;
+        (await BuildJournalDiscriminatedJsonAsync(entry).ConfigureAwait(false)).Length;
+
+    private static async Task<byte[]> BuildJournalDiscriminatedJsonAsync<T>(CacheEntry<T> entry)
+    {
+        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
+        return await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, expiresUtc, expiration, entry.Version, entry.Tags).ConfigureAwait(false);
+    }
 }
