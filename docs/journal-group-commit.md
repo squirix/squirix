@@ -112,6 +112,24 @@ under concurrent writers. That value is a **regression gate for backend comparis
 
 Production integrators should choose `MaxWait` and `MaxBatch` from their own measurements and SLA.
 
+### Measured defaults (Windows, 2026-06-21)
+
+Internal quick benchmarks (`SQUIRIX_BENCH_QUICK=1`, 800 ops/invoke, 8→4 writers) after Pipelined GC tuning:
+
+| Path | Payload | Pipelined vs JsonFramed |
+|------|---------|-------------------------|
+| Raw coordinator (`append` + `await` separately) | 256 B | ~0.83× throughput |
+| **DurableMutationExecutor** (production) | 256 B | **~2× throughput** |
+| DurableMutationExecutor | 4096 B | ~1.17× throughput |
+
+**Recommendations for production concurrent durable writes:**
+
+- Start with **`JournalGroupCommitMaxWait = 1–5 ms`** and **`JournalGroupCommitMaxBatch = 32`** (defaults).
+- Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and `AwaitDurabilityCommitAsync` separately on hot paths.
+- Re-measure on target hardware; raw coordinator benchmarks understate Pipelined throughput.
+
+Full numbers: `benchmarks/squirix.server.benchmarks/RESULTS-journal-perf-2026-06-21.md`.
+
 ## Latency vs throughput (summary)
 
 | Mode                                       | Throughput under concurrent writers                               | Tail latency                                                                    |

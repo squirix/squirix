@@ -440,16 +440,15 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         string? putOperationId = null,
         DateTime? touchExpirationUtc = null)
     {
-        return new JournalRecord
-        {
-            Sequence = AllocateSequence(),
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Operation = operation,
-            Key = key,
-            PutDiscriminatedEntryJson = putDiscriminatedEntryJson,
-            PutOperationId = putOperationId,
-            TouchExpirationUtc = touchExpirationUtc,
-        };
+        var record = JournalRecord.RentForAppend();
+        record.Sequence = AllocateSequence();
+        record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        record.Operation = operation;
+        record.Key = key;
+        record.PutDiscriminatedEntryJson = putDiscriminatedEntryJson;
+        record.PutOperationId = putOperationId;
+        record.TouchExpirationUtc = touchExpirationUtc;
+        return record;
     }
 
     private async ValueTask AppendRecordCoreAsync(JournalRecord record, CancellationToken cancellationToken)
@@ -458,22 +457,29 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
-        var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
-        var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
-        var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-        _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
-        JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
+        try
+        {
+            var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
+            var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
+            var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
+            var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
+            _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
+            JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
 
-        var startedMs = Environment.TickCount64;
-        await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
-        var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
-        var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
-        Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+            var startedMs = Environment.TickCount64;
+            await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
+            var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
+            var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
+            Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
 
-        _ = Interlocked.Add(ref _bytes, frameLen);
-        _ = Interlocked.Increment(ref _ops);
-        OnAppended?.Invoke(this, EventArgs.Empty);
+            _ = Interlocked.Add(ref _bytes, frameLen);
+            _ = Interlocked.Increment(ref _ops);
+            OnAppended?.Invoke(this, EventArgs.Empty);
+        }
+        finally
+        {
+            record.ReturnToAppendPool();
+        }
     }
 
     private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(
@@ -492,32 +498,39 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         await _startupGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
-        var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
-        var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
-        var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-        _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
-        JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
-
-        var startedMs = Environment.TickCount64;
-        var waiter = JournalDurabilityWaiter.Rent();
         try
         {
-            await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, waiter, cancellationToken).ConfigureAwait(false);
-            await waiter.AwaitAsync(cancellationToken).ConfigureAwait(false);
+            var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
+            var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
+            var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
+            var body = frameBytes.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
+            _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
+            JournalBinaryFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
+
+            var startedMs = Environment.TickCount64;
+            var waiter = JournalDurabilityWaiter.Rent();
+            try
+            {
+                await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, waiter, cancellationToken).ConfigureAwait(false);
+                await waiter.AwaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                waiter.ReturnToPool();
+            }
+
+            var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
+            var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
+            Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
+
+            _ = Interlocked.Add(ref _bytes, frameLen);
+            _ = Interlocked.Increment(ref _ops);
+            OnAppended?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
-            waiter.ReturnToPool();
+            record.ReturnToAppendPool();
         }
-
-        var elapsedMs = Math.Max(0, Environment.TickCount64 - startedMs);
-        var currentLatency = Volatile.Read(ref _avgAppendLatencyMs);
-        Volatile.Write(ref _avgAppendLatencyMs, currentLatency <= 0 ? elapsedMs : (currentLatency * 0.9) + (elapsedMs * 0.1));
-
-        _ = Interlocked.Add(ref _bytes, frameLen);
-        _ = Interlocked.Increment(ref _ops);
-        OnAppended?.Invoke(this, EventArgs.Empty);
     }
 
     private async ValueTask AwaitJournalThreadDuringDisposeAsync(List<Exception> failures)
