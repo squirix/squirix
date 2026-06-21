@@ -21,8 +21,6 @@ namespace Squirix.Server.Storage.Journaling.Pipelined;
 /// <summary>Single-writer pipelined journal coordinator with binary frames and dedicated I/O thread.</summary>
 internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 {
-    private const int BatchFlushBytes = 4 * 1024 * 1024;
-    private const int BatchFlushIntervalMs = 1;
     private const int RingCapacity = 4096;
     private static readonly IJournalFrameCodec FrameCodec = JournalFrameCodecFactory.Binary;
     private readonly CancellationTokenSource _bgCts = new();
@@ -42,13 +40,11 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private string? _activeSegmentPath;
     private long _activeSegmentWrittenBytes;
     private double _avgAppendLatencyMs;
-    private long _batchBytesSinceFlush;
     private long _bytes;
     private volatile bool _dirty;
     private int _disposed;
     private Exception? _journalThreadFailure;
     private long _journalTotalBytes;
-    private long _lastFlushTimestampMs;
     private ulong _nextSequence;
     private long _ops;
     private int _pendingMemoryApplyCount;
@@ -547,10 +543,22 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
     {
         _ = Interlocked.Increment(ref _queuedAppends);
+        var appendCompleted = _opt.IsJournalGroupCommitEnabled
+            ? new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            : null;
         try
         {
-            var item = new JournalWorkItem { Kind = JournalWorkKind.Append, FrameBytes = frameBytes, FrameLength = frameLength };
+            var item = new JournalWorkItem
+            {
+                Kind = JournalWorkKind.Append,
+                FrameBytes = frameBytes,
+                FrameLength = frameLength,
+                Completion = appendCompleted,
+            };
             await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+
+            if (appendCompleted is not null)
+                await appendCompleted.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
         }
@@ -720,8 +728,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         _segmentWriter.Fsync();
         _dirty = false;
-        _batchBytesSinceFlush = 0;
-        _lastFlushTimestampMs = Environment.TickCount64;
     }
 
     private bool HasPendingMemoryApply()
@@ -802,15 +808,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         RollSegmentOnJournalThread();
     }
 
-    private void MaybeTimeOrSizeFlush()
-    {
-        var now = Environment.TickCount64;
-        if (_batchBytesSinceFlush < BatchFlushBytes && now - _lastFlushTimestampMs < BatchFlushIntervalMs)
-            return;
-
-        FsyncOnJournalThread();
-    }
-
     private void ProcessAppendWithDurability(JournalWorkItem item)
     {
         var frameBytes = item.FrameBytes;
@@ -853,7 +850,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         Volatile.Write(ref _activeSegmentWrittenBytes, offset + item.FrameLength);
         _journalTotalBytes += item.FrameLength;
-        _batchBytesSinceFlush += item.FrameLength;
         _dirty = true;
     }
 
@@ -863,8 +859,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         try
         {
             WriteAppendFrame(item);
-            if (_opt.IsJournalGroupCommitEnabled)
-                MaybeTimeOrSizeFlush();
         }
         finally
         {
@@ -873,6 +867,8 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
                 CompleteDurabilityCheckpointOnJournalThread();
             else
                 TryCompleteGroupCommitCheckpoint();
+
+            CompleteJournalWorkItem(item);
 
             if (frameBytes is not null)
                 ArrayPool<byte>.Shared.Return(frameBytes);
@@ -966,7 +962,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         Volatile.Write(ref _activeSegmentWrittenBytes, JournalBinaryFraming.FileHeaderSize);
         _journalTotalBytes += JournalBinaryFraming.FileHeaderSize;
         _dirty = false;
-        _batchBytesSinceFlush = 0;
     }
 
     private void ThrowIfJournalThreadFailed()
