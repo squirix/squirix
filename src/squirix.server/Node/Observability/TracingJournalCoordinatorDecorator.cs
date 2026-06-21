@@ -8,12 +8,12 @@ using Squirix.Server.Storage.Journaling.JsonFramed;
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
-internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
+internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 {
     private readonly IJournalCoordinator _inner;
     private readonly IJournalOperationTracer _tracer;
 
-    public TracingJournalWriterDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
+    public TracingJournalCoordinatorDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
@@ -42,38 +42,38 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
     public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
     {
         var payloadBytes = discriminatedEntryJson.Length;
-        var traceContext = Enrich(JournalWriterTracing.ForKey(key) with { PayloadBytes = payloadBytes });
+        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
         await _inner.AppendPutAndAwaitDurabilityAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
-        JournalWriterTracing.TraceFrameBytes(scope, payloadBytes);
+        JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
     public async ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
     {
         var payloadBytes = discriminatedEntryJson.Length;
-        var traceContext = Enrich(JournalWriterTracing.ForKey(key) with { PayloadBytes = payloadBytes });
+        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
         await _inner.AppendPutAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
-        JournalWriterTracing.TraceFrameBytes(scope, payloadBytes);
+        JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
     public async ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken)
     {
-        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
         using var scope = _tracer.Begin(JournalOperationKind.Remove, in traceContext);
         await _inner.AppendRemoveAsync(key, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
     {
-        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
         using var scope = _tracer.Begin(JournalOperationKind.RemoveExpiration, in traceContext);
         await _inner.AppendRemoveExpirationAsync(key, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
     {
-        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
         using var scope = _tracer.Begin(JournalOperationKind.TouchExpiration, in traceContext);
         await _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
     }
@@ -123,5 +123,5 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
         await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private JournalOperationTraceContext Enrich(JournalOperationTraceContext context) => JournalWriterTracing.WithDurability(in context, _inner);
+    private JournalOperationTraceContext Enrich(JournalOperationTraceContext context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
 }

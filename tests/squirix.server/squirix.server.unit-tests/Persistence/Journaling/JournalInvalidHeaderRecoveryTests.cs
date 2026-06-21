@@ -14,12 +14,12 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>journal segment header validation during recovery and writer repair.</summary>
+/// <summary>journal segment header validation during recovery and coordinator repair.</summary>
 public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
 {
     /// <summary>Appending to a segment with an invalid header rewrites a valid file header before new frames.</summary>
     [Fact]
-    public async Task JournalWriterWritesHeaderAfterInvalidSegmentRepair()
+    public async Task CoordinatorWritesHeaderAfterInvalidSegmentRepair()
     {
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };

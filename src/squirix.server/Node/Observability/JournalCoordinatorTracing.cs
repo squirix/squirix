@@ -8,7 +8,7 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>
 /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.
 /// </summary>
-internal static class JournalWriterTracing
+internal static class JournalCoordinatorTracing
 {
     public static JournalOperationTraceContext ForKey(CacheKey key) => new()
     {

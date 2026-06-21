@@ -13,7 +13,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Verifies journal snapshot cut error paths release the mutation gate.</summary>
-public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
+public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
     [Fact]

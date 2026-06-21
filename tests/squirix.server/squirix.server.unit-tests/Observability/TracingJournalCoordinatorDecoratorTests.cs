@@ -12,9 +12,9 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>
-/// Verifies <see cref="TracingJournalWriterDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
+/// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
 /// </summary>
-public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
+public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     [Fact]
@@ -25,7 +25,7 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
         using var manifestStore = new ManifestStore(options);
         await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
-        await using var journal = new TracingJournalWriterDecorator(core, tracer);
+        await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
@@ -54,7 +54,7 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
         using var manifestStore = new ManifestStore(options);
         await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
-        await using var journal = new TracingJournalWriterDecorator(core, tracer);
+        await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
         var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);

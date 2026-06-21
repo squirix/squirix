@@ -17,8 +17,8 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>Verifies journal writer sequence initialization scans only the active manifest journal range.</summary>
-public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
+/// <summary>Verifies journal coordinator sequence initialization scans only the active manifest journal range.</summary>
+public sealed class JournalNextSequenceInitializationTests : UnitTestBase
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>
     [Fact]

@@ -17,7 +17,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
-public sealed class JournalWriterSegmentRollTests : UnitTestBase
+public sealed class JournalSegmentRollTests : UnitTestBase
 {
     /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]

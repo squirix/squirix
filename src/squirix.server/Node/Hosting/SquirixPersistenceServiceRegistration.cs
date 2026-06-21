@@ -35,7 +35,7 @@ internal static class SquirixPersistenceServiceRegistration
         _ = services.AddSingleton(runtime.ManifestStore);
         _ = services.AddSingleton(runtime.Gate);
         _ = services.AddSingleton(runtime.JournalCoordinator);
-        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalWriterDecorator(
+        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
             sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
             sp.GetRequiredService<IJournalOperationTracer>()));
         _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
