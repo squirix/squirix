@@ -19,7 +19,7 @@ using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Single-writer pipelined journal coordinator with binary frames and dedicated I/O thread.</summary>
+/// <summary>Single-writer pipelined journal coordinator with binary frames (see docs/journal-binary-format.md).</summary>
 internal sealed class JournalCoordinator : IJournalCoordinator
 {
     private const int RingCapacity = 4096;
@@ -55,7 +55,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private TaskCompletionSource? _groupCommitCheckpointTcs;
     private int _queuedAppends;
 
-    private JournalCoordinator(PersistenceOptions opt, Manifest manifest, ManifestStore manifestStore, JournalStartupGate startupGate, IJournalSegmentWriter segmentWriter)
+    private JournalCoordinator(PersistenceOptions opt, Manifest.ManifestState manifest, ManifestStore manifestStore, JournalStartupGate startupGate, IJournalSegmentWriter segmentWriter)
     {
         _opt = opt;
         _manifestStore = manifestStore;
@@ -100,7 +100,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public static async Task<JournalCoordinator> CreateAsync(
         PersistenceOptions opt,
-        Manifest manifest,
+        Manifest.ManifestState manifest,
         ManifestStore manifestStore,
         JournalStartupGate startupGate,
         CancellationToken cancellationToken = default)
@@ -113,13 +113,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureDiscriminatedJsonWithinLimit(discriminatedEntryJson);
-        return AppendRecordCoreAsync(
-            AllocateRecord(
-                key,
-                JournalOperationKind.Put,
-                discriminatedEntryJson,
-                operationId ?? string.Empty),
-            cancellationToken);
+        return AppendRecordCoreAsync(AllocateRecord(key, JournalOperationKind.Put, discriminatedEntryJson, operationId ?? string.Empty), cancellationToken);
     }
 
     public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
@@ -130,13 +124,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             return AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, discriminatedEntryJson, operationId, cancellationToken);
         }
 
-        return AppendRecordWithDurabilityCoreAsync(
-            AllocateRecord(
-                key,
-                JournalOperationKind.Put,
-                discriminatedEntryJson,
-                operationId ?? string.Empty),
-            cancellationToken);
+        return AppendRecordWithDurabilityCoreAsync(AllocateRecord(key, JournalOperationKind.Put, discriminatedEntryJson, operationId ?? string.Empty), cancellationToken);
     }
 
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendRecordCoreAsync(
@@ -314,7 +302,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment) => new(
         $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent=False.");
 
-    private static ulong DetermineNextSequence(Manifest manifest, PersistenceOptions options)
+    private static ulong DetermineNextSequence(Manifest.ManifestState manifest, PersistenceOptions options)
     {
         var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
         if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
@@ -343,7 +331,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         return next;
     }
 
-    private static async Task PrepareActiveSegmentForSequenceScanAsync(Manifest manifest, PersistenceOptions options, CancellationToken cancellationToken)
+    private static async Task PrepareActiveSegmentForSequenceScanAsync(Manifest.ManifestState manifest, PersistenceOptions options, CancellationToken cancellationToken)
     {
         var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
@@ -489,11 +477,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
     }
 
-    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(
-        CacheKey key,
-        byte[] discriminatedEntryJson,
-        string? operationId,
-        CancellationToken cancellationToken)
+    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
     {
         await AppendPutAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
         await AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
@@ -551,7 +535,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
         catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
         {
-            // Dispose cancelled the join wait when teardown already completed.
+            // Dispose Canceled the join wait when teardown already completed.
         }
         catch (ObjectDisposedException ex)
         {
@@ -590,11 +574,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
     }
 
-    private async ValueTask EnqueueAppendWithDurabilityAsync(
-        byte[] frameBytes,
-        int frameLength,
-        JournalDurabilityWaiter durabilityWaiter,
-        CancellationToken cancellationToken)
+    private async ValueTask EnqueueAppendWithDurabilityAsync(byte[] frameBytes, int frameLength, JournalDurabilityWaiter durabilityWaiter, CancellationToken cancellationToken)
     {
         _ = Interlocked.Increment(ref _queuedAppends);
         try
@@ -783,43 +763,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                         continue;
                 }
 
-                switch (item.Kind)
-                {
-                    case JournalWorkKind.Append:
-                        ProcessAppend(item);
-                        break;
-
-                    case JournalWorkKind.AppendWithDurability:
-                        ProcessAppendWithDurability(item);
-                        break;
-
-                    case JournalWorkKind.Flush:
-                    case JournalWorkKind.DurabilityCheckpoint:
-                        CompleteDurabilityCheckpointOnJournalThread();
-                        break;
-
-                    case JournalWorkKind.Shutdown:
-                        FsyncOnJournalThread();
-                        return;
-
-                    case JournalWorkKind.MaintenanceBegin:
-                        FsyncOnJournalThread();
-                        _activeSegmentPath = null;
-                        CompleteJournalWorkItem(item);
-                        break;
-
-                    case JournalWorkKind.MaintenanceEnd:
-                        CurrentSegmentIndex = item.ResetSegmentIndex;
-                        lock (_sequenceLock)
-                            _nextSequence = item.ResetSequence;
-                        _activeSegmentWrittenBytes = 0;
-                        _dirty = false;
-                        CompleteJournalWorkItem(item);
-                        break;
-
-                    default:
-                        throw new InvalidOperationException($"unknown journal work kind {item.Kind}.");
-                }
+                if (ProcessJournalWorkItem(item))
+                    return;
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -830,6 +775,51 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
         {
             // journal I/O thread exits when background cancellation is requested during dispose.
+        }
+    }
+
+    private bool ProcessJournalWorkItem(JournalWorkItem item)
+    {
+        switch (item.Kind)
+        {
+            case JournalWorkKind.Append:
+                ProcessAppend(item);
+                return false;
+
+            case JournalWorkKind.AppendWithDurability:
+                ProcessAppendWithDurability(item);
+                return false;
+
+            case JournalWorkKind.Flush:
+            case JournalWorkKind.DurabilityCheckpoint:
+                CompleteDurabilityCheckpointOnJournalThread();
+                return false;
+
+            case JournalWorkKind.Shutdown:
+                FsyncOnJournalThread();
+                return true;
+
+            case JournalWorkKind.MaintenanceBegin:
+                FsyncOnJournalThread();
+                _activeSegmentPath = null;
+                CompleteJournalWorkItem(item);
+                return false;
+
+            case JournalWorkKind.MaintenanceEnd:
+                CurrentSegmentIndex = item.ResetSegmentIndex;
+                lock (_sequenceLock)
+                    _nextSequence = item.ResetSequence;
+                _activeSegmentWrittenBytes = 0;
+                _dirty = false;
+                CompleteJournalWorkItem(item);
+                return false;
+
+            case JournalWorkKind.ManifestPublish:
+                ProcessManifestPublish(item);
+                return false;
+
+            default:
+                throw new InvalidOperationException($"unknown journal work kind {item.Kind}.");
         }
     }
 
@@ -984,6 +974,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         waiter.SetCanceled(cancellationToken);
     }
 
+    private void ProcessManifestPublish(JournalWorkItem item)
+    {
+        if (item.RollCurrentJournal > 0)
+        {
+            _manifestStore.PublishRollBlocking(item.RollCurrentJournal, item.RollNextSequence);
+            return;
+        }
+
+        var manifest = item.Manifest ?? throw new InvalidOperationException("ManifestPublish work item is missing a manifest payload.");
+        _manifestStore.PublishBlocking(manifest);
+    }
+
     private void RollSegmentOnJournalThread()
     {
         FsyncOnJournalThread();
@@ -1005,15 +1007,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         lock (_sequenceLock)
             nextSequence = _nextSequence;
 
-        var prevManifest = _manifestStore.ReadCurrentOrDefaultBlocking();
-        var manifest = new Manifest
+        if (_opt.ManifestBackend is ManifestBackend.Binary)
         {
-            Format = prevManifest.Format is 0 ? 1 : prevManifest.Format,
-            CurrentJournal = CurrentSegmentIndex,
-            NextSequence = nextSequence,
-            LastSnapshot = prevManifest.LastSnapshot,
-        };
-        _manifestStore.WriteBlocking(manifest);
+            var journalWorkItem = new JournalWorkItem
+            {
+                Kind = JournalWorkKind.ManifestPublish,
+                RollCurrentJournal = CurrentSegmentIndex,
+                RollNextSequence = nextSequence,
+            };
+            ProcessManifestPublish(journalWorkItem);
+            return;
+        }
+
+        _manifestStore.PublishRollBlocking(CurrentSegmentIndex, nextSequence);
     }
 
     private void ThrowIfJournalThreadFailed()

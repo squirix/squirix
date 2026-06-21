@@ -26,7 +26,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [only]);
         await manifestStore.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 Format = 1,
                 CurrentJournal = 3,
@@ -61,7 +61,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [old]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             Format = 1,
             CurrentJournal = 3,
@@ -87,12 +87,12 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [envelope]);
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
             NextSequence = 1,
-            LastSnapshot = new Manifest.SnapshotRef
+            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
             {
                 Index = 0,
                 CreatedUtc = DateTime.UtcNow,
@@ -120,7 +120,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, [envelope]);
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             Format = 1,
             CurrentJournal = 3,
@@ -151,7 +151,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [s1]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
@@ -190,7 +190,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [live]);
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
@@ -259,7 +259,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         }
 
         await manifestStore.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 Format = 1,
                 CurrentJournal = 2,

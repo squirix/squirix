@@ -136,7 +136,10 @@ F:Squirix.Server.Storage.Journaling.JournalBackend::Pipelined
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::Auto
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::RandomAccess
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::Uring
+F:Squirix.Server.Storage.ManifestBackend::Binary
+F:Squirix.Server.Storage.ManifestBackend::Json
 T:Squirix.Server.Storage.Journaling.JournalBackend
 T:Squirix.Server.Storage.Journaling.JournalPlatformBackend
+T:Squirix.Server.Storage.ManifestBackend
 T:Squirix.Transport.Grpc.RpcOperationIdentity
 M:Squirix.Transport.Grpc.RpcOperationIdentity::New()

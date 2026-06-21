@@ -3,7 +3,6 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
@@ -39,7 +38,7 @@ public sealed class MultiSegmentJsonParsingTests : UnitTestBase
             """{"format":1,"currentJournal":12,"nextSequence":1234567890123,"lastSnapshot":{"index":7,"path":"snapshots/snapshot-000007.jsonl","createdUtc":"2026-05-01T02:03:04Z","lastAppliedSequence":1234567890122,"replayFromJournalSegment":11}}""";
         var reader = CreateReader(json);
 
-        var manifest = JsonSerializer.Deserialize<Manifest>(ref reader, DurabilityJson.StrictSerializerOptions);
+        var manifest = JsonSerializer.Deserialize<Storage.Manifest.ManifestState>(ref reader, DurabilityJson.StrictSerializerOptions);
 
         Assert.NotNull(manifest);
         Assert.Equal(12, manifest.CurrentJournal);

@@ -10,7 +10,7 @@ internal static class JournalCoordinatorFactory
 {
     public static async Task<IJournalCoordinator> CreateAsync(
         PersistenceOptions persistence,
-        Manifest manifest,
+        Manifest.ManifestState manifest,
         ManifestStore manifestStore,
         JournalStartupGate startupGate,
         CancellationToken cancellationToken = default)

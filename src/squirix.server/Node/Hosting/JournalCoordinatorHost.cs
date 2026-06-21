@@ -16,7 +16,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
     public async Task InitializeAsync(
         PersistenceOptions persistence,
-        Manifest manifest,
+        Storage.Manifest.ManifestState manifest,
         ManifestStore manifestStore,
         JournalStartupGate gate,
         CancellationToken cancellationToken)

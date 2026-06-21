@@ -31,6 +31,7 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(32, o.JournalMaxSegmentCount);
         Assert.Equal(2048, o.JournalMaxTotalBytesMb);
         Assert.Equal(JournalBackend.Pipelined, o.JournalBackend);
+        Assert.Equal(ManifestBackend.Json, o.ManifestBackend);
         Assert.Equal(JournalPlatformBackend.Auto, o.JournalPlatformBackend);
         Assert.Equal(10, o.FlushIntervalMs);
         Assert.Equal(60, o.SnapshotIntervalSec);

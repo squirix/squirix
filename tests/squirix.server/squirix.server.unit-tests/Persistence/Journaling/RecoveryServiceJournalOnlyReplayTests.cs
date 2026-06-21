@@ -23,7 +23,7 @@ public sealed class RecoveryServiceJournalOnlyReplayTests : UnitTestBase
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [seg1A, seg1B]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 2, [seg2C]);
         await scenario.ManifestStore.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 Format = 1,
                 CurrentJournal = 2,

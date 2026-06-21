@@ -2,7 +2,7 @@ using System;
 
 namespace Squirix.Server.Storage.Snapshot;
 
-internal sealed class SnapshotCompletedEventArgs(Manifest.SnapshotRef snapshotRef) : EventArgs
+internal sealed class SnapshotCompletedEventArgs(Manifest.ManifestState.SnapshotRef snapshotRef) : EventArgs
 {
-    public Manifest.SnapshotRef SnapshotRef { get; } = snapshotRef;
+    public Manifest.ManifestState.SnapshotRef SnapshotRef { get; } = snapshotRef;
 }

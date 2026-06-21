@@ -27,7 +27,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var journalSegmentPath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
         await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
-        await manifestStore.WriteAsync(new Manifest { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
+        await manifestStore.WriteAsync(new Storage.Manifest.ManifestState { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
@@ -54,7 +54,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
         await File.WriteAllBytesAsync(journalSegmentPath, [.. "NOPE!"u8], DefaultCancellationToken);
 
         await scenario.ManifestStore.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 Format = 1,
                 CurrentJournal = 1,

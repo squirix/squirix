@@ -18,16 +18,19 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     /// <summary>
     /// Verifies that <see cref="ManifestStore" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
-    [Fact]
-    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
+    /// <param name="backend">Manifest backend under test.</param>
+    [Theory]
+    [InlineData(ManifestBackend.Json)]
+    [InlineData(ManifestBackend.Binary)]
+    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite(ManifestBackend backend)
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000001.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
+        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, backend, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -66,18 +69,18 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     }
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
-    [Fact]
-    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
+    /// <param name="backend">Manifest backend under test.</param>
+    [Theory]
+    [InlineData(ManifestBackend.Json)]
+    [InlineData(ManifestBackend.Binary)]
+    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite(ManifestBackend backend)
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = PathKit.Combine(Dir, "man-current");
-
-        await store.WriteAsync(new Manifest { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000002.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
+        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, backend, DefaultCancellationToken));
     }
 
     /// <summary>Cleans up the temporary directory after the test.</summary>

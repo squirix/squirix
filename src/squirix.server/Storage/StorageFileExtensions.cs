@@ -6,5 +6,9 @@ internal static class StorageFileExtensions
     public const string Journal = ".jsqx";
 
     public const string Manifest = ".msqx";
+
+    /// <summary>On-disk binary manifest file extension.</summary>
+    public const string BinaryManifest = ".bmqx";
+
     public const string Snapshot = ".ssqx";
 }

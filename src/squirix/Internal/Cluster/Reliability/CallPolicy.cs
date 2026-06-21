@@ -121,7 +121,7 @@ internal sealed class CallPolicy : ICallPolicy
 
     private static string ClassifyRetryReason(StatusCode statusCode) => statusCode switch
     {
-        StatusCode.Cancelled => "cancelled",
+        StatusCode.Cancelled => "Canceled",
         StatusCode.DeadlineExceeded => "deadline_exceeded",
         StatusCode.Unavailable => "unavailable",
         StatusCode.Internal => "internal",
@@ -265,7 +265,7 @@ internal sealed class CallPolicy : ICallPolicy
             throw last switch
             {
                 TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
-                RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts cancelled by per-attempt timeout.")),
+                RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
                 _ => last!,
             };
         }
@@ -327,8 +327,8 @@ internal sealed class CallPolicy : ICallPolicy
         catch (RpcException rx) when (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && attempt < _maxAttempts &&
                                       OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
         {
-            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "cancelled").Inc();
-            CallPolicyMetrics.RetriesTotal.WithLabels(_peer, rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "cancelled").Inc(1);
+            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc();
+            CallPolicyMetrics.RetriesTotal.WithLabels(_peer, rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc(1);
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
         }
         catch (RpcException rx) when (rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&

@@ -115,7 +115,7 @@ internal static class JournalCompactor
 
     private static async Task<(Dictionary<CacheKey, CacheEntry<object?>> State, ulong LastSeq)> BuildCompactionStateAsync(
         PersistenceOptions options,
-        Manifest.SnapshotRef? snapshotRef,
+        Manifest.ManifestState.SnapshotRef? snapshotRef,
         int replayFromSegment,
         CancellationToken cancellationToken)
     {
@@ -153,7 +153,7 @@ internal static class JournalCompactor
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
         ManifestStore manifestStore,
-        Manifest oldManifest,
+        Manifest.ManifestState oldManifest,
         int newFirstIdx,
         ulong lastSeq,
         CancellationToken cancellationToken)
@@ -168,7 +168,7 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
         FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
 
-        var newManifest = new Manifest
+        var newManifest = new Manifest.ManifestState
         {
             Format = oldManifest.Format is 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,

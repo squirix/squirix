@@ -15,4 +15,10 @@ internal readonly struct JournalWorkItem
     public int ResetSegmentIndex { get; init; }
 
     public ulong ResetSequence { get; init; }
+
+    public Manifest.ManifestState? Manifest { get; init; }
+
+    public int RollCurrentJournal { get; init; }
+
+    public ulong RollNextSequence { get; init; }
 }

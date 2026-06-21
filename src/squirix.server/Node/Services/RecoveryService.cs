@@ -106,7 +106,7 @@ internal sealed class RecoveryService<T> : IHostedService
         new(
             $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent.ToString(CultureInfo.InvariantCulture)}.");
 
-    private static int DetermineJournalOnlyReplayStart(Manifest manifest, int firstAvailableSegment, int lastAvailableSegment)
+    private static int DetermineJournalOnlyReplayStart(Storage.Manifest.ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
@@ -370,7 +370,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        Manifest.SnapshotRef? SnapshotReference,
+        Storage.Manifest.ManifestState.SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

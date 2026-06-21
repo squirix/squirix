@@ -82,9 +82,9 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         Assert.Equal(raw, helper);
     }
 
-    /// <summary>Domain transport mapper still maps gRPC Cancelled plus caller token to caller cancellation.</summary>
+    /// <summary>Domain transport mapper still maps gRPC Canceled plus caller token to caller cancellation.</summary>
     [Fact]
-    public async Task DomainTransportErrorMapperStillMapsGrpcCancelledWithCallerTokenToOperationCanceled()
+    public async Task DomainTransportErrorMapperStillMapsGrpcCanceledWithCallerTokenToOperationCanceled()
     {
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -93,9 +93,9 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await Task.Run(() => DomainTransportErrorMapper.Map(ex, callerToken), CancellationToken.None); });
     }
 
-    /// <summary>gRPC caller cancellation is detected only when status is Cancelled and the caller token is canceled.</summary>
+    /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
     [Fact]
-    public void IsCallerInitiatedGrpcCancellationRequiresCancelledStatusAndCallerToken()
+    public void IsCallerInitiatedGrpcCancellationRequiresCanceledStatusAndCallerToken()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -106,16 +106,16 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token));
     }
 
-    /// <summary>Cooperative watch shutdown treats Unavailable as well as Cancelled when the caller token is canceled.</summary>
+    /// <summary>Cooperative watch shutdown treats Unavailable as well as Canceled when the caller token is canceled.</summary>
     [Fact]
     public void IsCallerInitiatedGrpcWatchStreamFaultIncludesUnavailableWhenCallerCanceled()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         var unavailable = new RpcException(new Status(StatusCode.Unavailable, "Error reading next message. IOException: The request was aborted."));
-        var cancelled = new RpcException(new Status(StatusCode.Cancelled, "x"));
+        var canceled = new RpcException(new Status(StatusCode.Cancelled, "x"));
         Assert.True(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(unavailable, cts.Token));
-        Assert.True(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(cancelled, cts.Token));
+        Assert.True(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(canceled, cts.Token));
         Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(unavailable, CancellationToken.None));
         var deadline = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
         Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(deadline, cts.Token));

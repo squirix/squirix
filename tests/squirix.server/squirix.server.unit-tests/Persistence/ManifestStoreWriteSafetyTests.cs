@@ -16,23 +16,25 @@ public sealed class ManifestStoreWriteSafetyTests : UnitTestBase
     /// <summary>
     /// Verifies monotonic manifest writes advance the index when <c>CURRENT</c> is valid.
     /// </summary>
-    [Fact]
-    public async Task WriteAdvancesManifestIndexWhenCurrentIsValid()
+    /// <param name="backend">Manifest backend under test.</param>
+    [Theory]
+    [InlineData(ManifestBackend.Json)]
+    [InlineData(ManifestBackend.Binary)]
+    public async Task WriteAdvancesManifestIndexWhenCurrentIsValid(ManifestBackend backend)
     {
         using var dir = new TempDirectory("manifest-store-monotonic");
-        var options = new PersistenceOptions { DataDir = dir };
+        var options = ManifestStoreTestSupport.CreateOptions(dir, backend);
         using var store = new ManifestStore(options);
-        await store.WriteAsync(new Manifest { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1 }, DefaultCancellationToken);
 
-        var first = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
+        var first = PathKit.Combine(dir, ManifestStoreTestSupport.ManifestDataFileName(1, backend));
         Assert.True(File.Exists(first));
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
 
-        var second = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}");
+        var second = PathKit.Combine(dir, ManifestStoreTestSupport.ManifestDataFileName(2, backend));
         Assert.True(File.Exists(second));
-        var currentPointer = await File.ReadAllTextAsync(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), DefaultCancellationToken);
-        Assert.Contains("000002", currentPointer, StringComparison.Ordinal);
+        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(dir, backend, DefaultCancellationToken));
     }
 
     /// <summary>
@@ -49,7 +51,7 @@ public sealed class ManifestStoreWriteSafetyTests : UnitTestBase
         await File.WriteAllBytesAsync(existingPath, existingBytes, DefaultCancellationToken);
         await File.WriteAllTextAsync(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () => { await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () => { await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken); });
         Assert.Contains("current pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(File.Exists(existingPath));
         Assert.Equal(existingBytes, await File.ReadAllBytesAsync(existingPath, DefaultCancellationToken));

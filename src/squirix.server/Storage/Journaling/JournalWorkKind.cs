@@ -22,4 +22,7 @@ internal enum JournalWorkKind
 
     /// <summary>End exclusive maintenance (re-sync manifest state).</summary>
     MaintenanceEnd,
+
+    /// <summary>Publish a manifest snapshot on the journal I/O thread (binary backend hot path).</summary>
+    ManifestPublish,
 }

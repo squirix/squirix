@@ -62,11 +62,14 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     }
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
-    [Fact]
-    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
+    /// <param name="backend">Manifest backend under test.</param>
+    [Theory]
+    [InlineData(ManifestBackend.Json)]
+    [InlineData(ManifestBackend.Binary)]
+    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll(ManifestBackend backend)
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
-        var options = CreateOptions(dir);
+        var options = CreateOptions(dir, backend);
         using var manifestStore = new ManifestStore(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
@@ -120,12 +123,13 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     private static int CountManifestDataFiles(string dataDir) =>
         Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}").Length : 0;
 
-    private static PersistenceOptions CreateOptions(string dataDir) => new()
+    private static PersistenceOptions CreateOptions(string dataDir, ManifestBackend backend = ManifestBackend.Json) => new()
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
         FlushIntervalMs = 600_000,
         ManifestRetentionCount = 3,
+        ManifestBackend = backend,
     };
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)

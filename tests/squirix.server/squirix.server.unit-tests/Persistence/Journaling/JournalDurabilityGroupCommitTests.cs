@@ -124,7 +124,12 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
         var executor = new DurableMutationExecutor(journal);
         var observedPendingFlushDuringMemoryApply = false;
@@ -192,7 +197,12 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var flushProbe = new JournalFlushProbe(pipelined);

@@ -137,7 +137,7 @@ internal sealed class SnapshotCoordinator<T>
         return new CapturedSnapshotView(items);
     }
 
-    private async ValueTask<Manifest.SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<Manifest.ManifestState.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotView captured,
         Activity? currentActivity,
@@ -163,12 +163,12 @@ internal sealed class SnapshotCoordinator<T>
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
-        var updated = new Manifest
+        var updated = new Manifest.ManifestState
         {
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
             NextSequence = currentJournal.NextSequence,
-            LastSnapshot = new Manifest.SnapshotRef
+            LastSnapshot = new Manifest.ManifestState.SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,

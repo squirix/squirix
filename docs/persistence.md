@@ -52,9 +52,17 @@ Compaction state is visible on `/health/ready/details` (`compaction.*`).
 
 When persistence is enabled, a node data directory typically contains:
 
-- journal segment files
+- journal segment files ([binary journal format](journal-binary-format.md))
 - snapshot files
-- manifest files and a `CURRENT` pointer
+- manifest files and a `CURRENT` pointer ([JSON by default](configuration.md#persistence); optional [binary manifest format](manifest-binary-format.md))
+
+Set `ManifestBackend` to `Json` (default) or `Binary` in persistence settings. Production default remains `Json` until a future cutover.
+
+### Migrating JSON manifests to Binary
+
+Existing data directories use a UTF-8 text `man-current` pointer and `.msqx` files. Switching `manifestBackend` to `Binary` on that directory without migration fails by design (binary SQMC pointer expected).
+
+To migrate offline, read the latest JSON manifest and write the first `.bmqx` file plus SQMC pointer using `ManifestBackendMigrator.MigrateJsonToBinaryAsync` (server internal API) before enabling `ManifestBackend.Binary`. JSON numbered files can remain on disk until retention trims them.
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Serialization;
@@ -13,8 +12,8 @@ namespace Squirix.Server.Serialization;
     ReadCommentHandling = JsonCommentHandling.Skip,
     AllowTrailingCommas = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(Manifest))]
-[JsonSerializable(typeof(Manifest.SnapshotRef))]
+[JsonSerializable(typeof(Storage.Manifest.ManifestState))]
+[JsonSerializable(typeof(Storage.Manifest.ManifestState.SnapshotRef))]
 [JsonSerializable(typeof(SnapshotFrame))]
 [JsonSerializable(typeof(PersistedIdempotencyRecord))]
 [JsonSerializable(typeof(PersistedIdempotencyOutcome))]

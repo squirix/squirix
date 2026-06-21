@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -33,11 +32,11 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
     [Fact]
     public void ManifestContextPreservesPersistedJsonShape()
     {
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             CurrentJournal = 5,
             NextSequence = 55,
-            LastSnapshot = new Manifest.SnapshotRef
+            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
             {
                 Index = 4,
                 Path = "snapshots/snapshot-000004.jsonl",
@@ -47,7 +46,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
             },
         };
 
-        var element = JsonSerializer.SerializeToElement(manifest, SquirixJsonSerializerContext.Default.Manifest);
+        var element = JsonSerializer.SerializeToElement(manifest, SquirixJsonSerializerContext.Default.ManifestState);
 
         Assert.True(element.TryGetProperty("currentJournal", out var currentJournal));
         Assert.Equal(5, currentJournal.GetInt32());
@@ -63,11 +62,11 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
     public void PersistenceDtosRoundTripWithGeneratedMetadata()
     {
         var serializer = new SystemTextJsonSerializer();
-        var manifest = new Manifest
+        var manifest = new Storage.Manifest.ManifestState
         {
             CurrentJournal = 3,
             NextSequence = 42,
-            LastSnapshot = new Manifest.SnapshotRef
+            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
             {
                 Index = 2,
                 Path = "snapshots/snapshot-000002.jsonl",
@@ -88,7 +87,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
             },
         };
 
-        var manifestRoundTrip = serializer.Deserialize<Manifest>(serializer.SerializeToUtf8Bytes(manifest));
+        var manifestRoundTrip = serializer.Deserialize<Storage.Manifest.ManifestState>(serializer.SerializeToUtf8Bytes(manifest));
         var snapshotRoundTrip = serializer.Deserialize<SnapshotFrame>(serializer.SerializeToUtf8Bytes(snapshot));
 
         Assert.NotNull(manifestRoundTrip);

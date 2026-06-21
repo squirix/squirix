@@ -77,7 +77,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         LogManager.CompactionStateChanged(_log, prev, next);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(Manifest.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(Storage.Manifest.ManifestState.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip
@@ -195,7 +195,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         catch (OperationCanceledException)
         {
-            // Background compaction loop exits when the host token is cancelled; not an error for this service.
+            // Background compaction loop exits when the host token is Canceled; not an error for this service.
         }
         finally
         {

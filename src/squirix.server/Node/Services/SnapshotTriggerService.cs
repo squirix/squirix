@@ -62,7 +62,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         catch (OperationCanceledException)
         {
-            SnapshotTriggerLogs.LogCancelled(_log);
+            SnapshotTriggerLogs.LogCanceled(_log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {

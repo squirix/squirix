@@ -1,9 +1,9 @@
 using System;
 using System.Text.Json.Serialization;
 
-namespace Squirix.Server.Storage;
+namespace Squirix.Server.Storage.Manifest;
 
-internal sealed class Manifest
+internal sealed class ManifestState
 {
     [JsonPropertyName("currentJournal")]
     public int CurrentJournal { get; init; } = 1;

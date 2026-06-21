@@ -29,10 +29,10 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         var options = new PersistenceOptions { DataDir = dir };
         using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
         await store.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Manifest.SnapshotRef
+                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
                 {
                     Index = 1,
                     Path = PathKit.Combine(dir, $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}"),
@@ -73,11 +73,11 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         await File.WriteAllTextAsync(staleManifest, "{}", DefaultCancellationToken);
         using var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1 }, DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
         Assert.True(readiness.IsDegraded);
         Assert.Equal(2, readiness.ConsecutiveWriteFailures);
 
@@ -96,11 +96,11 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
         var staleManifest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}");
         using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
-        await store.WriteAsync(new Manifest { CurrentJournal = 1 }, DefaultCancellationToken);
-        await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
 
         Assert.True(File.Exists(staleManifest));
-        await store.WriteAsync(new Manifest { CurrentJournal = 3 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 3 }, DefaultCancellationToken);
 
         var latest = PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}");
         Assert.True(File.Exists(latest));
@@ -137,10 +137,10 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         };
         using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
         await store.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 CurrentJournal = 2,
-                LastSnapshot = new Manifest.SnapshotRef
+                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
                 {
                     Index = 2,
                     Path = currentSnapshot,

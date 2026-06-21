@@ -16,13 +16,13 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
     private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
-    [Fact]
-    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
+    /// <param name="backend">Manifest backend under test.</param>
+    [Theory]
+    [InlineData(ManifestBackend.Json)]
+    [InlineData(ManifestBackend.Binary)]
+    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint(ManifestBackend backend)
     {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-        };
+        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
         using var store = new ManifestStore(options);
 
         CreateJournalSegment(1);
@@ -31,10 +31,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(4);
 
         await store.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Manifest.SnapshotRef
+                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -44,6 +44,14 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
                 },
             },
             DefaultCancellationToken);
+
+        if (backend is ManifestBackend.Binary)
+        {
+            await ManifestStoreTestSupport.WaitUntilAsync(
+                () => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)),
+                TimeSpan.FromSeconds(5),
+                DefaultCancellationToken);
+        }
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -66,9 +74,9 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(3);
 
         await store.WriteAsync(
-            new Manifest
+            new Storage.Manifest.ManifestState
             {
-                LastSnapshot = new Manifest.SnapshotRef
+                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
