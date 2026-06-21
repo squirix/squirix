@@ -6,7 +6,7 @@
         <OutputType>Exe</OutputType>
         <AssemblyName>Squirix.Server.Benchmarks</AssemblyName>
         <RootNamespace>Squirix.Server.Benchmarks</RootNamespace>
-        <NoWarn>$(NoWarn);CA1515</NoWarn>
+        <NoWarn>$(NoWarn);CA1515;IDE0058</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

@@ -5,53 +5,75 @@ Logs: `benchmark-*.log` at repo root (`squirix-wal-pipelined/`).
 
 ## Strict @ 4096 B (`GroupCommitMaxWait=0`)
 
-| Backend | Mean/op | Alloc/op | Gate (latency ≤ JsonFramed ±10%, alloc ≪ JsonFramed) |
-|---------|---------|----------|------------------------------------------------------|
-| JsonFramed | **101.9 μs** | **14.8 KB** | baseline |
-| Pipelined | **850 ns** | **22 B** | **pass** (latency and alloc) |
+| Backend    | Mean/op      | Alloc/op    | Gate                                             |
+|------------|--------------|-------------|--------------------------------------------------|
+| JsonFramed | **101.9 μs** | **14.8 KB** | baseline                                         |
+| Pipelined  | **850 ns**   | **22 B**    | **pass** (latency and alloc)                     |
 
-Method: `JournalAppendBenchmarks.AppendPutAsync` (separate append + await).  
-Pipelined run used BDN adaptive 600k ops/iteration; JsonFramed 100k ops/iteration.
+Method: `JournalAppendBenchmarks.AppendPutAsync` (separate append + await).
 
-## Group commit @ 8 writers (`GC MaxWait=1 ms`, batch=32)
+---
 
-16k ops/invoke (8×2000). Per-op latency = Mean / 16000.
+## Group commit @ 8 writers — baseline (pre-tune, full 16k ops/invoke)
 
-| Backend | Payload | Mean/invoke | ~μs/op | Alloc/op | vs JsonFramed throughput |
-|---------|---------|-------------|--------|----------|--------------------------|
-| JsonFramed | 256 B | 1.27 ms | 79 | 2.9 KB | baseline |
-| JsonFramed | 4096 B | 1.11 ms | 69 | 15.9 KB | baseline |
-| Pipelined | 256 B | 1.93 ms | 121 | 841 B | **0.65× (slower)** |
-| Pipelined | 4096 B | 1.60 ms | 100 | 838 B | **0.69× (slower)** |
+`JournalGroupCommitBenchmarks`, GC MaxWait=1 ms, batch=32.
 
-**Gate Pipelined ≥ 2× throughput: FAIL** on this machine under concurrent GC workload.
+| Backend    | Payload | ~μs/op | Alloc/op | vs JsonFramed |
+|------------|---------|--------|----------|---------------|
+| JsonFramed | 256 B   | 79     | 2.9 KB   | 1.0×          |
+| JsonFramed | 4096 B  | 69     | 15.9 KB  | 1.0×          |
+| Pipelined  | 256 B   | 121    | 841 B    | **0.65×**     |
+| Pipelined  | 4096 B  | 100    | 838 B    | **0.69×**     |
 
-Note: Pipelined 256 B failed before fix (`ObjectDisposedException` in `JournalDurabilityGroupCommit.ScheduleDelayFlushAsync` when immediate batch flush races delay timer). Fixed + test `GroupCommitImmediateBatchFlushRacesDelayTimer`.
+Gate **Pipelined ≥ 2× throughput: FAIL** (raw coordinator append+await path).
+
+---
+
+## Group commit — quick re-run post-tune (`SQUIRIX_BENCH_QUICK=1`)
+
+Scale: **200 ops/writer × 4 writers = 800 ops/invoke**, warmup=0, iteration=1.  
+After gc-tune (`11e3bffd`) + allocation passes. Log: `benchmark-gc-quick-post-tune.log`.
+
+### Raw coordinator (`JournalGroupCommitBenchmarks.ConcurrentAppendPutAsync`)
+
+| Backend    | Payload | ms/invoke | ~μs/op (800 ops) | vs JsonFramed |
+|------------|---------|-----------|------------------|---------------|
+| JsonFramed | 256 B   | 2420      | 3025             | 1.0×          |
+| JsonFramed | 4096 B  | 1311      | 1639             | 1.0×          |
+| Pipelined  | 256 B   | 2915      | 3644             | **0.83×**     |
+| Pipelined  | 4096 B  | 1729      | 2161             | **0.76×**     |
+
+Raw path still slower; 4096 B gap narrowed vs baseline.
+
+### Production path (`DurableMutationGroupCommitBenchmarks.ExecutePutMutationAsync`)
+
+| Backend    | Payload | ms/invoke | ~μs/op (800 ops) | vs JsonFramed |
+|------------|---------|-----------|------------------|---------------|
+| JsonFramed | 256 B   | 3102      | 3878             | 1.0×          |
+| JsonFramed | 4096 B  | 3113      | 3891             | 1.0×          |
+| Pipelined  | 256 B   | 1583      | **1978**         | **1.96×**     |
+| Pipelined  | 4096 B  | 2651      | 3314             | **1.17×**     |
+
+**Finding:** under `DurableMutationExecutor` group-commit path, Pipelined **wins @ 256 B** (quick sample). Raw coordinator bench understates production throughput.
+
+---
 
 ## Breakdown @ 256 B (`SQUIRIX_BENCH_QUICK=1`, 1k ops/invoke)
 
-### Pipelined
+| Method (Pipelined)              | Mean   | Alloc |
+|---------------------------------|--------|-------|
+| AppendPutWithDurabilityAsync    | 793 ns | 4 B   |
+| EncodeOnly                      | 5 ns   | 1 B   |
+| EnqueueOnlyAsync                | 738 ns | 8 B   |
+| FsyncOnlyAsync                  | 753 ns | 5 B   |
 
-| Method | Mean | Alloc |
-|--------|------|-------|
-| AppendPutWithDurabilityAsync (baseline) | 793 ns | 4 B |
-| EncodeOnly | 5.0 ns | 1 B |
-| EnqueueOnlyAsync | 738 ns | 8 B |
-| FsyncOnlyAsync | 753 ns | 5 B |
+Encode ≈ 0.6% of baseline; cross-thread + durability dominate.
 
-Encode ≈ 0.6% of baseline; enqueue + fsync dominate (~93% each vs baseline — overlap in combined path).
-
-### JsonFramed
-
-| Method | Mean | Alloc |
-|--------|------|-------|
-| AppendPutWithDurabilityAsync | 886 ns | 22 B |
-| EncodeOnly | 5.0 ns | 9 B |
-| EnqueueOnlyAsync | 909 ns | 19 B |
-| FsyncOnlyAsync | — | (run failed / NA) |
+---
 
 ## Next steps
 
-- Investigate GC path: why Pipelined loses to JsonFramed under 8-writer GC despite piggyback.
-- `JournalRecord` pool — target remaining ~500 B/op strict alloc.
-- Re-run GC bench on Linux / with AV exclusions for stable CI numbers.
+- Full (non-quick) `JournalGroupCommitBenchmarks` + `DurableMutationGroupCommitBenchmarks` on CI/Linux when needed.
+- Raw coordinator path: further profiling (append+await double call vs executor single barrier).
+- `JournalRecord` pool — strict alloc ~496 B/op.
+- Production tuning doc (`MaxWaitMs`, `MaxBatch`).
