@@ -10,13 +10,11 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>
-/// Ensures <see cref="JournalWriter" /> exposes the same exclusive-maintenance entry point through <see cref="IExclusiveMaintenanceExecutor" /> used by hosted compaction.
+/// Ensures the pipelined journal coordinator exposes the same exclusive-maintenance entry point through <see cref="IExclusiveMaintenanceExecutor" /> used by hosted compaction.
 /// </summary>
 public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBase
 {
-    /// <summary>
-    /// Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct <see cref="JournalWriter" /> call).
-    /// </summary>
+    /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
     [Fact]
     public async Task ExclusiveMaintenanceExecutorDispatchRunsSuppliedAction()
     {
@@ -24,13 +22,12 @@ public sealed class JournalWriterExclusiveMaintenanceExecutorTests : UnitTestBas
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 100,
         };
 
         using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var executed = false;
         await journal.ExecuteMaintenanceExclusiveAsync(
             _ =>

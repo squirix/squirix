@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Storage.Journaling.Pipelined.Platform;
+using Squirix.Server.Storage.Journaling.Pipelined.Platform.IoUring;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -17,8 +18,7 @@ internal static class JournalSegmentWriterFactory
 
     private static IJournalSegmentWriter CreateUringIfAvailable()
     {
-        // Auto-select io_uring on Linux when available; RandomAccess otherwise.
-        if (OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() && IoUringAvailability.IsSupported)
             return new UringJournalSegmentWriter();
 
         return new RandomAccessJournalSegmentWriter();

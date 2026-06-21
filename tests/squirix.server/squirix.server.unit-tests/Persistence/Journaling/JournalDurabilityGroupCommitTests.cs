@@ -6,6 +6,7 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Pipelined;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -117,7 +118,6 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -125,7 +125,8 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
         var executor = new DurableMutationExecutor(journal);
         var observedPendingFlushDuringMemoryApply = false;
 
@@ -135,13 +136,13 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, ct); },
             _ =>
             {
-                observedPendingFlushDuringMemoryApply = journal.IsDurabilityFlushPending;
+                observedPendingFlushDuringMemoryApply = pipelined.IsDurabilityFlushPending;
                 return new ValueTask<int>(1);
             },
             DefaultCancellationToken);
 
         Assert.False(observedPendingFlushDuringMemoryApply);
-        Assert.False(journal.IsDurabilityFlushPending);
+        Assert.False(pipelined.IsDurabilityFlushPending);
     }
 
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
@@ -184,7 +185,6 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
@@ -193,9 +193,10 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
 
-        var flushProbe = new JournalFlushProbe(journal);
+        var flushProbe = new JournalFlushProbe(pipelined);
         var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
 
         await journal.AppendPutAsync(CacheKey.Default("k1"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v1", null, null, 1, null), null, DefaultCancellationToken);
@@ -207,7 +208,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         await Task.WhenAll(firstCommit, secondCommit);
 
         Assert.Equal(1, flushProbe.FlushCount);
-        Assert.False(journal.IsDurabilityFlushPending);
+        Assert.False(pipelined.IsDurabilityFlushPending);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
@@ -232,10 +233,10 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 
     private sealed class JournalFlushProbe
     {
-        private readonly JournalWriter _journal;
+        private readonly PipelinedJournalCoordinator _journal;
         private int _flushCount;
 
-        public JournalFlushProbe(JournalWriter journal)
+        public JournalFlushProbe(PipelinedJournalCoordinator journal)
         {
             _journal = journal;
         }

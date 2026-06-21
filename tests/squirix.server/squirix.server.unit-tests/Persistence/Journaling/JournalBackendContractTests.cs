@@ -1,4 +1,3 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -12,25 +11,15 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>Contract tests for pluggable journal backends.</summary>
+/// <summary>Contract tests for the pipelined journal coordinator.</summary>
 public sealed class JournalBackendContractTests
 {
-    /// <summary>Append and replay round-trip for each configured journal backend.</summary>
-    /// <param name="backendOrdinal"><see cref="JournalBackend"/> ordinal under test.</param>
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task AppendPutReplayRoundTrip(int backendOrdinal)
+    /// <summary>Append and replay round-trip for the pipelined journal backend.</summary>
+    [Fact]
+    public async Task AppendPutReplayRoundTrip()
     {
-        var backend = backendOrdinal switch
-        {
-            0 => JournalBackend.JsonFramed,
-            1 => JournalBackend.Pipelined,
-            _ => throw new ArgumentOutOfRangeException(nameof(backendOrdinal), backendOrdinal, null),
-        };
-
         using var dir = new TempDirectory("journal-contract");
-        var options = new PersistenceOptions { DataDir = dir, JournalBackend = backend, JournalMaxSegmentMb = 64 };
+        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
         using var manifestStore = new ManifestStore(options);
         var gate = new JournalStartupGate();
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
@@ -44,9 +33,7 @@ public sealed class JournalBackendContractTests
         manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
         JournalRecord? last = null;
         foreach (var record in JournalReadPath.ReadAll(dir, manifest.CurrentJournal, CancellationToken.None))
-        {
             last = record;
-        }
 
         Assert.NotNull(last);
         Assert.Equal(JournalOperationKind.Put, last.Operation);

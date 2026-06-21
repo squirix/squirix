@@ -1,13 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage.Journaling.JsonFramed;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
-/// <summary>
-/// Serializes journal maintenance work (for example compaction) with the same exclusivity rules as <see cref="JournalWriter.ExecuteMaintenanceExclusiveAsync" />.
-/// </summary>
+/// <summary>Serializes journal maintenance work (for example compaction) with the same exclusivity rules as the pipelined journal coordinator.</summary>
 /// <remarks>
 /// Implemented by <see cref="IJournalCoordinator" /> so hosted compaction depends on this narrow surface instead of the full writer type.
 /// </remarks>

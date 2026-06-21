@@ -21,9 +21,9 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
     public async Task AppendPutAsyncCreatesJournalPutSpan()
     {
         using var dir = new TempDirectory("squirix-tracing-journal-decorator");
-        var options = new PersistenceOptions { DataDir = dir, JournalBackend = JournalBackend.JsonFramed, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
+        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
         using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalWriterDecorator(core, tracer);
 
@@ -47,13 +47,12 @@ public sealed class TracingJournalWriterDecoratorTests : UnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(groupCommitMaxWaitMilliseconds),
             JournalMaxSegmentMb = 16,
             FlushIntervalMs = 600_000,
         };
         using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalWriterDecorator(core, tracer);
 

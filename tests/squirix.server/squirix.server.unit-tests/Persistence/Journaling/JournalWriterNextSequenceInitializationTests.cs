@@ -9,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Storage.Journaling.JsonFramed.Json;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -40,7 +41,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(async () =>
         {
-            _ = await JournalWriter.CreateAsync(
+            _ = await JournalCoordinatorFactory.CreateAsync(
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
                 manifestStore,
@@ -72,7 +73,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -105,7 +106,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             },
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -132,7 +133,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
 
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -162,7 +163,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -201,7 +202,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -218,7 +219,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
 
-        await using (var journal = await JournalWriter.CreateAsync(
+        await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
                          await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
                          manifestStore,
@@ -234,13 +235,13 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         var maxSeq = 0UL;
-        foreach (var env in JournalReader.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
+        foreach (var record in JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
         {
-            if (env.Seq > maxSeq)
-                maxSeq = env.Seq;
+            if (record.Sequence > maxSeq)
+                maxSeq = record.Sequence;
         }
 
-        await using var restartedJournal = await JournalWriter.CreateAsync(persistence, manifest, manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var restartedJournal = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, new JournalStartupGate(), DefaultCancellationToken);
         Assert.Equal(maxSeq + 1, restartedJournal.NextSequence);
         Assert.Equal(manifest.CurrentJournal, restartedJournal.CurrentSegmentIndex);
     }
@@ -271,7 +272,7 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             },
             DefaultCancellationToken);
 
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -302,7 +303,6 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
     private static PersistenceOptions NewPersistence(string dataDir) => new()
     {
         DataDir = dataDir,
-        JournalBackend = JournalBackend.JsonFramed,
         JournalMaxSegmentMb = 16,
         FlushIntervalMs = 5,
         ManifestRetentionCount = 1,

@@ -23,14 +23,13 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
         var options = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,

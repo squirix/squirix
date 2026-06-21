@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.Journaling.Pipelined.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
@@ -37,7 +36,7 @@ internal static class JournalCompactor
         var newFirstIdx = GetNextJournalSegmentIndex(CollectJournalSegments(options.DataDir));
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        await WriteCompactedJournalAsync(options, tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
+        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, lastSeq, cancellationToken).ConfigureAwait(false);
     }
 
@@ -204,7 +203,6 @@ internal static class JournalCompactor
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
     private static async Task WriteCompactedJournalAsync(
-        PersistenceOptions options,
         string tmpPath,
         Dictionary<CacheKey, CacheEntry<object?>> state,
         ulong lastSeq,
@@ -213,7 +211,7 @@ internal static class JournalCompactor
         var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         await using (fs.ConfigureAwait(false))
         {
-            await WriteCompactedJournalHeaderAsync(fs, options, cancellationToken).ConfigureAwait(false);
+            await WriteCompactedJournalHeaderAsync(fs, cancellationToken).ConfigureAwait(false);
 
             var seq = lastSeq is 0UL ? 1UL : lastSeq + 1UL;
             var i = 0;
@@ -226,29 +224,22 @@ internal static class JournalCompactor
                     continue;
 
                 var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(e.Value, e.ExpiresUtc, e.Expiration, e.Version, e.Tags).ConfigureAwait(false);
-                seq = await WriteCompactedPutEntryAsync(fs, options, k, body, seq, cancellationToken).ConfigureAwait(false);
+                seq = await WriteCompactedPutEntryAsync(fs, k, body, seq, cancellationToken).ConfigureAwait(false);
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static async Task WriteCompactedJournalHeaderAsync(FileStream fs, PersistenceOptions options, CancellationToken cancellationToken)
+    private static async Task WriteCompactedJournalHeaderAsync(FileStream fs, CancellationToken cancellationToken)
     {
-        if (options.JournalBackend is JournalBackend.Pipelined)
-        {
-            var header = new byte[JournalBinaryFraming.FileHeaderSize];
-            JournalBinaryFraming.WriteFileHeader(header);
-            await fs.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        JournalFraming.WriteFileHeader(fs);
+        var header = new byte[JournalBinaryFraming.FileHeaderSize];
+        JournalBinaryFraming.WriteFileHeader(header);
+        await fs.WriteAsync(header, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<ulong> WriteCompactedPutEntryAsync(
         FileStream fs,
-        PersistenceOptions options,
         CacheKey key,
         byte[] body,
         ulong sequence,
@@ -264,25 +255,17 @@ internal static class JournalCompactor
             PutOperationId = string.Empty,
         };
 
-        if (options.JournalBackend is JournalBackend.Pipelined)
-        {
-            var codec = JournalFrameCodecFactory.Binary;
-            var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
-            var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
-            var frame = new byte[frameLen];
-            var bodySpan = frame.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-            var encodedLength = codec.Encode(record, bodySpan);
-            if (encodedLength != bodyLen)
-                throw new InvalidOperationException("unexpected journal frame length after encode.");
+        var codec = JournalFrameCodecFactory.Binary;
+        var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
+        var frame = new byte[frameLen];
+        var bodySpan = frame.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
+        var encodedLength = codec.Encode(record, bodySpan);
+        if (encodedLength != bodyLen)
+            throw new InvalidOperationException("unexpected journal frame length after encode.");
 
-            JournalBinaryFraming.WriteFrame(frame, bodySpan);
-            await fs.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
-            return sequence + 1UL;
-        }
-
-        var env = JsonFramedJournalCodec.ToEnvelope(record);
-        var payload = RecordCodec.Serialize(env);
-        JournalFraming.WriteFrame(fs, payload);
+        JournalBinaryFraming.WriteFrame(frame, bodySpan);
+        await fs.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
         return sequence + 1UL;
     }
 }

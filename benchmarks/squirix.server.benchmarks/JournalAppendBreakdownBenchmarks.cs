@@ -11,7 +11,7 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Isolates encode, enqueue, fsync, and combined append+durability costs for journal backends.</summary>
+/// <summary>Isolates encode, enqueue, fsync, and combined append+durability costs for the pipelined journal.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class JournalAppendBreakdownBenchmarks
@@ -20,10 +20,6 @@ public class JournalAppendBreakdownBenchmarks
     private JournalBenchmarkHost? _host;
     private CacheKey _key = new("bench", "breakdown");
     private byte[] _putPayload = [];
-
-    /// <summary>Gets or sets the journal backend under test.</summary>
-    [Params(JournalBackend.JsonFramed, JournalBackend.Pipelined)]
-    public JournalBackend Backend { get; set; }
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
@@ -55,18 +51,9 @@ public class JournalAppendBreakdownBenchmarks
         var operations = GetOperationsPerInvoke();
         for (var i = 0; i < operations; i++)
         {
-            if (Backend is JournalBackend.Pipelined)
-            {
-                var frameLen = JournalAppendBreakdownBenchmarkSupport.EncodePipelinedPutFrame(_key.Namespace, _key.Key, _putPayload, out var rented);
-                ArrayPool<byte>.Shared.Return(rented);
-                GC.KeepAlive(frameLen);
-            }
-            else
-            {
-                var frameLen = JournalAppendBreakdownBenchmarkSupport.EncodeJsonFramedPutFrame(_key.Namespace, _key.Key, _putPayload, out var rented);
-                ArrayPool<byte>.Shared.Return(rented);
-                GC.KeepAlive(frameLen);
-            }
+            var frameLen = JournalAppendBreakdownBenchmarkSupport.EncodePipelinedPutFrame(_key.Namespace, _key.Key, _putPayload, out var rented);
+            ArrayPool<byte>.Shared.Return(rented);
+            GC.KeepAlive(frameLen);
         }
     }
 
@@ -99,7 +86,6 @@ public class JournalAppendBreakdownBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalBackend = Backend,
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = TimeSpan.Zero,
             JournalGroupCommitMaxBatch = 32,

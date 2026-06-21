@@ -20,28 +20,29 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <IsPackable>true</IsPackable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
-        <Protobuf Include="..\shared\transport\grpc\Protos\SquirixCache.proto" GrpcServices="Server;Client" ProtoRoot="..\shared\transport\grpc\Protos" Access="Internal"/>
-        <Protobuf Include="Storage\Journaling\JsonFramed\Protos\JournalEnvelope.proto" GrpcServices="Server" ProtoRoot="Storage\Journaling\JsonFramed\Protos" Access="Internal"/>
+        <Protobuf Include="..\shared\transport\grpc\Protos\SquirixCache.proto" GrpcServices="Server;Client" ProtoRoot="..\shared\transport\grpc\Protos" Access="Internal" />
+        <Protobuf Include="Storage\Journaling\JsonFramed\Protos\JournalEnvelope.proto" GrpcServices="Server" ProtoRoot="Storage\Journaling\JsonFramed\Protos" Access="Internal" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Google.Protobuf"/>
-        <PackageReference Include="Grpc.AspNetCore"/>
-        <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
-        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
+        <PackageReference Include="Google.Protobuf" />
+        <PackageReference Include="Grpc.AspNetCore" />
+        <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+        <PackageReference Include="JetBrains.Annotations" PrivateAssets="All" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     </ItemGroup>
 
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\transport\grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
-        <Compile Include="..\shared\transport\grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
-        <None Include="README.md" Pack="true" PackagePath="/"/>
+        <Compile Include="..\shared\transport\grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" />
+        <Compile Include="..\shared\transport\grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs" />
+        <None Include="README.md" Pack="true" PackagePath="/" />
     </ItemGroup>
 </Project>

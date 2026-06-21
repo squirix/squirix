@@ -21,7 +21,7 @@ internal sealed class JsonFramedJournalCodec : IJournalFrameCodec
         return FromEnvelope(env);
     }
 
-    public int Encode(JournalRecord record, Span<byte> destination) => throw new NotSupportedException("JsonFramed encoding uses RecordCodec via JournalWriter.");
+    public int Encode(JournalRecord record, Span<byte> destination) => throw new NotSupportedException("Legacy JSON-framed journal encoding is read-only.");
 
     internal static JournalEnvelope ToEnvelope(JournalRecord record)
     {

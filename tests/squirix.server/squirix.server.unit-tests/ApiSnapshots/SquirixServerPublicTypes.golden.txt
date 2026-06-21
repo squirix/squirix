@@ -132,7 +132,6 @@ P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.get
 P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.set
 P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.get
 P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.set
-F:Squirix.Server.Storage.Journaling.JournalBackend::JsonFramed
 F:Squirix.Server.Storage.Journaling.JournalBackend::Pipelined
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::Auto
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::RandomAccess

@@ -9,7 +9,7 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Compares JsonFramed vs Pipelined under concurrent durable writers with group commit enabled.</summary>
+/// <summary>Pipelined journal throughput under concurrent durable writers with group commit enabled.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class JournalGroupCommitBenchmarks
@@ -19,10 +19,6 @@ public class JournalGroupCommitBenchmarks
     private int _nextWriterId;
     private JournalBenchmarkHost? _host;
     private byte[] _putPayload = [];
-
-    /// <summary>Gets or sets the journal backend under test.</summary>
-    [Params(JournalBackend.JsonFramed, JournalBackend.Pipelined)]
-    public JournalBackend Backend { get; set; }
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
@@ -34,7 +30,6 @@ public class JournalGroupCommitBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalBackend = Backend,
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
             JournalGroupCommitMaxBatch = 32,

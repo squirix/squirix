@@ -9,7 +9,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Compares JsonFramed vs Pipelined journal append throughput.</summary>
+/// <summary>Pipelined journal append throughput benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class JournalAppendBenchmarks
@@ -18,10 +18,6 @@ public class JournalAppendBenchmarks
     private JournalBenchmarkHost? _host;
     private CacheKey _key = new("bench", "key");
     private byte[] _putPayload = [];
-
-    /// <summary>Gets or sets the journal backend under test.</summary>
-    [Params(JournalBackend.JsonFramed, JournalBackend.Pipelined)]
-    public JournalBackend Backend { get; set; }
 
     /// <summary>Gets or sets the group commit wait values.</summary>
     [ParamsSource(nameof(GroupCommitMaxWaitValues))]
@@ -72,7 +68,6 @@ public class JournalAppendBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalBackend = Backend,
             JournalPlatformBackend = PlatformBackend,
             JournalGroupCommitMaxWait = GroupCommitMaxWait,
             JournalGroupCommitMaxBatch = 32,

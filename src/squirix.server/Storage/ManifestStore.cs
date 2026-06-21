@@ -164,6 +164,14 @@ internal sealed class ManifestStore : IDisposable
 
     public void Dispose() => _gate.Dispose();
 
+    [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Blocking API for the dedicated journal I/O thread.")]
+    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "Journal I/O thread has no synchronization context and must observe manifest durability before continuing a segment roll.")]
+    internal Manifest ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+    [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Blocking API for the dedicated journal I/O thread.")]
+    [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "Journal I/O thread has no synchronization context and must observe manifest durability before continuing a segment roll.")]
+    internal void WriteBlocking(Manifest manifest) => WriteAsync(manifest, CancellationToken.None).GetAwaiter().GetResult();
+
     private static FileOptions GetCurrentFileWriteOptions()
     {
         var opts = FileOptions.SequentialScan;

@@ -93,6 +93,10 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
 
+    internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
+
+    internal bool IsDurabilityFlushPending => _dirty;
+
     public static async Task<PipelinedJournalCoordinator> CreateAsync(
         PersistenceOptions opt,
         Manifest manifest,
@@ -276,6 +280,8 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
     }
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _startupGate.WaitAsync(cancellationToken);
+
+    internal async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
 
     private static void CompleteJournalWorkItem(JournalWorkItem item) => item.Completion?.SetResult();
 
@@ -640,6 +646,7 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
             }
 
             await waitTask.ConfigureAwait(false);
+            ThrowIfJournalThreadFailed();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -723,8 +730,6 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
 
         _activeSegmentWrittenBytes = _segmentWriter.Length;
     }
-
-    private ValueTask FlushAsync(CancellationToken cancellationToken) => EnqueueFlushAsync(cancellationToken);
 
     private async ValueTask GroupCommitFlushAsync(CancellationToken cancellationToken)
     {
@@ -891,16 +896,16 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         finally
         {
             _ = Interlocked.Decrement(ref _queuedAppends);
-            if (!_opt.IsJournalGroupCommitEnabled)
-                CompleteDurabilityCheckpointOnJournalThread();
-            else
-                TryCompleteGroupCommitCheckpoint();
-
-            CompleteJournalWorkItem(item);
-
             if (frameBytes is not null)
                 ArrayPool<byte>.Shared.Return(frameBytes);
         }
+
+        if (!_opt.IsJournalGroupCommitEnabled)
+            CompleteDurabilityCheckpointOnJournalThread();
+        else
+            TryCompleteGroupCommitCheckpoint();
+
+        CompleteJournalWorkItem(item);
     }
 
     private void TryCompleteGroupCommitCheckpoint()
@@ -990,6 +995,24 @@ internal sealed class PipelinedJournalCoordinator : IJournalCoordinator
         Volatile.Write(ref _activeSegmentWrittenBytes, JournalBinaryFraming.FileHeaderSize);
         _journalTotalBytes += JournalBinaryFraming.FileHeaderSize;
         _dirty = false;
+        WriteManifestAfterRollSync();
+    }
+
+    private void WriteManifestAfterRollSync()
+    {
+        ulong nextSequence;
+        lock (_sequenceLock)
+            nextSequence = _nextSequence;
+
+        var prevManifest = _manifestStore.ReadCurrentOrDefaultBlocking();
+        var manifest = new Manifest
+        {
+            Format = prevManifest.Format is 0 ? 1 : prevManifest.Format,
+            CurrentJournal = CurrentSegmentIndex,
+            NextSequence = nextSequence,
+            LastSnapshot = prevManifest.LastSnapshot,
+        };
+        _manifestStore.WriteBlocking(manifest);
     }
 
     private void ThrowIfJournalThreadFailed()

@@ -21,7 +21,7 @@ public sealed class ArchitectureTests : UnitTestBase
         "ICacheApi<",
         "LocalCache<",
         "ClusteredCache<",
-        "JournalWriter",
+        "PipelinedJournalCoordinator",
         "SnapshotCoordinator",
         "Squirix.Storage.Journaling",
         "Squirix.Storage.Snapshot",
@@ -85,16 +85,15 @@ public sealed class ArchitectureTests : UnitTestBase
         ArchitectureAssertions.AssertArchitecture(result);
     }
 
-    /// <summary>Ensures the journal periodic flush task is observed during disposal instead of being fire-and-forget.</summary>
+    /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
     [Fact]
-    public async Task JournalWriterFlushLoopShouldBeObservedByDispose()
+    public async Task PipelinedJournalThreadShouldBeJoinedOnDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JsonFramed", "JournalWriter.cs"), DefaultCancellationToken);
+        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Pipelined", "PipelinedJournalCoordinator.cs"), DefaultCancellationToken);
 
-        Assert.Contains("_flushLoopTask = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
-        Assert.Contains("await _flushLoopTask.ConfigureAwait(false);", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("_ = FlushLoopAsync(_bgCts.Token);", text, StringComparison.Ordinal);
+        Assert.Contains("_journalThread.Join(", text, StringComparison.Ordinal);
+        Assert.Contains("AwaitJournalThreadDuringDisposeAsync", text, StringComparison.Ordinal);
     }
 
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>

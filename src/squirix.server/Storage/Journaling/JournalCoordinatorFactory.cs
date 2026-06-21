@@ -20,7 +20,6 @@ internal static class JournalCoordinatorFactory
         ArgumentNullException.ThrowIfNull(persistence);
         return persistence.JournalBackend switch
         {
-            JournalBackend.JsonFramed => await JournalWriter.CreateAsync(persistence, manifest, manifestStore, startupGate, cancellationToken).ConfigureAwait(false),
             JournalBackend.Pipelined => await PipelinedJournalCoordinator.CreateAsync(persistence, manifest, manifestStore, startupGate, cancellationToken).ConfigureAwait(false),
             _ => throw new ArgumentOutOfRangeException(nameof(persistence), "unknown journal backend."),
         };

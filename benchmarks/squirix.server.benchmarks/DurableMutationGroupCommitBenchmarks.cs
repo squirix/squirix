@@ -10,7 +10,7 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Compares durable mutation group-commit throughput via <see cref="DurableMutationExecutor" />.</summary>
+/// <summary>Durable mutation group-commit throughput via <see cref="DurableMutationExecutor" />.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class DurableMutationGroupCommitBenchmarks
@@ -22,10 +22,6 @@ public class DurableMutationGroupCommitBenchmarks
     private JournalBenchmarkHost? _host;
     private byte[] _putPayload = [];
 
-    /// <summary>Gets or sets the journal backend under test.</summary>
-    [Params(JournalBackend.JsonFramed, JournalBackend.Pipelined)]
-    public JournalBackend Backend { get; set; }
-
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
     public int PutPayloadBytes { get; set; }
@@ -36,7 +32,6 @@ public class DurableMutationGroupCommitBenchmarks
     {
         var options = new PersistenceOptions
         {
-            JournalBackend = Backend,
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
             JournalGroupCommitMaxBatch = 32,

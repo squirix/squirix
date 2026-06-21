@@ -23,14 +23,13 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -84,14 +83,13 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
             ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
@@ -124,14 +122,13 @@ public sealed class JournalWriterSnapshotCutReleaseTests : UnitTestBase
         var persistence = new PersistenceOptions
         {
             DataDir = dir,
-            JournalBackend = JournalBackend.JsonFramed,
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 600_000,
             ManifestRetentionCount = 1,
         };
 
         using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalWriter.CreateAsync(
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
             persistence,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
