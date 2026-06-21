@@ -209,29 +209,31 @@ internal sealed class JournalDurabilityGroupCommit
     private async Task ScheduleDelayFlushAsync()
     {
         var delayCts = new CancellationTokenSource();
+        CancellationToken delayToken;
         CancellationTokenSource? previous;
         lock (_sync)
         {
             previous = TakeDelayCtsLocked();
             _delayCts = delayCts;
+            delayToken = delayCts.Token;
         }
 
         await CancelAndDisposeDelayCtsAsync(previous).ConfigureAwait(false);
 
         try
         {
-            await Task.Delay(_opt.JournalGroupCommitMaxWait, _timeProvider, delayCts.Token).ConfigureAwait(false);
+            await Task.Delay(_opt.JournalGroupCommitMaxWait, _timeProvider, delayToken).ConfigureAwait(false);
             await DrainPendingCommitsAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (delayCts.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             // Superseded by an immediate batch flush or shutdown cancellation of the delay timer.
         }
-        catch (IOException ex)
+        catch (ObjectDisposedException)
         {
-            await CancelPendingAsync(ex).ConfigureAwait(false);
+            // Delay timer torn down by CancelDelayTimerAsync during concurrent batch flush.
         }
-        catch (ObjectDisposedException ex)
+        catch (IOException ex)
         {
             await CancelPendingAsync(ex).ConfigureAwait(false);
         }

@@ -144,6 +144,38 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         Assert.False(journal.IsDurabilityFlushPending);
     }
 
+    /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
+    [Fact]
+    public async Task GroupCommitImmediateBatchFlushRacesDelayTimer()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(50),
+            JournalGroupCommitMaxBatch = 4,
+        };
+
+        var flushCounter = new AtomicCounter();
+
+        var groupCommit = new JournalDurabilityGroupCommit(
+            _ =>
+            {
+                flushCounter.Increment();
+                return ValueTask.CompletedTask;
+            },
+            options);
+
+        var waiters = new Task[8];
+        for (var i = 0; i < waiters.Length; i++)
+            waiters[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+
+        await Task.WhenAll(waiters);
+
+        foreach (var waiter in waiters)
+            Assert.True(waiter.IsCompletedSuccessfully);
+
+        Assert.True(flushCounter.Value >= 1);
+    }
+
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
     public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()

@@ -10,6 +10,8 @@ internal readonly struct JournalWorkItem
 
     public int FrameLength { get; init; }
 
+    public JournalDurabilityWaiter? DurabilityWaiter { get; init; }
+
     public TaskCompletionSource? Completion { get; init; }
 
     public int ResetSegmentIndex { get; init; }

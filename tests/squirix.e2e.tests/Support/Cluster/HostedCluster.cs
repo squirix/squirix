@@ -105,7 +105,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
         var mtls = nodeIds.Length > 1 ? new MtlsTestContext() : null;
-        TempDirectory? dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
+        var dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
         try
         {
             for (var i = 0; i < nodeIds.Length; i++)

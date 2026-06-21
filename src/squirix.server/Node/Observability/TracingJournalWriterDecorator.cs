@@ -39,32 +39,51 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
-    public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken) =>
-        TracePutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
+    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    {
+        var payloadBytes = discriminatedEntryJson.Length;
+        var traceContext = Enrich(JournalWriterTracing.ForKey(key) with { PayloadBytes = payloadBytes });
+        using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
+        await _inner.AppendPutAndAwaitDurabilityAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
+        JournalWriterTracing.TraceFrameBytes(scope, payloadBytes);
+    }
 
-    public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.Remove,
-        Enrich(JournalWriterTracing.ForKey(key)),
-        () => _inner.AppendRemoveAsync(key, cancellationToken));
+    public async ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    {
+        var payloadBytes = discriminatedEntryJson.Length;
+        var traceContext = Enrich(JournalWriterTracing.ForKey(key) with { PayloadBytes = payloadBytes });
+        using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
+        await _inner.AppendPutAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
+        JournalWriterTracing.TraceFrameBytes(scope, payloadBytes);
+    }
 
-    public ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.RemoveExpiration,
-        Enrich(JournalWriterTracing.ForKey(key)),
-        () => _inner.AppendRemoveExpirationAsync(key, cancellationToken));
+    public async ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        using var scope = _tracer.Begin(JournalOperationKind.Remove, in traceContext);
+        await _inner.AppendRemoveAsync(key, cancellationToken).ConfigureAwait(false);
+    }
 
-    public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.TouchExpiration,
-        Enrich(JournalWriterTracing.ForKey(key)),
-        () => _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken));
+    public async ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        using var scope = _tracer.Begin(JournalOperationKind.RemoveExpiration, in traceContext);
+        await _inner.AppendRemoveExpirationAsync(key, cancellationToken).ConfigureAwait(false);
+    }
 
-    public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.AwaitDurabilityCommit,
-        Enrich(default),
-        () => _inner.AwaitDurabilityCommitAsync(cancellationToken));
+    public async ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(JournalWriterTracing.ForKey(key));
+        using var scope = _tracer.Begin(JournalOperationKind.TouchExpiration, in traceContext);
+        await _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.AwaitDurabilityCommit, in traceContext);
+        await _inner.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
 
@@ -72,46 +91,37 @@ internal sealed class TracingJournalWriterDecorator : IJournalCoordinator
 
     public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-    public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.MaintenanceExclusive,
-        Enrich(default),
-        () => _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken));
+    public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.MaintenanceExclusive, in traceContext);
+        await _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken).ConfigureAwait(false);
+    }
 
-    public ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
+    public async ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
         Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
         Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
-        CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.SnapshotCut,
-        Enrich(default),
-        () => _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken));
-
-    public ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken) =>
-        JournalWriterTracing.TraceAsync(
-            _tracer,
-            JournalOperationKind.UnderSnapshotBarrier,
-            Enrich(default),
-            () => _inner.ExecuteUnderSnapshotBarrierAsync(action, cancellationToken));
-
-    public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => JournalWriterTracing.TraceAsync(
-        _tracer,
-        JournalOperationKind.WaitForStartup,
-        Enrich(default),
-        () => _inner.WaitForStartupAsync(cancellationToken));
-
-    private JournalOperationTraceContext Enrich(in JournalOperationTraceContext context) => JournalWriterTracing.WithDurability(in context, _inner);
-
-    private async ValueTask TracePutAsync(string key, string cacheNamespace, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
-        var payloadBytes = discriminatedEntryJson.Length;
-        var context = Enrich(JournalWriterTracing.ForKey(key, cacheNamespace) with { PayloadBytes = payloadBytes });
-        await JournalWriterTracing.TraceAsync(
-            _tracer,
-            JournalOperationKind.Put,
-            context,
-            () => _inner.AppendPutAsync(new CacheKey(cacheNamespace, key), discriminatedEntryJson, operationId, cancellationToken),
-            scope => JournalWriterTracing.TraceFrameBytes(scope, payloadBytes)).ConfigureAwait(false);
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.SnapshotCut, in traceContext);
+        return await _inner.ExecuteSnapshotCutAsync(state, captureUnderBarrier, buildOutsideBarrier, cancellationToken).ConfigureAwait(false);
     }
+
+    public async ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.UnderSnapshotBarrier, in traceContext);
+        return await _inner.ExecuteUnderSnapshotBarrierAsync(action, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask WaitForStartupAsync(CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.WaitForStartup, in traceContext);
+        await _inner.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private JournalOperationTraceContext Enrich(JournalOperationTraceContext context) => JournalWriterTracing.WithDurability(in context, _inner);
 }

@@ -126,6 +126,12 @@ internal sealed class JournalWriter : IJournalCoordinator
         return AppendPutAsync(key.Key, key.Namespace, discriminatedEntryJson, operationId, cancellationToken);
     }
 
+    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    {
+        await AppendPutAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
+        await AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendAsync(
         new JournalEnvelope
         {
