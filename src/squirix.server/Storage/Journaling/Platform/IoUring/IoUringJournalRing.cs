@@ -97,7 +97,8 @@ internal sealed class IoUringJournalRing : IDisposable
             try
             {
                 buffer.CopyTo(new Span<byte>(native, buffer.Length));
-                SubmitWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
+                EnqueueWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
+                SubmitAndWait();
             }
             finally
             {
@@ -109,10 +110,37 @@ internal sealed class IoUringJournalRing : IDisposable
     internal void Fsync(int fileDescriptor)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        SubmitFsync(fileDescriptor);
+        EnqueueFsync(fileDescriptor);
+        SubmitAndWait();
     }
 
-    private unsafe void SubmitWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)
+    internal void WriteManifestRoll(int dataFd, ReadOnlySpan<byte> data, int pointerFd, ReadOnlySpan<byte> pointer)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        unsafe
+        {
+            var dataNative = (byte*)NativeMemory.Alloc((nuint)data.Length);
+            var pointerNative = (byte*)NativeMemory.Alloc((nuint)pointer.Length);
+            try
+            {
+                data.CopyTo(new Span<byte>(dataNative, data.Length));
+                pointer.CopyTo(new Span<byte>(pointerNative, pointer.Length));
+                var sqTailBefore = _sqTailLocal;
+                EnqueueWrite(dataFd, (ulong)dataNative, (uint)data.Length, 0);
+                EnqueueWrite(pointerFd, (ulong)pointerNative, (uint)pointer.Length, 0);
+                EnqueueFsync(dataFd);
+                EnqueueFsync(pointerFd);
+                SubmitBatchAndWait(_sqTailLocal - sqTailBefore, 4);
+            }
+            finally
+            {
+                NativeMemory.Free(dataNative);
+                NativeMemory.Free(pointerNative);
+            }
+        }
+    }
+
+    private unsafe void EnqueueWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)
     {
         var sqeIndex = _sqTailLocal & _sqMask;
         var sqeSlot = _sqArray[sqeIndex];
@@ -123,12 +151,10 @@ internal sealed class IoUringJournalRing : IDisposable
         sqe.Off = offset;
         sqe.Addr = bufferAddress;
         sqe.Len = length;
-
         _sqTailLocal++;
-        SubmitAndWait();
     }
 
-    private unsafe void SubmitFsync(int fileDescriptor)
+    private unsafe void EnqueueFsync(int fileDescriptor)
     {
         var sqeIndex = _sqTailLocal & _sqMask;
         var sqeSlot = _sqArray[sqeIndex];
@@ -137,9 +163,7 @@ internal sealed class IoUringJournalRing : IDisposable
         sqe.Opcode = LinuxIoUringSyscalls.OpFsync;
         sqe.Fd = fileDescriptor;
         sqe.FsyncFlags = LinuxIoUringSyscalls.FsyncDatasync;
-
         _sqTailLocal++;
-        SubmitAndWait();
     }
 
     private unsafe void SubmitAndWait()
@@ -169,6 +193,40 @@ internal sealed class IoUringJournalRing : IDisposable
             throw new IOException($"io_uring completion failed with code {cqe.Res}.");
 
         Volatile.Write(ref *_cqHead, head + 1);
+    }
+
+    private unsafe void SubmitBatchAndWait(uint sqesToSubmit, uint expectedCompletions)
+    {
+        Volatile.Write(ref *_sqTail, _sqTailLocal);
+        Thread.MemoryBarrier();
+
+        var submitted = false;
+        var completed = 0U;
+        while (completed < expectedCompletions)
+        {
+            var toSubmit = submitted ? 0U : sqesToSubmit;
+            var minComplete = expectedCompletions - completed;
+            var enterResult = LinuxIoUringSyscalls.IoUringEnter(_ringFd, toSubmit, minComplete, LinuxIoUringSyscalls.EnterGetEvents);
+            if (enterResult < 0)
+                throw new IOException($"io_uring_enter failed with errno {Marshal.GetLastPInvokeError()}.");
+
+            submitted = true;
+
+            var head = Volatile.Read(ref *_cqHead);
+            var tail = Volatile.Read(ref *_cqTail);
+            while (head != tail && completed < expectedCompletions)
+            {
+                var cqeIndex = head & _cqMask;
+                ref var cqe = ref Unsafe.Add(ref *_cqes, (int)cqeIndex);
+                if (cqe.Res < 0)
+                    throw new IOException($"io_uring completion failed with code {cqe.Res}.");
+
+                head++;
+                completed++;
+            }
+
+            Volatile.Write(ref *_cqHead, head);
+        }
     }
 }
 

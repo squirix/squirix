@@ -56,7 +56,8 @@ Raw path still slower; 4096 B gap narrowed vs baseline.
 | Pipelined       | 256 B   | 1583      | **1978**         | **1.96×**     |
 | Pipelined       | 4096 B  | 2651      | 3314             | **1.17×**     |
 
-**Finding:** under `DurableMutationExecutor` group-commit path, Pipelined **wins @ 256 B** (quick sample). Raw coordinator bench understates production throughput.
+**Finding:** under `DurableMutationExecutor` group-commit path, Pipelined **wins @ 256 B** (quick sample). Raw coordinator
+bench understates production throughput.
 
 ---
 
@@ -64,12 +65,12 @@ Raw path still slower; 4096 B gap narrowed vs baseline.
 
 Post–JournalRecord pool (`35bc0840`):
 
-| Method (Pipelined)              | Mean     | Alloc |
-|---------------------------------|----------|-------|
-| AppendPutWithDurabilityAsync    | 611 ns   | **3 B** |
-| EncodeOnly                      | 4 ns     | 1 B   |
-| EnqueueOnlyAsync                | 727 ns   | 7 B   |
-| FsyncOnlyAsync                  | 765 ns   | 4 B   |
+| Method (Pipelined)           | Mean   | Alloc   |
+| ---------------------------- | ------ | ------- |
+| AppendPutWithDurabilityAsync | 611 ns | **3 B** |
+| EncodeOnly                   | 4 ns   | 1 B     |
+| EnqueueOnlyAsync             | 727 ns | 7 B     |
+| FsyncOnlyAsync               | 765 ns | 4 B     |
 
 Pre-pool baseline: AppendPutWithDurabilityAsync **793 ns / 496 B** (strict gate).
 

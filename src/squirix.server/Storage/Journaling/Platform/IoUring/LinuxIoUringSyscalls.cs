@@ -23,27 +23,27 @@ internal static partial class LinuxIoUringSyscalls
 
     internal const uint FsyncDatasync = 1;
 
-    [LibraryImport("libc", SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "mmap", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial nint Mmap(nint addr, nuint length, int prot, int flags, int fd, long offset);
 
-    [LibraryImport("libc", SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "munmap", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial int Munmap(nint addr, nuint length);
 
-    [LibraryImport("libc", SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial int Close(int fd);
 
-    [LibraryImport("libc", SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "lseek", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial long LSeek(int fd, long offset, int whence);
 
-    [LibraryImport("libc", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "open", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial int Open(string pathname, int flags, int mode);
 
-    [LibraryImport("libc", SetLastError = true)]
+    [LibraryImport("libc", EntryPoint = "ftruncate", SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
     internal static partial int FTruncate(int fd, long length);
 

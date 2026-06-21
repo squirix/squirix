@@ -9,20 +9,19 @@ namespace Squirix.Server.Storage.Manifest.Binary;
 /// <summary>Encodes and decodes binary manifest files; on-disk layout is documented in docs/manifest-binary-format.md.</summary>
 internal static class BinaryManifestCodec
 {
+    internal const int RollEncodedWithoutSnapshotLength = 26;
+
     private const int FileHeaderSize = 5;
 
     private const int FooterSize = 4;
 
+    private const int RollBodyWithoutSnapshotLength = 4 + 4 + 8 + 1;
+
+    private const int RollSnapshotSectionFixedLength = 4 + 8 + 4 + 8 + 2;
+
     private const byte Version = 1;
 
     private static ReadOnlySpan<byte> Magic => "SQMF"u8;
-
-    public static byte[] Encode(ManifestState manifest)
-    {
-        var buffer = new byte[ComputeEncodedLength(manifest)];
-        WriteEncoded(manifest, buffer);
-        return buffer;
-    }
 
     public static int ComputeEncodedLength(ManifestState manifest)
     {
@@ -109,6 +108,87 @@ internal static class BinaryManifestCodec
             NextSequence = nextSequence,
             LastSnapshot = lastSnapshot,
         };
+    }
+
+    public static byte[] Encode(ManifestState manifest)
+    {
+        var buffer = new byte[ComputeEncodedLength(manifest)];
+        WriteEncoded(manifest, buffer);
+        return buffer;
+    }
+
+    internal static int ComputeRollEncodedLength(ManifestState.SnapshotRef? snapshot, int snapshotPathUtf8Length)
+    {
+        if (snapshotPathUtf8Length > ushort.MaxValue)
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+
+        var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
+        return FileHeaderSize + bodyLength + FooterSize;
+    }
+
+    /// <summary>Encodes a segment-roll manifest update on the journal hot path (no snapshot path allocations).</summary>
+    /// <param name="format">Manifest format field.</param>
+    /// <param name="currentJournal">Updated current journal segment index.</param>
+    /// <param name="nextSequence">Updated next journal sequence.</param>
+    /// <param name="snapshot">Snapshot reference copied from the previous manifest (optional).</param>
+    /// <param name="snapshotPathUtf8">UTF-8 bytes for <paramref name="snapshot" /> path when present.</param>
+    /// <param name="destination">Output buffer; must be at least <see cref="ComputeRollEncodedLength" /> bytes.</param>
+    /// <returns>Total encoded byte length written to <paramref name="destination" />.</returns>
+    internal static int WriteRollEncoded(
+        int format,
+        int currentJournal,
+        ulong nextSequence,
+        ManifestState.SnapshotRef? snapshot,
+        ReadOnlySpan<byte> snapshotPathUtf8,
+        Span<byte> destination)
+    {
+        if (snapshotPathUtf8.Length > ushort.MaxValue)
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+
+        var encodedLength = ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
+        if (destination.Length < encodedLength)
+            throw new ArgumentException("Destination span is too small for the encoded roll manifest.", nameof(destination));
+
+        var offset = 0;
+        Magic.CopyTo(destination);
+        offset += Magic.Length;
+        destination[offset++] = Version;
+
+        var bodyStart = offset;
+        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), format);
+        offset += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), currentJournal);
+        offset += 4;
+        BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), nextSequence);
+        offset += 8;
+
+        if (snapshot is null)
+        {
+            destination[offset++] = 0;
+        }
+        else
+        {
+            destination[offset++] = 1;
+            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), snapshot.Index);
+            offset += 4;
+            BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), snapshot.LastAppliedSequence);
+            offset += 8;
+            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), snapshot.ReplayFromJournalSegment);
+            offset += 4;
+            var createdMs = new DateTimeOffset(snapshot.CreatedUtc).ToUnixTimeMilliseconds();
+            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(offset), createdMs);
+            offset += 8;
+            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset), ushort.CreateTruncating(snapshotPathUtf8.Length));
+            offset += 2;
+            if (!snapshotPathUtf8.IsEmpty)
+            {
+                snapshotPathUtf8.CopyTo(destination.Slice(offset));
+                offset += snapshotPathUtf8.Length;
+            }
+        }
+
+        BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(offset), Crc32C.Compute(destination.Slice(bodyStart, offset - bodyStart)));
+        return encodedLength;
     }
 
     private static ManifestState.SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)

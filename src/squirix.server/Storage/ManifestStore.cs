@@ -31,8 +31,6 @@ internal sealed class ManifestStore : IDisposable
 
     public Task WriteAsync(Manifest.ManifestState manifest, CancellationToken cancellationToken = default) => _inner.WriteAsync(manifest, cancellationToken);
 
-    public void WriteBlocking(Manifest.ManifestState manifest) => _inner.WriteBlocking(manifest);
-
     public void Dispose() => _inner.Dispose();
 
     internal void PublishBlocking(Manifest.ManifestState manifest) => _inner.PublishBlocking(manifest);

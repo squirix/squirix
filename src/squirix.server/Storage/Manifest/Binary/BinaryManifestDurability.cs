@@ -1,53 +1,69 @@
 using System;
 using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Storage.Manifest.Binary;
 
 /// <summary>WAL-ordered durable writes for binary manifest data files and the fixed-size CURRENT pointer.</summary>
 internal static class BinaryManifestDurability
 {
-    /// <summary>Writes a numbered manifest file without write-through; flushes to disk before returning.</summary>
-    /// <param name="targetPath">Path to the new <c>.bmqx</c> file.</param>
-    /// <param name="encoded">Encoded manifest bytes.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when manifest bytes are on stable storage.</returns>
-    internal static Task WriteManifestDataFileAsync(string targetPath, ReadOnlyMemory<byte> encoded, CancellationToken cancellationToken)
+    internal static FileOptions GetDataFileOptions()
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        WriteManifestDataFileBlocking(targetPath, encoded.Span);
-        return Task.CompletedTask;
+        var options = FileOptions.SequentialScan;
+        if (OperatingSystem.IsWindows())
+            options |= FileOptions.WriteThrough;
+
+        return options;
     }
 
-    /// <summary>Overwrites the fixed-size SQMC pointer in place with write-through on Windows.</summary>
-    /// <param name="currentPath">Path to <c>man-current</c>.</param>
+    internal static FileOptions GetPointerFileOptions() => FileOptions.None;
+
+    /// <summary>Overwrites the fixed-size SQMC pointer in place.</summary>
+    /// <param name="writer">Pointer writer with an open or reusable <c>man-current</c> handle.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the pointer is durable.</returns>
-    internal static Task WriteCurrentPointerAsync(string currentPath, ReadOnlyMemory<byte> pointerBuffer, CancellationToken cancellationToken)
+    internal static void WriteCurrentPointerBlocking(IBinaryManifestPointerWriter writer, ReadOnlySpan<byte> pointerBuffer)
     {
         if (pointerBuffer.Length != BinaryManifestPointer.Size)
             throw new ArgumentException("Pointer buffer must be exactly 12 bytes.", nameof(pointerBuffer));
 
-        cancellationToken.ThrowIfCancellationRequested();
-        WriteCurrentPointerBlocking(currentPath, pointerBuffer.Span);
-        return Task.CompletedTask;
+        writer.Write(pointerBuffer);
     }
 
-    private static void WriteManifestDataFileBlocking(string targetPath, ReadOnlySpan<byte> encoded)
+    internal static void FlushPointerIfNeeded(SafeFileHandle handle) => RandomAccess.FlushToDisk(handle);
+
+    internal static void WriteManifestDataFileBlocking(string targetPath, ReadOnlySpan<byte> encoded)
     {
-        using var handle = File.OpenHandle(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        RandomAccess.Write(handle, encoded, 0);
-        RandomAccess.FlushToDisk(handle);
+        var options = GetDataFileOptions();
+        using var handle = File.OpenHandle(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, options);
+        if (encoded.Length > 0)
+        {
+            RandomAccess.SetLength(handle, encoded.Length);
+            RandomAccess.Write(handle, encoded, 0);
+        }
+
+        FlushDataFileIfNeeded(handle);
     }
 
-    private static void WriteCurrentPointerBlocking(string currentPath, ReadOnlySpan<byte> pointerBuffer)
+    /// <summary>Durably publishes a segment-roll manifest update (data file then pointer).</summary>
+    /// <param name="targetPath">Path to a new numbered <c>.bmqx</c> file.</param>
+    /// <param name="encoded">Encoded manifest bytes.</param>
+    /// <param name="pointerWriter">Reusable pointer writer for <c>man-current</c>.</param>
+    /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
+    internal static void WriteManifestRollBlocking(
+        string targetPath,
+        ReadOnlySpan<byte> encoded,
+        IBinaryManifestPointerWriter pointerWriter,
+        ReadOnlySpan<byte> pointerBuffer)
     {
-        var options = OperatingSystem.IsWindows() ? FileOptions.WriteThrough : FileOptions.None;
-        using var handle = File.OpenHandle(currentPath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read, options);
-        RandomAccess.SetLength(handle, BinaryManifestPointer.Size);
-        RandomAccess.Write(handle, pointerBuffer, 0);
+        if (BinaryManifestIoUringRollDurability.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
+            return;
+
+        WriteManifestDataFileBlocking(targetPath, encoded);
+        WriteCurrentPointerBlocking(pointerWriter, pointerBuffer);
+    }
+
+    internal static void FlushDataFileIfNeeded(SafeFileHandle handle)
+    {
         if (!OperatingSystem.IsWindows())
             RandomAccess.FlushToDisk(handle);
     }

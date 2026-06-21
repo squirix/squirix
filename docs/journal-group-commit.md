@@ -68,11 +68,11 @@ measurement exercise**, not a library default.
 
 Maximum time to wait for additional waiters before flushing a batch that is not yet full.
 
-| Direction | Throughput | Tail commit latency |
-| --------- | ---------- | ------------------- |
-| Higher    | Usually up (larger batches, fewer fsyncs) | Usually up (waiters may wait longer) |
-| Lower     | Usually down | Usually down |
-| `0`       | One fsync per mutation (group commit off) | Lowest for isolated writers |
+| Direction | Throughput                                  | Tail commit latency                  |
+| --------- | ------------------------------------------- | ------------------------------------ |
+| Higher    | Usually up (larger batches, fewer fsyncs)   | Usually up (waiters may wait longer) |
+| Lower     | Usually down                                | Usually down                         |
+| `0`       | One fsync per mutation (group commit off)   | Lowest for isolated writers          |
 
 ### `JournalGroupCommitMaxBatch`
 
@@ -80,8 +80,8 @@ Hard cap on how many durability waiters share one fsync.
 
 | Direction | Effect |
 | --------- | ------ |
-| Higher    | Fewer fsyncs under heavy concurrency; last waiter in a large batch waits for the whole batch |
-| Lower     | Smaller batches, more frequent fsyncs, lower batch-induced latency |
+| Higher | Fewer fsyncs under heavy concurrency; last waiter in a large batch waits for the whole batch |
+| Lower | Smaller batches, more frequent fsyncs, lower batch-induced latency |
 | Irrelevant when `MaxWait = 0` | Group commit is disabled |
 
 Set `MaxBatch` to at least your expected **peak concurrent durable mutations on distinct keys**, but avoid unnecessarily
@@ -91,16 +91,18 @@ large values if p99 commit latency is sensitive.
 
 Use these only as **first experiments** after enabling group commit, then sweep on representative hardware:
 
-| Profile              | `MaxWait` (starting point) | `MaxBatch` (starting point) |
-| -------------------- | -------------------------- | --------------------------- |
-| Latency-first        | `0` (keep disabled)        | n/a                         |
-| Balanced             | `2–5 ms`                   | `32` (default cap)          |
-| Throughput-first     | `5–10 ms`                  | `64` (if concurrency supports it) |
+| Profile          | `MaxWait` (starting point) | `MaxBatch` (starting point)       |
+| ---------------- | -------------------------- | --------------------------------- |
+| Latency-first    | `0` (keep disabled)        | n/a                               |
+| Balanced         | `2–5 ms`                   | `32` (default cap)                |
+| Throughput-first | `5–10 ms`                  | `64` (if concurrency supports it) |
 
 Suggested sweep:
 
-1. Fix `MaxBatch = 32`, vary `MaxWait` (for example `0`, `1`, `2`, `5`, `10 ms`) and measure throughput and p99 commit latency.
-2. At the best `MaxWait`, vary `MaxBatch` (for example `16`, `32`, `64`, `128`) until throughput stops improving or p99 exceeds your budget.
+1. Fix `MaxBatch = 32`, vary `MaxWait` (for example `0`, `1`, `2`, `5`, `10 ms`) and measure throughput and p99 commit
+   latency.
+2. At the best `MaxWait`, vary `MaxBatch` (for example `16`, `32`, `64`, `128`) until throughput stops improving or p99
+   exceeds your budget.
 
 On Windows, short `Task.Delay` values may resolve coarser than the configured duration; include `2–5 ms` in sweeps, not
 only `1 ms`.
@@ -117,16 +119,17 @@ Production integrators should choose `MaxWait` and `MaxBatch` from their own mea
 Internal quick benchmarks (`SQUIRIX_BENCH_QUICK=1`, 800 ops/invoke, 8→4 writers) after Pipelined GC tuning.
 JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-removal A/B runs kept for context.
 
-| Path | Payload | Pipelined vs legacy JsonFramed write |
-|------|---------|--------------------------------------|
-| Raw coordinator (`append` + `await` separately) | 256 B | ~0.83× throughput |
-| **DurableMutationExecutor** (production) | 256 B | **~2× throughput** |
-| DurableMutationExecutor | 4096 B | ~1.17× throughput |
+| Path                                            | Payload | Pipelined vs legacy JsonFramed write |
+| ----------------------------------------------- | ------- | ------------------------------------ |
+| Raw coordinator (`append` + `await` separately) | 256 B   | ~0.83× throughput                    |
+| **DurableMutationExecutor** (production)        | 256 B   | **~2× throughput**                   |
+| DurableMutationExecutor                         | 4096 B  | ~1.17× throughput                    |
 
 **Recommendations for production concurrent durable writes:**
 
 - Start with **`JournalGroupCommitMaxWait = 1–5 ms`** and **`JournalGroupCommitMaxBatch = 32`** (defaults).
-- Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and `AwaitDurabilityCommitAsync` separately on hot paths.
+- Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and
+  `AwaitDurabilityCommitAsync` separately on hot paths.
 - Re-measure on target hardware; raw coordinator benchmarks understate Pipelined throughput.
 
 Full numbers: `benchmarks/squirix.server.benchmarks/RESULTS-journal-perf-2026-06-21.md`.

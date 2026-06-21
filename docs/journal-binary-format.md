@@ -11,7 +11,7 @@ Journal segments use the `.jsqx` extension with a fixed file header and length-p
 
 ## Frame layout (little-endian)
 
-```
+```text
 u32 frameLength      // body length only
 [body bytes]
 u32 crc32c           // CRC32C over body
@@ -19,7 +19,7 @@ u32 crc32c           // CRC32C over body
 
 ### Binary frame body
 
-```
+```text
 u64 sequence
 i64 unixMs
 u8  opcode           // Put=1, Remove=2, RemoveExpiration=3, TouchExpiration=4

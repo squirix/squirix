@@ -37,7 +37,7 @@ public sealed class BinaryManifestStoreTests : UnitTestBase, IAsyncLifetime
         Assert.Equal(1UL, manifest.NextSequence);
     }
 
-    /// <summary>Verifies sequential publish calls advance the binary current pointer.</summary>
+    /// <summary>Verifies sequential publish calls advance the binary current pointer while a persistent handle stays open.</summary>
     [Fact]
     public async Task PublishBlockingIncrementsIndexWithoutDiskRead()
     {

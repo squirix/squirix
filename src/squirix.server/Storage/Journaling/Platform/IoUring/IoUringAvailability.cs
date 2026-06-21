@@ -33,5 +33,13 @@ internal static class IoUringAvailability
         {
             return false;
         }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
+        catch (DllNotFoundException)
+        {
+            return false;
+        }
     }
 }
