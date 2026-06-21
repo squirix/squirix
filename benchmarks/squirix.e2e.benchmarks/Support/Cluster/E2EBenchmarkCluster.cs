@@ -62,7 +62,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             foreach (var nodeId in nodeIds)
             {
                 nodes[nodeId] = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Combine(dataDir!.Path, nodeId), cancellationToken).ConfigureAwait(false)
+                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Join(dataDir!.Path, nodeId), cancellationToken).ConfigureAwait(false)
                     : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 

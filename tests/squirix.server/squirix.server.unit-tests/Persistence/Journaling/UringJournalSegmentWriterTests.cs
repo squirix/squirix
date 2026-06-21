@@ -23,7 +23,7 @@ public sealed class UringJournalSegmentWriterTests
             return;
 
         using var dir = new TempDirectory("journal-uring");
-        var path = Path.Combine(dir.Path, "segment.bin");
+        var path = Path.Join(dir.Path, "segment.bin");
         await using var writer = JournalSegmentWriterFactory.Create(JournalPlatformBackend.Uring);
         var uringWriter = Assert.IsType<UringJournalSegmentWriter>(writer);
         uringWriter.OpenSegment(path, false);
