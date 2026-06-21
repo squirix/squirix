@@ -169,7 +169,7 @@ public sealed class CallPolicyTests : UnitTestBase
             await disposeTask;
 
             Assert.Equal(7, await inFlight);
-            _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => await policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken));
+            _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => { _ = await policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken); });
         }
         finally
         {
@@ -253,7 +253,7 @@ public sealed class CallPolicyTests : UnitTestBase
         releaseFirst.SetResult();
 
         Assert.Equal(1, await first);
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => await queued);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => { _ = await queued; });
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy")));
     }

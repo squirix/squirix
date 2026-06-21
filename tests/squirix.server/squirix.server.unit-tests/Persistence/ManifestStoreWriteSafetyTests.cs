@@ -49,7 +49,7 @@ public sealed class ManifestStoreWriteSafetyTests : UnitTestBase
         await File.WriteAllBytesAsync(existingPath, existingBytes, DefaultCancellationToken);
         await File.WriteAllTextAsync(PathKit.Combine(dir, $"{StorageFilePrefixes.Manifest}current"), "not-a-manifest-name", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(() => store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () => { await store.WriteAsync(new Manifest { CurrentJournal = 2 }, DefaultCancellationToken); });
         Assert.Contains("current pointer", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(File.Exists(existingPath));
         Assert.Equal(existingBytes, await File.ReadAllBytesAsync(existingPath, DefaultCancellationToken));

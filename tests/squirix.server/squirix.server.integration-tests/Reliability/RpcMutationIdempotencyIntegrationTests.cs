@@ -13,8 +13,8 @@ namespace Squirix.Server.IntegrationTests.Reliability;
 /// <summary>Integration coverage for mutating gRPC idempotency on the live adapter path.</summary>
 public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 {
-    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
     private const string MismatchOperationId = "fedcba9876543210fedcba9876543210";
+    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
     /// <summary>
     /// Verifies mutating RPCs without <c>operation_id</c> are rejected at the adapter.
@@ -45,9 +45,9 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
     }
 
-    /// <summary>Verifies over-length operation ids are rejected at the adapter.</summary>
+    /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
     [Fact]
-    public async Task TooLongOperationIdReturnsInvalidArgument()
+    public async Task IdenticalOperationIdReplaysCachedResponse()
     {
         var url = GetNextHttpUri();
         var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
@@ -55,23 +55,19 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
-
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        var request = new TryAddEntryAsyncRequest
         {
-            _ = await client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = tooLong,
-                    CacheName = "default",
-                    Key = "too-long-operation-id",
-                    Entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken);
-        });
+            OperationId = ValidOperationId,
+            CacheName = "default",
+            Key = "replay-key",
+            Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
+        };
 
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
+        var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
+        var second = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
+
+        Assert.True(first.Added);
+        Assert.True(second.Added);
     }
 
     /// <summary>Verifies malformed operation ids are rejected at the adapter.</summary>
@@ -100,31 +96,6 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
-    }
-
-    /// <summary>Verifies a duplicate mutating request replays the cached outcome instead of re-applying.</summary>
-    [Fact]
-    public async Task IdenticalOperationIdReplaysCachedResponse()
-    {
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers);
-
-        using var channel = CreateGrpcChannel(url);
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var request = new TryAddEntryAsyncRequest
-        {
-            OperationId = ValidOperationId,
-            CacheName = "default",
-            Key = "replay-key",
-            Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
-        };
-
-        var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-        var second = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
-
-        Assert.True(first.Added);
-        Assert.True(second.Added);
     }
 
     /// <summary>Verifies reusing an operation id with a different mutation fingerprint fails with the stable contract.</summary>
@@ -163,5 +134,34 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
 
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Equal(OperationIdReuseMismatchException.StableDetail, ex.Status.Detail);
+    }
+
+    /// <summary>Verifies over-length operation ids are rejected at the adapter.</summary>
+    [Fact]
+    public async Task TooLongOperationIdReturnsInvalidArgument()
+    {
+        var url = GetNextHttpUri();
+        var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
+        await using var node = await StartNodeAsync(url, peers);
+
+        using var channel = CreateGrpcChannel(url);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+        var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await client.TryAddEntryAsync(
+                new TryAddEntryAsyncRequest
+                {
+                    OperationId = tooLong,
+                    CacheName = "default",
+                    Key = "too-long-operation-id",
+                    Entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
+                },
+                cancellationToken: DefaultCancellationToken);
+        });
+
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
     }
 }

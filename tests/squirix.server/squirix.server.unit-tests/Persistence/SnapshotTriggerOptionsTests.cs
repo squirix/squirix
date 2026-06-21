@@ -51,7 +51,7 @@ public sealed class SnapshotTriggerOptionsTests
     [InlineData(nameof(SnapshotTriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => CreateWithInvalidScalar(propertyName));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => { _ = CreateWithInvalidScalar(propertyName); });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
@@ -61,7 +61,8 @@ public sealed class SnapshotTriggerOptionsTests
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
+        const string json =
+            """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
         var options = JsonSerializer.Deserialize<SnapshotTriggerOptions>(json, JsonOptions);
 

@@ -63,7 +63,7 @@ internal static class JournalCompactor
             case JournalOperationKind.SnapshotCut:
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
-                throw new ArgumentOutOfRangeException(nameof(record), record.Operation, "Unsupported journal op.");
+                throw new ArgumentOutOfRangeException(nameof(record), "Unsupported journal op.");
         }
     }
 

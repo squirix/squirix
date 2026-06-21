@@ -92,6 +92,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
 
 #pragma warning disable VSTHRD003
+
         // The replay task is owned by this hosted service and is awaited during shutdown.
         await _replayTask.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
@@ -166,7 +167,7 @@ internal sealed class RecoveryService<T> : IHostedService
             case JournalOperationKind.SnapshotCut:
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
-                throw new ArgumentOutOfRangeException(nameof(record), record.Operation, "Unsupported journal op.");
+                throw new ArgumentOutOfRangeException(nameof(record), "Unsupported journal op.");
         }
     }
 

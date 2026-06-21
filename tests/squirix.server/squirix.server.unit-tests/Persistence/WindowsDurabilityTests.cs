@@ -51,7 +51,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
         using var store = new ManifestStore(options);
         await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), string.Empty, DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<InvalidDataException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
 
     /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
@@ -62,7 +62,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
         using var store = new ManifestStore(options);
         await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), "man-000123.msqx", DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<FileNotFoundException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>

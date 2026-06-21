@@ -28,7 +28,7 @@ public sealed class JournalMetricsExporterOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsNonPositiveInterval()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => { _ = new JournalMetricsExporterOptions { Interval = TimeSpan.Zero }; });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);

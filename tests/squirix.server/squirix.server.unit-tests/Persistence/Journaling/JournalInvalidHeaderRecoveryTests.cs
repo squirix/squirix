@@ -28,7 +28,12 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
         await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
         await manifestStore.WriteAsync(new Manifest { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
-        await using (var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken))
+        await using (var journal = await JournalWriter.CreateAsync(
+                         persistence,
+                         await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+                         manifestStore,
+                         new JournalStartupGate(),
+                         DefaultCancellationToken))
         {
             await journal.AppendPutAsync(CacheKey.Default("k"), await BuildEntryJsonAsync("v"), null, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
@@ -66,14 +71,13 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
             gate,
             NullLogger<RecoveryService<object?>>.Instance);
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(() => recovery.StartAsync(DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () => { await recovery.StartAsync(DefaultCancellationToken); });
 
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
 
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate.WaitAsync(gateWait.Token).AsTask());
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await gate.WaitAsync(gateWait.Token).AsTask(); });
     }
 
-    private static Task<byte[]> BuildEntryJsonAsync(string value) =>
-        DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
+    private static Task<byte[]> BuildEntryJsonAsync(string value) => DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
 }

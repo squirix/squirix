@@ -23,6 +23,9 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
 
     private static void ApplyContextTags(Activity activity, in JournalOperationTraceContext context)
     {
+        if (!activity.IsAllDataRequested)
+            return;
+
         if (context.Key is not null)
             _ = activity.SetTag("journal.key", context.Key);
         if (!string.IsNullOrEmpty(context.Namespace))
@@ -45,7 +48,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         JournalOperationKind.MaintenanceExclusive => "journal.maintenance",
         JournalOperationKind.SnapshotCut => "journal.snapshot_cut",
         JournalOperationKind.UnderSnapshotBarrier => "journal.snapshot_barrier",
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported journal operation kind."),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), "Unsupported journal operation kind."),
     };
 
     private sealed class OpenTelemetryJournalOperationTraceScope : IJournalOperationTraceScope
@@ -61,6 +64,9 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
 
         public void SetFrameBytes(int payloadBytes)
         {
+            if (!_activity.IsAllDataRequested)
+                return;
+
             _ = _activity.SetTag("journal.frame.payload_bytes", payloadBytes);
             _ = _activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
         }

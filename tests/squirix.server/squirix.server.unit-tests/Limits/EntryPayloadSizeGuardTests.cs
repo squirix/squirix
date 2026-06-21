@@ -21,7 +21,7 @@ public sealed class EntryPayloadSizeGuardTests : UnitTestBase
         var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
         var entry = new CacheEntry<object?> { Value = value, Version = 1 };
 
-        var ex = await Assert.ThrowsAsync<SquirixException>(() => EntryPayloadSizeGuard.EnsureWithinLimitAsync(entry));
+        var ex = await Assert.ThrowsAsync<SquirixException>(async () => { await EntryPayloadSizeGuard.EnsureWithinLimitAsync(entry); });
 
         Assert.Equal(SquirixErrorCode.PayloadTooLarge, ex.Code);
         Assert.Equal("PayloadTooLarge", ex.Error);

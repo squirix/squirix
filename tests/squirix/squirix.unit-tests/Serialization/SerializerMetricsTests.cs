@@ -42,7 +42,7 @@ public sealed class SerializerMetricsTests
         Assert.NotEmpty(bytes);
 
         using var ms = new MemoryStream(bytes);
-        _ = Assert.Throws<InvalidOperationException>(() => scoped.Deserialize<JsonElement>(ms));
+        _ = Assert.Throws<InvalidOperationException>(() => { _ = scoped.Deserialize<JsonElement>(ms); });
 
         var implName = serializer.GetType().Name;
         Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", implName)));

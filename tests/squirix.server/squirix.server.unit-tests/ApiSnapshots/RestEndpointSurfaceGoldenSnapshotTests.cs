@@ -27,7 +27,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected);

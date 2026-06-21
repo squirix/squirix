@@ -59,7 +59,7 @@ internal static class MemoryPressureMetrics
             MemoryPressureState.Normal => (0, "normal"),
             MemoryPressureState.High => (1, "high"),
             MemoryPressureState.Critical => (2, "critical"),
-            _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported memory pressure state."),
+            _ => throw new ArgumentOutOfRangeException(nameof(state), "Unsupported memory pressure state."),
         };
     }
 

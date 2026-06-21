@@ -27,7 +27,9 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
         var ex = await Assert.ThrowsAsync<RpcException>(async () =>
         {
-            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-jwt-bad" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+            _ = await client.GetEntryAsync(
+                new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-jwt-bad" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }

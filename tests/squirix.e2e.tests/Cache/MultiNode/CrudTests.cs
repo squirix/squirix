@@ -17,7 +17,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>
@@ -61,8 +61,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
         {
-            tasks[i] = i % 2 is 0
-                ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
+            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
                 : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken);
         }
 

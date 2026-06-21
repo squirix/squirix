@@ -29,7 +29,10 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             JwtAudience = credentials.Audience,
         };
 
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ClientAuthenticatesWithBearerTokenProvider), security, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(ClientAuthenticatesWithBearerTokenProvider),
+            security,
+            cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(
@@ -58,13 +61,16 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             JwtIssuer = credentials.Issuer,
             JwtAudience = credentials.Audience,
         };
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ClientFailsWhenJwtRequiredButNotConfigured), security, cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(
+            nameof(ClientFailsWhenJwtRequiredButNotConfigured),
+            security,
+            cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(url, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => await cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken); });
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 }

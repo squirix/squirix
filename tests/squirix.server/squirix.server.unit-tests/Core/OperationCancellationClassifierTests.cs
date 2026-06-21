@@ -17,6 +17,22 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
     private const int CallerCanceledOrdinal = 0;
     private const int OperationDeadlineExceededOrdinal = 1;
 
+    /// <summary>Per-attempt timeout is classified only when caller and operation effective tokens are not canceled.</summary>
+    [Fact]
+    public void ClassifyFromLinkedTokenStatePerAttemptTimedOutWhenOnlyAttemptScopeCanceled()
+    {
+        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, true);
+        Assert.Equal(CancellationScenarioKind.PerAttemptTimedOut, kind);
+    }
+
+    /// <summary>When no structured token is canceled, classification is unknown cancellation.</summary>
+    [Fact]
+    public void ClassifyFromLinkedTokenStateUnknownWhenNoTokenCanceled()
+    {
+        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, false);
+        Assert.Equal(CancellationScenarioKind.UnknownCancellation, kind);
+    }
+
     /// <summary>Structured cancellation classification follows caller, operation deadline, then per-attempt precedence.</summary>
     /// <param name="caseName">Human-readable scenario name for failed theory output.</param>
     /// <param name="callerCanceled">Simulated caller token canceled state.</param>
@@ -40,22 +56,6 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         var expected = ToScenarioKind(expectedOrdinal);
         var actual = OperationCancellationClassifier.ClassifyFromLinkedTokenState(callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled);
         Assert.True(actual == expected, $"{caseName}: expected {expected}, got {actual}.");
-    }
-
-    /// <summary>Per-attempt timeout is classified only when caller and operation effective tokens are not canceled.</summary>
-    [Fact]
-    public void ClassifyFromLinkedTokenStatePerAttemptTimedOutWhenOnlyAttemptScopeCanceled()
-    {
-        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, true);
-        Assert.Equal(CancellationScenarioKind.PerAttemptTimedOut, kind);
-    }
-
-    /// <summary>When no structured token is canceled, classification is unknown cancellation.</summary>
-    [Fact]
-    public void ClassifyFromLinkedTokenStateUnknownWhenNoTokenCanceled()
-    {
-        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, false);
-        Assert.Equal(CancellationScenarioKind.UnknownCancellation, kind);
     }
 
     /// <summary>Pipeline deadline helper matches the same precedence as the raw three-bool overload for the two-token layout.</summary>
@@ -90,7 +90,7 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         await cts.CancelAsync();
         var callerToken = cts.Token;
         var ex = new RpcException(new Status(StatusCode.Cancelled, "call canceled"));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(() => DomainTransportErrorMapper.Map(ex, callerToken), CancellationToken.None));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await Task.Run(() => DomainTransportErrorMapper.Map(ex, callerToken), CancellationToken.None); });
     }
 
     /// <summary>gRPC caller cancellation is detected only when status is Cancelled and the caller token is canceled.</summary>

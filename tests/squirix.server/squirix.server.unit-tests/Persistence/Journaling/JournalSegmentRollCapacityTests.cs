@@ -18,7 +18,7 @@ public sealed class JournalSegmentRollCapacityTests
     public void EnsureAppendCapacityOrThrowThrowsWhenAppendExceedsTotalByteCap()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => policy.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
+        var error = Assert.Throws<JournalCapacityExceededException>(() => { policy.EnsureAppendCapacityOrThrow(OneMegabyte, 1); });
         Assert.Contains("total bytes", error.Message, StringComparison.Ordinal);
     }
 
@@ -46,7 +46,7 @@ public sealed class JournalSegmentRollCapacityTests
             CreateSegmentFile(dataDir, i);
 
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 4 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => JournalReadPath.EnsureSegmentRollCapacityOrThrow(dataDir, policy));
+        var error = Assert.Throws<JournalCapacityExceededException>(() => { JournalReadPath.EnsureSegmentRollCapacityOrThrow(dataDir, policy); });
         Assert.Contains("segment count", error.Message, StringComparison.Ordinal);
     }
 
@@ -59,7 +59,7 @@ public sealed class JournalSegmentRollCapacityTests
         CreateSegmentFile(dataDir, 1, OneMegabyte + 1);
 
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 32, JournalMaxTotalBytesMb = 1 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => JournalReadPath.EnsureSegmentRollCapacityOrThrow(dataDir, policy));
+        var error = Assert.Throws<JournalCapacityExceededException>(() => { JournalReadPath.EnsureSegmentRollCapacityOrThrow(dataDir, policy); });
         Assert.Contains("total bytes", error.Message, StringComparison.Ordinal);
     }
 

@@ -55,7 +55,7 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
         var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { _ = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()); });
         Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);
     }
 }

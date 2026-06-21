@@ -19,10 +19,10 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
 
         await cache.AddAsync("k", original, cancellationToken: DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync(
-            "k",
-            TypedValueFactory.CreateUpdatedProfile("add-conflict"),
-            cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () =>
+        {
+            await cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: DefaultCancellationToken);
+        });
 
         var result = await cache.GetValueAsync("k", DefaultCancellationToken);
         Assert.True(result.Found);

@@ -107,7 +107,7 @@ internal static class ProtoEx
                 return await FromStructAsync<T>(structValue).ConfigureAwait(false);
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
         }
 
         return await FromStructAsync<T>(CacheValueToStruct(value)).ConfigureAwait(false);
@@ -121,7 +121,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
         CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
@@ -346,7 +346,7 @@ internal static class ProtoEx
             JsonValueKind.False => Value.ForBool(false),
             JsonValueKind.Null => Value.ForNull(),
             JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), el.ValueKind, "Unsupported JSON value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
         };
     }
 

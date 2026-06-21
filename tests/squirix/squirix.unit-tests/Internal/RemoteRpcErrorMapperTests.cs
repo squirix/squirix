@@ -14,7 +14,7 @@ public sealed class RemoteRpcErrorMapperTests
     public void MapsMissingOperationIdToTypedException()
     {
         var rpc = new RpcException(new Status(StatusCode.InvalidArgument, OperationIdRequiredException.StableDetail));
-        var ex = Assert.Throws<OperationIdRequiredException>(() => RemoteRpcErrorMapper.Map(rpc));
+        var ex = Assert.Throws<OperationIdRequiredException>(() => { RemoteRpcErrorMapper.Map(rpc); });
         Assert.Same(rpc, ex.InnerException);
     }
 
@@ -25,7 +25,7 @@ public sealed class RemoteRpcErrorMapperTests
     public void MapsReuseMismatchToTypedException()
     {
         var rpc = new RpcException(new Status(StatusCode.FailedPrecondition, OperationIdReuseMismatchException.StableDetail));
-        var ex = Assert.Throws<OperationIdReuseMismatchException>(() => RemoteRpcErrorMapper.Map(rpc));
+        var ex = Assert.Throws<OperationIdReuseMismatchException>(() => { RemoteRpcErrorMapper.Map(rpc); });
         Assert.Same(rpc, ex.InnerException);
     }
 }

@@ -25,12 +25,15 @@ public sealed class ConfigValidationTests : SmokeTestBase
             RejectThreshold = 6,
         };
 
-        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () => await StartNodeAsync(
-            url,
-            peers,
-            backpressureOptions: invalidBackpressure,
-            extraScope: Guid.NewGuid().ToString("N"),
-            cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () =>
+        {
+            _ = await StartNodeAsync(
+                url,
+                peers,
+                backpressureOptions: invalidBackpressure,
+                extraScope: Guid.NewGuid().ToString("N"),
+                cancellationToken: DefaultCancellationToken);
+        });
 
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }
@@ -48,12 +51,10 @@ public sealed class ConfigValidationTests : SmokeTestBase
             CriticalPressureThresholdPercent = 50,
         };
 
-        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () => await StartNodeAsync(
-            url,
-            peers,
-            memoryPressureOptions: invalid,
-            extraScope: Guid.NewGuid().ToString("N"),
-            cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () =>
+        {
+            _ = await StartNodeAsync(url, peers, memoryPressureOptions: invalid, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
+        });
 
         Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
     }

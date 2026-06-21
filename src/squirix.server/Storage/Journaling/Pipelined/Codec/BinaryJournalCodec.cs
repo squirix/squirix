@@ -82,7 +82,7 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
                 Key = cacheKey,
                 TouchExpirationUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(frameBody.Slice(offset, 8))).UtcDateTime,
             },
-            _ => throw new InvalidDataException($"unknown journal opcode {opcode.ToString()}."),
+            _ => throw new InvalidDataException($"unknown journal opcode {Enum.GetName(opcode)}."),
         };
     }
 
@@ -132,6 +132,16 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
         }
     }
 
+    private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
+    {
+        var payload = record.PutDiscriminatedEntryJson ?? [];
+        payload.CopyTo(destination[offset..]);
+        offset += payload.Length;
+        if (opIdLen > 0)
+            offset += Encoding.UTF8.GetBytes(record.PutOperationId!, destination[offset..]);
+        return offset;
+    }
+
     private static void GetPayloadLengths(JournalRecord record, out int opIdLen, out int payloadLen)
     {
         opIdLen = 0;
@@ -156,16 +166,6 @@ internal sealed class BinaryJournalCodec : IJournalFrameCodec
             case JournalOperationKind.UnderSnapshotBarrier:
                 break;
         }
-    }
-
-    private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
-    {
-        var payload = record.PutDiscriminatedEntryJson ?? [];
-        payload.CopyTo(destination[offset..]);
-        offset += payload.Length;
-        if (opIdLen > 0)
-            offset += Encoding.UTF8.GetBytes(record.PutOperationId!, destination[offset..]);
-        return offset;
     }
 
     private static JournalOpcode ToOpcode(JournalOperationKind operation)

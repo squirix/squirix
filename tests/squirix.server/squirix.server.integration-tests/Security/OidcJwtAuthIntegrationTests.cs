@@ -21,7 +21,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
         var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: authority.ToSecurityOptionsWithoutAudience()));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { _ = await StartNodeAsync(url, peers, security: authority.ToSecurityOptionsWithoutAudience()); });
         Assert.Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", ex.Message, StringComparison.Ordinal);
     }
 

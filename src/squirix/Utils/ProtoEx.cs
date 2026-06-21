@@ -54,7 +54,7 @@ internal static class ProtoEx
                 return await FromStructAsync<T>(structValue, serializer).ConfigureAwait(false);
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
         }
 
         return await FromStructAsync<T>(ToStructValueWrapper(value), serializer).ConfigureAwait(false);
@@ -109,7 +109,7 @@ internal static class ProtoEx
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
-            _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };
     }
 
@@ -180,7 +180,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
         CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
     private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer)
@@ -222,7 +222,7 @@ internal static class ProtoEx
             JsonValueKind.False => Value.ForBool(false),
             JsonValueKind.Null => Value.ForNull(),
             JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), el.ValueKind, "Unsupported JSON value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
         };
     }
 
@@ -273,7 +273,7 @@ internal static class ProtoEx
                 writer.WriteEndArray();
                 return;
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported protobuf value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported protobuf value kind.");
         }
     }
 }

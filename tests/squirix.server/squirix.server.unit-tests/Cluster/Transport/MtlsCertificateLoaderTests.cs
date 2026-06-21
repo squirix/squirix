@@ -58,7 +58,7 @@ public sealed class MtlsCertificateLoaderTests
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         using var certOnly = X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath);
 
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca));
+        var ex = Assert.Throws<InvalidOperationException>(() => { MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca); });
 
         Assert.Contains("private key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -84,7 +84,7 @@ public sealed class MtlsCertificateLoaderTests
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateMaterial.Load(options, 6001, true, "untrusted-node"));
+        var ex = Assert.Throws<InvalidOperationException>(() => { _ = MtlsCertificateMaterial.Load(options, 6001, true, "untrusted-node"); });
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 

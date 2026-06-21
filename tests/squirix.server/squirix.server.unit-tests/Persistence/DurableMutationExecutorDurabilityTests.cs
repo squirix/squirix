@@ -30,13 +30,20 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalWriter.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
 
         var executor = new DurableMutationExecutor(journal);
         var applyCalls = 0;
 
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            executor.ExecuteAsync(EvaluateAsync, AppendJournalAsync, ApplyMemoryAsync, DefaultCancellationToken).AsTask());
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            _ = await executor.ExecuteAsync(EvaluateAsync, AppendJournalAsync, ApplyMemoryAsync, DefaultCancellationToken).AsTask();
+        });
 
         Assert.Equal("memory apply failed", error.Message);
         Assert.Equal(1, applyCalls);

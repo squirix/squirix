@@ -20,7 +20,7 @@ public sealed class JournalJsonCodecMetricsTests : UnitTestBase
         using var sink = new MeasurementSink("Squirix");
 
         var garbage = new byte[] { 1, 2, 3, 4 };
-        _ = Assert.ThrowsAny<Exception>(() => RecordCodec.Deserialize(garbage));
+        _ = Assert.ThrowsAny<Exception>(() => { _ = RecordCodec.Deserialize(garbage); });
 
         Assert.True(sink.HasEvent("squirix_journal_json_ops_total", ("op", "decode"), ("result", "error")));
         Assert.True(sink.HasEvent("squirix_journal_json_op_duration_seconds", ("op", "decode")));
@@ -74,7 +74,7 @@ public sealed class JournalJsonCodecMetricsTests : UnitTestBase
             Put = new Put(),
         };
 
-        _ = Assert.Throws<InvalidOperationException>(() => RecordCodec.Serialize(env));
+        _ = Assert.Throws<InvalidOperationException>(() => { _ = RecordCodec.Serialize(env); });
 
         Assert.True(sink.HasEvent("squirix_journal_json_ops_total", ("op", "encode"), ("result", "error")));
         Assert.True(sink.HasEvent("squirix_journal_json_op_duration_seconds", ("op", "encode")));

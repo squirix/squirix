@@ -18,13 +18,13 @@ internal static class KeyInputValidator
         CacheKeyValidationError.Required => "Cache key is required.",
         CacheKeyValidationError.TooLong => $"Cache key exceeds the maximum length of {MaxLength} characters.",
         CacheKeyValidationError.ControlCharacters => "Cache key contains control characters.",
-        _ => throw new ArgumentOutOfRangeException(nameof(error), error, "Unsupported cache key validation error."),
+        _ => throw new ArgumentOutOfRangeException(nameof(error), "Unsupported cache key validation error."),
     };
 
     /// <summary>Attempts to validate a key without throwing.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="error">The failure reason when validation fails.</param>
-    /// <returns><see langword="true"/> if the key is valid; otherwise <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> if the key is valid; otherwise <see langword="false" />.</returns>
     internal static bool TryValidate(string? key, out CacheKeyValidationError error)
     {
         if (string.IsNullOrEmpty(key) || IsWhiteSpaceOnly(key))

@@ -424,7 +424,9 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         var touched = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.True(touched.Found);
         Assert.Equal("v", touched.Value);
-        Assert.True(touched.ExpiresUtc > originalExpiresUtc, $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
+        Assert.True(
+            touched.ExpiresUtc > originalExpiresUtc,
+            $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
@@ -484,7 +486,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(before.Found);
         Assert.True(before.HasExpiration);
 
-        _ = await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(async () => await cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken));
+        _ = await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(async () => { _ = await cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken); });
 
         var after = await cache.GetExpirationAsync("k", DefaultCancellationToken);
         Assert.True(after.Found);

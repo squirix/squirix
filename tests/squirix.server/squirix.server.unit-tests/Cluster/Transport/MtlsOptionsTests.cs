@@ -26,7 +26,7 @@ public sealed class MtlsOptionsTests
             InternalListenPort = 6001,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        var ex = Assert.Throws<InvalidOperationException>(() => { options.Validate(6001, true); });
         Assert.Contains("must differ", ex.Message, StringComparison.Ordinal);
     }
 
@@ -43,7 +43,7 @@ public sealed class MtlsOptionsTests
             InternalListenPort = 6101,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        var ex = Assert.Throws<InvalidOperationException>(() => { options.Validate(6001, true); });
         Assert.Contains("CA file was not found", ex.Message, StringComparison.Ordinal);
         Assert.Contains("certificate file was not found", ex.Message, StringComparison.Ordinal);
         Assert.Contains("private key file was not found", ex.Message, StringComparison.Ordinal);
@@ -63,7 +63,7 @@ public sealed class MtlsOptionsTests
             InternalListenPort = 6101,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        var ex = Assert.Throws<InvalidOperationException>(() => { options.Validate(6001, true); });
         Assert.Contains("not both", ex.Message, StringComparison.Ordinal);
     }
 
@@ -73,7 +73,7 @@ public sealed class MtlsOptionsTests
     {
         var options = new MtlsOptions();
 
-        var ex = Assert.Throws<InvalidOperationException>(() => options.Validate(6001, true));
+        var ex = Assert.Throws<InvalidOperationException>(() => { options.Validate(6001, true); });
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CA_PATH", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH", ex.Message, StringComparison.Ordinal);
         Assert.Contains("SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT", ex.Message, StringComparison.Ordinal);

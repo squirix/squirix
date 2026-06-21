@@ -35,7 +35,7 @@ public sealed class JournalCompactionOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsInvalidScalars()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalCompactionOptions { MinTailSegments = -1 });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => { _ = new JournalCompactionOptions { MinTailSegments = -1 }; });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);

@@ -12,7 +12,10 @@ public sealed class SquirixClientConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncOptionsRejectNoEndpoints()
     {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(static () => SquirixClient.ConnectAsync(static _ => { }, DefaultCancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(static async () =>
+        {
+            _ = await SquirixClient.ConnectAsync(static _ => { }, DefaultCancellationToken).AsTask();
+        });
 
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -21,8 +24,10 @@ public sealed class SquirixClientConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static async () =>
+        {
+            _ = await SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), DefaultCancellationToken).AsTask();
+        });
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -31,7 +36,7 @@ public sealed class SquirixClientConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () => SquirixClient.ConnectAsync("http://127.0.0.1:1", DefaultCancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static async () => { _ = await SquirixClient.ConnectAsync("http://127.0.0.1:1", DefaultCancellationToken).AsTask(); });
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

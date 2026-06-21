@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using System.IO;
 
@@ -20,6 +21,6 @@ internal static class JournalOpcodeWire
         JournalOpcode.Remove => 2,
         JournalOpcode.RemoveExpiration => 3,
         JournalOpcode.TouchExpiration => 4,
-        _ => throw new InvalidDataException($"unknown journal opcode {opcode.ToString()}."),
+        _ => throw new InvalidDataException($"unknown journal opcode {Enum.GetName(opcode)}."),
     };
 }

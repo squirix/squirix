@@ -21,7 +21,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     {
         var json = """{"seq":1,"seq":2,"unixMs":1,"remove":{"key":"k"}}"""u8.ToArray();
 
-        _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
+        _ = Assert.Throws<JsonException>(() => { _ = RecordCodec.Deserialize(json); });
     }
 
     /// <summary>journal parsing rejects malformed envelopes without an operation.</summary>
@@ -30,7 +30,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     {
         var json = """{"seq":1,"unixMs":1}"""u8.ToArray();
 
-        var error = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
+        var error = Assert.Throws<JsonException>(() => { _ = RecordCodec.Deserialize(json); });
 
         Assert.Contains("exactly one operation", error.Message, StringComparison.Ordinal);
     }
@@ -41,7 +41,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     {
         var json = """{"seq":1,"unixMs":1,"remove":{"key":"k"},"commitIndex":42}"""u8.ToArray();
 
-        _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
+        _ = Assert.Throws<JsonException>(() => { _ = RecordCodec.Deserialize(json); });
     }
 
     /// <summary>journal record payloads reject duplicate nested operation properties.</summary>
@@ -50,7 +50,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     {
         var json = """{"seq":1,"unixMs":1,"remove":{"key":"k1","key":"k2"}}"""u8.ToArray();
 
-        _ = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
+        _ = Assert.Throws<JsonException>(() => { _ = RecordCodec.Deserialize(json); });
     }
 
     /// <summary>journal parsing rejects malformed operation payloads.</summary>
@@ -59,7 +59,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     {
         var json = """{"seq":1,"unixMs":1,"put":{"item":{"key":"k"}}}"""u8.ToArray();
 
-        var error = Assert.Throws<JsonException>(() => RecordCodec.Deserialize(json));
+        var error = Assert.Throws<JsonException>(() => { _ = RecordCodec.Deserialize(json); });
 
         Assert.Contains("entryJsonUtf8", error.Message, StringComparison.Ordinal);
     }
@@ -72,7 +72,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         await WriteManifestFilesAsync(dir, """{"format":1,"currentJournal":1,"currentJournal":2,"nextSequence":3}""");
         using var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-        _ = await Assert.ThrowsAsync<JsonException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JsonException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
 
     /// <summary>Manifest files reject unknown durability fields.</summary>
@@ -83,7 +83,7 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
         await WriteManifestFilesAsync(dir, """{"format":1,"currentJournal":1,"nextSequence":3,"commitIndex":9}""");
         using var store = new ManifestStore(new PersistenceOptions { DataDir = dir });
 
-        _ = await Assert.ThrowsAsync<JsonException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JsonException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
 
     /// <summary>Snapshot metadata rejects duplicate top-level properties.</summary>
@@ -91,9 +91,11 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     public async Task SnapshotMetadataRejectsDuplicateProperties()
     {
         using var dir = new TempDirectory("squirix-snapshot-strict");
-        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","kind":"entry","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}}}""");
+        var path = await WriteSnapshotFrameAsync(
+            dir,
+            """{"kind":"idempotency","kind":"entry","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}}}""");
 
-        _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JsonException>(async () => { _ = await SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Snapshot metadata rejects malformed/truncated payloads.</summary>
@@ -101,9 +103,14 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     public async Task SnapshotMetadataRejectsMalformedPayload()
     {
         using var dir = new TempDirectory("squirix-snapshot-strict");
-        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"cas"}}}""");
+        var path = await WriteSnapshotFrameAsync(
+            dir,
+            """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"cas"}}}""");
 
-        var error = await Assert.ThrowsAsync<InvalidDataException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
+        var error = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
+            _ = await SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken);
+        });
 
         Assert.Contains("outcome kind", error.Message, StringComparison.Ordinal);
     }
@@ -113,9 +120,11 @@ public sealed class StrictDurabilityJsonTests : UnitTestBase
     public async Task SnapshotMetadataRejectsUnknownCriticalFields()
     {
         using var dir = new TempDirectory("squirix-snapshot-strict");
-        var path = await WriteSnapshotFrameAsync(dir, """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}},"commitIndex":9}""");
+        var path = await WriteSnapshotFrameAsync(
+            dir,
+            """{"kind":"idempotency","idempotency":{"operationId":"op","fingerprint":"fp","createdUtc":"2026-05-01T00:00:00Z","outcome":{"kind":"insert"}},"commitIndex":9}""");
 
-        _ = await Assert.ThrowsAsync<JsonException>(() => SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JsonException>(async () => { _ = await SnapshotReader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken); });
     }
 
     private static async Task WriteManifestFilesAsync(string dir, string json)

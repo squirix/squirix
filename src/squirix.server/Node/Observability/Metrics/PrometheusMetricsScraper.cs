@@ -26,7 +26,7 @@ internal sealed class PrometheusMetricsScraper : IDisposable
     public string Scrape(PrometheusScrapeProfile profile = PrometheusScrapeProfile.Public) => profile switch
     {
         PrometheusScrapeProfile.Public => ScrapePublic(),
-        _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported scrape profile."),
+        _ => throw new ArgumentOutOfRangeException(nameof(profile), "Unsupported scrape profile."),
     };
 
     public void Dispose() => _listener.Dispose();

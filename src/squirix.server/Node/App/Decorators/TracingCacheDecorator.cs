@@ -28,6 +28,16 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.GetEntryAsync(cacheName, key, cancellationToken),
         CacheOperationClassifier.ClassifyNullableReferenceResult);
 
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Get,
+        () => _inner.GetValueAsync(cacheName, key, cancellationToken),
+        CacheOperationClassifier.ClassifyCacheValueResult);
+
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
+        CacheOperationNames.Remove,
+        () => _inner.RemoveAsync(operationId, cacheName, key, cancellationToken),
+        CacheOperationClassifier.ClassifyCacheRemoveResult);
+
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.RemoveExpiration,
         () => _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken),
@@ -47,16 +57,6 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         () => _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken),
         CacheOperationClassifier.ClassifyFoundBool);
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Get,
-        () => _inner.GetValueAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyCacheValueResult);
-
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => TraceAsync(
-        CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(operationId, cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyCacheRemoveResult);
-
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => TraceAsync(
         CacheOperationNames.Update,
         () => _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken),
@@ -66,16 +66,22 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     private static void RecordResult(Activity? activity, string result)
     {
-        _ = activity?.SetTag("cache.result", result);
+        if (activity is null || !activity.IsAllDataRequested)
+            return;
+
+        _ = activity.SetTag("cache.result", result);
         if (!string.Equals(result, CacheOperationResults.Ok, StringComparison.OrdinalIgnoreCase))
-            _ = activity?.SetStatus(ActivityStatusCode.Error);
+            _ = activity.SetStatus(ActivityStatusCode.Error);
     }
 
     private Activity? StartActivity(string operation)
     {
         var activity = ActivitySourceHolder.StartInternal(GetSpanName(operation));
-        _ = activity?.SetTag("cache.operation", operation);
-        _ = activity?.SetTag("squirix.node_id", _nodeId);
+        if (activity is null || !activity.IsAllDataRequested)
+            return activity;
+
+        _ = activity.SetTag("cache.operation", operation);
+        _ = activity.SetTag("squirix.node_id", _nodeId);
         return activity;
     }
 

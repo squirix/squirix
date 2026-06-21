@@ -17,7 +17,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
@@ -48,7 +48,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -60,7 +60,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -72,7 +72,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
     }
 
     /// <summary>Verifies the public core transport does not round-trip internal tag metadata.</summary>
@@ -276,15 +276,18 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
     {
         var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAnyAsync<ArgumentException>(async () => await cache.SetAsync(
-            "k",
-            "v",
-            new CacheEntryOptions
-            {
-                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1),
-                Expiration = TimeSpan.FromMinutes(1),
-            },
-            DefaultCancellationToken));
+        _ = await Assert.ThrowsAnyAsync<ArgumentException>(async () =>
+        {
+            await cache.SetAsync(
+                "k",
+                "v",
+                new CacheEntryOptions
+                {
+                    ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                    Expiration = TimeSpan.FromMinutes(1),
+                },
+                DefaultCancellationToken);
+        });
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }

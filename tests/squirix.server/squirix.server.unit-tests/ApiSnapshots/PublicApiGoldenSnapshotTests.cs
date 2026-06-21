@@ -29,7 +29,7 @@ public sealed class PublicApiGoldenSnapshotTests
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
@@ -57,7 +57,7 @@ public sealed class PublicApiGoldenSnapshotTests
             if (method.IsSpecialName)
                 continue;
 
-            methodNames.Add(method.Name);
+            _ = methodNames.Add(method.Name);
         }
 
         var methods = new List<string>(methodNames);

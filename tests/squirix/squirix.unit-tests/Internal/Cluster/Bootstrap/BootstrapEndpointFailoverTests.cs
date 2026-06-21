@@ -37,8 +37,10 @@ public sealed class BootstrapEndpointFailoverTests : UnitTestBase
     {
         var failover = new BootstrapEndpointFailover(["endpoint-0", "endpoint-1"], "endpoint-0");
 
-        var error = await Assert.ThrowsAsync<RpcException>(() =>
-            failover.ExecuteAsync<int>(static (_, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), DefaultCancellationToken).AsTask());
+        var error = await Assert.ThrowsAsync<RpcException>(async () =>
+        {
+            _ = await failover.ExecuteAsync<int>(static (_, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), DefaultCancellationToken).AsTask();
+        });
 
         Assert.Equal(StatusCode.NotFound, error.StatusCode);
     }

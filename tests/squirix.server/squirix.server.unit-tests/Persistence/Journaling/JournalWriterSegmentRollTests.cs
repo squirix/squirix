@@ -41,7 +41,10 @@ public sealed class JournalWriterSegmentRollTests : UnitTestBase
 
         await BlockNextManifestWriteAsync(dir);
         var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
-        _ = await Assert.ThrowsAnyAsync<IOException>(() => journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken).AsTask());
+        _ = await Assert.ThrowsAnyAsync<IOException>(async () =>
+        {
+            await journal.AppendPutAsync(CacheKey.Default("overflow-key"), overflowPayload, null, DefaultCancellationToken).AsTask();
+        });
 
         Assert.Equal(bytesBefore, new FileInfo(segmentOnePath).Length);
         Assert.Equal(manifestFileCountAfterBlock, CountManifestDataFiles(dir));

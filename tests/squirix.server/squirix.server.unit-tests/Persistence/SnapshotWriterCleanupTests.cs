@@ -41,10 +41,10 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
         var replacement = await BuildEntryJsonElementAsync("new");
         var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
-        _ = await Assert.ThrowsAnyAsync<IOException>(() => failingWriter.WriteAsync(
-            1,
-            [(CacheKey.Default("replacement"), replacement)],
-            DefaultCancellationToken));
+        _ = await Assert.ThrowsAnyAsync<IOException>(async () =>
+        {
+            _ = await failingWriter.WriteAsync(1, [(CacheKey.Default("replacement"), replacement)], DefaultCancellationToken);
+        });
 
         Assert.True(File.Exists(path));
         Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));
@@ -58,7 +58,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         using var dir = new TempDirectory("squirix-snap-writer-tmp");
         var writer = new SnapshotWriter(dir);
         var items = FailingItems();
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { _ = await writer.WriteAsync(1, items, [], DefaultCancellationToken); });
         Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
@@ -86,14 +86,14 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         return doc.RootElement.Clone();
     }
 
-    /// <summary>Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.</summary>
-    private static IEnumerable<(CacheKey Key, object Entry)> FailingItems() => EnumerateThenFail();
-
     private static IEnumerable<(CacheKey Key, object Entry)> EnumerateThenFail()
     {
         yield return (new CacheKey("default", "a"), 1);
         throw new InvalidOperationException("simulated serialization failure");
     }
+
+    /// <summary>Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.</summary>
+    private static IEnumerable<(CacheKey Key, object Entry)> FailingItems() => EnumerateThenFail();
 
     private static async Task<string[]> ReadSnapshotKeysAsync(string path)
     {

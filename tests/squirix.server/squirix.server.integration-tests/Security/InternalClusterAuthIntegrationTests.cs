@@ -88,8 +88,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
-        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ??
-                           throw new InvalidOperationException("Expected inter-node URL for node-b.");
+        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrl,
@@ -199,8 +198,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
         var nodeBUrl = FindPeer(peers, "node-b").Url;
-        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ??
-                            throw new InvalidOperationException("Expected inter-node URL for node-a.");
+        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,

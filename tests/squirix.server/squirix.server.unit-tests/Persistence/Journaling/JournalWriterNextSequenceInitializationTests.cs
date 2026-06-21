@@ -39,12 +39,14 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             DefaultCancellationToken);
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
             _ = await JournalWriter.CreateAsync(
                 persistence,
                 await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
                 manifestStore,
                 new JournalStartupGate(),
-                DefaultCancellationToken));
+                DefaultCancellationToken);
+        });
 
         Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
         Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);
@@ -70,7 +72,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(7UL, journal.NextSequence);
     }
 
@@ -98,7 +105,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             },
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(52UL, journal.NextSequence);
     }
 
@@ -120,7 +132,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
 
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(21UL, journal.NextSequence);
     }
 
@@ -145,7 +162,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(4UL, journal.NextSequence);
         Assert.Equal(2, journal.CurrentSegmentIndex);
 
@@ -179,7 +201,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             LastSnapshot = null,
         };
         await manifestStore.WriteAsync(manifest, DefaultCancellationToken);
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(11UL, journal.NextSequence);
     }
 
@@ -191,7 +218,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
 
-        await using (var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken))
+        await using (var journal = await JournalWriter.CreateAsync(
+                         persistence,
+                         await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+                         manifestStore,
+                         new JournalStartupGate(),
+                         DefaultCancellationToken))
         {
             var p = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("keep", null, null, 1, null);
             await journal.AppendPutAsync(CacheKey.Default("keep"), p, null, DefaultCancellationToken);
@@ -239,7 +271,12 @@ public sealed class JournalWriterNextSequenceInitializationTests : UnitTestBase
             },
             DefaultCancellationToken);
 
-        await using var journal = await JournalWriter.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var journal = await JournalWriter.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         Assert.Equal(6UL, journal.NextSequence);
     }
 

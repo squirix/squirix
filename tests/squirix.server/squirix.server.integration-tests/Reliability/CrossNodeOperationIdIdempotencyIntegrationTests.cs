@@ -12,8 +12,41 @@ namespace Squirix.Server.IntegrationTests.Reliability;
 /// <summary>Integration coverage for client operation_id propagation across cluster routing hops.</summary>
 public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : IntegrationTestBase
 {
-    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
     private const string MismatchOperationId = "fedcba9876543210fedcba9876543210";
+    private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
+
+    /// <summary>Verifies bootstrap-style endpoint failover preserves operation_id and replays the cached mutation outcome.</summary>
+    [Fact]
+    public async Task BootstrapEndpointSwitchReplaysSameOperationId()
+    {
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-a", "bootstrap-idempotency");
+        var request = new SetEntryAsyncRequest
+        {
+            OperationId = ValidOperationId,
+            CacheName = "default",
+            Key = key,
+            Entry = new CacheEntry<object?> { Value = "bootstrap-value", Version = 1 }.MapToProto(),
+        };
+
+        using var channelA = CreateGrpcChannel(urlA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+        _ = await clientA.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
+
+        using var channelB = CreateGrpcChannel(urlB);
+        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
+        _ = await clientB.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
+
+        var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+        Assert.True(getResponse.Found);
+        Assert.Equal("bootstrap-value", (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
+    }
 
     /// <summary>Verifies a retry with the same operation_id on a different entry node replays the owner outcome instead of double-applying when the key is owned elsewhere.</summary>
     [Fact]
@@ -46,46 +79,9 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
 
         Assert.True(second.Added);
 
-        var getResponse = await clientB.GetValueAsync(
-            new GetValueAsyncRequest { CacheName = "default", Key = key },
-            cancellationToken: DefaultCancellationToken);
+        var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
         Assert.True(getResponse.Found);
         Assert.Equal("first", (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
-    }
-
-    /// <summary>Verifies bootstrap-style endpoint failover preserves operation_id and replays the cached mutation outcome.</summary>
-    [Fact]
-    public async Task BootstrapEndpointSwitchReplaysSameOperationId()
-    {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
-
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
-
-        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-a", "bootstrap-idempotency");
-        var request = new SetEntryAsyncRequest
-        {
-            OperationId = ValidOperationId,
-            CacheName = "default",
-            Key = key,
-            Entry = new CacheEntry<object?> { Value = "bootstrap-value", Version = 1 }.MapToProto(),
-        };
-
-        using var channelA = CreateGrpcChannel(urlA);
-        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
-        _ = await clientA.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
-
-        using var channelB = CreateGrpcChannel(urlB);
-        var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
-        _ = await clientB.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
-
-        var getResponse = await clientB.GetValueAsync(
-            new GetValueAsyncRequest { CacheName = "default", Key = key },
-            cancellationToken: DefaultCancellationToken);
-        Assert.True(getResponse.Found);
-        Assert.Equal("bootstrap-value", (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
     }
 
     /// <summary>Verifies reusing an operation_id with a different fingerprint fails on the owner after entry-node forwarding.</summary>

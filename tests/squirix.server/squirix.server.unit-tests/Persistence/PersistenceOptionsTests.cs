@@ -84,7 +84,7 @@ public sealed class PersistenceOptionsTests
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
     public void FieldBackedValidationRejectsNonPositiveScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => CreateWithInvalidScalar(propertyName));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => { _ = CreateWithInvalidScalar(propertyName); });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
@@ -95,7 +95,8 @@ public sealed class PersistenceOptionsTests
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json =
+            """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = JsonSerializer.Deserialize<PersistenceOptions>(json, JsonOptions);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);

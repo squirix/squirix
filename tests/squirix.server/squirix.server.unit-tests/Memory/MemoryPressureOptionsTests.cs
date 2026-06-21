@@ -47,7 +47,7 @@ public sealed class MemoryPressureOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsCriticalThresholdAboveOneHundred()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new MemoryPressureOptions { CriticalPressureThresholdPercent = 101 });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => { _ = new MemoryPressureOptions { CriticalPressureThresholdPercent = 101 }; });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(MemoryPressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
@@ -58,7 +58,7 @@ public sealed class MemoryPressureOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsHighThresholdOutOfRange()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new MemoryPressureOptions { HighPressureThresholdPercent = 0 });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => { _ = new MemoryPressureOptions { HighPressureThresholdPercent = 0 }; });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(MemoryPressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
@@ -73,7 +73,7 @@ public sealed class MemoryPressureOptionsTests
     [InlineData(-1000)]
     public void FieldBackedValidationRejectsNonPositiveMaxBytes(long maxBytes)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new MemoryPressureOptions { MaxEstimatedCacheBytes = maxBytes });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => { _ = new MemoryPressureOptions { MaxEstimatedCacheBytes = maxBytes }; });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(MemoryPressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
