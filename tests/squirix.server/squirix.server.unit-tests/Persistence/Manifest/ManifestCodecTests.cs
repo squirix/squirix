@@ -1,13 +1,13 @@
 using System;
 using System.IO;
-using Squirix.Server.Storage.Manifest.Binary;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Persistence.BinaryManifest;
+namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
-/// <summary>Round-trip tests for <see cref="BinaryManifestCodec" />.</summary>
-public sealed class BinaryManifestCodecTests : UnitTestBase
+/// <summary>Round-trip tests for <see cref="ManifestCodec" />.</summary>
+public sealed class ManifestCodecTests : UnitTestBase
 {
     /// <summary>Verifies encode/decode round-trip for a manifest without snapshot metadata.</summary>
     [Fact]
@@ -15,8 +15,8 @@ public sealed class BinaryManifestCodecTests : UnitTestBase
     {
         var manifest = new Storage.Manifest.ManifestState { CurrentJournal = 2, NextSequence = 42 };
 
-        var bytes = BinaryManifestCodec.Encode(manifest);
-        var decoded = BinaryManifestCodec.Decode(bytes);
+        var bytes = ManifestCodec.Encode(manifest);
+        var decoded = ManifestCodec.Decode(bytes);
 
         Assert.Equal(manifest.Format, decoded.Format);
         Assert.Equal(manifest.CurrentJournal, decoded.CurrentJournal);
@@ -43,7 +43,7 @@ public sealed class BinaryManifestCodecTests : UnitTestBase
             },
         };
 
-        var decoded = BinaryManifestCodec.Decode(BinaryManifestCodec.Encode(manifest));
+        var decoded = ManifestCodec.Decode(ManifestCodec.Encode(manifest));
 
         Assert.NotNull(decoded.LastSnapshot);
         Assert.Equal(manifest.LastSnapshot.Index, decoded.LastSnapshot!.Index);
@@ -59,9 +59,9 @@ public sealed class BinaryManifestCodecTests : UnitTestBase
     {
         var manifest = new Storage.Manifest.ManifestState { CurrentJournal = 7, NextSequence = 99 };
 
-        var expected = BinaryManifestCodec.Encode(manifest);
-        Span<byte> roll = stackalloc byte[BinaryManifestCodec.RollEncodedWithoutSnapshotLength];
-        var length = BinaryManifestCodec.WriteRollEncoded(manifest.Format, manifest.CurrentJournal, manifest.NextSequence, null, [], roll);
+        var expected = ManifestCodec.Encode(manifest);
+        Span<byte> roll = stackalloc byte[ManifestCodec.RollEncodedWithoutSnapshotLength];
+        var length = ManifestCodec.WriteRollEncoded(manifest.Format, manifest.CurrentJournal, manifest.NextSequence, null, [], roll);
 
         Assert.Equal(expected.Length, length);
         Assert.True(expected.AsSpan().SequenceEqual(roll[..length]));
@@ -86,10 +86,10 @@ public sealed class BinaryManifestCodecTests : UnitTestBase
             },
         };
 
-        var expected = BinaryManifestCodec.Encode(manifest);
+        var expected = ManifestCodec.Encode(manifest);
         var pathUtf8 = System.Text.Encoding.UTF8.GetBytes(manifest.LastSnapshot!.Path!);
         Span<byte> roll = stackalloc byte[expected.Length];
-        var length = BinaryManifestCodec.WriteRollEncoded(
+        var length = ManifestCodec.WriteRollEncoded(
             manifest.Format,
             manifest.CurrentJournal,
             manifest.NextSequence,
@@ -105,9 +105,9 @@ public sealed class BinaryManifestCodecTests : UnitTestBase
     [Fact]
     public void DecodeThrowsWhenCrcIsInvalid()
     {
-        var bytes = BinaryManifestCodec.Encode(new Storage.Manifest.ManifestState());
+        var bytes = ManifestCodec.Encode(new Storage.Manifest.ManifestState());
         bytes[^1] ^= 0xFF;
 
-        _ = Assert.Throws<InvalidDataException>(() => BinaryManifestCodec.Decode(bytes));
+        _ = Assert.Throws<InvalidDataException>(() => ManifestCodec.Decode(bytes));
     }
 }

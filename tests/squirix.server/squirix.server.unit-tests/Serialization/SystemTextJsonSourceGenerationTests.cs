@@ -28,53 +28,11 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
-    /// <summary>Ensures manifest serialization keeps the persisted camelCase property names.</summary>
-    [Fact]
-    public void ManifestContextPreservesPersistedJsonShape()
-    {
-        var manifest = new Storage.Manifest.ManifestState
-        {
-            CurrentJournal = 5,
-            NextSequence = 55,
-            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
-            {
-                Index = 4,
-                Path = "snapshots/snapshot-000004.jsonl",
-                CreatedUtc = new DateTime(2026, 5, 1, 2, 3, 4, DateTimeKind.Utc),
-                LastAppliedSequence = 54,
-                ReplayFromJournalSegment = 3,
-            },
-        };
-
-        var element = JsonSerializer.SerializeToElement(manifest, SquirixJsonSerializerContext.Default.ManifestState);
-
-        Assert.True(element.TryGetProperty("currentJournal", out var currentJournal));
-        Assert.Equal(5, currentJournal.GetInt32());
-        Assert.True(element.TryGetProperty("nextSequence", out _));
-        Assert.True(element.TryGetProperty("lastSnapshot", out var snapshot));
-        Assert.True(snapshot.TryGetProperty("replayFromJournalSegment", out var replayFromSnapshot));
-        Assert.Equal(3, replayFromSnapshot.GetInt32());
-        Assert.False(element.TryGetProperty("CurrentJournal", out _));
-    }
-
     /// <summary>Ensures persistence DTOs outside journal are covered by the generated context.</summary>
     [Fact]
     public void PersistenceDtosRoundTripWithGeneratedMetadata()
     {
         var serializer = new SystemTextJsonSerializer();
-        var manifest = new Storage.Manifest.ManifestState
-        {
-            CurrentJournal = 3,
-            NextSequence = 42,
-            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
-            {
-                Index = 2,
-                Path = "snapshots/snapshot-000002.jsonl",
-                CreatedUtc = new DateTime(2026, 4, 10, 1, 2, 3, DateTimeKind.Utc),
-                LastAppliedSequence = 41,
-                ReplayFromJournalSegment = 2,
-            },
-        };
         var snapshot = new SnapshotFrame
         {
             Kind = "idempotency",
@@ -82,17 +40,12 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
             {
                 OperationId = "op-2",
                 Fingerprint = "fp",
-                CreatedUtc = manifest.LastSnapshot.CreatedUtc,
+                CreatedUtc = new DateTime(2026, 4, 10, 1, 2, 3, DateTimeKind.Utc),
                 Outcome = new PersistedIdempotencyOutcome { Kind = "insert" },
             },
         };
 
-        var manifestRoundTrip = serializer.Deserialize<Storage.Manifest.ManifestState>(serializer.SerializeToUtf8Bytes(manifest));
         var snapshotRoundTrip = serializer.Deserialize<SnapshotFrame>(serializer.SerializeToUtf8Bytes(snapshot));
-
-        Assert.NotNull(manifestRoundTrip);
-        Assert.Equal(3, manifestRoundTrip.CurrentJournal);
-        Assert.Equal(2, manifestRoundTrip.LastSnapshot?.ReplayFromJournalSegment);
 
         Assert.NotNull(snapshotRoundTrip);
         Assert.Equal("idempotency", snapshotRoundTrip.Kind);

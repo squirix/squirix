@@ -23,10 +23,6 @@ public class ManifestSegmentRollBenchmarks
     private CacheKey _overflowKey = new("bench", "overflow");
     private int _rollsPerInvoke;
 
-    /// <summary>Gets or sets the manifest backend under test.</summary>
-    [Params(ManifestBackend.Json, ManifestBackend.Binary)]
-    public ManifestBackend Backend { get; set; }
-
     /// <summary>Forces segment rolls via oversized append frames (production roll + manifest path).</summary>
     [Benchmark]
     public async Task RollSegmentViaOverflowAppendAsync()
@@ -52,7 +48,7 @@ public class ManifestSegmentRollBenchmarks
         _host = null;
     }
 
-    /// <summary>Creates journal host configured for 1 MiB segments and selected manifest backend.</summary>
+    /// <summary>Creates journal host configured for 1 MiB segments.</summary>
     [GlobalSetup]
     public async Task GlobalSetupAsync()
     {
@@ -60,7 +56,6 @@ public class ManifestSegmentRollBenchmarks
         var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
         var options = new PersistenceOptions
         {
-            ManifestBackend = Backend,
             JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
             JournalMaxSegmentMb = 1,
             JournalMaxSegmentCount = 1024,
@@ -68,10 +63,10 @@ public class ManifestSegmentRollBenchmarks
             ManifestRetentionCount = retention,
             SnapshotRetentionCount = retention,
         };
-        _host = await JournalBenchmarkHost.CreateAsync($"manifest-roll-bench-{Backend}", options, CancellationToken.None).ConfigureAwait(false);
+        _host = await JournalBenchmarkHost.CreateAsync("manifest-roll-bench", options, CancellationToken.None).ConfigureAwait(false);
         _overflowPayload = new byte[16_000];
         Array.Fill(_overflowPayload, Convert.ToByte('z'));
-        _overflowKey = new CacheKey("bench", $"overflow-{Backend}");
+        _overflowKey = new CacheKey("bench", "overflow");
     }
 
     private static async Task FillActiveSegmentNearCapacityAsync(JournalCoordinator pipelined, int overflowFrameLen, CancellationToken cancellationToken)

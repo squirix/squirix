@@ -1,11 +1,9 @@
 using System;
-using System.Text.Json.Serialization;
 
 namespace Squirix.Server.Storage.Manifest;
 
 internal sealed class ManifestState
 {
-    [JsonPropertyName("currentJournal")]
     public int CurrentJournal { get; init; } = 1;
 
     public int Format { get; init; } = 1;
@@ -24,7 +22,6 @@ internal sealed class ManifestState
 
         public string? Path { get; init; }
 
-        [JsonPropertyName("replayFromJournalSegment")]
         public int ReplayFromJournalSegment { get; init; } = 1;
     }
 }

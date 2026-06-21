@@ -30,23 +30,6 @@ public sealed class MultiSegmentJsonParsingTests : UnitTestBase
         Assert.Equal("west", entry.Tags?["region"]);
     }
 
-    /// <summary>Manifest parsing handles segmented property names, string values, and numeric values.</summary>
-    [Fact]
-    public void ManifestParsesSegmentedPayload()
-    {
-        const string json =
-            """{"format":1,"currentJournal":12,"nextSequence":1234567890123,"lastSnapshot":{"index":7,"path":"snapshots/snapshot-000007.jsonl","createdUtc":"2026-05-01T02:03:04Z","lastAppliedSequence":1234567890122,"replayFromJournalSegment":11}}""";
-        var reader = CreateReader(json);
-
-        var manifest = JsonSerializer.Deserialize<Storage.Manifest.ManifestState>(ref reader, DurabilityJson.StrictSerializerOptions);
-
-        Assert.NotNull(manifest);
-        Assert.Equal(12, manifest.CurrentJournal);
-        Assert.Equal(1_234_567_890_123UL, manifest.NextSequence);
-        Assert.Equal("snapshots/snapshot-000007.jsonl", manifest.LastSnapshot?.Path);
-        Assert.Equal(11, manifest.LastSnapshot?.ReplayFromJournalSegment);
-    }
-
     /// <summary>Snapshot metadata parsing handles segmented property names, string values, and numeric values.</summary>
     [Fact]
     public void SnapshotMetadataParsesSegmentedPayload()

@@ -44,7 +44,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         var segmentOnePath = SegmentPath(dir, 1);
         var bytesBefore = new FileInfo(segmentOnePath).Length;
 
-        await BlockNextManifestWriteAsync(dir);
+        await BlockNextManifestWriteAsync(manifestStore, dir);
         var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
         await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
 
@@ -62,14 +62,11 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     }
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
-    /// <param name="backend">Manifest backend under test.</param>
-    [Theory]
-    [InlineData(ManifestBackend.Json)]
-    [InlineData(ManifestBackend.Binary)]
-    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll(ManifestBackend backend)
+    [Fact]
+    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
-        var options = CreateOptions(dir, backend);
+        var options = CreateOptions(dir);
         using var manifestStore = new ManifestStore(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
@@ -92,14 +89,13 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
     }
 
-    private static async Task BlockNextManifestWriteAsync(string dataDir)
+    private static async Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
     {
-        var currentPath = PathKit.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
-        const string baselineName = $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}";
-        await File.WriteAllTextAsync(currentPath, baselineName, DefaultCancellationToken);
-
-        const string blockedName = $"{StorageFilePrefixes.Manifest}000002{StorageFileExtensions.Manifest}";
-        await File.WriteAllTextAsync(PathKit.Combine(dataDir, blockedName), string.Empty, DefaultCancellationToken);
+        manifestStore.PublishRollBlocking(1, 1);
+        await File.WriteAllTextAsync(
+            PathKit.Combine(dataDir, ManifestStoreTestSupport.ManifestDataFileName(2)),
+            string.Empty,
+            DefaultCancellationToken);
     }
 
     private static Task<byte[]> BuildLargePutPayloadAsync() => DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('y', 16_000), null, null, 1, null);
@@ -123,13 +119,12 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     private static int CountManifestDataFiles(string dataDir) =>
         Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}").Length : 0;
 
-    private static PersistenceOptions CreateOptions(string dataDir, ManifestBackend backend = ManifestBackend.Json) => new()
+    private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
         DataDir = dataDir,
         JournalMaxSegmentMb = 1,
         FlushIntervalMs = 600_000,
         ManifestRetentionCount = 3,
-        ManifestBackend = backend,
     };
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)

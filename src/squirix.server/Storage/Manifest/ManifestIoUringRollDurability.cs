@@ -3,17 +3,17 @@ using System.IO;
 using System.Runtime.Versioning;
 using Squirix.Server.Storage.Journaling.Platform.IoUring;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Cross-platform entry that delegates to io_uring on Linux when available.</summary>
-internal static class BinaryManifestIoUringRollDurability
+internal static class ManifestIoUringRollDurability
 {
     internal static bool IsSupported => OperatingSystem.IsLinux() && IoUringAvailability.IsSupported;
 
     internal static bool TryWriteRollBlocking(
         string targetPath,
         ReadOnlySpan<byte> encoded,
-        IBinaryManifestPointerWriter pointerWriter,
+        IManifestPointerWriter pointerWriter,
         ReadOnlySpan<byte> pointerBuffer)
     {
         if (!OperatingSystem.IsLinux())
@@ -26,7 +26,7 @@ internal static class BinaryManifestIoUringRollDurability
     private static bool TryWriteRollBlockingLinux(
         string targetPath,
         ReadOnlySpan<byte> encoded,
-        IBinaryManifestPointerWriter pointerWriter,
+        IManifestPointerWriter pointerWriter,
         ReadOnlySpan<byte> pointerBuffer)
     {
         if (!IsSupported)

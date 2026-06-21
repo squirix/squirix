@@ -3,16 +3,16 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Reusable <c>man-current</c> handle for the journal roll hot path.</summary>
-internal sealed class BinaryManifestPersistentPointerWriter : IBinaryManifestPointerWriter
+internal sealed class ManifestPersistentPointerWriter : IManifestPointerWriter
 {
     private readonly string _currentPath;
     private SafeFileHandle? _handle;
     private int _unixFileDescriptor = -1;
 
-    internal BinaryManifestPersistentPointerWriter(string currentPath) => _currentPath = currentPath;
+    internal ManifestPersistentPointerWriter(string currentPath) => _currentPath = currentPath;
 
     public int UnixFileDescriptor
     {
@@ -30,12 +30,12 @@ internal sealed class BinaryManifestPersistentPointerWriter : IBinaryManifestPoi
 
     public void Write(ReadOnlySpan<byte> pointerBuffer)
     {
-        if (pointerBuffer.Length != BinaryManifestPointer.Size)
+        if (pointerBuffer.Length != ManifestPointer.Size)
             throw new ArgumentException("Pointer buffer must be exactly 12 bytes.", nameof(pointerBuffer));
 
         EnsureOpen();
         RandomAccess.Write(_handle!, pointerBuffer, 0);
-        BinaryManifestDurability.FlushPointerIfNeeded(_handle!);
+        ManifestDurability.FlushPointerIfNeeded(_handle!);
         if (!OperatingSystem.IsLinux())
             ReleaseHandle();
     }
@@ -53,10 +53,10 @@ internal sealed class BinaryManifestPersistentPointerWriter : IBinaryManifestPoi
         if (_handle is not null && !_handle.IsInvalid)
             return;
 
-        var options = BinaryManifestDurability.GetPointerFileOptions();
+        var options = ManifestDurability.GetPointerFileOptions();
         _handle = File.OpenHandle(_currentPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
-        if (RandomAccess.GetLength(_handle) != BinaryManifestPointer.Size)
-            RandomAccess.SetLength(_handle, BinaryManifestPointer.Size);
+        if (RandomAccess.GetLength(_handle) != ManifestPointer.Size)
+            RandomAccess.SetLength(_handle, ManifestPointer.Size);
 
         if (OperatingSystem.IsLinux())
             _unixFileDescriptor = _handle.DangerousGetHandle().ToInt32();

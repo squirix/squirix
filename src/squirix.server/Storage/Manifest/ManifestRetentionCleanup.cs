@@ -7,7 +7,7 @@ using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Shared retention cleanup for JSON and binary manifest stores.</summary>
+/// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
 internal static class ManifestRetentionCleanup
 {
     internal static bool Run(ManifestRetentionContext context, ManifestState manifest)

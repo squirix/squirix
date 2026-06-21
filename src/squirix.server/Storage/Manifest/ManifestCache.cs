@@ -1,10 +1,10 @@
 using System;
 using System.Text;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>In-memory manifest index and payload cached after the first load or publish.</summary>
-internal sealed class BinaryManifestState
+internal sealed class ManifestCache
 {
     public bool IsInitialized { get; private set; }
 

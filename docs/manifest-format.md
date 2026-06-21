@@ -1,16 +1,13 @@
-# Binary manifest on-disk format
+# Manifest on-disk format
 
 Manifest files use the `.bmqx` extension with a fixed file header, typed body, and trailing CRC32C.
-The active manifest index is stored in a fixed-size binary `man-current` pointer (magic `SQMC`).
-
-Production default remains JSON manifests (`ManifestBackend.Json`); see [persistence](persistence.md).
+The active manifest index is stored in a fixed-size `man-current` pointer (magic `SQMC`).
 
 ## Numbered manifest file (`.bmqx`)
 
-Filename pattern: `man-NNNNNN.bmqx` (same `man-` prefix as JSON manifests, distinct extension).
+Filename pattern: `man-NNNNNN.bmqx`.
 
 ### File layout (little-endian)
-
 | Region  | Size     | Value                            |
 | ------- | -------- | -------------------------------- |
 | magic   | 4        | ASCII `SQMF`                     |

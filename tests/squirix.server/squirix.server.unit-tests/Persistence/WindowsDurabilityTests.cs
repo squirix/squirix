@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -18,19 +19,16 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     /// <summary>
     /// Verifies that <see cref="ManifestStore" /> creates an initial manifest and updates the CURRENT pointer.
     /// </summary>
-    /// <param name="backend">Manifest backend under test.</param>
-    [Theory]
-    [InlineData(ManifestBackend.Json)]
-    [InlineData(ManifestBackend.Binary)]
-    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite(ManifestBackend backend)
+    [Fact]
+    public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, backend, DefaultCancellationToken));
+        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -52,7 +50,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), string.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<InvalidDataException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
@@ -63,24 +61,23 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), "man-000123.msqx", DefaultCancellationToken);
+        var pointerBuffer = new byte[ManifestPointer.Size];
+        ManifestPointer.Write(pointerBuffer, 123);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), pointerBuffer, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<FileNotFoundException>(async () => { _ = await store.ReadCurrentOrDefaultAsync(DefaultCancellationToken); });
     }
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
-    /// <param name="backend">Manifest backend under test.</param>
-    [Theory]
-    [InlineData(ManifestBackend.Json)]
-    [InlineData(ManifestBackend.Binary)]
-    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite(ManifestBackend backend)
+    [Fact]
+    public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, backend, DefaultCancellationToken));
+        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Cleans up the temporary directory after the test.</summary>

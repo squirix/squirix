@@ -12,8 +12,6 @@ namespace Squirix.Server.Serialization;
     ReadCommentHandling = JsonCommentHandling.Skip,
     AllowTrailingCommas = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(Storage.Manifest.ManifestState))]
-[JsonSerializable(typeof(Storage.Manifest.ManifestState.SnapshotRef))]
 [JsonSerializable(typeof(SnapshotFrame))]
 [JsonSerializable(typeof(PersistedIdempotencyRecord))]
 [JsonSerializable(typeof(PersistedIdempotencyOutcome))]

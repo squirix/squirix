@@ -4,12 +4,12 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Isolates binary segment-roll manifest costs: encode, data-file fsync, pointer fsync, and full publish.</summary>
+/// <summary>Isolates segment-roll manifest costs: encode, data-file fsync, pointer fsync, and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
 public class ManifestPublishBreakdownBenchmarks
 {
-    private BinaryManifestRollBreakdownSession? _session;
+    private ManifestRollBreakdownSession? _session;
     private int _nextFileIndex = 10_000;
     private int _nextJournal = 2;
     private int _operationsPerInvoke;
@@ -84,12 +84,12 @@ public class ManifestPublishBreakdownBenchmarks
         _session = null;
     }
 
-    /// <summary>Creates a warmed binary manifest session for the current parameter set.</summary>
+    /// <summary>Creates a warmed manifest session for the current parameter set.</summary>
     [GlobalSetup]
     public void GlobalSetup()
     {
         _operationsPerInvoke = ManifestBenchmarkSupport.ResolvePublishOperationsPerInvoke();
-        _session = BinaryManifestRollBreakdownSession.Create();
+        _session = ManifestRollBreakdownSession.Create();
         _nextFileIndex = 10_000;
         _nextJournal = 2;
         _nextSequence = 2;

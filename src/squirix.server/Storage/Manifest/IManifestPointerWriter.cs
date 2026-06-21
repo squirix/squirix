@@ -1,9 +1,9 @@
 using System;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Durable writer for the fixed-size SQMC <c>man-current</c> pointer.</summary>
-internal interface IBinaryManifestPointerWriter : IDisposable
+internal interface IManifestPointerWriter : IDisposable
 {
     /// <summary>Gets the Linux file descriptor for io_uring batch durability, or <c>-1</c> when unavailable.</summary>
     int UnixFileDescriptor { get; }

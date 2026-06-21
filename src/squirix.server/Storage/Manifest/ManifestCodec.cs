@@ -4,10 +4,10 @@ using System.IO;
 using System.Text;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Encodes and decodes binary manifest files; on-disk layout is documented in docs/manifest-binary-format.md.</summary>
-internal static class BinaryManifestCodec
+/// <summary>Encodes and decodes manifest files; on-disk layout is documented in docs/manifest-format.md.</summary>
+internal static class ManifestCodec
 {
     internal const int RollEncodedWithoutSnapshotLength = 26;
 
@@ -90,7 +90,7 @@ internal static class BinaryManifestCodec
 
         var offset = 0;
         if (body.Length < 4 + 4 + 8 + 1)
-            throw new InvalidDataException("Binary manifest body is truncated.");
+            throw new InvalidDataException("Manifest body is truncated.");
 
         var format = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
         offset += 4;
@@ -194,7 +194,7 @@ internal static class BinaryManifestCodec
     private static ManifestState.SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)
     {
         if (body.Length < offset + 4 + 8 + 4 + 8 + 2)
-            throw new InvalidDataException("Binary manifest snapshot section is truncated.");
+            throw new InvalidDataException("Manifest snapshot section is truncated.");
 
         var snapshotIndex = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
         offset += 4;
@@ -207,7 +207,7 @@ internal static class BinaryManifestCodec
         var pathLen = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(offset));
         offset += 2;
         if (body.Length < offset + pathLen)
-            throw new InvalidDataException("Binary manifest snapshot path is truncated.");
+            throw new InvalidDataException("Manifest snapshot path is truncated.");
 
         string? path = null;
         if (pathLen > 0)
@@ -227,18 +227,18 @@ internal static class BinaryManifestCodec
     private static void ValidateFileEnvelope(ReadOnlySpan<byte> fileBytes, out ReadOnlySpan<byte> body)
     {
         if (fileBytes.Length < FileHeaderSize + FooterSize)
-            throw new InvalidDataException("Binary manifest file is truncated.");
+            throw new InvalidDataException("Manifest file is truncated.");
 
         if (!fileBytes.StartsWith(Magic))
-            throw new InvalidDataException("Binary manifest file has an invalid magic header.");
+            throw new InvalidDataException("Manifest file has an invalid magic header.");
 
         if (fileBytes[Magic.Length] != Version)
-            throw new InvalidDataException("Binary manifest file has an unsupported version.");
+            throw new InvalidDataException("Manifest file has an unsupported version.");
 
         var bodyEnd = fileBytes.Length - FooterSize;
         body = fileBytes.Slice(FileHeaderSize, bodyEnd - FileHeaderSize);
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.Slice(bodyEnd));
         if (Crc32C.Compute(body) != expectedCrc)
-            throw new InvalidDataException("Binary manifest file failed CRC validation.");
+            throw new InvalidDataException("Manifest file failed CRC validation.");
     }
 }

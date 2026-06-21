@@ -4,17 +4,16 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Manifest.Binary;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
-/// <summary>Helpers for manifest store tests across JSON and binary backends.</summary>
+/// <summary>Helpers for manifest store tests.</summary>
 internal static class ManifestStoreTestSupport
 {
-    internal static PersistenceOptions CreateOptions(string dataDir, ManifestBackend backend) => new()
+    internal static PersistenceOptions CreateOptions(string dataDir) => new()
     {
         DataDir = dataDir,
-        ManifestBackend = backend,
     };
 
     internal static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, CancellationToken cancellationToken)
@@ -29,25 +28,13 @@ internal static class ManifestStoreTestSupport
         }
     }
 
-    internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, ManifestBackend backend, CancellationToken cancellationToken)
+    internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {
         var currentPath = Path.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
-        if (backend is ManifestBackend.Binary)
-        {
-            var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
-            return BinaryManifestPointer.Read(pointerBytes);
-        }
-
-        var name = (await File.ReadAllTextAsync(currentPath, cancellationToken).ConfigureAwait(false)).Trim();
-        var prefix = StorageFilePrefixes.Manifest;
-        var suffix = StorageFileExtensions.Manifest;
-        var numberPart = name.Substring(prefix.Length, name.Length - prefix.Length - suffix.Length);
-        return int.Parse(numberPart, CultureInfo.InvariantCulture);
+        var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
+        return ManifestPointer.Read(pointerBytes);
     }
 
-    internal static string ManifestDataFileName(int index, ManifestBackend backend) =>
-        $"{StorageFilePrefixes.Manifest}{index.ToString("D6", CultureInfo.InvariantCulture)}{ManifestExtension(backend)}";
-
-    private static string ManifestExtension(ManifestBackend backend) =>
-        backend is ManifestBackend.Binary ? StorageFileExtensions.BinaryManifest : StorageFileExtensions.Manifest;
+    internal static string ManifestDataFileName(int index) =>
+        $"{StorageFilePrefixes.Manifest}{index.ToString("D6", CultureInfo.InvariantCulture)}{StorageFileExtensions.Manifest}";
 }

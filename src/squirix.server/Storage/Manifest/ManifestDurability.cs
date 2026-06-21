@@ -2,10 +2,10 @@ using System;
 using System.IO;
 using Microsoft.Win32.SafeHandles;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>WAL-ordered durable writes for binary manifest data files and the fixed-size CURRENT pointer.</summary>
-internal static class BinaryManifestDurability
+/// <summary>WAL-ordered durable writes for Manifest data files and the fixed-size CURRENT pointer.</summary>
+internal static class ManifestDurability
 {
     internal static FileOptions GetDataFileOptions()
     {
@@ -21,9 +21,9 @@ internal static class BinaryManifestDurability
     /// <summary>Overwrites the fixed-size SQMC pointer in place.</summary>
     /// <param name="writer">Pointer writer with an open or reusable <c>man-current</c> handle.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
-    internal static void WriteCurrentPointerBlocking(IBinaryManifestPointerWriter writer, ReadOnlySpan<byte> pointerBuffer)
+    internal static void WriteCurrentPointerBlocking(IManifestPointerWriter writer, ReadOnlySpan<byte> pointerBuffer)
     {
-        if (pointerBuffer.Length != BinaryManifestPointer.Size)
+        if (pointerBuffer.Length != ManifestPointer.Size)
             throw new ArgumentException("Pointer buffer must be exactly 12 bytes.", nameof(pointerBuffer));
 
         writer.Write(pointerBuffer);
@@ -52,10 +52,10 @@ internal static class BinaryManifestDurability
     internal static void WriteManifestRollBlocking(
         string targetPath,
         ReadOnlySpan<byte> encoded,
-        IBinaryManifestPointerWriter pointerWriter,
+        IManifestPointerWriter pointerWriter,
         ReadOnlySpan<byte> pointerBuffer)
     {
-        if (BinaryManifestIoUringRollDurability.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
+        if (ManifestIoUringRollDurability.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
             return;
 
         WriteManifestDataFileBlocking(targetPath, encoded);

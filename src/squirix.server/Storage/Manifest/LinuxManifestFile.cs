@@ -3,9 +3,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Linux file helpers for binary manifest io_uring durability.</summary>
+/// <summary>Linux file helpers for Manifest io_uring durability.</summary>
 [SupportedOSPlatform("linux")]
 internal static class LinuxManifestFile
 {

@@ -2,15 +2,15 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Manifest.Binary;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
-namespace Squirix.Server.UnitTests.Persistence.BinaryManifest;
+namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
 /// <summary>Verifies async retention does not delete the active manifest during publish bursts.</summary>
-public sealed class BinaryManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
+public sealed class ManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
 {
     private TempDirectory? _dir;
 
@@ -23,7 +23,6 @@ public sealed class BinaryManifestRetentionBurstTests : UnitTestBase, IAsyncLife
         var options = new PersistenceOptions
         {
             DataDir = Dir.Path,
-            ManifestBackend = ManifestBackend.Binary,
             ManifestRetentionCount = 2,
         };
         using var store = new ManifestStore(options);
@@ -32,12 +31,12 @@ public sealed class BinaryManifestRetentionBurstTests : UnitTestBase, IAsyncLife
             store.PublishRollBlocking(i, Convert.ToUInt64(i));
 
         await ManifestStoreTestSupport.WaitUntilAsync(
-            () => File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20, ManifestBackend.Binary))),
+            () => File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20))),
             TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         var currentPath = PathKit.Combine(Dir.Path, "man-current");
-        Assert.Equal(20, BinaryManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        Assert.Equal(20, ManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
         Assert.True(File.Exists(PathKit.Combine(Dir.Path, "man-000020.bmqx")));
     }
 
@@ -51,7 +50,7 @@ public sealed class BinaryManifestRetentionBurstTests : UnitTestBase, IAsyncLife
     /// <summary>Creates a temporary directory for test storage.</summary>
     public ValueTask InitializeAsync()
     {
-        _dir = new TempDirectory("binary-manifest-burst");
+        _dir = new TempDirectory("manifest-burst");
         return ValueTask.CompletedTask;
     }
 }

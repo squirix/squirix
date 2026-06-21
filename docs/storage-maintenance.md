@@ -18,15 +18,15 @@ When a node cannot start or operators need to inspect on-disk layout:
 2. Copy the full data directory to a safe location.
 3. Work on the copy first. See [operational runbook](operational-runbook.md).
 
-Do not delete journal segments, manifest files, or `CURRENT` manually unless a documented repair workflow confirms it is
+Do not delete journal segments, manifest files, or `man-current` manually unless a documented repair workflow confirms it is
 safe.
 
 Typical offline workflows (semantics only):
 
-- **Inspect** — summarize whether `CURRENT`/manifest metadata is readable, list journal segment and snapshot indices,
+- **Inspect** — summarize whether `man-current`/manifest metadata is readable, list journal segment and snapshot indices,
   and flag obvious layout issues.
 - **Compact** — rewrite journal history using the latest manifest snapshot watermark (node must stay stopped).
-- **Repair** — rebuild manifest metadata conservatively when `CURRENT` or manifest files are inconsistent so recovery
+- **Repair** — rebuild manifest metadata conservatively when `man-current` or manifest files are inconsistent so recovery
   can proceed.
 
 These workflows require dedicated offline tooling and are outside the v0.1 exported `Squirix` / `Squirix.Server` product
@@ -45,7 +45,7 @@ A node data directory typically contains:
 
 - journal segment files
 - snapshot files
-- manifest files and a `CURRENT` pointer
+- manifest files and a `man-current` pointer
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without the
 matching journal is unsafe.

@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace Squirix.Server.Storage.Manifest.Binary;
+namespace Squirix.Server.Storage.Manifest;
 
-/// <summary>Minimal Linux libc imports for binary manifest io_uring durability.</summary>
+/// <summary>Minimal Linux libc imports for Manifest io_uring durability.</summary>
 [SupportedOSPlatform("linux")]
 internal static partial class LinuxManifestSyscalls
 {

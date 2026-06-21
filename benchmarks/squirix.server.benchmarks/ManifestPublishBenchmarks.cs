@@ -6,7 +6,7 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Manifest publish throughput comparing JSON and binary backends.</summary>
+/// <summary>Manifest publish throughput (segment-roll manifest updates).</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
 public class ManifestPublishBenchmarks
@@ -14,10 +14,6 @@ public class ManifestPublishBenchmarks
     private ManifestBenchmarkHost? _host;
     private int _operationsPerInvoke;
     private ulong _nextSequence = 1;
-
-    /// <summary>Gets or sets the manifest store backend under test.</summary>
-    [Params(ManifestBackend.Json, ManifestBackend.Binary)]
-    public ManifestBackend Backend { get; set; }
 
     /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
     [Benchmark]
@@ -37,7 +33,7 @@ public class ManifestPublishBenchmarks
         _host = null;
     }
 
-    /// <summary>Creates the manifest store for the selected backend.</summary>
+    /// <summary>Creates a warmed manifest store.</summary>
     [GlobalSetup]
     public async Task GlobalSetupAsync()
     {
@@ -45,11 +41,10 @@ public class ManifestPublishBenchmarks
         var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
         var options = new PersistenceOptions
         {
-            ManifestBackend = Backend,
             ManifestRetentionCount = retention,
             SnapshotRetentionCount = retention,
         };
-        _host = await ManifestBenchmarkHost.CreateAsync($"manifest-bench-{Backend}", options).ConfigureAwait(false);
+        _host = await ManifestBenchmarkHost.CreateAsync("manifest-bench", options).ConfigureAwait(false);
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.

@@ -111,9 +111,6 @@ internal sealed record PersistenceOptions
     [JsonPropertyName("journalBackend")]
     public JournalBackend JournalBackend { get; init; } = JournalBackend.Pipelined;
 
-    [JsonPropertyName("manifestBackend")]
-    public ManifestBackend ManifestBackend { get; init; } = ManifestBackend.Json;
-
     [JsonPropertyName("journalPlatformBackend")]
     public JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
 

@@ -16,13 +16,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
     private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
     /// <summary>Verifies journal segments older than the current snapshot replay point are removed.</summary>
-    /// <param name="backend">Manifest backend under test.</param>
-    [Theory]
-    [InlineData(ManifestBackend.Json)]
-    [InlineData(ManifestBackend.Binary)]
-    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint(ManifestBackend backend)
+    [Fact]
+    public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir, backend);
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         CreateJournalSegment(1);
@@ -45,13 +42,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             },
             DefaultCancellationToken);
 
-        if (backend is ManifestBackend.Binary)
-        {
-            await ManifestStoreTestSupport.WaitUntilAsync(
-                () => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)),
-                TimeSpan.FromSeconds(5),
-                DefaultCancellationToken);
-        }
+        await ManifestStoreTestSupport.WaitUntilAsync(
+            () => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)),
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -85,6 +79,11 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
                     ReplayFromJournalSegment = 3,
                 },
             },
+            DefaultCancellationToken);
+
+        await ManifestStoreTestSupport.WaitUntilAsync(
+            () => !FileKit.Exists(SnapshotPath(1)),
+            TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));

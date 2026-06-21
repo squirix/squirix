@@ -55,12 +55,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private TaskCompletionSource? _groupCommitCheckpointTcs;
     private int _queuedAppends;
 
-    private JournalCoordinator(PersistenceOptions opt, Manifest.ManifestState manifest, ManifestStore manifestStore, JournalStartupGate startupGate, IJournalSegmentWriter segmentWriter)
+    private JournalCoordinator(PersistenceOptions opt, Manifest.ManifestState manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
     {
         _opt = opt;
         _manifestStore = manifestStore;
         _startupGate = startupGate;
-        _segmentWriter = segmentWriter;
+        _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
         _policy = new JournalSegmentPolicy(opt);
         _journalTotalBytes = JournalReader.GetOnDiskTotalBytes(_opt.DataDir);
         _groupCommit = _opt.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(GroupCommitFlushAsync, _opt) : null;
@@ -106,8 +106,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         CancellationToken cancellationToken = default)
     {
         await PrepareActiveSegmentForSequenceScanAsync(manifest, opt, cancellationToken).ConfigureAwait(false);
-        var writer = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
-        return new JournalCoordinator(opt, manifest, manifestStore, startupGate, writer);
+        return new JournalCoordinator(opt, manifest, manifestStore, startupGate);
     }
 
     public ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
@@ -814,10 +813,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                 CompleteJournalWorkItem(item);
                 return false;
 
-            case JournalWorkKind.ManifestPublish:
-                ProcessManifestPublish(item);
-                return false;
-
             default:
                 throw new InvalidOperationException($"unknown journal work kind {item.Kind}.");
         }
@@ -974,18 +969,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         waiter.SetCanceled(cancellationToken);
     }
 
-    private void ProcessManifestPublish(JournalWorkItem item)
-    {
-        if (item.RollCurrentJournal > 0)
-        {
-            _manifestStore.PublishRollBlocking(item.RollCurrentJournal, item.RollNextSequence);
-            return;
-        }
-
-        var manifest = item.Manifest ?? throw new InvalidOperationException("ManifestPublish work item is missing a manifest payload.");
-        _manifestStore.PublishBlocking(manifest);
-    }
-
     private void RollSegmentOnJournalThread()
     {
         FsyncOnJournalThread();
@@ -1006,18 +989,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         ulong nextSequence;
         lock (_sequenceLock)
             nextSequence = _nextSequence;
-
-        if (_opt.ManifestBackend is ManifestBackend.Binary)
-        {
-            var journalWorkItem = new JournalWorkItem
-            {
-                Kind = JournalWorkKind.ManifestPublish,
-                RollCurrentJournal = CurrentSegmentIndex,
-                RollNextSequence = nextSequence,
-            };
-            ProcessManifestPublish(journalWorkItem);
-            return;
-        }
 
         _manifestStore.PublishRollBlocking(CurrentSegmentIndex, nextSequence);
     }
