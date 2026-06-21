@@ -7,9 +7,11 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.Pipelined;
-using Squirix.Server.Storage.Journaling.Pipelined.Codec;
+using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -32,7 +34,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             manifestStore,
             new JournalStartupGate(),
             DefaultCancellationToken);
-        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowKey = CacheKey.Default("overflow-key");
@@ -72,7 +74,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             manifestStore,
             new JournalStartupGate(),
             DefaultCancellationToken);
-        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var overflowPayload = await BuildLargePutPayloadAsync();
         var overflowKey = CacheKey.Default("overflow-key");
@@ -105,7 +107,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         if (!File.Exists(path))
             return false;
 
-        var reader = JournalSegmentReaderFactory.Open(path, tolerateTruncatedTail: true, CancellationToken.None);
+        var reader = new BinaryJournalSegmentReader(path, true, CancellationToken.None);
         foreach (var record in reader)
         {
             if (record.Operation is JournalOperationKind.Put && string.Equals(record.Key.Key, key, StringComparison.OrdinalIgnoreCase))
@@ -126,7 +128,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         ManifestRetentionCount = 3,
     };
 
-    private static async Task FillSegmentOneForOverflowAsync(PipelinedJournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
+    private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
         var fillPayload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('x', 128), null, null, 1, null);
         var fillKey = CacheKey.Default("fill");
@@ -159,7 +161,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             Key = key,
             PutDiscriminatedEntryJson = payload,
         };
-        return JournalBinaryFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
+        return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }
 
     private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(

@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.UnitTests.Observability;
 

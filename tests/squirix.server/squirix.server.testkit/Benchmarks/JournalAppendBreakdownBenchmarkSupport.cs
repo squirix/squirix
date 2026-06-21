@@ -3,8 +3,9 @@ using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.Pipelined.Codec;
+using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
@@ -34,11 +35,11 @@ public static class JournalAppendBreakdownBenchmarkSupport
             PutOperationId = string.Empty,
         };
         var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
-        var frameLen = JournalBinaryFraming.FrameTotalLength(bodyLen);
+        var frameLen = JournalFraming.FrameTotalLength(bodyLen);
         rentedBuffer = ArrayPool<byte>.Shared.Rent(frameLen);
-        var body = rentedBuffer.AsSpan(JournalBinaryFraming.FrameHeaderSize, bodyLen);
-        _ = BinaryJournalCodec.Instance.Encode(record, body);
-        JournalBinaryFraming.WriteFrame(rentedBuffer.AsSpan(0, frameLen), body);
+        var body = rentedBuffer.AsSpan(JournalFraming.FrameHeaderSize, bodyLen);
+        _ = BinaryJournalCodec.Encode(record, body);
+        JournalFraming.WriteFrame(rentedBuffer.AsSpan(0, frameLen), body);
         return frameLen;
     }
 
@@ -52,13 +53,6 @@ public static class JournalAppendBreakdownBenchmarkSupport
     /// <param name="defaultParallelWriters">Default parallel writer count when quick mode is disabled.</param>
     /// <returns>The resolved parallel writer count.</returns>
     public static int ResolveGroupCommitParallelWriters(int defaultParallelWriters) => IsQuickMode ? Math.Max(defaultParallelWriters / 2, 2) : defaultParallelWriters;
-
-    /// <summary>Total durable ops per group-commit benchmark invoke.</summary>
-    /// <param name="defaultOperationsPerWriter">Default operations per writer when quick mode is disabled.</param>
-    /// <param name="defaultParallelWriters">Default parallel writer count when quick mode is disabled.</param>
-    /// <returns>Resolved total operations per benchmark invoke.</returns>
-    public static int ResolveGroupCommitTotalOperations(int defaultOperationsPerWriter, int defaultParallelWriters) =>
-        ResolveGroupCommitOperationsPerWriter(defaultOperationsPerWriter) * ResolveGroupCommitParallelWriters(defaultParallelWriters);
 
     /// <summary>Returns the benchmark iteration count for quick local runs when <c>SQUIRIX_BENCH_QUICK=1</c>.</summary>
     /// <param name="defaultCount">Default iteration count when quick mode is disabled.</param>

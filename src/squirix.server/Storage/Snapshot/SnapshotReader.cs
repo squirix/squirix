@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Storage.Snapshot;
 

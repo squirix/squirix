@@ -5,8 +5,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.Pipelined;
+using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -126,7 +125,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
         using var manifestStore = new ManifestStore(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
         var executor = new DurableMutationExecutor(journal);
         var observedPendingFlushDuringMemoryApply = false;
 
@@ -194,7 +193,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 
         using var manifestStore = new ManifestStore(options);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        var pipelined = Assert.IsType<PipelinedJournalCoordinator>(journal);
+        var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
         var flushProbe = new JournalFlushProbe(pipelined);
         var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
@@ -233,10 +232,10 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 
     private sealed class JournalFlushProbe
     {
-        private readonly PipelinedJournalCoordinator _journal;
+        private readonly JournalCoordinator _journal;
         private int _flushCount;
 
-        public JournalFlushProbe(PipelinedJournalCoordinator journal)
+        public JournalFlushProbe(JournalCoordinator journal)
         {
             _journal = journal;
         }

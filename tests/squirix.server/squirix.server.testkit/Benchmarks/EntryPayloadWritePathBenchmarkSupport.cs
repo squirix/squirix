@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Server.Limits;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 

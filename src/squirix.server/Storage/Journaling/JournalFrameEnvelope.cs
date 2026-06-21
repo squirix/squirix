@@ -1,6 +1,6 @@
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Shared length-prefix and CRC32C footer layout for JsonFramed and Pipelined journal frames.</summary>
+/// <summary>Length-prefix and CRC32C footer layout for journal frames.</summary>
 internal static class JournalFrameEnvelope
 {
     internal const int HeaderSize = 4;

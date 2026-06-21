@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;

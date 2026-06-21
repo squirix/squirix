@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Google.Protobuf;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
-using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -19,127 +16,6 @@ namespace Squirix.Server.UnitTests.Serialization;
 /// <summary>Tests for System.Text.Json source-generated metadata used by the default serializer.</summary>
 public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 {
-    /// <summary>Ensures the compact remove-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
-    [Fact]
-    public void JournalCodecRoundTripsRemoveExpiration()
-    {
-        var envelope = new JournalEnvelope
-        {
-            Seq = 22,
-            UnixMs = 789,
-            RemoveExpiration = new RemoveExpiration { Key = "k1", Namespace = "default" },
-        };
-
-        var bytes = RecordCodec.Serialize(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("removeExpiration", out var removeExpiration));
-        Assert.Equal("k1", removeExpiration.GetProperty("key").GetString());
-        Assert.Equal("default", removeExpiration.GetProperty("namespace").GetString());
-
-        var roundTrip = RecordCodec.Deserialize(bytes);
-
-        Assert.Equal(JournalEnvelope.OpOneofCase.RemoveExpiration, roundTrip.OpCase);
-        Assert.Equal("k1", roundTrip.RemoveExpiration.Key);
-        Assert.Equal("default", roundTrip.RemoveExpiration.Namespace);
-    }
-
-    /// <summary>Ensures the compact touch-expiration journal operation uses the persisted camelCase shape and round-trips.</summary>
-    [Fact]
-    public void JournalCodecRoundTripsTouchExpiration()
-    {
-        var envelope = new JournalEnvelope
-        {
-            Seq = 23,
-            UnixMs = 790,
-            TouchExpiration = new TouchExpiration { Key = "k2", Namespace = "default", ExpiresUnixMs = 1_765_000_000_000 },
-        };
-
-        var bytes = RecordCodec.Serialize(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("touchExpiration", out var touchExpiration));
-        Assert.Equal("k2", touchExpiration.GetProperty("key").GetString());
-        Assert.Equal("default", touchExpiration.GetProperty("namespace").GetString());
-        Assert.Equal(1_765_000_000_000, touchExpiration.GetProperty("expiresUnixMs").GetInt64());
-
-        var roundTrip = RecordCodec.Deserialize(bytes);
-
-        Assert.Equal(JournalEnvelope.OpOneofCase.TouchExpiration, roundTrip.OpCase);
-        Assert.Equal("k2", roundTrip.TouchExpiration.Key);
-        Assert.Equal("default", roundTrip.TouchExpiration.Namespace);
-        Assert.Equal(1_765_000_000_000, roundTrip.TouchExpiration.ExpiresUnixMs);
-    }
-
-    /// <summary>Ensures the runtime journal codec preserves the existing JSON envelope shape.</summary>
-    [Fact]
-    public void JournalCodecUsesGeneratedJsonContract()
-    {
-        var envelope = new JournalEnvelope
-        {
-            Seq = 21,
-            UnixMs = 456,
-            Put = new Put
-            {
-                OperationId = "op-codec",
-                Item = new EntryPair
-                {
-                    Key = "journal-key",
-                    EntryJson = ByteString.CopyFromUtf8("{\"value\":1}"),
-                },
-            },
-        };
-
-        var bytes = RecordCodec.Serialize(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("seq", out var seq));
-        Assert.Equal(21UL, seq.GetUInt64());
-        Assert.True(root.TryGetProperty("unixMs", out _));
-        Assert.True(root.TryGetProperty("put", out var put));
-        Assert.True(put.TryGetProperty("operationId", out var operationId));
-        Assert.Equal("op-codec", operationId.GetString());
-        Assert.False(root.TryGetProperty("Seq", out _));
-    }
-
-    /// <summary>Ensures journal JSON DTOs keep the existing web/camelCase JSON contract.</summary>
-    [Fact]
-    public void JournalDtoUsesSourceGeneratedWebContract()
-    {
-        var serializer = new SystemTextJsonSerializer();
-        var envelope = new RecordEnvelope
-        {
-            Seq = 12,
-            UnixMs = 345,
-            Put = new PutOp
-            {
-                OperationId = "op-1",
-                Item = new ItemPair { Key = "k1", EntryJsonUtf8 = [.. "{\"v\":1}"u8] },
-            },
-        };
-
-        var bytes = serializer.SerializeToUtf8Bytes(envelope);
-        using var document = JsonDocument.Parse(bytes);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("seq", out var seq));
-        Assert.Equal(12UL, seq.GetUInt64());
-        Assert.True(root.TryGetProperty("unixMs", out _));
-        Assert.True(root.TryGetProperty("put", out var put));
-        Assert.True(put.TryGetProperty("operationId", out _));
-        Assert.False(root.TryGetProperty("Seq", out _));
-
-        var roundTrip = serializer.Deserialize<RecordEnvelope>(bytes);
-
-        Assert.NotNull(roundTrip);
-        Assert.Equal(12UL, roundTrip.Seq);
-        Assert.Equal("op-1", roundTrip.Put?.OperationId);
-        Assert.Equal("k1", roundTrip.Put?.Item.Key);
-    }
-
     /// <summary>Ensures reflection fallback remains available for application payload types.</summary>
     [Fact]
     public void KeepsReflectionFallbackForUnknownApplicationTypes()
@@ -279,33 +155,6 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 
         Assert.NotNull(roundTrip);
         Assert.Equal(42, roundTrip["value"]);
-    }
-
-    /// <summary>Ensures SerializeToElement preserves the generated JSON contract for known DTOs.</summary>
-    [Fact]
-    public void SerializeToElementUsesConfiguredJsonContract()
-    {
-        var serializer = new SystemTextJsonSerializer();
-        var envelope = new RecordEnvelope
-        {
-            Seq = 7,
-            UnixMs = 999,
-            Put = new PutOp
-            {
-                OperationId = "op-serialize-element",
-                Item = new ItemPair { Key = "key-1", EntryJsonUtf8 = [.. "{\"value\":1}"u8] },
-            },
-        };
-
-        var element = serializer.SerializeToElement(envelope);
-
-        Assert.Equal(JsonValueKind.Object, element.ValueKind);
-        Assert.True(element.TryGetProperty("seq", out var seq));
-        Assert.Equal(7UL, seq.GetUInt64());
-        Assert.True(element.TryGetProperty("put", out var put));
-        Assert.True(put.TryGetProperty("operationId", out var operationId));
-        Assert.Equal("op-serialize-element", operationId.GetString());
-        Assert.False(element.TryGetProperty("Seq", out _));
     }
 
     /// <summary>Ensures snapshot metadata frames keep the persisted camelCase property names.</summary>

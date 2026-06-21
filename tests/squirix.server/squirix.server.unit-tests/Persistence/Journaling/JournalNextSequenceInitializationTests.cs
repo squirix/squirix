@@ -1,16 +1,12 @@
 using System;
-using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
-using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Storage.JournalProto;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -27,8 +23,8 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-disjoint");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var only = await BuildPutEnvelopeAsync(1UL, "only", "v");
-        await WriteJournalSegmentAsync(dir, 1, [only]);
+        var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [only]);
         await manifestStore.WriteAsync(
             new Manifest
             {
@@ -60,11 +56,11 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-active-range");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var old = await BuildPutEnvelopeAsync(1UL, "old", "a");
-        var live = await BuildPutEnvelopeAsync(5UL, "live", "b");
-        var live2 = await BuildPutEnvelopeAsync(6UL, "live2", "c");
-        await WriteJournalSegmentAsync(dir, 1, [old]);
-        await WriteJournalSegmentAsync(dir, 3, [live, live2]);
+        var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
+        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
+        var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [old]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
         var manifest = new Manifest
         {
             Format = 1,
@@ -89,8 +85,8 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-snap-watermark");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var envelope = await BuildPutEnvelopeAsync(51UL, "k", "v");
-        await WriteJournalSegmentAsync(dir, 2, [envelope]);
+        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [envelope]);
         var manifest = new Manifest
         {
             Format = 1,
@@ -122,8 +118,8 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-first-available");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var envelope = await BuildPutEnvelopeAsync(20UL, "k", "v");
-        await WriteJournalSegmentAsync(dir, 5, [envelope]);
+        var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, [envelope]);
         var manifest = new Manifest
         {
             Format = 1,
@@ -150,11 +146,11 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
 
-        var s1 = await BuildPutEnvelopeAsync(1UL, "s1", "a");
-        var s2 = await BuildPutEnvelopeAsync(2UL, "s2", "b");
-        var s2B = await BuildPutEnvelopeAsync(3UL, "s2b", "c");
-        await WriteJournalSegmentAsync(dir, 1, [s1]);
-        await WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
+        var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
+        var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
+        var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [s1]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
         var manifest = new Manifest
         {
             Format = 1,
@@ -186,14 +182,14 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var obsoletePath = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}");
-        var stale = await BuildPutEnvelopeAsync(1UL, "stale", "x");
-        await WriteSegmentWithFramesAsync(obsoletePath, [stale]);
+        var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, [stale]);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
-        var live = await BuildPutEnvelopeAsync(10UL, "live", "y");
-        await WriteJournalSegmentAsync(dir, 2, [live]);
+        var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [live]);
         var manifest = new Manifest
         {
             Format = 1,
@@ -254,9 +250,9 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}");
-        var a = await BuildPutEnvelopeAsync(5UL, "a", "x");
-        var b = await BuildPutEnvelopeAsync(6UL, "b", "y");
-        await WriteSegmentWithFramesAsync(path, [a, b]);
+        var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
+        var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
         {
             fs.SetLength(fs.Length - 1);
@@ -281,25 +277,6 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         Assert.Equal(6UL, journal.NextSequence);
     }
 
-    private static async Task<JournalEnvelope> BuildPutEnvelopeAsync(ulong seq, string key, string value)
-    {
-        var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
-        return new JournalEnvelope
-        {
-            Seq = seq,
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Put = new Put
-            {
-                Item = new EntryPair
-                {
-                    Key = key,
-                    Namespace = CacheNames.DefaultNamespace,
-                    EntryJson = ByteString.CopyFrom(body),
-                },
-            },
-        };
-    }
-
     private static PersistenceOptions NewPersistence(string dataDir) => new()
     {
         DataDir = dataDir,
@@ -307,23 +284,4 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         FlushIntervalMs = 5,
         ManifestRetentionCount = 1,
     };
-
-    private static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalEnvelope> envelopes)
-    {
-        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
-        return WriteSegmentWithFramesAsync(path, envelopes);
-    }
-
-    private static async Task WriteSegmentWithFramesAsync(string path, IReadOnlyList<JournalEnvelope> envelopes)
-    {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
-        foreach (var envelope in envelopes)
-        {
-            var payload = RecordCodec.Serialize(envelope);
-            JournalFraming.WriteFrame(stream, payload);
-        }
-
-        await stream.FlushAsync(DefaultCancellationToken);
-    }
 }

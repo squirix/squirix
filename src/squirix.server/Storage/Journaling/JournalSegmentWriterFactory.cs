@@ -1,6 +1,6 @@
 using System;
-using Squirix.Server.Storage.Journaling.Pipelined.Platform;
-using Squirix.Server.Storage.Journaling.Pipelined.Platform.IoUring;
+using Squirix.Server.Storage.Journaling.Platform;
+using Squirix.Server.Storage.Journaling.Platform.IoUring;
 
 namespace Squirix.Server.Storage.Journaling;
 

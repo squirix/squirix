@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.Node.Observability;
 

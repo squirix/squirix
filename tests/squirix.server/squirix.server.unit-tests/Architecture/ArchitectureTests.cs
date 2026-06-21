@@ -21,7 +21,7 @@ public sealed class ArchitectureTests : UnitTestBase
         "ICacheApi<",
         "LocalCache<",
         "ClusteredCache<",
-        "PipelinedJournalCoordinator",
+        "JournalCoordinator",
         "SnapshotCoordinator",
         "Squirix.Storage.Journaling",
         "Squirix.Storage.Snapshot",
@@ -87,10 +87,10 @@ public sealed class ArchitectureTests : UnitTestBase
 
     /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
     [Fact]
-    public async Task PipelinedJournalThreadShouldBeJoinedOnDispose()
+    public async Task JournalThreadShouldBeJoinedOnDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "Pipelined", "PipelinedJournalCoordinator.cs"), DefaultCancellationToken);
+        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), DefaultCancellationToken);
 
         Assert.Contains("_journalThread.Join(", text, StringComparison.Ordinal);
         Assert.Contains("AwaitJournalThreadDuringDisposeAsync", text, StringComparison.Ordinal);
@@ -367,40 +367,6 @@ public sealed class ArchitectureTests : UnitTestBase
         Assert.Equal("true", ReadProperty(project, "IsPackable"));
         Assert.Equal("true", ReadProperty(project, "TreatWarningsAsErrors"));
         Assert.Equal("enable", ReadProperty(project, "Nullable"));
-    }
-
-    /// <summary>Ensures the server project generates only server-owned durability protos.</summary>
-    [Fact]
-    public async Task ServerProjectShouldGenerateJournalEnvelopeTransportContract()
-    {
-        XElement? protobuf = null;
-        foreach (var element in LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants())
-        {
-            if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!string.Equals(element.Attribute("Include")?.Value, @"Storage\Journaling\JsonFramed\Protos\JournalEnvelope.proto", StringComparison.Ordinal))
-                continue;
-
-            protobuf = element;
-            break;
-        }
-
-        Assert.NotNull(protobuf);
-        Assert.Equal("Server", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"Storage\Journaling\JsonFramed\Protos", protobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
-
-        var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var protoText = await File.ReadAllTextAsync(
-            PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JsonFramed", "Protos", "JournalEnvelope.proto"),
-            DefaultCancellationToken);
-        Assert.Contains("option csharp_namespace = \"Squirix.Server.Storage.JournalProto\";", protoText, StringComparison.Ordinal);
-        Assert.Contains("message JournalEnvelope", protoText, StringComparison.Ordinal);
-        Assert.Contains("message Put", protoText, StringComparison.Ordinal);
-        Assert.Contains("message Remove", protoText, StringComparison.Ordinal);
-        Assert.DoesNotContain("message JournalBatch", protoText, StringComparison.Ordinal);
-        Assert.Contains("package squirix.journal;", protoText, StringComparison.Ordinal);
     }
 
     /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>

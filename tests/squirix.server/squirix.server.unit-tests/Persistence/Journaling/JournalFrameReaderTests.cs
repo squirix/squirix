@@ -2,11 +2,11 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
-using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
-using Squirix.Server.Storage.JournalProto;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -43,7 +43,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         {
             Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
             Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
-            Assert.Equal("first", RecordCodec.Deserialize(firstBuffer.AsSpan(0, firstLength)).Put.Item.Key);
+            Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer.AsSpan(0, firstLength)).Key.Key);
         }
         finally
         {
@@ -56,7 +56,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         {
             Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
             Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
-            Assert.Equal("second", RecordCodec.Deserialize(secondBuffer.AsSpan(0, secondLength)).Put.Item.Key);
+            Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer.AsSpan(0, secondLength)).Key.Key);
         }
         finally
         {
@@ -211,22 +211,18 @@ public sealed class JournalFrameReaderTests : UnitTestBase
 
     private static byte[] BuildPayload(ulong sequence, string key)
     {
-        var envelope = new JournalEnvelope
+        var record = new JournalRecord
         {
-            Seq = sequence,
+            Sequence = sequence,
             UnixMs = 123,
-            Put = new Put
-            {
-                Item = new EntryPair
-                {
-                    Key = key,
-                    Namespace = CacheNames.DefaultNamespace,
-                    EntryJson = ByteString.CopyFrom("{\"v\":{\"$t\":\"s\",\"v\":\"value\"},\"ver\":1}"u8.ToArray()),
-                },
-            },
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutDiscriminatedEntryJson = """{"v":{"$t":"s","v":"value"},"ver":1}"""u8.ToArray(),
         };
-
-        return RecordCodec.Serialize(envelope);
+        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var body = new byte[bodyLength];
+        _ = BinaryJournalCodec.Encode(record, body);
+        return body;
     }
 
     private static byte[] BuildTruncatedPayload()

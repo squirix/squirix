@@ -6,13 +6,14 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
-/// <summary>Reads <see cref="JournalRecord" /> from a segment, auto-detecting JsonFramed JSON vs Pipelined binary frame bodies.</summary>
-internal sealed class BinaryJournalSegmentReader : IJournalSegmentReader
+/// <summary>Reads <see cref="JournalRecord" /> from a binary journal segment.</summary>
+internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
 {
     private readonly CancellationToken _cancellationToken;
 
@@ -34,7 +35,6 @@ internal sealed class BinaryJournalSegmentReader : IJournalSegmentReader
     private sealed class Enumerator : IEnumerator<JournalRecord>
     {
         private readonly CancellationToken _cancellationToken;
-        private readonly IJournalFrameCodec _codec;
         private readonly long _length;
         private readonly FileStream? _stream;
         private readonly bool _tolerateTruncatedTail;
@@ -51,7 +51,6 @@ internal sealed class BinaryJournalSegmentReader : IJournalSegmentReader
             switch (_length)
             {
                 case 0:
-                    _codec = JournalFrameCodecFactory.JsonFramed;
                     return;
                 case < JournalFraming.FileHeaderSize:
                     throw JournalFraming.CreateTruncatedHeaderException(_length);
@@ -61,7 +60,7 @@ internal sealed class BinaryJournalSegmentReader : IJournalSegmentReader
                     if (!StreamEx.TryReadExact(_stream, header))
                         throw JournalFraming.CreateTruncatedHeaderException(_length);
 
-                    _codec = JournalFrameCodecFactory.DetectFromSegmentStart(header, _stream, _length);
+                    JournalFraming.EnsureSegmentHeaderSupported(header);
                     _valid = true;
                     _offset = JournalFraming.FileHeaderSize;
                     return;
@@ -118,7 +117,7 @@ internal sealed class BinaryJournalSegmentReader : IJournalSegmentReader
                 if (buffer is null)
                     throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
 
-                _current = _codec.Decode(buffer.AsSpan(0, payloadLength));
+                _current = BinaryJournalCodec.Decode(buffer.AsSpan(0, payloadLength));
                 _offset = read.NextFrameOffset;
                 return true;
             }

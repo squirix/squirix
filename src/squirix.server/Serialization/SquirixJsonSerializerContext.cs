@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Serialization;
@@ -19,10 +18,4 @@ namespace Squirix.Server.Serialization;
 [JsonSerializable(typeof(SnapshotFrame))]
 [JsonSerializable(typeof(PersistedIdempotencyRecord))]
 [JsonSerializable(typeof(PersistedIdempotencyOutcome))]
-[JsonSerializable(typeof(RecordEnvelope))]
-[JsonSerializable(typeof(PutOp))]
-[JsonSerializable(typeof(RemoveOp))]
-[JsonSerializable(typeof(RemoveExpirationOp))]
-[JsonSerializable(typeof(TouchExpirationOp))]
-[JsonSerializable(typeof(ItemPair))]
 internal sealed partial class SquirixJsonSerializerContext : JsonSerializerContext;

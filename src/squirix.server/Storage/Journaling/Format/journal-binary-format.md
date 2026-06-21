@@ -1,6 +1,6 @@
-# Pipelined binary on-disk format
+# Binary journal on-disk format
 
-Segment files use the same `.jsqx` naming as JsonFramed journal. The file header matches JsonFramed (`SJRN` version `1`); frame **body** encoding discriminates backends.
+Journal segments use the `.jsqx` extension with a fixed file header and length-prefixed frames.
 
 ## File header
 
@@ -8,8 +8,6 @@ Segment files use the same `.jsqx` naming as JsonFramed journal. The file header
 |--------|------|--------------|
 | 0      | 4    | ASCII `SJRN` |
 | 4      | 1    | `1`          |
-
-Readers probe the first frame body after the header: UTF-8 JSON object (`{` …) → JsonFramed; otherwise → Pipelined binary body layout below.
 
 ## Frame layout (little-endian)
 
@@ -19,7 +17,7 @@ u32 frameLength      // body length only
 u32 crc32c           // CRC32C over body
 ```
 
-### Binary body (Pipelined)
+### Binary frame body
 
 ```
 u64 sequence

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 

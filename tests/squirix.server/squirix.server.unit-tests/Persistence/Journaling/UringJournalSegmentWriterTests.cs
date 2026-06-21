@@ -2,8 +2,8 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Pipelined.Platform;
-using Squirix.Server.Storage.Journaling.Pipelined.Platform.IoUring;
+using Squirix.Server.Storage.Journaling.Platform;
+using Squirix.Server.Storage.Journaling.Platform.IoUring;
 using Squirix.Server.TestKit.IO;
 using Xunit;
 

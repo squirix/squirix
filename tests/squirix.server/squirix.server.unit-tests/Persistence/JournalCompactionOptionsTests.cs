@@ -1,6 +1,6 @@
 using System;
 using System.Text.Json;
-using Squirix.Server.Storage.Journaling.JsonFramed;
+using Squirix.Server.Storage.Journaling.Compaction;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;

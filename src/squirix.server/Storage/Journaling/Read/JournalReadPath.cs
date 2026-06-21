@@ -5,22 +5,21 @@ using System.IO;
 using System.Threading;
 using JetBrains.Annotations;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
 using Squirix.Server.Storage.Journaling.Limits;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
 
-/// <summary>Backend-neutral journal segment enumeration and replay.</summary>
+/// <summary>Journal segment enumeration and replay.</summary>
 internal static class JournalReadPath
 {
     internal static string BuildSegmentPath(string dataDir, int segmentIndex) => PathEx.Combine(
         dataDir,
         $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 
-    /// <summary>Throws when rolling the active segment would exceed Pipelined journal capacity limits.</summary>
+    /// <summary>Throws when rolling the active segment would exceed journal capacity limits.</summary>
     /// <param name="dataDir">Persistence directory containing journal segment files.</param>
-    /// <param name="policy">Configured Pipelined segment limits.</param>
+    /// <param name="policy">Configured segment limits.</param>
     internal static void EnsureSegmentRollCapacityOrThrow(string dataDir, JournalSegmentPolicy policy)
     {
         ArgumentException.ThrowIfNullOrEmpty(dataDir);
@@ -41,7 +40,7 @@ internal static class JournalReadPath
         for (var i = 0; i < segments.Count; i++)
         {
             var tolerateTruncatedTail = i == segments.Count - 1;
-            var reader = JournalSegmentReaderFactory.Open(segments[i].Path, tolerateTruncatedTail, cancellationToken);
+            var reader = new BinaryJournalSegmentReader(segments[i].Path, tolerateTruncatedTail, cancellationToken);
             foreach (var record in ReadSegmentRecords(reader))
                 yield return record;
         }
@@ -50,7 +49,7 @@ internal static class JournalReadPath
     internal static JournalSegment[] SelectNewestSegments(string dataDir, int fromSegment, int maxCount) => JournalReader.SelectNewestSegments(dataDir, fromSegment, maxCount);
 
     [MustDisposeResource]
-    private static IEnumerator<JournalRecord> CreateSegmentEnumerator(IJournalSegmentReader reader)
+    private static IEnumerator<JournalRecord> CreateSegmentEnumerator(BinaryJournalSegmentReader reader)
     {
         try
         {
@@ -62,12 +61,12 @@ internal static class JournalReadPath
         }
     }
 
-    private static InvalidDataException CreateSegmentReadFailure(IJournalSegmentReader reader, Exception ex) =>
+    private static InvalidDataException CreateSegmentReadFailure(BinaryJournalSegmentReader reader, Exception ex) =>
         new(
             $"failed reading journal segment '{reader.Path}' (tolerateTruncatedTail={reader.TolerateTruncatedTail}): {ex.Message}",
             ex);
 
-    private static bool MoveNextSegmentRecord(IEnumerator<JournalRecord> enumerator, IJournalSegmentReader reader)
+    private static bool MoveNextSegmentRecord(IEnumerator<JournalRecord> enumerator, BinaryJournalSegmentReader reader)
     {
         try
         {
@@ -79,7 +78,7 @@ internal static class JournalReadPath
         }
     }
 
-    private static IEnumerable<JournalRecord> ReadSegmentRecords(IJournalSegmentReader reader)
+    private static IEnumerable<JournalRecord> ReadSegmentRecords(BinaryJournalSegmentReader reader)
     {
         using var enumerator = CreateSegmentEnumerator(reader);
         while (MoveNextSegmentRecord(enumerator, reader))

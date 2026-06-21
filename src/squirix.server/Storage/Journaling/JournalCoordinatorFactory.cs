@@ -2,12 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.Pipelined;
 
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Creates <see cref="IJournalCoordinator" /> instances for the configured backend.</summary>
+/// <summary>Creates <see cref="IJournalCoordinator" /> instances.</summary>
 internal static class JournalCoordinatorFactory
 {
     public static async Task<IJournalCoordinator> CreateAsync(
@@ -18,10 +16,14 @@ internal static class JournalCoordinatorFactory
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(persistence);
-        return persistence.JournalBackend switch
+        if (persistence.JournalBackend is not JournalBackend.Pipelined)
         {
-            JournalBackend.Pipelined => await PipelinedJournalCoordinator.CreateAsync(persistence, manifest, manifestStore, startupGate, cancellationToken).ConfigureAwait(false),
-            _ => throw new ArgumentOutOfRangeException(nameof(persistence), "unknown journal backend."),
-        };
+            throw new ArgumentOutOfRangeException(
+                nameof(persistence),
+                persistence.JournalBackend,
+                "Only the pipelined journal backend is supported.");
+        }
+
+        return await JournalCoordinator.CreateAsync(persistence, manifest, manifestStore, startupGate, cancellationToken).ConfigureAwait(false);
     }
 }

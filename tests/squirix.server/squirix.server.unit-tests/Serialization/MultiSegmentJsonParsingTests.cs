@@ -4,8 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.JsonFramed;
-using Squirix.Server.Storage.Journaling.JsonFramed.Json;
+using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -30,21 +29,6 @@ public sealed class MultiSegmentJsonParsingTests : UnitTestBase
         Assert.Equal(1_234_567_890_123L, entry.Version);
         Assert.Equal(TimeSpan.FromSeconds(5), entry.Expiration);
         Assert.Equal("west", entry.Tags?["region"]);
-    }
-
-    /// <summary>journal record parsing handles segmented property names, string values, and numeric values.</summary>
-    [Fact]
-    public void JournalRecordParsesSegmentedPayload()
-    {
-        const string json = """{"seq":1234567890123,"unixMs":9876543210,"put":{"item":{"key":"segmented-key","entryJsonUtf8":"e30="},"operationId":"op-1"}}""";
-        var reader = CreateReader(json);
-
-        var envelope = JsonSerializer.Deserialize<RecordEnvelope>(ref reader, DurabilityJson.StrictSerializerOptions);
-
-        Assert.NotNull(envelope);
-        Assert.Equal(1_234_567_890_123UL, envelope.Seq);
-        Assert.Equal("segmented-key", envelope.Put?.Item.Key);
-        Assert.Equal("op-1", envelope.Put?.OperationId);
     }
 
     /// <summary>Manifest parsing handles segmented property names, string values, and numeric values.</summary>
