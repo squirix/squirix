@@ -90,7 +90,14 @@ public sealed class OperationCancellationClassifierTests : UnitTestBase
         await cts.CancelAsync();
         var callerToken = cts.Token;
         var ex = new RpcException(new Status(StatusCode.Cancelled, "call canceled"));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await Task.Run(() => DomainTransportErrorMapper.Map(ex, callerToken), CancellationToken.None); });
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await Task.Factory.StartNew(
+                () => DomainTransportErrorMapper.Map(ex, callerToken),
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+        });
     }
 
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>

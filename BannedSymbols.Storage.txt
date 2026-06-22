@@ -1,0 +1,7 @@
+// Storage-only bans (src/squirix.server/Storage/**). Wire/config JSON stays outside this scope.
+M:System.Text.Json.JsonElement.GetRawText();Avoid UTF-8 JSON text roundtrips on persistence paths.
+M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions);Use binary codecs on disk, not UTF-8 JSON blobs.
+M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte});Use binary codecs on persistence paths instead of JSON parse.
+M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte},System.Text.Json.JsonDocumentOptions);Use binary codecs on persistence paths instead of JSON parse.
+M:System.Text.Json.JsonDocument.Parse(System.Buffers.ReadOnlySequence{System.Byte});Use binary codecs on persistence paths instead of JSON parse.
+M:System.Text.Encoding.UTF8.GetBytes(System.String);Use GetByteCount + GetBytes(string, span) or Utf8 encoding into a pre-sized buffer instead.

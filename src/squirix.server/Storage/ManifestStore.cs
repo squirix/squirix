@@ -266,13 +266,15 @@ internal sealed class ManifestStore : IDisposable
 
         ManifestCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
 
-        await Task.Run(
+        await Task.Factory.StartNew(
             () =>
             {
                 ManifestDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
                 UpdateCurrentPointerBlocking(nextIndex);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).ConfigureAwait(false);
 
         SetCache(manifest, nextIndex);
     }
@@ -352,7 +354,13 @@ internal sealed class ManifestStore : IDisposable
         {
             _ = Interlocked.Exchange(ref _retentionWorkerScheduled, 0);
             if (_pendingRetentionManifest is not null && Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is 0)
-                _ = Task.Run(RunRetentionWorkerLoop, CancellationToken.None);
+            {
+                _ = Task.Factory.StartNew(
+                    RunRetentionWorkerLoop,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                    TaskScheduler.Default);
+            }
         }
     }
 
@@ -378,7 +386,11 @@ internal sealed class ManifestStore : IDisposable
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
             return;
 
-        _ = Task.Run(RunRetentionWorkerLoop, CancellationToken.None);
+        _ = Task.Factory.StartNew(
+            RunRetentionWorkerLoop,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
     }
 
     private void SeedNextManifestIndex(int publishedIndex)

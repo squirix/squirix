@@ -169,9 +169,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static string FormatKey(int index) => string.Format(CultureInfo.InvariantCulture, "key:{0:D5}", index);
+    private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";
 
-    private static string FormatValue(int index) => string.Format(CultureInfo.InvariantCulture, "value:{0:D5}", index);
+    private static string FormatValue(int index) => $"value:{index.ToString("D5", CultureInfo.InvariantCulture)}";
 
     private void SeedKeys()
     {

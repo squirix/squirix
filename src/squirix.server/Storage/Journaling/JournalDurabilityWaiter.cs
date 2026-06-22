@@ -26,9 +26,48 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
 
     public void SetResult() => _core.SetResult(true);
 
+    public bool TrySetResult()
+    {
+        try
+        {
+            _core.SetResult(true);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     public void SetException(Exception error) => _core.SetException(error);
 
+    public bool TrySetException(Exception error)
+    {
+        try
+        {
+            _core.SetException(error);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     public void SetCanceled(CancellationToken cancellationToken) => _core.SetException(new OperationCanceledException(cancellationToken));
+
+    public bool TrySetCanceled(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _core.SetException(new OperationCanceledException(cancellationToken));
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
 
     public void ReturnToPool()
     {

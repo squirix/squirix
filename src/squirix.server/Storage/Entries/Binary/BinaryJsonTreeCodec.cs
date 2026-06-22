@@ -1,11 +1,10 @@
 using System;
-using System.Buffers;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Squirix.Server.Storage.Entries.Binary;
 
@@ -39,22 +38,14 @@ internal static class BinaryJsonTreeCodec
         };
     }
 
-    [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Sync cold-path decode avoids async state machine on recovery reads.")]
     public static bool TryRead(ReadOnlySpan<byte> source, out JsonElement element, out int bytesRead)
     {
         element = default;
         bytesRead = 0;
-        var buffer = new ArrayBufferWriter<byte>(Math.Max(64, source.Length * 2));
-        using (var writer = new Utf8JsonWriter(buffer))
-        {
-            if (!TryReadIntoWriter(source, writer, out bytesRead))
-                return false;
+        if (!TryReadNode(source, out var node, out bytesRead))
+            return false;
 
-            writer.Flush();
-        }
-
-        using var document = JsonDocument.Parse(buffer.WrittenMemory);
-        element = document.RootElement.Clone();
+        element = node is null ? default : JsonSerializer.SerializeToElement(node);
         return true;
     }
 
@@ -184,82 +175,89 @@ internal static class BinaryJsonTreeCodec
         return false;
     }
 
-    private static bool TryReadArray(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadArray(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.Length < 1 + 4)
             return false;
 
         var count = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
         bytesRead = 5;
-        writer.WriteStartArray();
+        var array = new JsonArray();
         for (var i = 0; i < count; i++)
         {
-            if (!TryReadIntoWriter(source[bytesRead..], writer, out var itemBytes))
+            if (!TryReadNode(source[bytesRead..], out var item, out var itemBytes))
                 return false;
 
+            array.Add(item);
             bytesRead += itemBytes;
         }
 
-        writer.WriteEndArray();
+        node = array;
         return true;
     }
 
-    private static bool TryReadBool(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadBool(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.Length < 2)
             return false;
 
-        writer.WriteBooleanValue(source[1] is not 0);
+        node = JsonValue.Create(source[1] is not 0);
         bytesRead = 2;
         return true;
     }
 
-    private static bool TryReadIntoWriter(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadNode(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.IsEmpty)
             return false;
 
         return source[0] switch
         {
-            ValueKind.Null => TryReadNull(writer, out bytesRead),
-            ValueKind.Bool => TryReadBool(source, writer, out bytesRead),
-            ValueKind.String => TryReadString(source, writer, out bytesRead),
-            ValueKind.Int64 => TryReadInt64(source, writer, out bytesRead),
-            ValueKind.Double => TryReadDouble(source, writer, out bytesRead),
-            ValueKind.Decimal => TryReadDecimal(source, writer, out bytesRead),
-            ValueKind.Object => TryReadObject(source, writer, out bytesRead),
-            ValueKind.Array => TryReadArray(source, writer, out bytesRead),
+            ValueKind.Null => TryReadNull(out node, out bytesRead),
+            ValueKind.Bool => TryReadBool(source, out node, out bytesRead),
+            ValueKind.String => TryReadString(source, out node, out bytesRead),
+            ValueKind.Int64 => TryReadInt64(source, out node, out bytesRead),
+            ValueKind.Double => TryReadDouble(source, out node, out bytesRead),
+            ValueKind.Decimal => TryReadDecimal(source, out node, out bytesRead),
+            ValueKind.Object => TryReadObject(source, out node, out bytesRead),
+            ValueKind.Array => TryReadArray(source, out node, out bytesRead),
             _ => false,
         };
     }
 
-    private static bool TryReadInt64(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadInt64(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.Length < 1 + 8)
             return false;
 
-        writer.WriteNumberValue(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
+        node = JsonValue.Create(BinaryPrimitives.ReadInt64LittleEndian(source[1..]));
         bytesRead = 1 + 8;
         return true;
     }
 
-    private static bool TryReadDouble(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadDouble(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.Length < 1 + 8)
             return false;
 
-        writer.WriteNumberValue(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
+        node = JsonValue.Create(BinaryPrimitives.ReadDoubleLittleEndian(source[1..]));
         bytesRead = 1 + 8;
         return true;
     }
 
-    private static bool TryReadDecimal(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadDecimal(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (!TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
             return false;
@@ -267,51 +265,53 @@ internal static class BinaryJsonTreeCodec
         if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
             return false;
 
-        writer.WriteStringValue(decimalValue.ToString(CultureInfo.InvariantCulture));
+        node = JsonValue.Create(decimalValue);
         bytesRead = 1 + decimalBytesRead;
         return true;
     }
 
-    private static bool TryReadNull(Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadNull(out JsonNode? node, out int bytesRead)
     {
-        writer.WriteNullValue();
+        node = null;
         bytesRead = 1;
         return true;
     }
 
-    private static bool TryReadObject(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadObject(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (source.Length < 1 + 2)
             return false;
 
         var count = BinaryPrimitives.ReadUInt16LittleEndian(source[1..]);
         bytesRead = 3;
-        writer.WriteStartObject();
+        var obj = new JsonObject();
         for (var i = 0; i < count; i++)
         {
             if (!TryReadUtf8Prefixed(source[bytesRead..], out var name, out var nameBytes))
                 return false;
 
             bytesRead += nameBytes;
-            writer.WritePropertyName(name);
-            if (!TryReadIntoWriter(source[bytesRead..], writer, out var valueBytes))
+            if (!TryReadNode(source[bytesRead..], out var value, out var valueBytes))
                 return false;
 
             bytesRead += valueBytes;
+            obj[name] = value;
         }
 
-        writer.WriteEndObject();
+        node = obj;
         return true;
     }
 
-    private static bool TryReadString(ReadOnlySpan<byte> source, Utf8JsonWriter writer, out int bytesRead)
+    private static bool TryReadString(ReadOnlySpan<byte> source, out JsonNode? node, out int bytesRead)
     {
+        node = null;
         bytesRead = 0;
         if (!TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
             return false;
 
-        writer.WriteStringValue(Encoding.UTF8.GetString(stringBytes));
+        node = JsonValue.Create(Encoding.UTF8.GetString(stringBytes));
         bytesRead = 1 + stringBytesRead;
         return true;
     }

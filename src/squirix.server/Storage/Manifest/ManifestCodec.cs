@@ -25,18 +25,19 @@ internal static class ManifestCodec
 
     public static int ComputeEncodedLength(ManifestState manifest)
     {
-        var pathBytes = string.IsNullOrEmpty(manifest.LastSnapshot?.Path) ? [] : Encoding.UTF8.GetBytes(manifest.LastSnapshot.Path);
-        if (pathBytes.Length > ushort.MaxValue)
+        var pathByteCount = GetSnapshotPathUtf8ByteCount(manifest.LastSnapshot?.Path);
+        if (pathByteCount > ushort.MaxValue)
             throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
 
-        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathBytes.Length);
+        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
     public static void WriteEncoded(ManifestState manifest, Span<byte> destination)
     {
-        var pathBytes = string.IsNullOrEmpty(manifest.LastSnapshot?.Path) ? [] : Encoding.UTF8.GetBytes(manifest.LastSnapshot.Path);
-        if (pathBytes.Length > ushort.MaxValue)
+        var path = manifest.LastSnapshot?.Path;
+        var pathByteCount = GetSnapshotPathUtf8ByteCount(path);
+        if (pathByteCount > ushort.MaxValue)
             throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
 
         if (destination.Length < ComputeEncodedLength(manifest))
@@ -71,12 +72,12 @@ internal static class ManifestCodec
             var createdMs = new DateTimeOffset(manifest.LastSnapshot.CreatedUtc).ToUnixTimeMilliseconds();
             BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], createdMs);
             offset += 8;
-            BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(pathBytes.Length));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(pathByteCount));
             offset += 2;
-            if (pathBytes.Length > 0)
+            if (pathByteCount > 0)
             {
-                pathBytes.CopyTo(destination[offset..]);
-                offset += pathBytes.Length;
+                _ = Encoding.UTF8.GetBytes(path!, destination[offset..]);
+                offset += pathByteCount;
             }
         }
 
@@ -223,6 +224,9 @@ internal static class ManifestCodec
             Path = path,
         };
     }
+
+    private static int GetSnapshotPathUtf8ByteCount(string? path) =>
+        string.IsNullOrEmpty(path) ? 0 : Encoding.UTF8.GetByteCount(path);
 
     private static void ValidateFileEnvelope(ReadOnlySpan<byte> fileBytes, out ReadOnlySpan<byte> body)
     {

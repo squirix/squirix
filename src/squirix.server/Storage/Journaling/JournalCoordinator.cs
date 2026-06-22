@@ -278,7 +278,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     internal async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
 
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => item.Completion?.SetResult();
+    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Completion?.TrySetResult();
 
     private static long ComputeValidLength(FileStream stream)
     {
@@ -508,8 +508,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             var waiter = JournalDurabilityWaiter.Rent();
             try
             {
+                var waitTask = waiter.AwaitAsync(cancellationToken);
                 await EnqueueAppendWithDurabilityAsync(frameBytes, frameLen, waiter, cancellationToken).ConfigureAwait(false);
-                await waiter.AwaitAsync(cancellationToken).ConfigureAwait(false);
+                await waitTask.ConfigureAwait(false);
             }
             finally
             {
@@ -534,7 +535,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     {
         try
         {
-            if (!await Task.Run(() => _journalThread.Join(TimeSpan.FromSeconds(30)), _bgCts.Token).ConfigureAwait(false))
+            if (!await Task.Factory.StartNew(
+                    () => _journalThread.Join(TimeSpan.FromSeconds(30)),
+                    _bgCts.Token,
+                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                    TaskScheduler.Default).ConfigureAwait(false))
             {
                 failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
             }
@@ -568,23 +573,35 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             FsyncOnJournalThread();
 
         foreach (var waiter in waiters)
-            waiter.SetResult();
+            _ = waiter.TrySetResult();
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
     private void CompleteDurabilityWaiterImmediately(JournalDurabilityWaiter waiter)
     {
+        bool removed;
+        lock (_durabilityWaitersLock)
+            removed = _durabilityWaiters?.Remove(waiter) ?? false;
+
+        if (removed)
+            _ = waiter.TrySetResult();
+    }
+
+    private void DetachDurabilityWaiter(JournalDurabilityWaiter waiter)
+    {
         lock (_durabilityWaitersLock)
             _ = _durabilityWaiters?.Remove(waiter);
-
-        waiter.SetResult();
     }
 
     private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
     {
         _ = Interlocked.Increment(ref _queuedAppends);
         var appendCompleted = _opt.IsJournalGroupCommitEnabled ? JournalDurabilityWaiter.Rent() : null;
+        ValueTask appendWaitTask = default;
+        if (appendCompleted is not null)
+            appendWaitTask = appendCompleted.AwaitAsync(cancellationToken);
+
         try
         {
             var item = new JournalWorkItem
@@ -598,7 +615,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
             if (appendCompleted is not null)
             {
-                await appendCompleted.AwaitAsync(cancellationToken).ConfigureAwait(false);
+                await appendWaitTask.ConfigureAwait(false);
                 appendCompleted.ReturnToPool();
             }
 
@@ -674,6 +691,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
         finally
         {
+            DetachDurabilityWaiter(waiter);
             waiter.ReturnToPool();
         }
     }
@@ -683,10 +701,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         var begin = JournalDurabilityWaiter.Rent();
         try
         {
+            var beginWaitTask = begin.AwaitAsync(cancellationToken);
             var beginItem = new JournalWorkItem { Kind = JournalWorkKind.MaintenanceBegin, Completion = begin };
             await _ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
-            await begin.AwaitAsync(cancellationToken).ConfigureAwait(false);
+            await beginWaitTask.ConfigureAwait(false);
             await action(cancellationToken).ConfigureAwait(false);
 
             var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -696,6 +715,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             var end = JournalDurabilityWaiter.Rent();
             try
             {
+                var endWaitTask = end.AwaitAsync(cancellationToken);
                 var endItem = new JournalWorkItem
                 {
                     Kind = JournalWorkKind.MaintenanceEnd,
@@ -705,7 +725,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                 };
                 await _ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
-                await end.AwaitAsync(cancellationToken).ConfigureAwait(false);
+                await endWaitTask.ConfigureAwait(false);
             }
             finally
             {
@@ -755,7 +775,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             return;
 
         foreach (var waiter in waiters)
-            waiter.SetException(reason);
+            _ = waiter.TrySetException(reason);
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
         _ = Interlocked.Exchange(ref _groupCommitCheckpointPending, 0);
@@ -869,7 +889,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         {
             WriteAppendFrame(item);
             FsyncOnJournalThread();
-            waiter.SetResult();
+            _ = waiter.TrySetResult();
         }
         finally
         {
@@ -929,7 +949,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         if (!removed)
             return;
 
-        waiter.SetCanceled(cancellationToken);
+        _ = waiter.TrySetCanceled(cancellationToken);
     }
 
     private void RollSegmentOnJournalThread()

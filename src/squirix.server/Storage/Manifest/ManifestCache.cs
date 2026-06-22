@@ -19,8 +19,16 @@ internal sealed class ManifestCache
         Current = manifest;
         CurrentIndex = index;
         SnapshotPathUtf8 = manifest.LastSnapshot?.Path is { Length: > 0 } path
-            ? Encoding.UTF8.GetBytes(path)
+            ? EncodeUtf8(path)
             : ReadOnlyMemory<byte>.Empty;
         IsInitialized = true;
+    }
+
+    private static byte[] EncodeUtf8(string text)
+    {
+        var byteCount = Encoding.UTF8.GetByteCount(text);
+        var buffer = GC.AllocateUninitializedArray<byte>(byteCount);
+        _ = Encoding.UTF8.GetBytes(text, buffer);
+        return buffer;
     }
 }
