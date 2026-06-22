@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -79,14 +80,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
     private static CacheEntry<object?> BuildEntry(object? value) => new() { Value = value, Version = 1 };
 
-    private static IEnumerable<(CacheKey Key, CacheEntry<object?> Entry)> EnumerateThenFail()
-    {
-        yield return (new CacheKey("default", "a"), BuildEntry(1));
-        throw new InvalidOperationException("simulated serialization failure");
-    }
-
-    /// <summary>Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.</summary>
-    private static IEnumerable<(CacheKey Key, CacheEntry<object?> Entry)> FailingItems() => EnumerateThenFail();
+    private static FailingAfterFirstItemList FailingItems() => new();
 
     private static async Task<string[]> ReadSnapshotKeysAsync(string path)
     {
@@ -98,6 +92,25 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
         keys.Sort(StringComparer.Ordinal);
         return keys.ToArray();
+    }
+
+    private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)>
+    {
+        public int Count => 2;
+
+        public (CacheKey Key, CacheEntry<object?> Entry) this[int index] => index switch
+        {
+            0 => (new CacheKey("default", "a"), BuildEntry(1)),
+            _ => throw new InvalidOperationException("simulated serialization failure"),
+        };
+
+        public IEnumerator<(CacheKey Key, CacheEntry<object?> Entry)> GetEnumerator()
+        {
+            yield return this[0];
+            _ = this[1];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations

@@ -14,17 +14,36 @@ internal static class EnumerableHelper
         ArgumentNullException.ThrowIfNull(values);
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var result = new List<string>();
+        string[] buffer = [];
+        var writeIndex = 0;
 
         foreach (var value in values)
         {
             if (string.IsNullOrWhiteSpace(value))
                 continue;
 
-            if (seen.Add(value))
-                result.Add(value);
+            if (!seen.Add(value))
+                continue;
+
+            if (writeIndex == buffer.Length)
+            {
+                var nextLength = buffer.Length is 0 ? 4 : buffer.Length * 2;
+                var grown = new string[nextLength];
+                buffer.AsSpan(0, writeIndex).CopyTo(grown);
+                buffer = grown;
+            }
+
+            buffer[writeIndex++] = value;
         }
 
-        return [.. result];
+        if (writeIndex is 0)
+            return [];
+
+        if (writeIndex == buffer.Length)
+            return buffer;
+
+        var result = new string[writeIndex];
+        buffer.AsSpan(0, writeIndex).CopyTo(result);
+        return result;
     }
 }

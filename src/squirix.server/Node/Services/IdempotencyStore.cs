@@ -22,7 +22,7 @@ internal sealed class IdempotencyStore : IDisposable
 
     public static string BuildInsertFingerprint(string key, ReadOnlySpan<byte> payload) => string.Concat("insert|", key, "|", HashPayload(payload));
 
-    public IReadOnlyCollection<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
+    public IReadOnlyList<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
     {
         SweepExpired(utcNow);
 

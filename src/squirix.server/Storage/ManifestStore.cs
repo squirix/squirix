@@ -113,16 +113,22 @@ internal sealed class ManifestStore : IDisposable
         ScheduleRetentionCleanup(manifest);
     }
 
-    private static int TryParseManifestIndex(string name)
+    private static int TryParseManifestIndex(string name) => TryParseManifestIndex(name.AsSpan());
+
+    private static int TryParseManifestIndex(ReadOnlySpan<char> name)
     {
-        if (string.IsNullOrEmpty(name))
-            return 0;
-        if (!name.StartsWith(StorageFilePrefixes.Manifest, StringComparison.OrdinalIgnoreCase))
-            return 0;
-        if (!name.EndsWith(StorageFileExtensions.Manifest, StringComparison.OrdinalIgnoreCase))
+        if (name.IsEmpty)
             return 0;
 
-        var numberPart = name.Substring(StorageFilePrefixes.Manifest.Length, name.Length - StorageFilePrefixes.Manifest.Length - StorageFileExtensions.Manifest.Length);
+        var prefix = StorageFilePrefixes.Manifest.AsSpan();
+        var extension = StorageFileExtensions.Manifest.AsSpan();
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        var numberPart = name.Slice(prefix.Length, name.Length - prefix.Length - extension.Length);
         return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 

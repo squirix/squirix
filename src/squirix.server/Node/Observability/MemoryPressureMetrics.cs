@@ -15,12 +15,12 @@ internal static class MemoryPressureMetrics
 {
     private static readonly Lock InitLock = new();
 
-    private static readonly List<MemoryPressureMetricRegistration> Registrations = [];
-
     private static readonly Counter<long> RejectionsTotal = MeterRegistry.Meter.CreateCounter<long>(
         "squirix_memory_rejections_total",
         "{rejection}",
         "Memory admission rejections by operation and reason");
+
+    private static MemoryPressureMetricRegistration[] _registrations = [];
 
     private static int _instrumentsCreated;
 
@@ -40,7 +40,11 @@ internal static class MemoryPressureMetrics
         ArgumentNullException.ThrowIfNull(registration);
         lock (InitLock)
         {
-            Registrations.Add(registration);
+            var previous = _registrations;
+            var next = new MemoryPressureMetricRegistration[previous.Length + 1];
+            previous.CopyTo(next, 0);
+            next[previous.Length] = registration;
+            _registrations = next;
             EnsureInstrumentsLocked();
         }
     }
@@ -49,7 +53,23 @@ internal static class MemoryPressureMetrics
     {
         ArgumentNullException.ThrowIfNull(registration);
         lock (InitLock)
-            _ = Registrations.Remove(registration);
+        {
+            var previous = _registrations;
+            var index = Array.IndexOf(previous, registration);
+            if (index < 0)
+                return;
+
+            if (previous.Length is 1)
+            {
+                _registrations = [];
+                return;
+            }
+
+            var next = new MemoryPressureMetricRegistration[previous.Length - 1];
+            previous.AsSpan(0, index).CopyTo(next);
+            previous.AsSpan(index + 1).CopyTo(next.AsSpan(index));
+            _registrations = next;
+        }
     }
 
     private static (int Value, string Name) DescribePressureState(MemoryPressureState state)
@@ -84,35 +104,29 @@ internal static class MemoryPressureMetrics
 
     private static IEnumerable<Measurement<long>> ObserveEntryCount()
     {
-        foreach (var r in SnapshotRegistrations())
-            yield return new Measurement<long>(r.Accounting.EntryCount, TagsNode(r.NodeId));
+        foreach (var registration in Volatile.Read(ref _registrations))
+            yield return new Measurement<long>(registration.Accounting.EntryCount, TagsNode(registration.NodeId));
     }
 
     private static IEnumerable<Measurement<long>> ObserveEstimatedBytes()
     {
-        foreach (var r in SnapshotRegistrations())
-            yield return new Measurement<long>(r.Accounting.EstimatedBytes, TagsNode(r.NodeId));
+        foreach (var registration in Volatile.Read(ref _registrations))
+            yield return new Measurement<long>(registration.Accounting.EstimatedBytes, TagsNode(registration.NodeId));
     }
 
     private static IEnumerable<Measurement<int>> ObservePressureState()
     {
-        foreach (var r in SnapshotRegistrations())
+        foreach (var registration in Volatile.Read(ref _registrations))
         {
-            var (value, name) = DescribePressureState(r.Evaluator.Evaluate(r.Accounting.EstimatedBytes));
+            var (value, name) = DescribePressureState(registration.Evaluator.Evaluate(registration.Accounting.EstimatedBytes));
 
             var tags = new KeyValuePair<string, object?>[]
             {
-                new("node", r.NodeId),
+                new("node", registration.NodeId),
                 new("state", name),
             };
             yield return new Measurement<int>(value, tags);
         }
-    }
-
-    private static MemoryPressureMetricRegistration[] SnapshotRegistrations()
-    {
-        lock (InitLock)
-            return [.. Registrations];
     }
 
     private static KeyValuePair<string, object?>[] TagsNode(string nodeId) => [new("node", nodeId)];

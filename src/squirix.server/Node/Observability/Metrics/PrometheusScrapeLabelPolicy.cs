@@ -44,18 +44,22 @@ internal static class PrometheusScrapeLabelPolicy
         if (tags.Length is 0)
             return [];
 
-        var filtered = new List<KeyValuePair<string, object?>>(tags.Length);
+        var filtered = new KeyValuePair<string, object?>[tags.Length];
+        var writeIndex = 0;
         foreach (var tag in tags)
         {
             if (!ExcludedLabelNames.Contains(tag.Key))
-                filtered.Add(tag);
+                filtered[writeIndex++] = tag;
         }
 
-        if (filtered.Count is 0)
+        if (writeIndex is 0)
             return [];
 
-        filtered.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-        return [.. filtered];
+        if (writeIndex != filtered.Length)
+            Array.Resize(ref filtered, writeIndex);
+
+        Array.Sort(filtered, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+        return filtered;
     }
 
     private static string Escape(string s) => s
