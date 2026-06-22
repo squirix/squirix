@@ -123,17 +123,32 @@ internal sealed class SnapshotCoordinator<T>
 
     private async ValueTask<CapturedSnapshotView> CaptureSnapshotViewAsync(Activity? currentActivity, CancellationToken cancellationToken)
     {
-        var items = new List<(CacheKey Key, CacheEntry<T> Entry)>();
+        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>();
         await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
             if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
                 continue;
 
-            items.Add((key, entry));
+            items.Add((key, ToSnapshotEntry(entry)));
         }
 
         _ = currentActivity?.SetTag("snapshot.items_count", items.Count);
         return new CapturedSnapshotView(items);
+
+        static CacheEntry<object?> ToSnapshotEntry(CacheEntry<T> source)
+        {
+            if (source is CacheEntry<object?> objectEntry)
+                return objectEntry;
+
+            return new CacheEntry<object?>
+            {
+                Value = source.Value,
+                ExpiresUtc = source.ExpiresUtc,
+                Expiration = source.Expiration,
+                Version = source.Version,
+                Tags = source.Tags,
+            };
+        }
     }
 
     private async ValueTask<ManifestState.SnapshotRef> PublishSnapshotAsync(
@@ -145,26 +160,12 @@ internal sealed class SnapshotCoordinator<T>
     {
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
 
-        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(captured.Items.Count);
-        foreach (var (key, entry) in captured.Items)
-        {
-            items.Add(
-                (key, new CacheEntry<object?>
-                {
-                    Value = entry.Value,
-                    ExpiresUtc = entry.ExpiresUtc,
-                    Expiration = entry.Expiration,
-                    Version = entry.Version,
-                    Tags = entry.Tags,
-                }));
-        }
-
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         _ = currentActivity?.SetTag("snapshot.index", nextIndex);
 
         var idempotencyRecords = _idempotency.ExportSnapshot(DateTime.UtcNow);
-        var path = await _snapWriter.WriteAsync(nextIndex, items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
+        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
@@ -228,5 +229,5 @@ internal sealed class SnapshotCoordinator<T>
         return timeOk || opsOk || bytesOk;
     }
 
-    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<T> Entry)> Items);
+    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<object?> Entry)> Items);
 }

@@ -50,4 +50,25 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
         Assert.Equal("one", loaded.Entries[0].Entry.Value);
         Assert.Equal(42L, Assert.IsType<long>(loaded.Entries[1].Entry.Value));
     }
+
+    /// <summary>Streaming reader rejects snapshots with a corrupted file CRC footer.</summary>
+    [Fact]
+    public async Task LoadStrictAsyncRejectsCorruptedFileCrc()
+    {
+        using var dir = new TempDirectory("squirix-binary-snapshot-crc");
+        var options = new PersistenceOptions { DataDir = dir.Path, SnapshotBackend = SnapshotBackend.Binary };
+        var writer = SnapshotStoreFactory.CreateWriter(options);
+        var reader = SnapshotStoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>
+        {
+            (CacheKey.Default("k"), new CacheEntry<object?> { Value = "v", Version = 1 }),
+        };
+
+        var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
+        var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+        bytes[^1] ^= 0xFF;
+        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => reader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
+    }
 }

@@ -43,6 +43,15 @@ public class SnapshotWriteBreakdownBenchmarks
             session.WriteTempFileOnly();
     }
 
+    /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
+    [Benchmark]
+    public void ManifestWriteOnly()
+    {
+        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        for (var i = 0; i < _operationsPerInvoke; i++)
+            session.WriteManifestOnly();
+    }
+
     /// <summary>Disposes the breakdown session and temporary data directory.</summary>
     [GlobalCleanup]
     public void GlobalCleanup()

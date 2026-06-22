@@ -30,7 +30,7 @@ internal static class ManifestStoreTestSupport
 
     internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {
-        var currentPath = Path.Combine(dataDir, $"{StorageFilePrefixes.Manifest}current");
+        var currentPath = Path.Join(dataDir, $"{StorageFilePrefixes.Manifest}current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
         return ManifestPointer.Read(pointerBytes);
     }

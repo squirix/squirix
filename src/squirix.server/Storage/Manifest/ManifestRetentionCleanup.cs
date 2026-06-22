@@ -34,14 +34,23 @@ internal static class ManifestRetentionCleanup
 
     private static int TryParseSnapshotIndex(string name)
     {
+        var index = TryParseSnapshotIndex(name, StorageFileExtensions.Snapshot);
+        if (index > 0)
+            return index;
+
+        return TryParseSnapshotIndex(name, StorageFileExtensions.BinarySnapshot);
+    }
+
+    private static int TryParseSnapshotIndex(string name, string extension)
+    {
         if (string.IsNullOrEmpty(name))
             return 0;
         if (!name.StartsWith(StorageFilePrefixes.Snapshot, StringComparison.OrdinalIgnoreCase))
             return 0;
-        if (!name.EndsWith(StorageFileExtensions.Snapshot, StringComparison.OrdinalIgnoreCase))
+        if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
             return 0;
 
-        var numberPart = name.Substring(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - StorageFileExtensions.Snapshot.Length);
+        var numberPart = name.Substring(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - extension.Length);
         return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 
@@ -133,11 +142,11 @@ internal static class ManifestRetentionCleanup
     {
         try
         {
-            var files = Directory.GetFiles(context.DataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}");
-            if (files.Length <= context.SnapshotRetention)
+            var files = ListSnapshotFiles(context.DataDir);
+            if (files.Count <= context.SnapshotRetention)
                 return false;
 
-            var ordered = GetIndexedFiles(files, TryParseSnapshotIndex);
+            var ordered = GetIndexedFiles([.. files], TryParseSnapshotIndex);
 
             if (ordered.Length <= context.SnapshotRetention)
                 return false;
@@ -171,6 +180,14 @@ internal static class ManifestRetentionCleanup
             ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
             return true;
         }
+    }
+
+    private static List<string> ListSnapshotFiles(string dataDir)
+    {
+        var files = new List<string>();
+        files.AddRange(Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}"));
+        files.AddRange(Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.BinarySnapshot}"));
+        return files;
     }
 
     private static bool TryDeleteRetentionArtifact(ManifestRetentionContext context, string path, string artifactKind)

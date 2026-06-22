@@ -2,7 +2,6 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -13,8 +12,6 @@ using Squirix.Server.Serialization;
 namespace Squirix.Server.Storage.Entries.Binary;
 
 /// <summary>Binary cache-entry encoding mirroring discriminated JSON semantics.</summary>
-[SuppressMessage("Design", "MA0181:Do not use cast", Justification = "Binary framing writes tagged union discriminators.")]
-[SuppressMessage("Design", "MA0051:Method is too long", Justification = "Value decoder mirrors a single tagged switch over all value kinds.")]
 internal static class CacheEntryCodec
 {
     private const int MaxUtf16StringLength = ushort.MaxValue;
@@ -211,53 +208,56 @@ internal static class CacheEntryCodec
         switch (value)
         {
             case null:
-                destination[offset++] = (byte)ValueKind.Null;
+                destination[offset++] = ValueKind.Null;
                 break;
 
             case bool b:
-                destination[offset++] = (byte)ValueKind.Bool;
-                destination[offset++] = (byte)(b ? 1 : 0);
+                destination[offset++] = ValueKind.Bool;
+                if (b)
+                    destination[offset++] = 1;
+                else
+                    destination[offset++] = 0;
                 break;
 
             case string s:
-                destination[offset++] = (byte)ValueKind.String;
+                destination[offset++] = ValueKind.String;
                 offset += WriteUtf32Prefixed(Encoding.UTF8.GetBytes(s), destination[offset..]);
                 break;
 
             case byte[] bytes:
-                destination[offset++] = (byte)ValueKind.Bytes;
+                destination[offset++] = ValueKind.Bytes;
                 offset += WriteUtf32Prefixed(bytes, destination[offset..]);
                 break;
 
             case sbyte or byte or short or ushort or int or uint or long:
-                destination[offset++] = (byte)ValueKind.Int64;
+                destination[offset++] = ValueKind.Int64;
                 BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], Convert.ToInt64(value, CultureInfo.InvariantCulture));
                 offset += 8;
                 break;
 
             case float or double:
-                destination[offset++] = (byte)ValueKind.Double;
+                destination[offset++] = ValueKind.Double;
                 BinaryPrimitives.WriteDoubleLittleEndian(destination[offset..], Convert.ToDouble(value, CultureInfo.InvariantCulture));
                 offset += 8;
                 break;
 
             case decimal m:
-                destination[offset++] = (byte)ValueKind.Decimal;
+                destination[offset++] = ValueKind.Decimal;
                 offset += WriteUtf8Prefixed(m.ToString(CultureInfo.InvariantCulture), destination[offset..]);
                 break;
 
             case StoredJsonPayload sjp:
-                destination[offset++] = (byte)ValueKind.JsonBlob;
+                destination[offset++] = ValueKind.JsonBlob;
                 offset += WriteUtf32Prefixed(sjp.Utf8Memory.Span, destination[offset..]);
                 break;
 
             case JsonElement je:
-                destination[offset++] = (byte)ValueKind.JsonBlob;
+                destination[offset++] = ValueKind.JsonBlob;
                 offset += WriteUtf32Prefixed(Encoding.UTF8.GetBytes(je.GetRawText()), destination[offset..]);
                 break;
 
             default:
-                destination[offset++] = (byte)ValueKind.JsonBlob;
+                destination[offset++] = ValueKind.JsonBlob;
                 offset += WriteUtf32Prefixed(SerializationProvider.Instance.SerializeToUtf8Bytes(value), destination[offset..]);
                 break;
         }
@@ -267,7 +267,7 @@ internal static class CacheEntryCodec
 
     private static int WriteUtf32Prefixed(ReadOnlySpan<byte> bytes, Span<byte> destination)
     {
-        BinaryPrimitives.WriteUInt32LittleEndian(destination, (uint)bytes.Length);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(bytes.Length));
         bytes.CopyTo(destination[4..]);
         return 4 + bytes.Length;
     }
@@ -326,11 +326,12 @@ internal static class CacheEntryCodec
             return false;
 
         var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
-        bytesRead = 4 + (int)length;
+        var lengthInt = int.CreateChecked(length);
+        bytesRead = 4 + lengthInt;
         if (source.Length < bytesRead)
             return false;
 
-        bytes = source.Slice(4, (int)length);
+        bytes = source.Slice(4, lengthInt);
         return true;
     }
 
@@ -341,75 +342,112 @@ internal static class CacheEntryCodec
         if (source.IsEmpty)
             return false;
 
-        var kind = (ValueKind)source[0];
-        bytesRead = 1;
-        switch (kind)
+        return source[0] switch
         {
-            case ValueKind.Null:
-                return true;
+            ValueKind.Null => TryReadNullValue(out value, out bytesRead),
+            ValueKind.Bool => TryReadBoolValue(source, out value, out bytesRead),
+            ValueKind.String => TryReadStringValue(source, out value, out bytesRead),
+            ValueKind.Bytes => TryReadBytesValue(source, out value, out bytesRead),
+            ValueKind.Int64 => TryReadInt64Value(source, out value, out bytesRead),
+            ValueKind.Double => TryReadDoubleValue(source, out value, out bytesRead),
+            ValueKind.Decimal => TryReadDecimalValue(source, out value, out bytesRead),
+            ValueKind.JsonBlob => TryReadJsonBlobValue(source, out value, out bytesRead),
+            _ => false,
+        };
+    }
 
-            case ValueKind.Bool:
-                if (source.Length < 2)
-                    return false;
+    private static bool TryReadNullValue(out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 1;
+        return true;
+    }
 
-                value = source[1] is not 0;
-                bytesRead = 2;
-                return true;
+    private static bool TryReadBoolValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (source.Length < 2)
+            return false;
 
-            case ValueKind.String:
-                if (!TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
-                    return false;
+        value = source[1] is not 0;
+        bytesRead = 2;
+        return true;
+    }
 
-                value = Encoding.UTF8.GetString(stringBytes);
-                bytesRead = 1 + stringBytesRead;
-                return true;
+    private static bool TryReadStringValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (!TryReadUtf32Prefixed(source[1..], out var stringBytes, out var stringBytesRead))
+            return false;
 
-            case ValueKind.Bytes:
-                if (!TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
-                    return false;
+        value = Encoding.UTF8.GetString(stringBytes);
+        bytesRead = 1 + stringBytesRead;
+        return true;
+    }
 
-                value = rawBytes.ToArray();
-                bytesRead = 1 + rawBytesRead;
-                return true;
+    private static bool TryReadBytesValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (!TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
+            return false;
 
-            case ValueKind.Int64:
-                if (source.Length < 1 + 8)
-                    return false;
+        value = rawBytes.ToArray();
+        bytesRead = 1 + rawBytesRead;
+        return true;
+    }
 
-                value = BinaryPrimitives.ReadInt64LittleEndian(source[1..]);
-                bytesRead = 1 + 8;
-                return true;
+    private static bool TryReadInt64Value(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (source.Length < 1 + 8)
+            return false;
 
-            case ValueKind.Double:
-                if (source.Length < 1 + 8)
-                    return false;
+        value = BinaryPrimitives.ReadInt64LittleEndian(source[1..]);
+        bytesRead = 1 + 8;
+        return true;
+    }
 
-                value = BinaryPrimitives.ReadDoubleLittleEndian(source[1..]);
-                bytesRead = 1 + 8;
-                return true;
+    private static bool TryReadDoubleValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (source.Length < 1 + 8)
+            return false;
 
-            case ValueKind.Decimal:
-                if (!TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
-                    return false;
+        value = BinaryPrimitives.ReadDoubleLittleEndian(source[1..]);
+        bytesRead = 1 + 8;
+        return true;
+    }
 
-                if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
-                    return false;
+    private static bool TryReadDecimalValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (!TryReadUtf8Prefixed(source[1..], out var decimalText, out var decimalBytesRead))
+            return false;
 
-                value = decimalValue;
-                bytesRead = 1 + decimalBytesRead;
-                return true;
+        if (!decimal.TryParse(decimalText, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
+            return false;
 
-            case ValueKind.JsonBlob:
-                if (!TryReadUtf32Prefixed(source[1..], out var jsonBytes, out var jsonBytesRead))
-                    return false;
+        value = decimalValue;
+        bytesRead = 1 + decimalBytesRead;
+        return true;
+    }
 
-                value = new StoredJsonPayload(jsonBytes);
-                bytesRead = 1 + jsonBytesRead;
-                return true;
+    private static bool TryReadJsonBlobValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    {
+        value = null;
+        bytesRead = 0;
+        if (!TryReadUtf32Prefixed(source[1..], out var jsonBytes, out var jsonBytesRead))
+            return false;
 
-            default:
-                return false;
-        }
+        value = new StoredJsonPayload(jsonBytes);
+        bytesRead = 1 + jsonBytesRead;
+        return true;
     }
 
     private static TTarget Reinterpret<TTarget, TValue>(TValue value)
@@ -440,19 +478,19 @@ internal static class CacheEntryCodec
                 return true;
 
             case long l when typeof(T) == typeof(int):
-                result = (T)(object)checked((int)l);
+                result = Reinterpret<T, int>(int.CreateChecked(l));
                 return true;
 
             case long l when typeof(T) == typeof(long):
-                result = (T)(object)l;
+                result = Reinterpret<T, long>(l);
                 return true;
 
             case double d when typeof(T) == typeof(float):
-                result = (T)(object)(float)d;
+                result = Reinterpret<T, float>(Convert.ToSingle(d));
                 return true;
 
             case double d when typeof(T) == typeof(double):
-                result = (T)(object)d;
+                result = Reinterpret<T, double>(d);
                 return true;
 
             default:

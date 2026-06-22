@@ -15,6 +15,34 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 [SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Binary.SnapshotWriter and snapshot breakdown benchmarks.")]
 internal static class SnapshotFileEncoder
 {
+    public static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics(
+        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
+        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
+    {
+        long total = Codec.FileHeaderSize + Codec.FileFooterSize;
+        var maxRecordLength = 0;
+        foreach (var (key, entry) in items)
+        {
+            var recordLength = Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry));
+            total += recordLength;
+            if (recordLength > maxRecordLength)
+                maxRecordLength = recordLength;
+        }
+
+        foreach (var record in idempotencyRecords)
+        {
+            var recordLength = Codec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
+            total += recordLength;
+            if (recordLength > maxRecordLength)
+                maxRecordLength = recordLength;
+        }
+
+        if (total > int.MaxValue)
+            throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.");
+
+        return (total, maxRecordLength);
+    }
+
     public static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)
     {
         var bodyLength = Codec.ComputeEntryBodyLength(key, entry);
@@ -30,15 +58,15 @@ internal static class SnapshotFileEncoder
         IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         byte[] encodeBuffer,
+        long totalFileSize,
         CancellationToken cancellationToken)
     {
-        var totalSize = ComputeTotalFileSize(items, idempotencyRecords);
-        destination.SetLength(totalSize);
+        destination.SetLength(totalFileSize);
         destination.Position = 0;
 
-        var header = new byte[Codec.FileHeaderSize];
+        Span<byte> header = stackalloc byte[Codec.FileHeaderSize];
         Codec.WriteFileHeader(header);
-        await destination.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+        destination.Write(header);
 
         var crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
         foreach (var (key, entry) in items)
@@ -55,25 +83,10 @@ internal static class SnapshotFileEncoder
             crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
         }
 
-        var footer = new byte[Codec.FileFooterSize];
+        Span<byte> footer = stackalloc byte[Codec.FileFooterSize];
         BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
-        await destination.WriteAsync(footer, cancellationToken).ConfigureAwait(false);
+        destination.Write(footer);
         await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static long ComputeTotalFileSize(IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items, IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
-    {
-        long total = Codec.FileHeaderSize + Codec.FileFooterSize;
-        foreach (var (key, entry) in items)
-            total += Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry));
-
-        foreach (var record in idempotencyRecords)
-            total += Codec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
-
-        if (total > int.MaxValue)
-            throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.");
-
-        return total;
     }
 
     private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)

@@ -6,7 +6,9 @@ using System.IO;
 using System.Threading;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
 
@@ -20,15 +22,23 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
     private readonly byte[] _encodeBuffer;
     private readonly TempDirectory _dataDir;
     private readonly List<(CacheKey Key, CacheEntry<object?> Entry)> _items;
+    private readonly ManifestStore _manifestStore;
     private readonly SnapshotWriter _writer;
     private int _nextFileIndex = 10_000;
+    private int _nextSnapshotIndex = 1;
 
-    private SnapshotWriteBreakdownSession(TempDirectory dataDir, List<(CacheKey Key, CacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer)
+    private SnapshotWriteBreakdownSession(
+        TempDirectory dataDir,
+        List<(CacheKey Key, CacheEntry<object?> Entry)> items,
+        byte[] encodeBuffer,
+        SnapshotWriter writer,
+        ManifestStore manifestStore)
     {
         _dataDir = dataDir;
         _items = items;
         _encodeBuffer = encodeBuffer;
         _writer = writer;
+        _manifestStore = manifestStore;
     }
 
     /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
@@ -49,12 +59,18 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
             items.Add((CacheKey.Default($"key-{i}"), new CacheEntry<object?> { Value = value, Version = 1 }));
         }
 
-        var maxRecordLength = 0;
-        foreach (var (key, entry) in items)
-            maxRecordLength = Math.Max(maxRecordLength, Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry)));
-
+        var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
         var writer = new SnapshotWriter(dataDir);
-        return new SnapshotWriteBreakdownSession(dataDir, items, new byte[maxRecordLength], writer);
+        var retention = ManifestBenchmarkSupport.ResolveRetentionCount();
+        var manifestStore = new ManifestStore(
+            new PersistenceOptions
+            {
+                DataDir = dataDir.Path,
+                ManifestRetentionCount = retention,
+                SnapshotRetentionCount = retention,
+            });
+        manifestStore.PublishRollBlocking(1, 1);
+        return new SnapshotWriteBreakdownSession(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
     }
 
     /// <summary>Encodes all entry records into the reusable buffer (no I/O).</summary>
@@ -72,18 +88,52 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
     public void WriteTempFileOnly()
     {
         var path = BuildTempPath(_nextFileIndex++);
-        using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, FileOptions.WriteThrough);
-        WriteFileBlocking(fs);
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 64 * 1024, SnapshotDurability.GetTempFileOptions());
+        var (totalFileSize, _) = SnapshotFileEncoder.ComputeWriteMetrics(_items, []);
+        WriteFileBlocking(fs, totalFileSize);
     }
 
     /// <summary>Runs the production binary snapshot publish path.</summary>
     public void PublishSnapshot() => _ = _writer.WriteAsync(1, _items, [], CancellationToken.None).GetAwaiter().GetResult();
 
-    public void Dispose() => _dataDir.Dispose();
+    /// <summary>Writes a snapshot manifest update matching the coordinator publish slice (no snapshot file I/O).</summary>
+    public void WriteManifestOnly()
+    {
+        var snapshotIndex = _nextSnapshotIndex++;
+        var snapshotPath = BuildSnapshotPath(snapshotIndex);
+        File.WriteAllBytes(snapshotPath, []);
 
-    private void WriteFileBlocking(FileStream destination) =>
-        SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, CancellationToken.None).GetAwaiter().GetResult();
+        var previous = _manifestStore.ReadCurrentOrDefaultBlocking();
+        var updated = new ManifestState
+        {
+            Format = previous.Format is 0 ? 1 : previous.Format,
+            CurrentJournal = previous.CurrentJournal,
+            NextSequence = previous.NextSequence + 1,
+            LastSnapshot = new ManifestState.SnapshotRef
+            {
+                Index = snapshotIndex,
+                Path = snapshotPath,
+                CreatedUtc = DateTime.UtcNow,
+                LastAppliedSequence = previous.NextSequence,
+                ReplayFromJournalSegment = previous.CurrentJournal,
+            },
+        };
 
-    private string BuildTempPath(int index) =>
-        PathEx.Combine(_dataDir.Path, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+        _manifestStore.WriteAsync(updated, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    public void Dispose()
+    {
+        _manifestStore.Dispose();
+        _dataDir.Dispose();
+    }
+
+    private void WriteFileBlocking(FileStream destination, long totalFileSize) =>
+        SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).GetAwaiter().GetResult();
+
+    private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+
+    private string BuildSnapshotPath(int index) => PathEx.Combine(
+        _dataDir.Path,
+        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.BinarySnapshot}");
 }

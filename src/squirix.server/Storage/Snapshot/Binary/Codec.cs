@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
@@ -10,8 +9,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
 /// <summary>Encodes and decodes binary snapshot files; on-disk layout is documented in docs/snapshot-format.md.</summary>
-[SuppressMessage("Design", "MA0181:Do not use cast", Justification = "Binary framing writes integral record headers.")]
-[SuppressMessage("Design", "MA0191:Do not use the null-forgiving operator", Justification = "Out parameters are assigned before returning true.")]
 internal static class Codec
 {
     internal const byte Version = 1;
@@ -64,8 +61,8 @@ internal static class Codec
         if (destination.Length < ComputeRecordLength(body.Length))
             throw new ArgumentException("Destination span is too small for the encoded record.", nameof(destination));
 
-        destination[0] = (byte)kind;
-        BinaryPrimitives.WriteUInt32LittleEndian(destination[1..], (uint)body.Length);
+        destination[0] = RecordKindWireValue(kind);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[1..], uint.CreateTruncating(body.Length));
         body.CopyTo(destination[RecordHeaderSize..]);
         BinaryPrimitives.WriteUInt32LittleEndian(destination[(RecordHeaderSize + body.Length)..], Crc32C.Compute(body));
     }
@@ -99,14 +96,17 @@ internal static class Codec
         if (source.Length < RecordHeaderSize + RecordFooterSize)
             return false;
 
-        kind = (RecordKind)source[0];
+        if (!TryParseRecordKind(source[0], out kind))
+            return false;
+
         var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(source[1..]);
-        var total = RecordHeaderSize + (int)bodyLength + RecordFooterSize;
+        var bodyLengthInt = int.CreateChecked(bodyLength);
+        var total = RecordHeaderSize + bodyLengthInt + RecordFooterSize;
         if (source.Length < total)
             return false;
 
-        body = source.Slice(RecordHeaderSize, (int)bodyLength);
-        var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(source[(RecordHeaderSize + (int)bodyLength)..]);
+        body = source.Slice(RecordHeaderSize, bodyLengthInt);
+        var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(source[(RecordHeaderSize + bodyLengthInt)..]);
         if (Crc32C.Compute(body) != expectedCrc)
             throw new InvalidDataException("Binary snapshot record CRC mismatch.");
 
@@ -114,18 +114,18 @@ internal static class Codec
         return true;
     }
 
-    public static void ValidateFileFooter(ReadOnlySpan<byte> fileBytes, ReadOnlySpan<byte> crcPayload) =>
-        ValidateFileFooter(fileBytes, Crc32C.Compute(crcPayload));
-
     public static void ValidateFileFooter(ReadOnlySpan<byte> fileBytes, uint crc)
     {
-        if (fileBytes.Length < FileHeaderSize + FileFooterSize)
-            throw new InvalidDataException("Binary snapshot file is truncated.");
+        if (fileBytes.Length < FileFooterSize)
+            throw new InvalidDataException("Binary snapshot footer is truncated.");
 
         var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[^FileFooterSize..]);
         if (crc != expectedCrc)
             throw new InvalidDataException("Binary snapshot file CRC mismatch.");
     }
+
+    public static void ValidateFileFooter(ReadOnlySpan<byte> fileBytes, ReadOnlySpan<byte> crcPayload) =>
+        ValidateFileFooter(fileBytes, Crc32C.Compute(crcPayload));
 
     public static bool TryReadEntryBody(ReadOnlySpan<byte> body, out CacheKey key, out CacheEntry<object?>? entry)
     {
@@ -170,5 +170,28 @@ internal static class Codec
 
         text = Encoding.UTF8.GetString(source.Slice(2, length));
         return true;
+    }
+
+    private static byte RecordKindWireValue(RecordKind kind) => kind switch
+    {
+        RecordKind.Entry => 1,
+        RecordKind.Idempotency => 2,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static bool TryParseRecordKind(byte wireValue, out RecordKind kind)
+    {
+        switch (wireValue)
+        {
+            case 1:
+                kind = RecordKind.Entry;
+                return true;
+            case 2:
+                kind = RecordKind.Idempotency;
+                return true;
+            default:
+                kind = default;
+                return false;
+        }
     }
 }
