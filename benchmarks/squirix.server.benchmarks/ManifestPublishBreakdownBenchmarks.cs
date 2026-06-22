@@ -4,7 +4,7 @@ using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
-/// <summary>Isolates segment-roll manifest costs: encode, data-file fsync, pointer fsync, and full publish.</summary>
+/// <summary>Isolates segment-roll manifest costs: data-file fsync, pointer fsync, and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
 public class ManifestPublishBreakdownBenchmarks
@@ -23,19 +23,6 @@ public class ManifestPublishBreakdownBenchmarks
         var operations = _operationsPerInvoke;
         for (var i = 0; i < operations; i++)
             session.Store.PublishRollBlocking(_nextJournal++, _nextSequence++);
-    }
-
-    /// <summary>Roll-only encode into the reusable session buffer (no I/O).</summary>
-    [Benchmark]
-    public void RollEncodeOnly()
-    {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
-        var operations = _operationsPerInvoke;
-        for (var i = 0; i < operations; i++)
-        {
-            var encodedLength = session.EncodeRoll(_nextJournal++, _nextSequence++);
-            GC.KeepAlive(encodedLength);
-        }
     }
 
     /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>

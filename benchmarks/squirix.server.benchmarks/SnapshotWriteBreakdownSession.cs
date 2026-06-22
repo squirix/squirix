@@ -73,17 +73,6 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
         return new SnapshotWriteBreakdownSession(dataDir, items, new byte[maxRecordLength], writer, manifestStore);
     }
 
-    /// <summary>Encodes all entry records into the reusable buffer (no I/O).</summary>
-    /// <returns>Total encoded record bytes.</returns>
-    public int EncodeAllEntries()
-    {
-        var total = 0;
-        foreach (var (key, entry) in _items)
-            total += SnapshotFileEncoder.WriteEntryRecord(_encodeBuffer, key, entry);
-
-        return total;
-    }
-
     /// <summary>Writes a complete binary snapshot temp file and flushes it to disk.</summary>
     public void WriteTempFileOnly()
     {

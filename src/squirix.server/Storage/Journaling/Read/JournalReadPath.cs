@@ -25,7 +25,7 @@ internal static class JournalReadPath
         ArgumentException.ThrowIfNullOrEmpty(dataDir);
         ArgumentNullException.ThrowIfNull(policy);
 
-        var onDiskCount = SelectNewestSegments(dataDir, 1, policy.SegmentCountProbeLimit).Length;
+        var onDiskCount = JournalReader.SelectNewestSegments(dataDir, 1, policy.SegmentCountProbeLimit).Length;
         policy.EnsureRollCapacityOrThrow(onDiskCount, JournalReader.GetOnDiskTotalBytes(dataDir));
     }
 
@@ -43,8 +43,6 @@ internal static class JournalReadPath
                 yield return record;
         }
     }
-
-    internal static JournalSegment[] SelectNewestSegments(string dataDir, int fromSegment, int maxCount) => JournalReader.SelectNewestSegments(dataDir, fromSegment, maxCount);
 
     [MustDisposeResource]
     private static IEnumerator<JournalRecord> CreateSegmentEnumerator(BinaryJournalSegmentReader reader)

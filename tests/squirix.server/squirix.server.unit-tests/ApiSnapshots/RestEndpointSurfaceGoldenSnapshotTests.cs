@@ -32,7 +32,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
 
         var unexpected = CollectSetDifference(actual, expected);
         var missing = CollectSetDifference(expected, actual);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var sb = new StringBuilder();
@@ -45,7 +45,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         Assert.Fail(sb.ToString());
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -55,6 +55,6 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 }

@@ -85,7 +85,7 @@ public class DurableMutationGroupCommitBenchmarks
         _nextWriterId = 0;
     }
 
-    private static int GetOperationsPerWriter() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
+    private static int GetOperationsPerWriter() => JournalBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
 
-    private static int GetParallelWriters() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
+    private static int GetParallelWriters() => JournalBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
 }

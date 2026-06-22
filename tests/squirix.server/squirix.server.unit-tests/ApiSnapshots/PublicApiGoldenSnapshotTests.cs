@@ -34,7 +34,7 @@ public sealed class PublicApiGoldenSnapshotTests
 
         var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
         var missing = CollectSetDifference(expected, actual, StringComparer.OrdinalIgnoreCase);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var sb = new StringBuilder();
@@ -66,7 +66,7 @@ public sealed class PublicApiGoldenSnapshotTests
         Assert.Equal(["DisposeAsync", "StartAsync"], methods);
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -76,7 +76,7 @@ public sealed class PublicApiGoldenSnapshotTests
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 
     private static bool SetContains(IReadOnlySet<string> set, string item, StringComparer comparer)

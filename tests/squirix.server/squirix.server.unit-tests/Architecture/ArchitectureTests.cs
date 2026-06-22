@@ -553,9 +553,30 @@ public sealed class ArchitectureTests : UnitTestBase
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
             Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
                  .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
-            validatorNamespaces.ToArray());
+            validatorNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
+    }
+
+    private static List<string> CollectExcept(IReadOnlyList<string> left, string[] baseline, StringComparer comparer)
+    {
+        var result = new List<string>();
+        foreach (var item in left)
+        {
+            var found = false;
+            foreach (var known in baseline)
+            {
+                if (!comparer.Equals(item, known))
+                    continue;
+                found = true;
+                break;
+            }
+
+            if (!found)
+                result.Add(item);
+        }
+
+        return result;
     }
 
     private static bool IsGeneratedOutputPath(string path)
@@ -575,7 +596,7 @@ public sealed class ArchitectureTests : UnitTestBase
 
     private static XDocument LoadProjectByAbsolutePath(string path) => XDocument.Load(path);
 
-    private static string[] ReadIncludes(XDocument project, string itemName)
+    private static List<string> ReadIncludes(XDocument project, string itemName)
     {
         var includes = new List<string>();
         foreach (var element in project.Descendants())
@@ -590,12 +611,12 @@ public sealed class ArchitectureTests : UnitTestBase
             includes.Add(value);
         }
 
-        return includes.ToArray();
+        return includes;
     }
 
-    private static string[] ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
+    private static List<string> ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
 
-    private static string[] ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
+    private static List<string> ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
 
     private static string ReadProperty(XDocument project, string propertyName)
     {
@@ -611,27 +632,6 @@ public sealed class ArchitectureTests : UnitTestBase
 
         Assert.False(string.IsNullOrWhiteSpace(value), $"Expected MSBuild property '{propertyName}'.");
         return value;
-    }
-
-    private static string[] CollectExcept(IReadOnlyList<string> left, string[] baseline, StringComparer comparer)
-    {
-        var result = new List<string>();
-        foreach (var item in left)
-        {
-            var found = false;
-            foreach (var known in baseline)
-            {
-                if (!comparer.Equals(item, known))
-                    continue;
-                found = true;
-                break;
-            }
-
-            if (!found)
-                result.Add(item);
-        }
-
-        return result.ToArray();
     }
 
     private static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync()

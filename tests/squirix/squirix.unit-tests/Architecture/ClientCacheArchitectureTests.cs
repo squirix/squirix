@@ -188,7 +188,7 @@ public sealed class ClientCacheArchitectureTests
         return XDocument.Load(path);
     }
 
-    private static string[] ReadIncludes(XDocument project, string itemName)
+    private static List<string> ReadIncludes(XDocument project, string itemName)
     {
         var includes = new List<string>();
         foreach (var element in project.Descendants())
@@ -203,8 +203,8 @@ public sealed class ClientCacheArchitectureTests
             includes.Add(value);
         }
 
-        return includes.ToArray();
+        return includes;
     }
 
-    private static string[] ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
+    private static List<string> ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
 }

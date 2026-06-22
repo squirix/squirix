@@ -15,7 +15,7 @@ internal static class RestEndpointSurfaceCollector
 {
     /// <summary>Builds a production-like host and returns sorted REST route identities (method + path).</summary>
     /// <returns>Sorted REST route identities for the mapped server surface.</returns>
-    internal static async Task<string[]> CollectProductionRestRoutesAsync()
+    internal static async Task<List<string>> CollectProductionRestRoutesAsync()
     {
         await using var app = await BuildProductionHostAsync();
         _ = app.MapSquirixServer();
@@ -39,7 +39,7 @@ internal static class RestEndpointSurfaceCollector
         return builder.Build();
     }
 
-    private static string[] CollectRestRoutes(WebApplication app)
+    private static List<string> CollectRestRoutes(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
@@ -76,6 +76,6 @@ internal static class RestEndpointSurfaceCollector
         }
 
         routes.Sort(StringComparer.Ordinal);
-        return routes.ToArray();
+        return routes;
     }
 }

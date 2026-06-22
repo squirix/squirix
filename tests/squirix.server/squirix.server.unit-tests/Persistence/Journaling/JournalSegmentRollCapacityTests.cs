@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Limits;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
@@ -33,7 +34,7 @@ public sealed class JournalSegmentRollCapacityTests
 
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 4 });
         JournalReadPath.EnsureSegmentRollCapacityOrThrow(dataDir, policy);
-        Assert.Equal(3, JournalReadPath.SelectNewestSegments(dataDir, 1, 16).Length);
+        Assert.Equal(3, JournalReader.SelectNewestSegments(dataDir, 1, 16).Length);
     }
 
     /// <summary>Throws when rolling would exceed the configured segment count cap.</summary>

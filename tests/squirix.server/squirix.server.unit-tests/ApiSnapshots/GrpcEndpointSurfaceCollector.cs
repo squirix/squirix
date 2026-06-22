@@ -17,7 +17,7 @@ internal static class GrpcEndpointSurfaceCollector
     /// Builds a production-like host and returns sorted gRPC method identities (<c>ServiceName/MethodName</c>).
     /// </summary>
     /// <returns>Sorted gRPC method identities for the mapped server surface.</returns>
-    internal static async Task<string[]> CollectProductionGrpcMethodsAsync()
+    internal static async Task<List<string>> CollectProductionGrpcMethodsAsync()
     {
         await using var app = await BuildProductionHostAsync();
         _ = app.MapSquirixServer();
@@ -41,7 +41,7 @@ internal static class GrpcEndpointSurfaceCollector
         return builder.Build();
     }
 
-    private static string[] CollectGrpcMethods(WebApplication app)
+    private static List<string> CollectGrpcMethods(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
@@ -63,6 +63,6 @@ internal static class GrpcEndpointSurfaceCollector
         }
 
         methods.Sort(StringComparer.Ordinal);
-        return methods.ToArray();
+        return methods;
     }
 }

@@ -119,18 +119,16 @@ Production integrators should choose `MaxWait` and `MaxBatch` from their own mea
 Internal quick benchmarks (`SQUIRIX_BENCH_QUICK=1`, 800 ops/invoke, 8→4 writers) after Pipelined GC tuning.
 JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-removal A/B runs kept for context.
 
-| Path                                            | Payload | Pipelined vs legacy JsonFramed write |
-| ----------------------------------------------- | ------- | ------------------------------------ |
-| Raw coordinator (`append` + `await` separately) | 256 B   | ~0.83× throughput                    |
-| **DurableMutationExecutor** (production)        | 256 B   | **~2× throughput**                   |
-| DurableMutationExecutor                         | 4096 B  | ~1.17× throughput                    |
+| Path                                     | Payload | Pipelined vs legacy JsonFramed write |
+| ---------------------------------------- | ------- | ------------------------------------ |
+| **DurableMutationExecutor** (production) | 256 B   | **~2× throughput**                   |
+| DurableMutationExecutor                  | 4096 B  | ~1.17× throughput                    |
 
 **Recommendations for production concurrent durable writes:**
 
 - Start with **`JournalGroupCommitMaxWait = 1–5 ms`** and **`JournalGroupCommitMaxBatch = 32`** (defaults).
 - Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and
   `AwaitDurabilityCommitAsync` separately on hot paths.
-- Re-measure on target hardware; raw coordinator benchmarks understate Pipelined throughput.
 
 ## Latency vs throughput (summary)
 
