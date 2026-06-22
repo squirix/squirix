@@ -116,10 +116,7 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
                 return Stop();
             }
 
-            if (buffer is null)
-                throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
-
-            _rentedFrameBuffer = buffer;
+            _rentedFrameBuffer = buffer ?? throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
             _current = BinaryJournalCodec.Decode(buffer, payloadLength);
             _offset = read.NextFrameOffset;
             return true;

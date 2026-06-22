@@ -194,21 +194,21 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         return frame;
     }
 
-    private static byte[] BuildFrameBytes(params byte[][] payloads)
+    private static byte[] BuildFrameBytes(byte[] payload)
     {
-        var total = 0;
-        foreach (var payload in payloads)
-            total += JournalFraming.FrameTotalLength(payload.Length);
+        var frameLength = JournalFraming.FrameTotalLength(payload.Length);
+        var bytes = new byte[frameLength];
+        JournalFraming.WriteFrame(bytes, payload);
+        return bytes;
+    }
 
-        var bytes = new byte[total];
-        var offset = 0;
-        foreach (var payload in payloads)
-        {
-            var frameLength = JournalFraming.FrameTotalLength(payload.Length);
-            JournalFraming.WriteFrame(bytes.AsSpan(offset, frameLength), payload);
-            offset += frameLength;
-        }
-
+    private static byte[] BuildFrameBytes(byte[] first, byte[] second)
+    {
+        var firstFrameLength = JournalFraming.FrameTotalLength(first.Length);
+        var secondFrameLength = JournalFraming.FrameTotalLength(second.Length);
+        var bytes = new byte[firstFrameLength + secondFrameLength];
+        JournalFraming.WriteFrame(bytes.AsSpan(0, firstFrameLength), first);
+        JournalFraming.WriteFrame(bytes.AsSpan(firstFrameLength, secondFrameLength), second);
         return bytes;
     }
 

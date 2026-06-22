@@ -12,9 +12,7 @@ internal static class PersistenceOptionsResolver
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(source);
 
-        var dataDir = string.IsNullOrWhiteSpace(source.DataDir)
-            ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId)
-            : source.DataDir;
+        var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId) : source.DataDir;
         return source with { DataDir = dataDir };
     }
 
@@ -25,14 +23,10 @@ internal static class PersistenceOptionsResolver
             return PathEx.Combine(testRoot, clusterId, nodeId);
 
         var dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
         if (string.IsNullOrWhiteSpace(dir) && !OperatingSystem.IsWindows())
-        {
             dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
-        }
 
-        return string.IsNullOrWhiteSpace(dir)
-            ? throw new InvalidOperationException(
+        return string.IsNullOrWhiteSpace(dir) ? throw new InvalidOperationException(
                 "Cannot determine default data directory: LocalApplicationData is not available. Set PersistenceOptions.DataDir explicitly or define the HOME / XDG_DATA_HOME environment variable.")
             : PathEx.Combine(dir, "squirix", clusterId, nodeId);
     }

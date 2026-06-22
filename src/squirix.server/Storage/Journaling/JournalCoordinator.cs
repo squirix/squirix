@@ -578,16 +578,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
-    private void CompleteDurabilityWaiterImmediately(JournalDurabilityWaiter waiter)
-    {
-        bool removed;
-        lock (_durabilityWaitersLock)
-            removed = _durabilityWaiters?.Remove(waiter) ?? false;
-
-        if (removed)
-            _ = waiter.TrySetResult();
-    }
-
     private void DetachDurabilityWaiter(JournalDurabilityWaiter waiter)
     {
         lock (_durabilityWaitersLock)
@@ -662,24 +652,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         {
             var waitTask = waiter.AwaitAsync(cancellationToken);
 
-            if (Volatile.Read(ref _queuedAppends) > 0)
-            {
-                await waitTask.ConfigureAwait(false);
-                return;
-            }
-
-            if (!_dirty)
-            {
-                CompleteDurabilityWaiterImmediately(waiter);
-                await waitTask.ConfigureAwait(false);
-                return;
-            }
-
-            if (Interlocked.CompareExchange(ref _durabilityFlushScheduled, 1, 0) is 0)
-            {
-                var item = new JournalWorkItem { Kind = JournalWorkKind.DurabilityCheckpoint };
-                await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
-            }
+            // Always queue a checkpoint behind any already-enqueued appends. A !_dirty fast path
+            // can complete the waiter before an in-flight append is visible on weakly-ordered CPUs.
+            var item = new JournalWorkItem { Kind = JournalWorkKind.DurabilityCheckpoint };
+            await _ring.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
 
             await waitTask.ConfigureAwait(false);
             ThrowIfJournalThreadFailed();

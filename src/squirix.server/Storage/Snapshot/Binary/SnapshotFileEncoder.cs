@@ -43,16 +43,6 @@ internal static class SnapshotFileEncoder
         return (total, maxRecordLength);
     }
 
-    public static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)
-    {
-        var bodyLength = Codec.ComputeEntryBodyLength(key, entry);
-        var recordLength = Codec.ComputeRecordLength(bodyLength);
-        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
-        Codec.WriteEntryBody(key, entry, body);
-        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Entry, body);
-        return recordLength;
-    }
-
     public static async Task WriteFileAsync(
         FileStream destination,
         IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
@@ -87,6 +77,16 @@ internal static class SnapshotFileEncoder
         BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
         destination.Write(footer);
         await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)
+    {
+        var bodyLength = Codec.ComputeEntryBodyLength(key, entry);
+        var recordLength = Codec.ComputeRecordLength(bodyLength);
+        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
+        Codec.WriteEntryBody(key, entry, body);
+        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Entry, body);
+        return recordLength;
     }
 
     private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)
