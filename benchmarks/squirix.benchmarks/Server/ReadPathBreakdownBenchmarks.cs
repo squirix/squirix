@@ -19,8 +19,6 @@ namespace Squirix.Benchmarks.Server;
 /// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 {
     private const string BenchmarkNodeId = "bench-client-pool-node";

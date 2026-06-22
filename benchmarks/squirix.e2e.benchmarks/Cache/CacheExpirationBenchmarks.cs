@@ -8,8 +8,6 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for expiration operations.</summary>
 [BenchmarkCategory("e2e", "expiration", "mutation")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
 public class CacheExpirationBenchmarks : CacheBenchmarkBase
 {
     private const int DestructiveExpirationBatchSize = 512;

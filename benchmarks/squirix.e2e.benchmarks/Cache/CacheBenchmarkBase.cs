@@ -14,7 +14,6 @@ using Squirix.E2EBenchmarks.Support.Runtime;
 namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>Shared setup and cleanup for parameterized E2E benchmark classes.</summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class CacheBenchmarkBase
 {
     /// <summary>

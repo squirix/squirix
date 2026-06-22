@@ -7,8 +7,6 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for deterministic mixed workloads.</summary>
 [BenchmarkCategory("e2e", "mixed")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
 public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
 {
     /// <summary>Measures a hot-key read-mostly workload.</summary>

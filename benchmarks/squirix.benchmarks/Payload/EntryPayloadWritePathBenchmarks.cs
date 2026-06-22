@@ -14,8 +14,6 @@ namespace Squirix.Benchmarks.Payload;
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class EntryPayloadWritePathBenchmarks
 {
     private ServerCacheEntry _entry = new() { Value = string.Empty, Version = 1 };

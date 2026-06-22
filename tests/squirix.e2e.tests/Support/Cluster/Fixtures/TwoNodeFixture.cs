@@ -8,7 +8,6 @@ namespace Squirix.E2ETests.Support.Cluster.Fixtures;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
 [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Instantiated by xUnit via IClassFixture<T>.")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Test fixture surface must be public for xUnit class fixtures.")]
 public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using JetBrains.Annotations;
 
@@ -8,7 +7,6 @@ using JetBrains.Annotations;
 namespace Squirix.E2EBenchmarks.Fixtures;
 
 /// <summary>Custom class used by nested class serialization benchmarks.</summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark data model is serialized in public benchmark payloads.")]
 public sealed class BenchmarkOrder
 {
     /// <summary>

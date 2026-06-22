@@ -10,7 +10,6 @@ namespace Squirix.Benchmarks.Support.Cluster;
 
 /// <summary>Shared BenchmarkDotNet lifecycle for benchmarks that talk to an in-process node over the remote client SDK.</summary>
 [InProcess]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class RemoteBenchmarkLifecycleBase
 {
     private BenchmarkCacheSession? _cacheSession;

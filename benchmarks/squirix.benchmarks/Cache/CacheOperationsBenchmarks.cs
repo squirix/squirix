@@ -10,8 +10,6 @@ namespace Squirix.Benchmarks.Cache;
 /// <summary>Phase-3 remote cache operation benchmarks over a single long-lived client session.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
 {
     private const int CheapBatch = 10_000;

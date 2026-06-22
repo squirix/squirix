@@ -12,8 +12,6 @@ namespace Squirix.Benchmarks.Durability;
 /// <summary>Compares client SDK throughput with ephemeral and persistent server modes.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class DurabilityComparisonBenchmarks
 {
     private const int Batch = 1_024;

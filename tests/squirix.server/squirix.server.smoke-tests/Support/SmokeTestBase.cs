@@ -37,7 +37,6 @@ namespace Squirix.Server.SmokeTests.Support;
 /// Base class for all smoke tests, providing helper methods to start test nodes,
 /// manage test directories, construct HTTP clients, and build common cache entries.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class SmokeTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.Ordinal);

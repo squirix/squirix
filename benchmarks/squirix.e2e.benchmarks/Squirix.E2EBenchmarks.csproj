@@ -5,7 +5,6 @@
         <Nullable>enable</Nullable>
         <OutputType>Exe</OutputType>
         <AssemblyName>Squirix.E2EBenchmarks</AssemblyName>
-        <NoWarn>$(NoWarn);CA1515</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

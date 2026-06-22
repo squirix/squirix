@@ -14,8 +14,6 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class PublicSdkOperationsBenchmarks
 {
     private const string CacheName = "bench-public-sdk-operations";

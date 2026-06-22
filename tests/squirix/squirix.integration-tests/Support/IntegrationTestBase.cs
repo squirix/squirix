@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using JetBrains.Annotations;
 using Xunit;
@@ -11,7 +10,6 @@ namespace Squirix.IntegrationTests.Support;
 /// Provides helpers for starting nodes, building entries,
 /// and creating test-scoped persistence directories.
 /// </summary>
-[SuppressMessage("Design", "CA1515", Justification = "xUnit test classes are public, so their shared base class must be at least as visible.")]
 public abstract class IntegrationTestBase : IDisposable
 {
     /// <summary>

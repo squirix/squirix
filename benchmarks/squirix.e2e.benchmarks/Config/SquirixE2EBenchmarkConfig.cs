@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Exporters.Json;
@@ -9,10 +8,6 @@ using BenchmarkDotNet.Validators;
 namespace Squirix.E2EBenchmarks.Config;
 
 /// <summary>BenchmarkDotNet configuration for end-to-end benchmarks.</summary>
-[SuppressMessage(
-    "Maintainability",
-    "CA1515:Consider making public types internal",
-    Justification = "Shared E2E benchmark configuration is consumed by public benchmark entry points.")]
 public static class SquirixE2EBenchmarkConfig
 {
     /// <summary>Creates the common end-to-end benchmark configuration.</summary>

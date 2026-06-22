@@ -10,8 +10,6 @@ namespace Squirix.E2EBenchmarks.Durability;
 
 /// <summary>Focused durability comparison benchmarks on a fixed single-node scenario.</summary>
 [BenchmarkCategory("e2e", "durability")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
 public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
 {
     /// <inheritdoc />

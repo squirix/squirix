@@ -40,7 +40,6 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// Provides helpers for starting nodes, building entries,
 /// and creating test-scoped persistence directories.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class IntegrationTestBase : IDisposable
 {
     private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.OrdinalIgnoreCase);

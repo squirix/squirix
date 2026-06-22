@@ -13,8 +13,6 @@ namespace Squirix.Benchmarks.Client;
 /// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
 {
     private const int Batch = 16_384;
