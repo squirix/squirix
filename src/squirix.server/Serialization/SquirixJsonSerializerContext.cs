@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Json;
 
 namespace Squirix.Server.Serialization;
 

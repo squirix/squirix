@@ -11,11 +11,31 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage.Journaling.Entries;
 
-namespace Squirix.Server.Storage.Snapshot;
+namespace Squirix.Server.Storage.Snapshot.Json;
 
-internal sealed class SnapshotReader
+internal sealed class SnapshotReader : ISnapshotReader
 {
-    public static async Task<SnapshotLoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
+    public static async IAsyncEnumerable<(CacheKey Key, CacheEntry<T> Entry)> ReadEntriesAsync<T>(
+        string path,
+        bool skipExpired = true,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+        await using (fs.ConfigureAwait(false))
+        {
+            while (true)
+            {
+                var (ok, frame) = await FrameCodec.ReadFrameAsync(fs, payload => ReadEntryPayload<T>(payload, skipExpired), cancellationToken).ConfigureAwait(false);
+                if (!ok)
+                    yield break;
+
+                if (frame is { HasEntry: true, Key: { } key, Entry: { } entry })
+                    yield return (key, entry);
+            }
+        }
+    }
+
+    public async Task<SnapshotLoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
     {
         var entries = new List<(CacheKey Key, CacheEntry<T> Entry)>();
         var idempotencyRecords = new List<PersistedIdempotencyRecord>();
@@ -35,26 +55,6 @@ internal sealed class SnapshotReader
 
                 if (snapshotPayload.Idempotency is { } idempotency)
                     idempotencyRecords.Add(idempotency);
-            }
-        }
-    }
-
-    public static async IAsyncEnumerable<(CacheKey Key, CacheEntry<T> Entry)> ReadEntriesAsync<T>(
-        string path,
-        bool skipExpired = true,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
-        await using (fs.ConfigureAwait(false))
-        {
-            while (true)
-            {
-                var (ok, frame) = await FrameCodec.ReadFrameAsync(fs, payload => ReadEntryPayload<T>(payload, skipExpired), cancellationToken).ConfigureAwait(false);
-                if (!ok)
-                    yield break;
-
-                if (frame is { HasEntry: true, Key: { } key, Entry: { } entry })
-                    yield return (key, entry);
             }
         }
     }
@@ -158,9 +158,7 @@ internal sealed class SnapshotReader
         foreach (var property in root.EnumerateObject())
         {
             if (property.NameEquals("kind") || property.NameEquals("namespace") || property.NameEquals("key") || property.NameEquals("entry"))
-            {
                 continue;
-            }
 
             throw new InvalidDataException($"Unsupported snapshot entry metadata field: {property.Name}");
         }

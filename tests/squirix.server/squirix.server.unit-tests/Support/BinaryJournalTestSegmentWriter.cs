@@ -32,9 +32,7 @@ internal static class BinaryJournalTestSegmentWriter
 
     public static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
-        var path = PathKit.Combine(
-            dir,
-            $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         return WriteSegmentAsync(path, records);
     }
 

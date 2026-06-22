@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -10,6 +11,7 @@ using Squirix.Server.Storage.Journaling;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Pipelined journal append throughput benchmarks.</summary>
+[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
 public class JournalAppendBenchmarks

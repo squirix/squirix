@@ -88,7 +88,7 @@ internal sealed class ManifestStore : IDisposable
         try
         {
             await EnsureNextManifestIndexInitializedAsync(cancellationToken).ConfigureAwait(false);
-            var nextIndex = Interlocked.Increment(ref _nextManifestIndex);
+            var nextIndex = IncrementNextManifestIndex();
             await PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
             ScheduleRetentionCleanup(manifest);
         }
@@ -139,7 +139,13 @@ internal sealed class ManifestStore : IDisposable
     private int AllocateNextManifestIndex()
     {
         EnsureNextManifestIndexInitialized();
-        return Interlocked.Increment(ref _nextManifestIndex);
+        return IncrementNextManifestIndex();
+    }
+
+    private int IncrementNextManifestIndex()
+    {
+        lock (_nextIndexInitLock)
+            return ++_nextManifestIndex;
     }
 
     private string BuildManifestFilePath(int index) =>

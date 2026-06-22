@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
@@ -11,7 +10,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -137,7 +136,7 @@ internal sealed class SnapshotCoordinator<T>
         return new CapturedSnapshotView(items);
     }
 
-    private async ValueTask<Manifest.ManifestState.SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<ManifestState.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotView captured,
         Activity? currentActivity,
@@ -146,12 +145,18 @@ internal sealed class SnapshotCoordinator<T>
     {
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
 
-        var items = new List<(CacheKey Key, object Json)>(captured.Items.Count);
+        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(captured.Items.Count);
         foreach (var (key, entry) in captured.Items)
         {
-            var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(payload);
-            items.Add((key, doc.RootElement.Clone()));
+            items.Add(
+                (key, new CacheEntry<object?>
+                {
+                    Value = entry.Value,
+                    ExpiresUtc = entry.ExpiresUtc,
+                    Expiration = entry.Expiration,
+                    Version = entry.Version,
+                    Tags = entry.Tags,
+                }));
         }
 
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -163,12 +168,12 @@ internal sealed class SnapshotCoordinator<T>
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
-        var updated = new Manifest.ManifestState
+        var updated = new ManifestState
         {
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
             NextSequence = currentJournal.NextSequence,
-            LastSnapshot = new Manifest.ManifestState.SnapshotRef
+            LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,

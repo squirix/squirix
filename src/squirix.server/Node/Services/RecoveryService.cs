@@ -14,6 +14,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -36,10 +37,11 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ManifestStore _manifestStore;
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
+    private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
     public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), log)
+        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -50,7 +52,7 @@ internal sealed class RecoveryService<T> : IHostedService
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
         ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), log)
+        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -61,6 +63,7 @@ internal sealed class RecoveryService<T> : IHostedService
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
         IdempotencyStore idempotency,
+        ISnapshotReader snapshotReader,
         ILogger<RecoveryService<T>> log,
         IHostApplicationLifetime? applicationLifetime = null)
     {
@@ -70,6 +73,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _options = options;
         _journalStartupGate = journalStartupGate;
         _idempotency = idempotency;
+        _snapshotReader = snapshotReader;
         _log = log;
         _applicationLifetime = applicationLifetime;
     }
@@ -106,7 +110,7 @@ internal sealed class RecoveryService<T> : IHostedService
         new(
             $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent.ToString(CultureInfo.InvariantCulture)}.");
 
-    private static int DetermineJournalOnlyReplayStart(Storage.Manifest.ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
+    private static int DetermineJournalOnlyReplayStart(ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
@@ -326,7 +330,7 @@ internal sealed class RecoveryService<T> : IHostedService
             SnapshotLoadResult<T>? snapshot = null;
             try
             {
-                snapshot = await SnapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)
             {
@@ -370,7 +374,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        Storage.Manifest.ManifestState.SnapshotRef? SnapshotReference,
+        ManifestState.SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

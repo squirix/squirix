@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Json;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 using static Squirix.Server.Adapters.Rest.RestDtos;

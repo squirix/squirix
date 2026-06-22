@@ -14,6 +14,17 @@ namespace Squirix.Utils;
 /// </summary>
 internal static class ProtoEx
 {
+    public static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(serializer);
+        return new CacheEntry<T>
+        {
+            Value = await FromStructAsync<T>(entry.Value, serializer).ConfigureAwait(false),
+            ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
+            Expiration = entry.Expiration?.ToTimeSpan(),
+        };
+    }
+
     internal static async ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -60,17 +71,6 @@ internal static class ProtoEx
         return await FromStructAsync<T>(ToStructValueWrapper(value), serializer).ConfigureAwait(false);
     }
 
-    internal static async ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(serializer);
-
-        if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
-            return await FromValueAsync<T>(wrapped, serializer).ConfigureAwait(false);
-
-        return await DeserializeAsync<T>(Value.ForStruct(value), serializer).ConfigureAwait(false);
-    }
-
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -111,6 +111,17 @@ internal static class ProtoEx
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
             _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };
+    }
+
+    private static async ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
+            return await FromValueAsync<T>(wrapped, serializer).ConfigureAwait(false);
+
+        return await DeserializeAsync<T>(Value.ForStruct(value), serializer).ConfigureAwait(false);
     }
 
     private static async ValueTask<T?> FromValueAsync<T>(Value value, ISquirixSerializer serializer)

@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage.Journaling.Entries;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Json;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 

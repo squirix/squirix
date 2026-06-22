@@ -2,6 +2,7 @@ using System;
 using System.Text.Json.Serialization;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Limits;
+using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage;
 
@@ -37,6 +38,9 @@ internal sealed record PersistenceOptions
     /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
     public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
+    [JsonPropertyName("journalBackend")]
+    public JournalBackend JournalBackend { get; init; } = JournalBackend.Pipelined;
+
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
     [JsonPropertyName("groupCommitMaxBatch")]
     public int JournalGroupCommitMaxBatch
@@ -69,19 +73,6 @@ internal sealed record PersistenceOptions
         }
     }
 
-    [JsonPropertyName("journalMaxSegmentMb")]
-    public int JournalMaxSegmentMb
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentMb must be greater than zero.");
-
-            field = value;
-        }
-    }
-
     [JsonPropertyName("journalMaxSegmentCount")]
     public int JournalMaxSegmentCount
     {
@@ -90,6 +81,19 @@ internal sealed record PersistenceOptions
         {
             if (value <= 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentCount must be greater than zero.");
+
+            field = value;
+        }
+    }
+
+    [JsonPropertyName("journalMaxSegmentMb")]
+    public int JournalMaxSegmentMb
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentMb must be greater than zero.");
 
             field = value;
         }
@@ -108,9 +112,6 @@ internal sealed record PersistenceOptions
         }
     }
 
-    [JsonPropertyName("journalBackend")]
-    public JournalBackend JournalBackend { get; init; } = JournalBackend.Pipelined;
-
     [JsonPropertyName("journalPlatformBackend")]
     public JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
 
@@ -125,6 +126,18 @@ internal sealed record PersistenceOptions
             field = value;
         }
     }
+
+    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
+    public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
+
+    /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
+    public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
+
+    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
+    public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
+
+    [JsonPropertyName("snapshotBackend")]
+    public SnapshotBackend SnapshotBackend { get; init; } = SnapshotBackend.Json;
 
     public int SnapshotIntervalSec
     {
@@ -149,13 +162,4 @@ internal sealed record PersistenceOptions
             field = value;
         }
     }
-
-    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
-    public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
-
-    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
-    public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
-
-    /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
-    public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
 }

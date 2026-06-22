@@ -110,8 +110,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found
-            ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false))
+        return response.Found ? new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false))
             : new CacheValueResult<T>(false, default);
     }
 
@@ -307,7 +306,7 @@ internal sealed class RemoteCache<T> : ICache<T>
             (CacheName: _cacheName, Key: key),
             cancellationToken).ConfigureAwait(false);
 
-        return response.Found ? await response.Entry.MapProtoEntryToCacheEntryAsync<T>(_serializer).ConfigureAwait(false) : null;
+        return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
     }
 
     private GetOrAddAsyncRequest ToGetOrAddAsyncRequest(string key, CacheEntry<T> entry) => new()

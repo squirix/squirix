@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Utils;
 
@@ -26,15 +27,16 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 /// </summary>
 internal static class JournalCompactor
 {
-    public static async Task CompactAsync(PersistenceOptions options, ManifestStore manifestStore, CancellationToken cancellationToken)
+    public static async Task CompactAsync(PersistenceOptions options, ManifestStore manifestStore, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(snapshotReader);
 
         _ = await DirectoryEx.CreateDirectoryAsync(options.DataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
-        var (state, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, cancellationToken).ConfigureAwait(false);
+        var (state, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, cancellationToken).ConfigureAwait(false);
 
         var newFirstIdx = GetNextJournalSegmentIndex(CollectJournalSegments(options.DataDir));
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
@@ -115,14 +117,15 @@ internal static class JournalCompactor
 
     private static async Task<(Dictionary<CacheKey, CacheEntry<object?>> State, ulong LastSeq)> BuildCompactionStateAsync(
         PersistenceOptions options,
-        Manifest.ManifestState.SnapshotRef? snapshotRef,
+        ManifestState.SnapshotRef? snapshotRef,
         int replayFromSegment,
+        ISnapshotReader snapshotReader,
         CancellationToken cancellationToken)
     {
         var state = new Dictionary<CacheKey, CacheEntry<object?>>();
         if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
         {
-            var snapshot = await SnapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             foreach (var (key, entry) in snapshot.Entries)
                 state[key] = entry;
         }
@@ -153,7 +156,7 @@ internal static class JournalCompactor
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
         ManifestStore manifestStore,
-        Manifest.ManifestState oldManifest,
+        ManifestState oldManifest,
         int newFirstIdx,
         ulong lastSeq,
         CancellationToken cancellationToken)
@@ -168,7 +171,7 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
         FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
 
-        var newManifest = new Manifest.ManifestState
+        var newManifest = new ManifestState
         {
             Format = oldManifest.Format is 0 ? 1 : oldManifest.Format,
             CurrentJournal = newFirstIdx,
@@ -205,11 +208,7 @@ internal static class JournalCompactor
 
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
-    private static async Task WriteCompactedJournalAsync(
-        string tmpPath,
-        Dictionary<CacheKey, CacheEntry<object?>> state,
-        ulong lastSeq,
-        CancellationToken cancellationToken)
+    private static async Task WriteCompactedJournalAsync(string tmpPath, Dictionary<CacheKey, CacheEntry<object?>> state, ulong lastSeq, CancellationToken cancellationToken)
     {
         var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         await using (fs.ConfigureAwait(false))
@@ -241,12 +240,7 @@ internal static class JournalCompactor
         await fs.WriteAsync(header, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<ulong> WriteCompactedPutEntryAsync(
-        FileStream fs,
-        CacheKey key,
-        byte[] body,
-        ulong sequence,
-        CancellationToken cancellationToken)
+    private static async Task<ulong> WriteCompactedPutEntryAsync(FileStream fs, CacheKey key, byte[] body, ulong sequence, CancellationToken cancellationToken)
     {
         var record = new JournalRecord
         {

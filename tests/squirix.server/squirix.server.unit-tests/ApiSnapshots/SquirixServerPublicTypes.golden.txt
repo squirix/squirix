@@ -138,5 +138,10 @@ F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::RandomAccess
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::Uring
 T:Squirix.Server.Storage.Journaling.JournalBackend
 T:Squirix.Server.Storage.Journaling.JournalPlatformBackend
+F:Squirix.Server.Storage.Snapshot.SnapshotBackend::Binary
+F:Squirix.Server.Storage.Snapshot.SnapshotBackend::Json
+M:Squirix.Server.Storage.Snapshot.SnapshotBenchmarkOptions::BackendFromValue(System.Int32)
+T:Squirix.Server.Storage.Snapshot.SnapshotBackend
+T:Squirix.Server.Storage.Snapshot.SnapshotBenchmarkOptions
 T:Squirix.Transport.Grpc.RpcOperationIdentity
 M:Squirix.Transport.Grpc.RpcOperationIdentity::New()

@@ -1,6 +1,6 @@
 using Squirix.Server.Node.Services;
 
-namespace Squirix.Server.Storage.Snapshot;
+namespace Squirix.Server.Storage.Snapshot.Json;
 
 internal sealed class SnapshotFrame
 {

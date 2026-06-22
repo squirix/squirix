@@ -13,6 +13,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -26,6 +27,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
     private readonly SnapshotCoordinator<T> _snap;
+    private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
     private int _consecutiveFailures;
     private int _inFlight;
@@ -37,6 +39,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         SnapshotCoordinator<T> snap,
         IExclusiveMaintenanceExecutor journalMaintenance,
         ManifestStore manifest,
+        ISnapshotReader snapshotReader,
         IOptions<PersistenceOptions> persistence,
         ClusterConfig cluster,
         TimeProvider? timeProvider = null)
@@ -45,6 +48,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snap = snap;
         _journalMaintenance = journalMaintenance;
         _manifest = manifest;
+        _snapshotReader = snapshotReader;
         _nodeId = cluster.NodeId;
         _opt = opt.Value;
         _persistence = persistence.Value;
@@ -77,7 +81,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         LogManager.CompactionStateChanged(_log, prev, next);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(Storage.Manifest.ManifestState.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(ManifestState.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip
@@ -134,8 +138,9 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         var resultLabel = "failure";
         try
         {
-            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, ct)), cancellationToken)
-                                     .ConfigureAwait(false);
+            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
+                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, ct)),
+                cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
         }
         finally

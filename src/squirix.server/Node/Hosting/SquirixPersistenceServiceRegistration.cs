@@ -28,6 +28,20 @@ internal static class SquirixPersistenceServiceRegistration
         return services;
     }
 
+    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool waitForRecovery)
+    {
+        _ = services.AddSingleton(new RecoveryOptions { BlockOnStart = waitForRecovery });
+        _ = services.AddHostedService<RecoveryService<object?>>();
+        _ = services.AddSingleton<SnapshotTriggerService<object?>>();
+        _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
+        _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
+        _ = services.AddSingleton<JournalCompactionService<object?>>();
+        _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
+        _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
+        _ = services.AddSingleton<JournalCompactionController>();
+        _ = services.AddHostedService<JournalMetricsExporterService>();
+    }
+
     private static void RegisterPersistenceRuntime(IServiceCollection services, PersistenceRuntime runtime)
     {
         _ = services.AddSingleton(runtime);
@@ -46,22 +60,12 @@ internal static class SquirixPersistenceServiceRegistration
                     .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
 
-        _ = services.AddSingleton<ISnapshotWriter>(static sp => new SnapshotWriter(sp.GetRequiredService<PersistenceOptions>().DataDir));
-        _ = services.AddSingleton<SnapshotReader>();
+        _ = services.AddSingleton<ISnapshotWriter>(static sp =>
+        {
+            var options = sp.GetRequiredService<PersistenceOptions>();
+            return SnapshotStoreFactory.CreateWriter(options);
+        });
+        _ = services.AddSingleton<ISnapshotReader>(static sp => SnapshotStoreFactory.CreateReader(sp.GetRequiredService<PersistenceOptions>()));
         _ = services.AddSingleton<SnapshotCoordinator<object?>>();
-    }
-
-    private static void RegisterPersistenceHostedServices(IServiceCollection services, bool waitForRecovery)
-    {
-        _ = services.AddSingleton(new RecoveryOptions { BlockOnStart = waitForRecovery });
-        _ = services.AddHostedService<RecoveryService<object?>>();
-        _ = services.AddSingleton<SnapshotTriggerService<object?>>();
-        _ = services.AddSingleton<ISnapshotReadinessStatus>(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<SnapshotTriggerService<object?>>());
-        _ = services.AddSingleton<JournalCompactionService<object?>>();
-        _ = services.AddSingleton<IJournalCompactionStatus>(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
-        _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
-        _ = services.AddSingleton<JournalCompactionController>();
-        _ = services.AddHostedService<JournalMetricsExporterService>();
     }
 }

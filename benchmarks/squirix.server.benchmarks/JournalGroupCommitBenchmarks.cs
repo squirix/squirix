@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -10,36 +12,20 @@ using Squirix.Server.TestKit.Benchmarks;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Pipelined journal throughput under concurrent durable writers with group commit enabled.</summary>
+[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class JournalGroupCommitBenchmarks
 {
     private const int DefaultOperationsPerWriter = 2_000;
     private const int DefaultParallelWriters = 8;
-    private int _nextWriterId;
     private JournalBenchmarkHost? _host;
+    private int _nextWriterId;
     private byte[] _putPayload = [];
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
     public int PutPayloadBytes { get; set; }
-
-    /// <summary>Creates the journal coordinator and payload for the current parameter set.</summary>
-    [GlobalSetup]
-    public async Task SetupAsync()
-    {
-        var options = new PersistenceOptions
-        {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
-            JournalGroupCommitMaxBatch = 32,
-            JournalMaxSegmentMb = 64,
-        };
-        _host = await JournalBenchmarkHost.CreateAsync("journal-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _putPayload = new byte[PutPayloadBytes];
-        Array.Fill(_putPayload, Convert.ToByte('a'));
-        _nextWriterId = 0;
-    }
 
     /// <summary>Disposes the journal coordinator and temporary data directory.</summary>
     [GlobalCleanup]
@@ -63,7 +49,7 @@ public class JournalGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"w{writerId.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                var key = new CacheKey("bench", $"w{writerId.ToString(CultureInfo.InvariantCulture)}");
                 for (var i = 0; i < operationsPerWriter; i++)
                 {
                     await host.Coordinator.AppendPutAsync(key, _putPayload, null, cancellationToken).ConfigureAwait(false);
@@ -72,9 +58,24 @@ public class JournalGroupCommitBenchmarks
             }).ConfigureAwait(false);
     }
 
-    private static int GetOperationsPerWriter() =>
-        JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
+    /// <summary>Creates the journal coordinator and payload for the current parameter set.</summary>
+    [GlobalSetup]
+    public async Task SetupAsync()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
+            JournalGroupCommitMaxBatch = 32,
+            JournalMaxSegmentMb = 64,
+        };
+        _host = await JournalBenchmarkHost.CreateAsync("journal-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
+        _putPayload = new byte[PutPayloadBytes];
+        Array.Fill(_putPayload, Convert.ToByte('a'));
+        _nextWriterId = 0;
+    }
 
-    private static int GetParallelWriters() =>
-        JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
+    private static int GetOperationsPerWriter() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
+
+    private static int GetParallelWriters() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
 }

@@ -11,10 +11,10 @@ High retention count (100k) so cleanup is off the hot path; warmup publish prime
 ### Micro publish (`SQUIRIX_BENCH_QUICK=1`, 500 ops/invoke)
 
 | Mean/invoke | ~ms/publish | Alloc/invoke |
-| ----------- | ----------- | ------------ |
+|-------------|-------------|--------------|
 | **1.758 s** | **3.52 ms** | ~385 MB      |
 
-Default profile (2 000 ops/invoke, 1 warmup + 2 measured): expect ~5× longer wall time than quick row above.
+Default profile (2000 ops/invoke, 1 warmup + 2 measured): expect ~5× longer wall time than quick row above.
 
 ### Segment roll e2e (`ManifestSegmentRollBenchmarks`, quick: 2 rolls/invoke)
 
@@ -22,7 +22,7 @@ Real `JournalCoordinator` overflow roll + manifest publish + fsync. `JournalMaxS
 only.
 
 | Mean/invoke (2 rolls) | ~ms/roll     |
-| --------------------- | ------------ |
+|-----------------------|--------------|
 | **23.72 ms**          | **~11.9 ms** |
 
 ---
@@ -34,7 +34,7 @@ Sync roll publish, cached UTF-8 snapshot path, roll-only encode, directory ensur
 ### Micro publish (`ManifestPublishBenchmarks.PublishManifest`)
 
 | Mean/invoke | ~ms/publish | Alloc/invoke |
-| ----------- | ----------- | ------------ |
+|-------------|-------------|--------------|
 | **0.821 s** | **1.64 ms** | ~378 MB      |
 
 **~2.1×** faster than Phase 4 micro publish (~3.52 ms → ~1.64 ms).
@@ -42,7 +42,7 @@ Sync roll publish, cached UTF-8 snapshot path, roll-only encode, directory ensur
 ### Segment roll e2e (`ManifestSegmentRollBenchmarks`, 2 rolls/invoke)
 
 | Mean/invoke (2 rolls) | ~ms/roll     |
-| --------------------- | ------------ |
+|-----------------------|--------------|
 | **26.35 ms**          | **~13.2 ms** |
 
 Manifest publish is a small slice of total roll time (noise within ~0.2 ms/roll vs Phase 4 on this host).
@@ -55,7 +55,7 @@ Isolates segment-roll manifest costs on the production roll path (no snapshot pa
 `PublishRollBlocking`.
 
 | Method                         | Mean/invoke | ~µs/op     | Ratio vs full |
-| ------------------------------ | ----------- | ---------- | ------------- |
+|--------------------------------|-------------|------------|---------------|
 | PublishRollBlocking (baseline) | **804 ms**  | **~1 608** | 1.00          |
 | RollEncodeOnly                 | **7.7 µs**  | **~0.015** | ~0            |
 | RollDataFileOnly               | **374 ms**  | **~748**   | 0.47          |
@@ -77,7 +77,7 @@ in one `io_uring_enter` when available).
 ### Phase 6 micro publish (`ManifestPublishBenchmarks.PublishManifest`)
 
 | Mean/invoke | ~ms/publish | Alloc/invoke |
-| ----------- | ----------- | ------------ |
+|-------------|-------------|--------------|
 | **0.793 s** | **1.59 ms** | ~378 MB      |
 
 **~3%** faster than Phase 5 micro publish (~1.64 ms → ~1.59 ms/op).
@@ -85,7 +85,7 @@ in one `io_uring_enter` when available).
 ### Phase 6 segment roll e2e (`ManifestSegmentRollBenchmarks`, 2 rolls/invoke)
 
 | Mean/invoke (2 rolls) | ~ms/roll     |
-| --------------------- | ------------ |
+|-----------------------|--------------|
 | **32.64 ms**          | **~16.3 ms** |
 
 High variance run-to-run (prior Phase 5 sample was ~13.2 ms/roll on the same host).
@@ -93,7 +93,7 @@ High variance run-to-run (prior Phase 5 sample was ~13.2 ms/roll on the same hos
 ### Roll breakdown (`ManifestPublishBreakdownBenchmarks`)
 
 | Method                         | Mean/invoke | ~µs/op     | Ratio vs full |
-| ------------------------------ | ----------- | ---------- | ------------- |
+|--------------------------------|-------------|------------|---------------|
 | PublishRollBlocking (baseline) | **797 ms**  | **~1 594** | 1.00          |
 | RollEncodeOnly                 | **7.7 µs**  | **~0.015** | ~0            |
 | RollDataFileOnly               | **358 ms**  | **~715**   | 0.45          |

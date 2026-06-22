@@ -17,7 +17,7 @@ internal interface ISnapshotWriter
     /// <returns>Path to the completed snapshot file.</returns>
     Task<string> WriteAsync(
         int index,
-        IEnumerable<(CacheKey Key, object Entry)> items,
+        IEnumerable<(CacheKey Key, CacheEntry<object?> Entry)> items,
         IEnumerable<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken);
 }

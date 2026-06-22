@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
@@ -17,12 +18,19 @@ internal sealed class JournalCompactionController : IDisposable
     private readonly ManifestStore _manifestStore;
     private readonly SemaphoreSlim _mutex = new(1, 1);
     private readonly PersistenceOptions _opt;
+    private readonly ISnapshotReader _snapshotReader;
     private bool _disposed;
 
-    public JournalCompactionController(PersistenceOptions opt, ManifestStore manifestStore, IJournalCoordinator journalWriter, ILogger<JournalCompactionController> log)
+    public JournalCompactionController(
+        PersistenceOptions opt,
+        ManifestStore manifestStore,
+        ISnapshotReader snapshotReader,
+        IJournalCoordinator journalWriter,
+        ILogger<JournalCompactionController> log)
     {
         _opt = opt;
         _manifestStore = manifestStore;
+        _snapshotReader = snapshotReader;
         _journalWriter = journalWriter;
         _log = log;
     }
@@ -39,7 +47,7 @@ internal sealed class JournalCompactionController : IDisposable
             var manifest = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             var snapIdx = manifest.LastSnapshot?.Index ?? 0;
             LogManager.ManualCompactionStart(_log, snapIdx);
-            await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _manifestStore, ct)), cancellationToken)
+            await _journalWriter.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_opt, _manifestStore, _snapshotReader, ct)), cancellationToken)
                                 .ConfigureAwait(false);
             LogManager.ManualCompactionFinished(_log);
             return true;

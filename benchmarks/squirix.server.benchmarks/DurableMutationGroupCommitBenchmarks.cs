@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -17,32 +18,14 @@ public class DurableMutationGroupCommitBenchmarks
 {
     private const int DefaultOperationsPerWriter = 2_000;
     private const int DefaultParallelWriters = 8;
-    private int _nextWriterId;
     private DurableMutationExecutor? _executor;
     private JournalBenchmarkHost? _host;
+    private int _nextWriterId;
     private byte[] _putPayload = [];
 
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
     public int PutPayloadBytes { get; set; }
-
-    /// <summary>Creates the journal coordinator, executor, and payload for the current parameter set.</summary>
-    [GlobalSetup]
-    public async Task SetupAsync()
-    {
-        var options = new PersistenceOptions
-        {
-            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
-            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
-            JournalGroupCommitMaxBatch = 32,
-            JournalMaxSegmentMb = 64,
-        };
-        _host = await JournalBenchmarkHost.CreateAsync("durable-mutation-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
-        _executor = new DurableMutationExecutor(_host.Coordinator);
-        _putPayload = new byte[PutPayloadBytes];
-        Array.Fill(_putPayload, Convert.ToByte('m'));
-        _nextWriterId = 0;
-    }
 
     /// <summary>Disposes the journal coordinator and temporary data directory.</summary>
     [GlobalCleanup]
@@ -69,7 +52,7 @@ public class DurableMutationGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"m{writerId.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                var key = new CacheKey("bench", $"m{writerId.ToString(CultureInfo.InvariantCulture)}");
                 for (var i = 0; i < operationsPerWriter; i++)
                 {
                     await executor.ExecuteAsync(
@@ -82,9 +65,25 @@ public class DurableMutationGroupCommitBenchmarks
             }).ConfigureAwait(false);
     }
 
-    private static int GetOperationsPerWriter() =>
-        JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
+    /// <summary>Creates the journal coordinator, executor, and payload for the current parameter set.</summary>
+    [GlobalSetup]
+    public async Task SetupAsync()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalPlatformBackend = JournalPlatformBackend.RandomAccess,
+            JournalGroupCommitMaxWait = TimeSpan.FromMilliseconds(1),
+            JournalGroupCommitMaxBatch = 32,
+            JournalMaxSegmentMb = 64,
+        };
+        _host = await JournalBenchmarkHost.CreateAsync("durable-mutation-gc-bench", options, CancellationToken.None).ConfigureAwait(false);
+        _executor = new DurableMutationExecutor(_host.Coordinator);
+        _putPayload = new byte[PutPayloadBytes];
+        Array.Fill(_putPayload, Convert.ToByte('m'));
+        _nextWriterId = 0;
+    }
 
-    private static int GetParallelWriters() =>
-        JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
+    private static int GetOperationsPerWriter() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitOperationsPerWriter(DefaultOperationsPerWriter);
+
+    private static int GetParallelWriters() => JournalAppendBreakdownBenchmarkSupport.ResolveGroupCommitParallelWriters(DefaultParallelWriters);
 }

@@ -7,6 +7,8 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -26,7 +28,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [only]);
         await manifestStore.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new ManifestState
             {
                 Format = 1,
                 CurrentJournal = 3,
@@ -61,7 +63,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [old]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             Format = 1,
             CurrentJournal = 3,
@@ -87,12 +89,12 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [envelope]);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
             NextSequence = 1,
-            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+            LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = 0,
                 CreatedUtc = DateTime.UtcNow,
@@ -120,7 +122,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, [envelope]);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             Format = 1,
             CurrentJournal = 3,
@@ -151,7 +153,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [s1]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
@@ -190,7 +192,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [live]);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             Format = 1,
             CurrentJournal = 2,
@@ -227,7 +229,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
 
-        await JournalCompactor.CompactAsync(persistence, manifestStore, DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, SnapshotStoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         var maxSeq = 0UL;
@@ -259,7 +261,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         }
 
         await manifestStore.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new ManifestState
             {
                 Format = 1,
                 CurrentJournal = 2,

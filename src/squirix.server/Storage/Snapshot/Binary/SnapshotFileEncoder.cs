@@ -1,0 +1,96 @@
+using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Squirix.Server.Core;
+using Squirix.Server.Node.Services;
+using Squirix.Server.Utils;
+
+namespace Squirix.Server.Storage.Snapshot.Binary;
+
+/// <summary>Shared binary snapshot file encode/write helpers.</summary>
+[SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Binary.SnapshotWriter and snapshot breakdown benchmarks.")]
+internal static class SnapshotFileEncoder
+{
+    public static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)
+    {
+        var bodyLength = Codec.ComputeEntryBodyLength(key, entry);
+        var recordLength = Codec.ComputeRecordLength(bodyLength);
+        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
+        Codec.WriteEntryBody(key, entry, body);
+        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Entry, body);
+        return recordLength;
+    }
+
+    public static async Task WriteFileAsync(
+        FileStream destination,
+        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
+        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
+        byte[] encodeBuffer,
+        CancellationToken cancellationToken)
+    {
+        var totalSize = ComputeTotalFileSize(items, idempotencyRecords);
+        destination.SetLength(totalSize);
+        destination.Position = 0;
+
+        var header = new byte[Codec.FileHeaderSize];
+        Codec.WriteFileHeader(header);
+        await destination.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+
+        var crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
+        foreach (var (key, entry) in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var recordLength = WriteEntryRecord(encodeBuffer, key, entry);
+            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (var record in idempotencyRecords)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var recordLength = WriteIdempotencyRecord(encodeBuffer, record);
+            crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
+        }
+
+        var footer = new byte[Codec.FileFooterSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
+        await destination.WriteAsync(footer, cancellationToken).ConfigureAwait(false);
+        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static long ComputeTotalFileSize(IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items, IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
+    {
+        long total = Codec.FileHeaderSize + Codec.FileFooterSize;
+        foreach (var (key, entry) in items)
+            total += Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry));
+
+        foreach (var record in idempotencyRecords)
+            total += Codec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
+
+        if (total > int.MaxValue)
+            throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.");
+
+        return total;
+    }
+
+    private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)
+    {
+        var bodyLength = IdempotencyCodec.ComputeEncodedLength(record);
+        var recordLength = Codec.ComputeRecordLength(bodyLength);
+        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
+        IdempotencyCodec.Write(record, body);
+        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Idempotency, body);
+        return recordLength;
+    }
+
+    private static async Task<uint> WriteRecordAndUpdateCrcAsync(FileStream destination, byte[] encodeBuffer, int recordLength, uint crc, CancellationToken cancellationToken)
+    {
+        var recordBytes = encodeBuffer.AsMemory(0, recordLength);
+        crc = Crc32C.Append(crc, recordBytes.Span);
+        await destination.WriteAsync(recordBytes, cancellationToken).ConfigureAwait(false);
+        return crc;
+    }
+}
