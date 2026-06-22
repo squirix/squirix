@@ -1,8 +1,10 @@
-# Snapshot benchmark baseline — 2026-06-21 (post P8 re-run)
+# Snapshot benchmark baseline — 2026-06-21 (post P9, binary-only)
 
 Windows 11, Intel Core Ultra 9 285K, .NET 10.0.9, Release.
 
-Synthetic workload: strings, longs, doubles entry values. JSON backend uses `.ssqx`; binary uses `.bsqx`.
+Synthetic workload: strings, longs, doubles entry values. Snapshots use binary `.bsqx` only.
+
+**Historical JSON baseline** (pre-P9, `.ssqx` backend removed): see tables below — JSON columns kept for comparison with the 2026-06-21 gate run.
 
 ```bash
 # Quick (1k entries, 2 ops/invoke write/breakdown)
@@ -89,7 +91,7 @@ At 10k, manifest slice is **~37%** of binary snapshot-file publish (vs **~72%** 
 
 ## Parity
 
-`SnapshotBackendParityTests` — JSON and binary backends produce equivalent recovered state.
+`SnapshotBinaryStoreTests` — mixed entry types and idempotency records round-trip through the binary snapshot format.
 
 ## Phase summary
 
@@ -99,7 +101,8 @@ At 10k, manifest slice is **~37%** of binary snapshot-file publish (vs **~72%** 
 | P5b sync | **335 KB** | — | fixed read path |
 | P6 | — | ~300 KB | durability + coordinator + metrics |
 | P7 | — | breakdown + 10k gate | `ManifestWriteOnly` isolates manifest slice |
-| P8 | — | — | retention `.bsqx`; no perf change expected |
+| P8 | — | — | retention `.bsqx` |
+| **P9** | — | — | JSON backend removed; binary-only |
 
 ## Gate verdict (2026-06-21 re-run)
 

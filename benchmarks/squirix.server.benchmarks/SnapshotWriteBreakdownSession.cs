@@ -135,5 +135,5 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
 
     private string BuildSnapshotPath(int index) => PathEx.Combine(
         _dataDir.Path,
-        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.BinarySnapshot}");
+        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
 }

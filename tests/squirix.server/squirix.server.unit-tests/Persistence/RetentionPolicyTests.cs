@@ -91,84 +91,6 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         Assert.True(FileKit.Exists(SnapshotPath(3)));
     }
 
-    /// <summary>Verifies binary <c>.bsqx</c> snapshots participate in retention cleanup.</summary>
-    [Fact]
-    public async Task WriteCleansUpBinarySnapshotsBeyondRetentionCount()
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            SnapshotRetentionCount = 2,
-        };
-        using var store = new ManifestStore(options);
-
-        CreateBinarySnapshot(1);
-        CreateBinarySnapshot(2);
-        CreateBinarySnapshot(3);
-
-        await store.WriteAsync(
-            new Storage.Manifest.ManifestState
-            {
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
-                {
-                    Index = 3,
-                    Path = BinarySnapshotPath(3),
-                    CreatedUtc = DateTime.UtcNow,
-                    LastAppliedSequence = 30,
-                    ReplayFromJournalSegment = 3,
-                },
-            },
-            DefaultCancellationToken);
-
-        await ManifestStoreTestSupport.WaitUntilAsync(
-            () => !FileKit.Exists(BinarySnapshotPath(1)),
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
-
-        Assert.False(FileKit.Exists(BinarySnapshotPath(1)));
-        Assert.True(FileKit.Exists(BinarySnapshotPath(2)));
-        Assert.True(FileKit.Exists(BinarySnapshotPath(3)));
-    }
-
-    /// <summary>Verifies retention orders JSON and binary snapshots together by index.</summary>
-    [Fact]
-    public async Task WriteCleansUpMixedSnapshotExtensionsBeyondRetentionCount()
-    {
-        var options = new PersistenceOptions
-        {
-            DataDir = Dir,
-            SnapshotRetentionCount = 2,
-        };
-        using var store = new ManifestStore(options);
-
-        CreateSnapshot(1);
-        CreateBinarySnapshot(2);
-        CreateSnapshot(3);
-
-        await store.WriteAsync(
-            new Storage.Manifest.ManifestState
-            {
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
-                {
-                    Index = 3,
-                    Path = SnapshotPath(3),
-                    CreatedUtc = DateTime.UtcNow,
-                    LastAppliedSequence = 30,
-                    ReplayFromJournalSegment = 3,
-                },
-            },
-            DefaultCancellationToken);
-
-        await ManifestStoreTestSupport.WaitUntilAsync(
-            () => !FileKit.Exists(SnapshotPath(1)),
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
-
-        Assert.False(FileKit.Exists(SnapshotPath(1)));
-        Assert.True(FileKit.Exists(BinarySnapshotPath(2)));
-        Assert.True(FileKit.Exists(SnapshotPath(3)));
-    }
-
     /// <summary>Cleans up the temporary storage directory after each test.</summary>
     public ValueTask DisposeAsync()
     {
@@ -187,12 +109,8 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
 
     private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{index.ToString(CultureInfo.InvariantCulture)}");
 
-    private void CreateBinarySnapshot(int index) => FileKit.WriteAllText(BinarySnapshotPath(index), $"snapshot-{index.ToString(CultureInfo.InvariantCulture)}");
-
     private string JournalPath(int index) => PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
-
-    private string BinarySnapshotPath(int index) =>
-        PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.BinarySnapshot}");
+    private string SnapshotPath(int index) =>
+        PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
 }

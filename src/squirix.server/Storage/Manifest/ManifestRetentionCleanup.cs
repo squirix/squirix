@@ -32,15 +32,6 @@ internal static class ManifestRetentionCleanup
         return [.. result];
     }
 
-    private static int TryParseSnapshotIndex(string name)
-    {
-        var index = TryParseSnapshotIndex(name, StorageFileExtensions.Snapshot);
-        if (index > 0)
-            return index;
-
-        return TryParseSnapshotIndex(name, StorageFileExtensions.BinarySnapshot);
-    }
-
     private static int TryParseSnapshotIndex(string name, string extension)
     {
         if (string.IsNullOrEmpty(name))
@@ -182,13 +173,11 @@ internal static class ManifestRetentionCleanup
         }
     }
 
-    private static List<string> ListSnapshotFiles(string dataDir)
-    {
-        var files = new List<string>();
-        files.AddRange(Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}"));
-        files.AddRange(Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.BinarySnapshot}"));
-        return files;
-    }
+    private static List<string> ListSnapshotFiles(string dataDir) =>
+        [.. Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}")];
+
+    private static int TryParseSnapshotIndex(string name) =>
+        TryParseSnapshotIndex(name, StorageFileExtensions.Snapshot);
 
     private static bool TryDeleteRetentionArtifact(ManifestRetentionContext context, string path, string artifactKind)
     {

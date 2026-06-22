@@ -2,7 +2,6 @@ using System;
 using System.Text.Json.Serialization;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Limits;
-using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Storage;
 
@@ -135,9 +134,6 @@ internal sealed record PersistenceOptions
 
     /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
     public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
-
-    [JsonPropertyName("snapshotBackend")]
-    public SnapshotBackend SnapshotBackend { get; init; } = SnapshotBackend.Json;
 
     public int SnapshotIntervalSec
     {

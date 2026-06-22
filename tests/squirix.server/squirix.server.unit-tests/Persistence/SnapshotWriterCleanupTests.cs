@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Snapshot.Json;
+using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -25,6 +25,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntry("first"))], [], DefaultCancellationToken);
 
         Assert.True(File.Exists(path));
+        Assert.EndsWith(".bsqx", path, StringComparison.Ordinal);
         Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
@@ -89,8 +90,10 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
     private static async Task<string[]> ReadSnapshotKeysAsync(string path)
     {
-        var keys = new List<string>();
-        await foreach (var (key, _) in SnapshotReader.ReadEntriesAsync<object?>(path, cancellationToken: CancellationToken.None))
+        var reader = new SnapshotReader();
+        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
+        var keys = new List<string>(loaded.Entries.Count);
+        foreach (var (key, _) in loaded.Entries)
             keys.Add(key.Key);
 
         keys.Sort(StringComparer.Ordinal);

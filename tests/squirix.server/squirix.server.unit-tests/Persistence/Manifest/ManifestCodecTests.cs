@@ -39,7 +39,7 @@ public sealed class ManifestCodecTests : UnitTestBase
                 LastAppliedSequence = 99,
                 ReplayFromJournalSegment = 2,
                 CreatedUtc = created,
-                Path = "/data/snp-000003.ssqx",
+                Path = "/data/snp-000003.bsqx",
             },
         };
 
@@ -82,7 +82,7 @@ public sealed class ManifestCodecTests : UnitTestBase
                 LastAppliedSequence = 99,
                 ReplayFromJournalSegment = 2,
                 CreatedUtc = created,
-                Path = "/data/snp-000003.ssqx",
+                Path = "/data/snp-000003.bsqx",
             },
         };
 

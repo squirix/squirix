@@ -2,9 +2,11 @@ using System;
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
 using Squirix.Server.Storage.Journaling.Entries;
-using Squirix.Server.Storage.Snapshot.Json;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -13,6 +15,8 @@ namespace Squirix.Server.UnitTests.Serialization;
 /// <summary>Tests JSON parsing with payloads split across multiple segments.</summary>
 public sealed class MultiSegmentJsonParsingTests : UnitTestBase
 {
+    private static readonly JsonSerializerOptions StrictSerializerOptions = CreateStrictSerializerOptions();
+
     /// <summary>Cache entry DTO parsing handles segmented property names and values.</summary>
     [Fact]
     public void CacheEntryJsonParsesSegmentedPayload()
@@ -30,20 +34,35 @@ public sealed class MultiSegmentJsonParsingTests : UnitTestBase
         Assert.Equal("west", entry.Tags?["region"]);
     }
 
-    /// <summary>Snapshot metadata parsing handles segmented property names, string values, and numeric values.</summary>
+    /// <summary>Idempotency record parsing handles segmented property names, string values, and nested objects.</summary>
     [Fact]
-    public void SnapshotMetadataParsesSegmentedPayload()
+    public void IdempotencyRecordParsesSegmentedPayload()
     {
         const string json =
-            """{"kind":"idempotency","idempotency":{"operationId":"segmented-op","fingerprint":"fingerprint","createdUtc":"2026-05-01T02:03:04Z","outcome":{"kind":"insert"}}}""";
+            """{"operationId":"segmented-op","fingerprint":"fingerprint","createdUtc":"2026-05-01T02:03:04Z","outcome":{"kind":"insert"}}""";
         var reader = CreateReader(json);
 
-        var frame = JsonSerializer.Deserialize<SnapshotFrame>(ref reader, DurabilityJson.StrictSerializerOptions);
+        var record = JsonSerializer.Deserialize<PersistedIdempotencyRecord>(ref reader, StrictSerializerOptions);
 
-        Assert.NotNull(frame);
-        Assert.Equal("idempotency", frame.Kind);
-        Assert.Equal("segmented-op", frame.Idempotency?.OperationId);
-        Assert.Equal("insert", frame.Idempotency?.Outcome.Kind);
+        Assert.NotNull(record);
+        Assert.Equal("segmented-op", record.OperationId);
+        Assert.Equal("insert", record.Outcome.Kind);
+    }
+
+    private static JsonSerializerOptions CreateStrictSerializerOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            AllowDuplicateProperties = false,
+            AllowTrailingCommas = false,
+            PropertyNameCaseInsensitive = true,
+            ReadCommentHandling = JsonCommentHandling.Disallow,
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        };
+        options.Converters.Add(new JsonStringEnumConverter());
+        options.TypeInfoResolverChain.Insert(0, SquirixJsonSerializerContext.Default);
+        options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+        return options;
     }
 
     private static Utf8JsonReader CreateReader(string json)
