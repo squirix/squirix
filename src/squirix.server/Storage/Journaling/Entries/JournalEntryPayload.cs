@@ -6,19 +6,12 @@ namespace Squirix.Server.Storage.Journaling.Entries;
 /// <summary>Sync encode/decode of journal Put payloads via <see cref="CacheEntryCodec" />.</summary>
 internal static class JournalEntryPayload
 {
+    public static int ComputeEncodedLength<T>(CacheEntry<T> entry) => CacheEntryCodec.ComputeEncodedLength(ToObjectEntry(entry));
+
     public static byte[] Encode<T>(CacheEntry<T> entry)
     {
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
-        var objectEntry = new CacheEntry<object?>
-        {
-            Value = entry.Value,
-            ExpiresUtc = expiresUtc,
-            Expiration = expiration,
-            Version = entry.Version,
-            Tags = entry.Tags,
-        };
-        var length = CacheEntryCodec.ComputeEncodedLength(objectEntry);
-        var buffer = new byte[length];
+        var objectEntry = ToObjectEntry(entry);
+        var buffer = new byte[CacheEntryCodec.ComputeEncodedLength(objectEntry)];
         CacheEntryCodec.Write(objectEntry, buffer);
         return buffer;
     }
@@ -29,5 +22,18 @@ internal static class JournalEntryPayload
             return true;
         entry = null;
         return false;
+    }
+
+    private static CacheEntry<object?> ToObjectEntry<T>(CacheEntry<T> entry)
+    {
+        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
+        return new CacheEntry<object?>
+        {
+            Value = entry.Value,
+            ExpiresUtc = expiresUtc,
+            Expiration = expiration,
+            Version = entry.Version,
+            Tags = entry.Tags,
+        };
     }
 }

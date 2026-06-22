@@ -6,17 +6,11 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace Squirix.Serialization;
 
-/// <summary>
-/// <see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.
-/// </summary>
 internal sealed class SystemTextJsonSerializer : ISquirixSerializer
 {
     private readonly JsonSerializerOptions _options;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SystemTextJsonSerializer" /> class.
-    /// </summary>
-    public SystemTextJsonSerializer()
+    internal SystemTextJsonSerializer()
     {
         _options = CreateDefaultOptions();
     }

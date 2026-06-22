@@ -144,7 +144,11 @@ resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
 resharper_convert_if_statement_to_return_statement_highlighting = none
 resharper_convert_if_statement_to_switch_statement_highlighting = none
-resharper_lambda_expression_can_be_made_static_highlighting = warning
+# Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
+# Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
+resharper_lambda_expression_can_be_made_static_highlighting = error
+resharper_lambda_expression_must_be_static_highlighting = error
+resharper_lambda_should_not_capture_context_highlighting = error
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning

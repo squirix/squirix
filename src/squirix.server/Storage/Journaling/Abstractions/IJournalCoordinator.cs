@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Server.Core;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
@@ -18,9 +19,9 @@ internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceE
 
     ulong NextSequence { get; }
 
-    ValueTask AppendPutAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken);
-
     ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken);
+
+    ValueTask AppendPutAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken);
 
     ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken);
 
@@ -50,11 +51,18 @@ internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceE
     /// <returns>The build phase result.</returns>
     ValueTask<TResult> ExecuteSnapshotCutAsync<TState, TBarrier, TResult>(
         TState state,
-        Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
-        Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
+        [RequireStaticDelegate] Func<TState, ulong, CancellationToken, ValueTask<TBarrier>> captureUnderBarrier,
+        [RequireStaticDelegate] Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken);
 
-    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken);
+    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
+        [RequireStaticDelegate] Func<CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken);
+
+    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
+        TState state,
+        [RequireStaticDelegate] Func<TState, CancellationToken, ValueTask<TResult>> action,
+        CancellationToken cancellationToken);
 
     ValueTask WaitForStartupAsync(CancellationToken cancellationToken);
 }
