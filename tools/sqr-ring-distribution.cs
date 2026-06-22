@@ -93,7 +93,7 @@ try
     if (nodes.Count is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
-    var ring = new ConsistentHashRing(nodes.ToArray(), virtualNodes);
+    var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
     foreach (var node in nodes)
         distribution[node] = 0;

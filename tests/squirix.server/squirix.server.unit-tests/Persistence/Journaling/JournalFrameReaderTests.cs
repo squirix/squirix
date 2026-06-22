@@ -150,7 +150,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        AssertConsistentStatus([.. length.ToArray(), .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
+        AssertConsistentStatus([.. length, .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
     }
 
     /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
@@ -168,7 +168,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
             Assert.Equal(JournalFrameReadStatus.Success, read.Status);
             Assert.Equal(bytes.Length, read.NextFrameOffset);
             Assert.Equal(payload.Length, payloadLength);
-            Assert.Equal(payload, rentedBuffer.AsSpan(0, payloadLength).ToArray());
+            Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer.AsSpan(0, payloadLength)));
         }
         finally
         {
@@ -196,11 +196,20 @@ public sealed class JournalFrameReaderTests : UnitTestBase
 
     private static byte[] BuildFrameBytes(params byte[][] payloads)
     {
-        using var stream = new MemoryStream();
+        var total = 0;
         foreach (var payload in payloads)
-            JournalFraming.WriteFrame(stream, payload);
+            total += JournalFraming.FrameTotalLength(payload.Length);
 
-        return stream.ToArray();
+        var bytes = new byte[total];
+        var offset = 0;
+        foreach (var payload in payloads)
+        {
+            var frameLength = JournalFraming.FrameTotalLength(payload.Length);
+            JournalFraming.WriteFrame(bytes.AsSpan(offset, frameLength), payload);
+            offset += frameLength;
+        }
+
+        return bytes;
     }
 
     private static byte[] BuildOversizedFrame()
@@ -230,6 +239,6 @@ public sealed class JournalFrameReaderTests : UnitTestBase
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        return [.. length.ToArray(), .. "ab"u8];
+        return [.. length, .. "ab"u8];
     }
 }

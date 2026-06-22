@@ -91,7 +91,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
             keys.Add(key.Key);
 
         keys.Sort(StringComparer.Ordinal);
-        return keys.ToArray();
+        return [.. keys];
     }
 
     private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)>

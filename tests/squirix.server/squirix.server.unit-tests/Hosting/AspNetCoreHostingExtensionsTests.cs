@@ -164,7 +164,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         Assert.False(authEnabled);
     }
 
-    private static Endpoint[] GetMappedEndpoints(WebApplication app)
+    private static List<Endpoint> GetMappedEndpoints(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
@@ -176,7 +176,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
                 endpoints.Add(endpoint);
         }
 
-        return endpoints.ToArray();
+        return endpoints;
     }
 
     private sealed record ExtensionMarker(string Name);

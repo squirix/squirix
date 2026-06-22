@@ -53,7 +53,8 @@ internal static class RingArbitraries
                         nodes.Add(node);
                 }
 
-                return nodes.ToArray();
+                string[] result = [.. nodes];
+                return result;
             });
     }
 }

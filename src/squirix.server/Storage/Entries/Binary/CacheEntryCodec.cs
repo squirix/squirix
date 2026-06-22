@@ -394,7 +394,9 @@ internal static class CacheEntryCodec
         if (!TryReadUtf32Prefixed(source[1..], out var rawBytes, out var rawBytesRead))
             return false;
 
-        value = rawBytes.ToArray();
+        var bytes = new byte[rawBytes.Length];
+        rawBytes.CopyTo(bytes);
+        value = bytes;
         bytesRead = 1 + rawBytesRead;
         return true;
     }

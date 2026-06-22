@@ -1,6 +1,12 @@
-M:System.String.Create;Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
-M:System.String.Format;Use string interpolation ($"") instead.
-M:System.FormattableString.Invariant;Use string interpolation ($"") instead.
+// Documentation Comment ID strings (ECMA format). Partial names like M:System.String.Format are ignored silently.
+// Enumerable.ToArray is matched on static calls; extension syntax (list.ToArray()) is not always reported by RS0030.
+M:System.String.Create(System.Int32,System.Span{System.Action{System.Span{System.Char}}});Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
+M:System.FormattableString.Invariant(System.FormattableString);Use string interpolation ($"") instead.
 T:System.Linq.Enumerable;LINQ is banned in this solution. Use explicit loops instead.
 T:System.Linq.EnumerableQuery`1;LINQ is banned in this solution. Use explicit loops instead.
 T:System.Linq.ParallelEnumerable;LINQ is banned in this solution. Use explicit loops instead.
+M:System.Linq.Enumerable.ToArray`1(System.Collections.Generic.IEnumerable{``0});Avoid unnecessary array copies. Return List<T>/IReadOnlyList<T> or use collection expressions ([.. source]) when an array is required.
+M:System.ReadOnlySpan`1.ToArray;Avoid unnecessary array copies when ReadOnlySpan can be passed through instead.
+M:System.Span`1.ToArray;Avoid unnecessary array copies when Span can be passed through instead.
+M:System.MemoryExtensions.ToArray`1(System.ReadOnlyMemory{``0});Avoid Memory.ToArray() when ReadOnlyMemory can be used instead.
+M:System.MemoryExtensions.ToArray`1(System.Memory{``0});Avoid Memory.ToArray() when ReadOnlyMemory can be used instead.

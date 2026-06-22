@@ -177,8 +177,7 @@ public sealed class ConsistentHashRingPropertyTests
                 remainingList.Add(node);
         }
 
-        var remaining = remainingList.ToArray();
-        var ringAfter = new ConsistentHashRing(remaining, vnodes);
+        var ringAfter = new ConsistentHashRing(remainingList, vnodes);
 
         var altSeed = seed ^ int.CreateTruncating(0x9E3779B9u);
 

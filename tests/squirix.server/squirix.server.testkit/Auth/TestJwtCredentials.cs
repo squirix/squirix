@@ -22,7 +22,8 @@ public sealed class TestJwtCredentials
     /// <param name="audience">JWT audience claim value.</param>
     private TestJwtCredentials(ReadOnlySpan<byte> signingKey, string issuer, string audience)
     {
-        _signingKey = signingKey.ToArray();
+        _signingKey = new byte[signingKey.Length];
+        signingKey.CopyTo(_signingKey);
         Base64SigningKey = Convert.ToBase64String(_signingKey);
         Issuer = issuer;
         Audience = audience;

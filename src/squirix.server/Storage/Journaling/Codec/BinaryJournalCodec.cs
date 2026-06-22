@@ -68,8 +68,7 @@ internal static class BinaryJournalCodec
         return (ComputeFrameBodyLength(record, keyUtf8), keyUtf8);
     }
 
-    public static int Encode(JournalRecord record, Span<byte> destination) =>
-        Encode(record, destination, Utf8KeyLengths.From(record.Key));
+    public static int Encode(JournalRecord record, Span<byte> destination) => Encode(record, destination, Utf8KeyLengths.From(record.Key));
 
     public static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
