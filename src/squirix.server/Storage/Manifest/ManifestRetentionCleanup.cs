@@ -18,30 +18,48 @@ internal static class ManifestRetentionCleanup
         return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
     }
 
-    private static IndexedStorageFile[] GetIndexedFiles(string[] files, Func<string, int> parseIndex)
+    private static IndexedStorageFile[] GetIndexedFiles(ReadOnlySpan<string> files, Func<string, int> parseIndex)
     {
-        var result = new List<IndexedStorageFile>();
-        foreach (var path in files)
+        if (files.IsEmpty)
+            return [];
+
+        var buffer = new IndexedStorageFile[files.Length];
+        var writeIndex = 0;
+        for (var i = 0; i < files.Length; i++)
         {
+            var path = files[i];
             var index = parseIndex(Path.GetFileName(path));
-            if (index > 0)
-                result.Add(new IndexedStorageFile(path, index));
+            if (index <= 0)
+                continue;
+
+            buffer[writeIndex++] = new IndexedStorageFile(path, index);
         }
 
-        result.Sort(static (left, right) => right.Index.CompareTo(left.Index));
-        return [.. result];
+        if (writeIndex is 0)
+            return [];
+
+        var result = writeIndex == buffer.Length ? buffer : Trim(buffer, writeIndex);
+        Array.Sort(result, static (left, right) => right.Index.CompareTo(left.Index));
+        return result;
     }
 
-    private static int TryParseSnapshotIndex(string name, string extension)
+    private static IndexedStorageFile[] Trim(IndexedStorageFile[] buffer, int length)
     {
-        if (string.IsNullOrEmpty(name))
+        var result = new IndexedStorageFile[length];
+        buffer.AsSpan(0, length).CopyTo(result);
+        return result;
+    }
+
+    private static int TryParseSnapshotIndex(ReadOnlySpan<char> name, ReadOnlySpan<char> extension)
+    {
+        if (name.IsEmpty)
             return 0;
-        if (!name.StartsWith(StorageFilePrefixes.Snapshot, StringComparison.OrdinalIgnoreCase))
+        if (!name.StartsWith(StorageFilePrefixes.Snapshot.AsSpan(), StringComparison.OrdinalIgnoreCase))
             return 0;
         if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
             return 0;
 
-        var numberPart = name.Substring(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - extension.Length);
+        var numberPart = name.Slice(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - extension.Length);
         return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
     }
 
@@ -133,16 +151,17 @@ internal static class ManifestRetentionCleanup
     {
         try
         {
-            var files = ListSnapshotFiles(context.DataDir);
-            if (files.Count <= context.SnapshotRetention)
+            var files = Directory.GetFiles(context.DataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}");
+            if (files.Length <= context.SnapshotRetention)
                 return false;
 
-            var ordered = GetIndexedFiles([.. files], TryParseSnapshotIndex);
+            var ordered = GetIndexedFiles(files, TryParseSnapshotIndex);
 
             if (ordered.Length <= context.SnapshotRetention)
                 return false;
 
-            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
+            var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < context.SnapshotRetention && i < ordered.Length; i++)
                 _ = keep.Add(ordered[i].Path);
 
@@ -173,11 +192,7 @@ internal static class ManifestRetentionCleanup
         }
     }
 
-    private static List<string> ListSnapshotFiles(string dataDir) =>
-        [.. Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}")];
-
-    private static int TryParseSnapshotIndex(string name) =>
-        TryParseSnapshotIndex(name, StorageFileExtensions.Snapshot);
+    private static int TryParseSnapshotIndex(string name) => TryParseSnapshotIndex(name.AsSpan(), StorageFileExtensions.Snapshot.AsSpan());
 
     private static bool TryDeleteRetentionArtifact(ManifestRetentionContext context, string path, string artifactKind)
     {
