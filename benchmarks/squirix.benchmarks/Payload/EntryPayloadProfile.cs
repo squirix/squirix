@@ -18,6 +18,6 @@ public enum EntryPayloadProfile
     /// <summary>A 1 MiB string payload.</summary>
     Large1MiB,
 
-    /// <summary>A string payload at the discriminated entry size limit.</summary>
-    NearLimitDiscriminated,
+    /// <summary>A string payload at the fixed entry size limit.</summary>
+    NearLimitEntry,
 }

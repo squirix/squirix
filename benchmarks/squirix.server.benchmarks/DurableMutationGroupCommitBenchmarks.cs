@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,7 @@ using Squirix.Server.TestKit.Benchmarks;
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>Durable mutation group-commit throughput via <see cref="DurableMutationExecutor" />.</summary>
+[SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
 public class DurableMutationGroupCommitBenchmarks

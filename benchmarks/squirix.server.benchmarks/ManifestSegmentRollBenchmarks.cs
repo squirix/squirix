@@ -91,7 +91,7 @@ public class ManifestSegmentRollBenchmarks
             UnixMs = 1,
             Operation = JournalOperationKind.Put,
             Key = key,
-            PutDiscriminatedEntryJson = payload,
+            PutEntryBytes = payload,
         };
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }

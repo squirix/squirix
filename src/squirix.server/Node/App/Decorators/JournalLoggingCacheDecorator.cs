@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Entries;
 
@@ -29,8 +28,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         _durableMutations = durableMutations ?? throw new ArgumentNullException(nameof(durableMutations));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
@@ -77,7 +75,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return;
         }
 
-        var payload = await GetOrBuildJournalPayloadAsync(entry).ConfigureAwait(false);
+        var payload = GetOrBuildJournalPayload(entry);
         var cacheKey = new CacheKey(cacheName, key);
         _ = await _durableMutations.ExecuteAsync(
             cacheKey,
@@ -120,7 +118,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (existing is null)
             return false;
 
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, existing.ExpiresUtc, existing.Expiration, existing.Version, null).ConfigureAwait(false);
+        var payload = JournalEntryPayload.Encode(
+            new CacheEntry<T>
+            {
+                Value = value,
+                ExpiresUtc = existing.ExpiresUtc,
+                Expiration = existing.Expiration,
+                Version = existing.Version,
+            });
         var cacheKey = new CacheKey(cacheName, key);
         return await _durableMutations.ExecuteAsync(
             cacheKey,
@@ -133,13 +138,12 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask<byte[]> GetOrBuildJournalPayloadAsync(CacheEntry<T> entry)
+    private static byte[] GetOrBuildJournalPayload(CacheEntry<T> entry)
     {
-        if (entry.PreparedJournalDiscriminatedJson is { } prepared)
+        if (entry.PreparedJournalEntryBytes is { } prepared)
             return prepared;
 
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
-        return await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, expiresUtc, expiration, entry.Version, null).ConfigureAwait(false);
+        return JournalEntryPayload.Encode(entry);
     }
 
     private static async ValueTask<DurableMutationCondition<bool>> EvaluateTryAddPreconditionAsync(
@@ -164,7 +168,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (!IsLocalOwner(cacheName, key))
             return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-        var payload = await GetOrBuildJournalPayloadAsync(entry).ConfigureAwait(false);
+        var payload = GetOrBuildJournalPayload(entry);
         var cacheKey = new CacheKey(cacheName, key);
         var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payload, cacheKey);
         return await _durableMutations.ExecuteAsync(

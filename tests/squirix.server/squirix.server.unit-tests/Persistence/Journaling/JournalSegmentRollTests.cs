@@ -8,11 +8,11 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,7 +36,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var overflowPayload = await BuildLargePutPayloadAsync();
+        var overflowPayload = BuildLargePutPayload();
         var overflowKey = CacheKey.Default("overflow-key");
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
@@ -76,7 +76,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var overflowPayload = await BuildLargePutPayloadAsync();
+        var overflowPayload = BuildLargePutPayload();
         var overflowKey = CacheKey.Default("overflow-key");
         var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
         await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
@@ -98,7 +98,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             DefaultCancellationToken);
     }
 
-    private static Task<byte[]> BuildLargePutPayloadAsync() => DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('y', 16_000), null, null, 1, null);
+    private static byte[] BuildLargePutPayload() => JournalEntryPayloadKit.EncodePut(new string('y', 16_000));
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
     {
@@ -129,7 +129,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
-        var fillPayload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(new string('x', 128), null, null, 1, null);
+        var fillPayload = JournalEntryPayloadKit.EncodePut(new string('x', 128));
         var fillKey = CacheKey.Default("fill");
         var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
@@ -158,7 +158,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             UnixMs = 1,
             Operation = JournalOperationKind.Put,
             Key = key,
-            PutDiscriminatedEntryJson = payload,
+            PutEntryBytes = payload,
         };
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }

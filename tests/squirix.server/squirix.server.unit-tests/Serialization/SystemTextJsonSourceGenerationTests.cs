@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Serialization;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 using static Squirix.Server.Adapters.Rest.RestDtos;
 using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.Rest.RestJsonSerializerContext;
-using SquirixJsonSerializerContext = Squirix.Server.Serialization.SquirixJsonSerializerContext;
 
 namespace Squirix.Server.UnitTests.Serialization;
 
@@ -25,26 +23,6 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 
         Assert.NotNull(roundTrip);
         Assert.Equal(42, roundTrip["value"]);
-    }
-
-    /// <summary>Ensures persistence DTOs outside journal are covered by the generated context.</summary>
-    [Fact]
-    public void PersistenceDtosRoundTripWithGeneratedMetadata()
-    {
-        var serializer = new SystemTextJsonSerializer();
-        var record = new PersistedIdempotencyRecord
-        {
-            OperationId = "op-2",
-            Fingerprint = "fp",
-            CreatedUtc = new DateTime(2026, 4, 10, 1, 2, 3, DateTimeKind.Utc),
-            Outcome = new PersistedIdempotencyOutcome { Kind = "insert" },
-        };
-
-        var roundTrip = serializer.Deserialize<PersistedIdempotencyRecord>(serializer.SerializeToUtf8Bytes(record));
-
-        Assert.NotNull(roundTrip);
-        Assert.Equal("op-2", roundTrip.OperationId);
-        Assert.Equal("insert", roundTrip.Outcome.Kind);
     }
 
     /// <summary>Ensures health diagnostics DTOs keep stable nested JSON shapes.</summary>
@@ -101,27 +79,5 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
 
         Assert.NotNull(roundTrip);
         Assert.Equal(42, roundTrip["value"]);
-    }
-
-    /// <summary>Ensures idempotency records keep the persisted camelCase property names.</summary>
-    [Fact]
-    public void IdempotencyRecordContextPreservesPersistedJsonShape()
-    {
-        var record = new PersistedIdempotencyRecord
-        {
-            OperationId = "snapshot-op",
-            Fingerprint = "fingerprint",
-            CreatedUtc = new DateTime(2026, 5, 1, 2, 3, 4, DateTimeKind.Utc),
-            Outcome = new PersistedIdempotencyOutcome { Kind = "insert" },
-        };
-
-        var element = JsonSerializer.SerializeToElement(record, SquirixJsonSerializerContext.Default.PersistedIdempotencyRecord);
-
-        Assert.True(element.TryGetProperty("operationId", out var operationId));
-        Assert.Equal("snapshot-op", operationId.GetString());
-        Assert.True(element.TryGetProperty("outcome", out var outcome));
-        Assert.True(outcome.TryGetProperty("kind", out var outcomeKind));
-        Assert.Equal("insert", outcomeKind.GetString());
-        Assert.False(element.TryGetProperty("OperationId", out _));
     }
 }

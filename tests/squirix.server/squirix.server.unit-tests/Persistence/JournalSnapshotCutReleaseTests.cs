@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -96,7 +96,7 @@ public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
             new JournalStartupGate(),
             DefaultCancellationToken);
 
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
+        var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("before"), payload, null, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<IOException>(async () =>

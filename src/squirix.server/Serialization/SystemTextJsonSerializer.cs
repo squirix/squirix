@@ -52,7 +52,6 @@ internal sealed class SystemTextJsonSerializer : ISquirixSerializer
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
         options.Converters.Add(new JsonStringEnumConverter());
-        options.TypeInfoResolverChain.Insert(0, SquirixJsonSerializerContext.Default);
         options.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
         return options;
     }

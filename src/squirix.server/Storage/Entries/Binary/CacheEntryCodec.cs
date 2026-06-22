@@ -11,7 +11,7 @@ using Squirix.Server.Serialization;
 
 namespace Squirix.Server.Storage.Entries.Binary;
 
-/// <summary>Binary cache-entry encoding mirroring discriminated JSON semantics.</summary>
+/// <summary>Binary cache-entry encoding for journal and snapshot payloads.</summary>
 internal static class CacheEntryCodec
 {
     private const int MaxUtf16StringLength = ushort.MaxValue;
@@ -158,18 +158,17 @@ internal static class CacheEntryCodec
         return length;
     }
 
-    private static int ComputeValueLength(object? value) => 1 + value switch
+    private static int ComputeValueLength(object? value) => value switch
     {
-        null => 0,
-        bool => 1,
-        string s => 4 + Encoding.UTF8.GetByteCount(s),
-        byte[] bytes => 4 + bytes.Length,
-        sbyte or byte or short or ushort or int or uint or long => 8,
-        float or double => 8,
-        decimal m => 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
-        StoredJsonPayload sjp => 4 + sjp.Utf8Memory.Length,
-        JsonElement je => 4 + Encoding.UTF8.GetByteCount(je.GetRawText()),
-        _ => 4 + SerializationProvider.Instance.SerializeToUtf8Bytes(value).Length,
+        null => 1,
+        bool => 2,
+        string s => 1 + 4 + Encoding.UTF8.GetByteCount(s),
+        byte[] bytes => 1 + 4 + bytes.Length,
+        sbyte or byte or short or ushort or int or uint or long => 1 + 8,
+        float or double => 1 + 8,
+        decimal m => 1 + 2 + Encoding.UTF8.GetByteCount(m.ToString(CultureInfo.InvariantCulture)),
+        JsonElement je => BinaryJsonTreeCodec.ComputeEncodedLength(je),
+        _ => BinaryJsonTreeCodec.ComputeEncodedLength(SerializationProvider.Instance.SerializeToElement(value)),
     };
 
     private static int WriteTags(FrozenDictionary<string, string>? tags, Span<byte> destination)
@@ -221,7 +220,7 @@ internal static class CacheEntryCodec
 
             case string s:
                 destination[offset++] = ValueKind.String;
-                offset += WriteUtf32Prefixed(Encoding.UTF8.GetBytes(s), destination[offset..]);
+                offset += WriteUtf32PrefixedString(s, destination[offset..]);
                 break;
 
             case byte[] bytes:
@@ -246,19 +245,12 @@ internal static class CacheEntryCodec
                 offset += WriteUtf8Prefixed(m.ToString(CultureInfo.InvariantCulture), destination[offset..]);
                 break;
 
-            case StoredJsonPayload sjp:
-                destination[offset++] = ValueKind.JsonBlob;
-                offset += WriteUtf32Prefixed(sjp.Utf8Memory.Span, destination[offset..]);
-                break;
-
             case JsonElement je:
-                destination[offset++] = ValueKind.JsonBlob;
-                offset += WriteUtf32Prefixed(Encoding.UTF8.GetBytes(je.GetRawText()), destination[offset..]);
+                offset += BinaryJsonTreeCodec.Write(je, destination);
                 break;
 
             default:
-                destination[offset++] = ValueKind.JsonBlob;
-                offset += WriteUtf32Prefixed(SerializationProvider.Instance.SerializeToUtf8Bytes(value), destination[offset..]);
+                offset += BinaryJsonTreeCodec.Write(SerializationProvider.Instance.SerializeToElement(value), destination);
                 break;
         }
 
@@ -270,6 +262,14 @@ internal static class CacheEntryCodec
         BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(bytes.Length));
         bytes.CopyTo(destination[4..]);
         return 4 + bytes.Length;
+    }
+
+    private static int WriteUtf32PrefixedString(string text, Span<byte> destination)
+    {
+        var byteCount = Encoding.UTF8.GetByteCount(text);
+        BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(byteCount));
+        _ = Encoding.UTF8.GetBytes(text, destination[4..]);
+        return 4 + byteCount;
     }
 
     private static bool TryReadTags(ReadOnlySpan<byte> source, out FrozenDictionary<string, string>? tags, out int bytesRead)
@@ -351,7 +351,7 @@ internal static class CacheEntryCodec
             ValueKind.Int64 => TryReadInt64Value(source, out value, out bytesRead),
             ValueKind.Double => TryReadDoubleValue(source, out value, out bytesRead),
             ValueKind.Decimal => TryReadDecimalValue(source, out value, out bytesRead),
-            ValueKind.JsonBlob => TryReadJsonBlobValue(source, out value, out bytesRead),
+            ValueKind.Object or ValueKind.Array => TryReadJsonTreeValue(source, out value, out bytesRead),
             _ => false,
         };
     }
@@ -438,15 +438,14 @@ internal static class CacheEntryCodec
         return true;
     }
 
-    private static bool TryReadJsonBlobValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
+    private static bool TryReadJsonTreeValue(ReadOnlySpan<byte> source, out object? value, out int bytesRead)
     {
         value = null;
         bytesRead = 0;
-        if (!TryReadUtf32Prefixed(source[1..], out var jsonBytes, out var jsonBytesRead))
+        if (!BinaryJsonTreeCodec.TryRead(source, out var element, out bytesRead))
             return false;
 
-        value = new StoredJsonPayload(jsonBytes);
-        bytesRead = 1 + jsonBytesRead;
+        value = element;
         return true;
     }
 
@@ -464,14 +463,6 @@ internal static class CacheEntryCodec
             case T ok:
                 result = ok;
                 return true;
-
-            case StoredJsonPayload sjp when typeof(T) == typeof(JsonElement):
-            {
-                using var doc = JsonDocument.Parse(sjp.Utf8Memory);
-                var element = doc.RootElement.Clone();
-                result = Reinterpret<T, JsonElement>(element);
-                return true;
-            }
 
             case JsonElement je when typeof(T) == typeof(JsonElement):
                 result = Reinterpret<T, JsonElement>(je);

@@ -80,8 +80,15 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
 
-    private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry) => EntryPayloadSizeGuard.EnsureWithinLimitAsync(entry);
+    private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry)
+    {
+        EntryPayloadSizeGuard.EnsureWithinLimit(entry);
+        return Task.CompletedTask;
+    }
 
-    private static Task EnsureValueWithinLimitAsync(T? value, long version) =>
-        EntryPayloadSizeGuard.EnsureWithinLimitAsync(new CacheEntry<T> { Value = value, Version = version });
+    private static Task EnsureValueWithinLimitAsync(T? value, long version)
+    {
+        EntryPayloadSizeGuard.EnsureWithinLimit(new CacheEntry<T> { Value = value, Version = version });
+        return Task.CompletedTask;
+    }
 }

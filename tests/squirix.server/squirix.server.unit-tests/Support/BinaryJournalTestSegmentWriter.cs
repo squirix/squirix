@@ -17,17 +17,18 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    public static async Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
+    public static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
     {
-        var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
-        return new JournalRecord
-        {
-            Sequence = seq,
-            UnixMs = 1,
-            Operation = JournalOperationKind.Put,
-            Key = CacheKey.Default(key),
-            PutDiscriminatedEntryJson = body,
-        };
+        var body = JournalEntryPayload.Encode(new CacheEntry<object?> { Value = value, Version = 1 });
+        return Task.FromResult(
+            new JournalRecord
+            {
+                Sequence = seq,
+                UnixMs = 1,
+                Operation = JournalOperationKind.Put,
+                Key = CacheKey.Default(key),
+                PutEntryBytes = body,
+            });
     }
 
     public static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)

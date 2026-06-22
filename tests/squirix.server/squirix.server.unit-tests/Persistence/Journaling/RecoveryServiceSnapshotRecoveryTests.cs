@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
-/// <summary>Recovery with binary snapshots and legacy snapshot path fallbacks.</summary>
+/// <summary>Recovery with binary snapshots and missing snapshot path fallbacks.</summary>
 public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
 {
     /// <summary>Loads a binary snapshot watermark and replays only journal records after it.</summary>
@@ -63,14 +63,14 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
         Assert.Equal("from-journal", tailEntry.Value);
     }
 
-    /// <summary>Manifest pointing at a missing legacy <c>.ssqx</c> path falls back to journal-only recovery.</summary>
+    /// <summary>Manifest pointing at a missing snapshot path falls back to journal-only recovery.</summary>
     [Fact]
-    public async Task LegacySsqxSnapshotPathFallsBackToJournalOnlyRecovery()
+    public async Task MissingSnapshotPathFallsBackToJournalOnlyRecovery()
     {
-        await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-legacy-ssqx");
-        var legacySnapshotPath = PathKit.Combine(
+        await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
+        var missingSnapshotPath = PathKit.Combine(
             scenario.DataDir,
-            $"{StorageFilePrefixes.Snapshot}{1.ToString("000000", CultureInfo.InvariantCulture)}.ssqx");
+            $"{StorageFilePrefixes.Snapshot}{1.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
 
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [record]);
@@ -84,7 +84,7 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
                 LastSnapshot = new ManifestState.SnapshotRef
                 {
                     Index = 1,
-                    Path = legacySnapshotPath,
+                    Path = missingSnapshotPath,
                     CreatedUtc = DateTime.UtcNow,
                     LastAppliedSequence = 99,
                     ReplayFromJournalSegment = 1,

@@ -10,7 +10,7 @@ using Squirix.Server.Storage.Journaling.Observability;
 namespace Squirix.Server.TestKit.Benchmarks;
 
 /// <summary>Benchmark helpers for journal append path breakdown (encode / enqueue / fsync isolation).</summary>
-[SuppressMessage("Design", "MA0109:Add an overload with Span/ReadOnlySpan", Justification = "Benchmark helper accepts materialized JSON payloads from setup.")]
+[SuppressMessage("Design", "MA0109:Add an overload with Span/ReadOnlySpan", Justification = "Benchmark helper accepts materialized entry payloads from setup.")]
 public static class JournalAppendBreakdownBenchmarkSupport
 {
     private static bool IsQuickMode => string.Equals(System.Environment.GetEnvironmentVariable("SQUIRIX_BENCH_QUICK"), "1", StringComparison.Ordinal);
@@ -18,7 +18,7 @@ public static class JournalAppendBreakdownBenchmarkSupport
     /// <summary>Encodes one pipelined binary journal frame into a rented buffer and returns the frame length.</summary>
     /// <param name="cacheNamespace">Cache namespace for the encoded key.</param>
     /// <param name="key">Cache key for the encoded entry.</param>
-    /// <param name="payload">Discriminated entry JSON payload.</param>
+    /// <param name="payload">Binary cache-entry payload.</param>
     /// <param name="rentedBuffer">Array-pool buffer containing the encoded frame.</param>
     /// <returns>The encoded frame length in bytes.</returns>
     public static int EncodePipelinedPutFrame(string cacheNamespace, string key, byte[] payload, out byte[] rentedBuffer)
@@ -31,7 +31,7 @@ public static class JournalAppendBreakdownBenchmarkSupport
             UnixMs = 1,
             Operation = JournalOperationKind.Put,
             Key = new CacheKey(cacheNamespace, key),
-            PutDiscriminatedEntryJson = payload,
+            PutEntryBytes = payload,
             PutOperationId = string.Empty,
         };
         var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);

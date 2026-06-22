@@ -7,9 +7,9 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,7 +36,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
                          new JournalStartupGate(),
                          DefaultCancellationToken))
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), await BuildEntryJsonAsync("v"), null, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("k"), BuildPutPayload("v"), null, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
 
@@ -80,5 +80,5 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await gate.WaitAsync(gateWait.Token).AsTask(); });
     }
 
-    private static Task<byte[]> BuildEntryJsonAsync(string value) => DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
+    private static byte[] BuildPutPayload(string value) => JournalEntryPayloadKit.EncodePut(value);
 }

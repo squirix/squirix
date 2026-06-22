@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -146,7 +145,8 @@ internal static class ProtoEx
             return Coerce<T>(await ProtoValueToClrScalarOrJsonAsync(only).ConfigureAwait(false));
 
         var buffer = await WriteValueToBufferAsync(Value.ForStruct(s)).ConfigureAwait(false);
-        return ReinterpretReference<T, StoredJsonPayload>(new StoredJsonPayload(buffer.WrittenSpan));
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return Coerce<T>(document.RootElement.Clone());
     }
 
     private static ListValue ListFromJson(JsonElement el)
@@ -221,7 +221,8 @@ internal static class ProtoEx
             case Value.KindOneofCase.ListValue:
             {
                 var buffer = await WriteValueToBufferAsync(v).ConfigureAwait(false);
-                return new StoredJsonPayload(buffer.WrittenSpan);
+                using var document = JsonDocument.Parse(buffer.WrittenMemory);
+                return document.RootElement.Clone();
             }
 
             case Value.KindOneofCase.None:
@@ -254,13 +255,6 @@ internal static class ProtoEx
         {
             case null:
                 return WrapAsStruct("value", Value.ForNull());
-
-            case StoredJsonPayload sjp:
-            {
-                using var doc = JsonDocument.Parse(sjp.Utf8Memory);
-                var je = doc.RootElement;
-                return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));
-            }
 
             case JsonElement je:
                 return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));

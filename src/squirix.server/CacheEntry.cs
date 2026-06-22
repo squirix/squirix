@@ -56,6 +56,6 @@ public sealed class CacheEntry<T>
         }
     }
 
-    /// <summary>Gets or sets journal discriminated JSON prepared during payload size validation for reuse on durable write.</summary>
-    internal byte[]? PreparedJournalDiscriminatedJson { get; set; }
+    /// <summary>Gets or sets journal entry bytes prepared during payload size validation for reuse on durable write.</summary>
+    internal byte[]? PreparedJournalEntryBytes { get; set; }
 }

@@ -39,21 +39,21 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
-    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
     {
-        var payloadBytes = discriminatedEntryJson.Length;
+        var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAndAwaitDurabilityAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
         JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
-    public async ValueTask AppendPutAsync(CacheKey key, byte[] discriminatedEntryJson, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
     {
-        var payloadBytes = discriminatedEntryJson.Length;
+        var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAsync(key, discriminatedEntryJson, operationId, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendPutAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
         JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 

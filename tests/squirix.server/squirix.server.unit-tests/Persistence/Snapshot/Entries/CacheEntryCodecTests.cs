@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Text.Json;
 using Squirix.Server.Storage.Entries.Binary;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -30,6 +31,21 @@ public sealed class CacheEntryCodecTests : UnitTestBase
         Assert.Equal(buffer.Length, bytesRead);
         Assert.True(ValueEquals(value, roundTrip!.Value));
         Assert.Equal(7, roundTrip.Version);
+    }
+
+    /// <summary>Complex JSON values round-trip through the codec as JsonElement trees.</summary>
+    [Fact]
+    public void RoundTripsJsonElementValue()
+    {
+        using var document = JsonDocument.Parse("""{"id":42,"tags":["a","b"]}""");
+        var entry = new CacheEntry<object?> { Value = document.RootElement.Clone(), Version = 2 };
+        var buffer = new byte[CacheEntryCodec.ComputeEncodedLength(entry)];
+        CacheEntryCodec.Write(entry, buffer);
+
+        Assert.True(CacheEntryCodec.TryRead<object?>(buffer, out var roundTrip, out _));
+        var element = Assert.IsType<JsonElement>(roundTrip!.Value);
+        Assert.Equal(42, element.GetProperty("id").GetInt32());
+        Assert.Equal(2, element.GetProperty("tags").GetArrayLength());
     }
 
     /// <summary>Metadata and tags round-trip through the codec.</summary>

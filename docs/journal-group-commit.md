@@ -132,8 +132,6 @@ JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-r
   `AwaitDurabilityCommitAsync` separately on hot paths.
 - Re-measure on target hardware; raw coordinator benchmarks understate Pipelined throughput.
 
-Full numbers: `benchmarks/squirix.server.benchmarks/RESULTS-journal-perf-2026-06-21.md`.
-
 ## Latency vs throughput (summary)
 
 | Mode                                       | Throughput under concurrent writers                               | Tail latency                                                                    |

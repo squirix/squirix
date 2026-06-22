@@ -5,8 +5,8 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -137,7 +137,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         _ = await executor.ExecuteAsync(
             CacheKey.Default("k"),
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            async ct => { await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, ct); },
+            ct => journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, ct),
             _ =>
             {
                 observedPendingFlushDuringMemoryApply = pipelined.IsDurabilityFlushPending;
@@ -208,9 +208,9 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         var flushProbe = new JournalFlushProbe(pipelined);
         var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
 
-        await journal.AppendPutAsync(CacheKey.Default("k1"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v1", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), null, DefaultCancellationToken);
 
-        await journal.AppendPutAsync(CacheKey.Default("k2"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v2", null, null, 1, null), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), null, DefaultCancellationToken);
 
         var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));

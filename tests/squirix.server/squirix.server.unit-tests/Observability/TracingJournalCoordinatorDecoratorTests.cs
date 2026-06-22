@@ -4,9 +4,9 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -28,7 +28,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
+        var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
@@ -57,7 +57,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null);
+        var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("trace-key"), payload, null, DefaultCancellationToken);
         if (groupCommitMaxWaitMilliseconds > 0)
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);

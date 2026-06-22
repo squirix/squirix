@@ -98,7 +98,7 @@ internal static class BinaryJournalCodec
                 UnixMs = unixMs,
                 Operation = JournalOperationKind.Put,
                 Key = cacheKey,
-                PutDiscriminatedEntryJson = frameBody.Slice(offset, payloadLen).ToArray(),
+                PutEntryBytes = frameBody.Slice(offset, payloadLen).ToArray(),
                 PutOperationId = opIdLen > 0 ? Encoding.UTF8.GetString(frameBody.Slice(offset + payloadLen, opIdLen)) : string.Empty,
             },
             JournalOpcode.Remove => new JournalRecord
@@ -131,7 +131,7 @@ internal static class BinaryJournalCodec
     {
         var extra = record.Operation switch
         {
-            JournalOperationKind.Put => (record.PutDiscriminatedEntryJson?.Length ?? 0) + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
+            JournalOperationKind.Put => (record.PutEntryBytes?.Length ?? 0) + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
             JournalOperationKind.TouchExpiration => 8,
             _ => 0,
         };
@@ -140,7 +140,7 @@ internal static class BinaryJournalCodec
 
     private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
     {
-        var payload = record.PutDiscriminatedEntryJson ?? [];
+        var payload = record.PutEntryBytes ?? [];
         payload.CopyTo(destination[offset..]);
         offset += payload.Length;
         if (opIdLen > 0)
@@ -155,7 +155,7 @@ internal static class BinaryJournalCodec
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
-                payloadLen = record.PutDiscriminatedEntryJson?.Length ?? 0;
+                payloadLen = record.PutEntryBytes?.Length ?? 0;
                 opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
                 break;
 

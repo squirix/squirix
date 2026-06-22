@@ -7,6 +7,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
@@ -26,7 +27,7 @@ public sealed class JournalBackendContractTests
         await using var coordinator = await JournalCoordinatorFactory.CreateAsync(options, manifest, manifestStore, gate, CancellationToken.None);
 
         var key = new CacheKey("ns", "k1");
-        var payload = """{"v":1}"""u8.ToArray();
+        var payload = JournalEntryPayloadKit.EncodePut(1);
         await coordinator.AppendPutAsync(key, payload, "op-1", CancellationToken.None);
         await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 

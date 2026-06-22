@@ -7,6 +7,7 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -217,7 +218,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
             UnixMs = 123,
             Operation = JournalOperationKind.Put,
             Key = CacheKey.Default(key),
-            PutDiscriminatedEntryJson = """{"v":{"$t":"s","v":"value"},"ver":1}"""u8.ToArray(),
+            PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
         };
         var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
         var body = new byte[bodyLength];

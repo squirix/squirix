@@ -22,8 +22,8 @@ internal sealed class JournalRecord
     /// <summary>Gets or sets the cache key for the operation.</summary>
     public CacheKey Key { get; set; }
 
-    /// <summary>Gets or sets put discriminated entry JSON bytes; only set for <see cref="JournalOperationKind.Put"/>.</summary>
-    public byte[]? PutDiscriminatedEntryJson { get; set; }
+    /// <summary>Gets or sets put entry bytes; only set for <see cref="JournalOperationKind.Put"/>.</summary>
+    public byte[]? PutEntryBytes { get; set; }
 
     /// <summary>Gets or sets put idempotency operation id; only set for <see cref="JournalOperationKind.Put"/>.</summary>
     public string? PutOperationId { get; set; }
@@ -35,7 +35,7 @@ internal sealed class JournalRecord
 
     internal void ReturnToAppendPool()
     {
-        PutDiscriminatedEntryJson = null;
+        PutEntryBytes = null;
         PutOperationId = null;
         TouchExpirationUtc = null;
         AppendPool.Add(this);

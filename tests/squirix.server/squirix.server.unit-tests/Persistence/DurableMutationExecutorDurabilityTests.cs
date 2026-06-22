@@ -5,8 +5,8 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -51,7 +51,7 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
 
         async ValueTask AppendJournalAsync(CancellationToken cancellationToken)
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("v", null, null, 1, null), null, cancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, cancellationToken);
         }
 
         static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)

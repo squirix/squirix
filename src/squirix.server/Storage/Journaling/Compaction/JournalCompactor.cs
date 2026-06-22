@@ -75,8 +75,7 @@ internal static class JournalCompactor
     private static void ApplyPut(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
         var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        var payload = record.PutDiscriminatedEntryJson ?? [];
-        if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<object?>(payload, out var entry))
+        if (!JournalEntryPayload.TryDecode<object?>(record.PutEntryBytes ?? [], out var entry))
             throw CreateCompactionDecodeFailure("put", key.Key);
 
         if (IsExpired(entry))
@@ -204,8 +203,7 @@ internal static class JournalCompactor
                 if (IsExpired(e))
                     continue;
 
-                var body = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(e.Value, e.ExpiresUtc, e.Expiration, e.Version, e.Tags).ConfigureAwait(false);
-                seq = await WriteCompactedPutEntryAsync(fs, k, body, seq, cancellationToken).ConfigureAwait(false);
+                seq = await WriteCompactedPutEntryAsync(fs, k, JournalEntryPayload.Encode(e), seq, cancellationToken).ConfigureAwait(false);
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -227,7 +225,7 @@ internal static class JournalCompactor
             UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Operation = JournalOperationKind.Put,
             Key = key,
-            PutDiscriminatedEntryJson = body,
+            PutEntryBytes = body,
             PutOperationId = string.Empty,
         };
 

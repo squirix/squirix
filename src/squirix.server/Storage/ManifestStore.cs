@@ -71,10 +71,10 @@ internal sealed class ManifestStore : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_cache.IsInitialized)
-                return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
-            lock (_cacheSync)
-                return _cache.Current;
+            if (TryGetCachedCurrent(out var cached))
+                return cached;
+
+            return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -237,6 +237,21 @@ internal sealed class ManifestStore : IDisposable
 
             _nextManifestIndex = TryReadCurrentIndexForInit() ?? ResolveNextIndexFromDiskLocked() - 1;
             _nextIndexInitialized = true;
+        }
+    }
+
+    private bool TryGetCachedCurrent(out ManifestState manifest)
+    {
+        lock (_cacheSync)
+        {
+            if (!_cache.IsInitialized)
+            {
+                manifest = new ManifestState();
+                return false;
+            }
+
+            manifest = _cache.Current;
+            return true;
         }
     }
 

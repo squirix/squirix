@@ -5,11 +5,11 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -170,7 +170,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         Assert.Equal(4UL, journal.NextSequence);
         Assert.Equal(2, journal.CurrentSegmentIndex);
 
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("after", null, null, 1, null);
+        var payload = JournalEntryPayloadKit.EncodePut("after");
         await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         Assert.Equal(5UL, journal.NextSequence);
@@ -224,7 +224,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
                          new JournalStartupGate(),
                          DefaultCancellationToken))
         {
-            var p = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync("keep", null, null, 1, null);
+            var p = JournalEntryPayloadKit.EncodePut("keep");
             await journal.AppendPutAsync(CacheKey.Default("keep"), p, null, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }

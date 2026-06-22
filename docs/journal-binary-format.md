@@ -26,10 +26,10 @@ u8  opcode           // Put=1, Remove=2, RemoveExpiration=3, TouchExpiration=4
 u16 namespaceLen
 u16 keyLen
 u16 opIdLen          // Put only; 0 otherwise
-u32 payloadLen       // Put: discriminated entry JSON length; TouchExpiration: 8; else 0
+u32 payloadLen       // Put: cache-entry blob length (CacheEntryCodec); TouchExpiration: 8; else 0
 [namespace utf8]
 [key utf8]
-[payload bytes]      // Put discriminated JSON
+[payload bytes]      // Put: binary cache-entry blob (see snapshot-format.md)
 [opId utf8]          // Put idempotency operation id
 ```
 

@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -22,7 +21,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>
 /// Replays the journal into the local in-memory cache on startup.
 /// Skips expired entries so they are not resurrected after restart.
-/// Restores exact CLR value types using the discriminated JSON format.
+/// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">
 /// The value type stored in the cache (e.g., <c>object?</c> for untyped payloads or a concrete DTO type).
@@ -131,8 +130,8 @@ internal sealed class RecoveryService<T> : IHostedService
             case JournalOperationKind.Put:
             {
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-                var payload = record.PutDiscriminatedEntryJson ?? [];
-                if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(payload, out var entry))
+                var payload = record.PutEntryBytes ?? [];
+                if (!JournalEntryPayload.TryDecode<T>(payload, out var entry))
                     throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
@@ -257,11 +256,6 @@ internal sealed class RecoveryService<T> : IHostedService
             LogManager.JournalRecoveryFailed(_log);
             throw;
         }
-        catch (JsonException)
-        {
-            LogManager.JournalRecoveryFailed(_log);
-            throw;
-        }
     }
 
     private async Task ReplayInBackgroundAsync(CancellationToken cancellationToken)
@@ -290,11 +284,6 @@ internal sealed class RecoveryService<T> : IHostedService
             _applicationLifetime?.StopApplication();
         }
         catch (InvalidOperationException)
-        {
-            // Non-blocking mode must not silently continue after failed recovery.
-            _applicationLifetime?.StopApplication();
-        }
-        catch (JsonException)
         {
             // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
@@ -333,10 +322,6 @@ internal sealed class RecoveryService<T> : IHostedService
                 snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)
-            {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
-            }
-            catch (JsonException)
             {
                 HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
             }

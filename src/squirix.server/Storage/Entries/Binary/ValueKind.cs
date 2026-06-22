@@ -24,6 +24,9 @@ internal static class ValueKind
     /// <summary>Decimal serialized as invariant text.</summary>
     internal const byte Decimal = 6;
 
-    /// <summary>Raw UTF-8 JSON blob.</summary>
-    internal const byte JsonBlob = 7;
+    /// <summary>JSON object encoded as a recursive binary tree.</summary>
+    internal const byte Object = 7;
+
+    /// <summary>JSON array encoded as a recursive binary tree.</summary>
+    internal const byte Array = 8;
 }
