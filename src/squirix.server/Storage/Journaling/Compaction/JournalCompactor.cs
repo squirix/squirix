@@ -38,11 +38,12 @@ internal static class JournalCompactor
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
         var (state, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, cancellationToken).ConfigureAwait(false);
 
-        var newFirstIdx = GetNextJournalSegmentIndex(CollectJournalSegments(options.DataDir));
+        var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
+        var newFirstIdx = GetNextJournalSegmentIndex(journalSegments);
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
         await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
-        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, lastSeq, cancellationToken).ConfigureAwait(false);
+        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, lastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
     private static void Apply(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
@@ -141,15 +142,6 @@ internal static class JournalCompactor
         return (state, lastSeq);
     }
 
-    private static JournalSegment[] CollectJournalSegments(string dataDir)
-    {
-        var result = new List<JournalSegment>();
-        foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
-            result.Add(segment);
-
-        return [.. result];
-    }
-
     private static InvalidOperationException CreateCompactionDecodeFailure(string operation, string key) =>
         new($"journal compaction failed: undecodable entry payload for operation '{operation}' on key '{key}'.");
 
@@ -159,17 +151,16 @@ internal static class JournalCompactor
         ManifestState oldManifest,
         int newFirstIdx,
         ulong lastSeq,
+        JournalSegment[] journalSegments,
         CancellationToken cancellationToken)
     {
         // Install the compacted journal before deleting any old segments.
         // Crash safety relies on each intermediate state remaining recoverable.
-        var finalJournalPath = PathEx.Combine(
-            options.DataDir,
-            $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        var path = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         var backupJournalPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.bak");
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(backupJournalPath);
-        FileEx.PublishFile(tmpPath, finalJournalPath, backupJournalPath);
+        FileEx.PublishFile(tmpPath, path, backupJournalPath);
 
         var newManifest = new ManifestState
         {
@@ -180,7 +171,7 @@ internal static class JournalCompactor
         };
         await manifestStore.WriteAsync(newManifest, cancellationToken).ConfigureAwait(false);
 
-        foreach (var segment in CollectJournalSegments(options.DataDir))
+        foreach (var segment in journalSegments)
         {
             if (segment.Index == newFirstIdx)
                 continue;
@@ -191,20 +182,8 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static int GetNextJournalSegmentIndex(JournalSegment[] segments)
-    {
-        if (segments.Length is 0)
-            return 1;
-
-        var max = segments[0].Index;
-        for (var i = 1; i < segments.Length; i++)
-        {
-            if (segments[i].Index > max)
-                max = segments[i].Index;
-        }
-
-        return max + 1;
-    }
+    private static int GetNextJournalSegmentIndex(JournalSegment[] segments) =>
+        segments.Length is 0 ? 1 : segments[^1].Index + 1;
 
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 

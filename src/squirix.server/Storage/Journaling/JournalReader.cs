@@ -10,20 +10,30 @@ namespace Squirix.Server.Storage.Journaling;
 
 internal static class JournalReader
 {
-    public static IEnumerable<JournalSegment> EnumerateSegments(string dataDir, int fromSegment)
+    public static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
-        if (!Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)
             return [];
 
-        var results = new List<JournalSegment>();
+        Array.Sort(files, StringComparer.Ordinal);
+
+        var segments = new JournalSegment[files.Length];
+        var writeIndex = 0;
         foreach (var path in files)
         {
-            if (TryParseJournalSegment(path, fromSegment, out var segment))
-                results.Add(segment);
+            if (!TryParseJournalSegment(path, fromSegment, out var segment))
+                continue;
+
+            segments[writeIndex++] = segment;
         }
 
-        results.Sort(static (a, b) => a.Index.CompareTo(b.Index));
-        return results;
+        if (writeIndex is 0)
+            return [];
+
+        if (writeIndex != segments.Length)
+            Array.Resize(ref segments, writeIndex);
+
+        return segments;
     }
 
     /// <summary>Sums on-disk journal segment file lengths under <paramref name="dataDir" />.</summary>
@@ -49,14 +59,12 @@ internal static class JournalReader
 
     public static IEnumerable<JournalRecord> ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken)
     {
-        var segments = new List<JournalSegment>();
-        foreach (var segment in EnumerateSegments(dataDir, fromSegment))
-            segments.Add(segment);
+        var segments = EnumerateSegments(dataDir, fromSegment);
 
-        for (var i = 0; i < segments.Count; i++)
+        for (var i = 0; i < segments.Length; i++)
         {
             var pair = segments[i];
-            var tolerateTruncatedTail = i == segments.Count - 1;
+            var tolerateTruncatedTail = i == segments.Length - 1;
             foreach (var record in new BinaryJournalSegmentReader(pair.Path, tolerateTruncatedTail, cancellationToken))
                 yield return record;
         }
@@ -108,6 +116,25 @@ internal static class JournalReader
         return taken;
     }
 
+    private static bool TryGetJournalFiles(string dataDir, out string[] files)
+    {
+        try
+        {
+            files = Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+            return true;
+        }
+        catch (IOException)
+        {
+            files = [];
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            files = [];
+            return false;
+        }
+    }
+
     private static bool TryEnumerateJournalFiles(string dataDir, out IEnumerable<string> files)
     {
         try
@@ -148,30 +175,7 @@ internal static class JournalReader
     private static bool TryParseJournalSegment(string path, int fromSegment, out JournalSegment segment)
     {
         segment = default;
-        var name = Path.GetFileName(path);
-        if (!name.StartsWith(StorageFilePrefixes.Journal, StringComparison.Ordinal))
-            return false;
-
-        if (!name.EndsWith(StorageFileExtensions.Journal, StringComparison.Ordinal))
-            return false;
-
-        var prefixLen = StorageFilePrefixes.Journal.Length;
-        var extensionLen = StorageFileExtensions.Journal.Length;
-        var digitsLen = name.Length - prefixLen - extensionLen;
-        if (digitsLen <= 0)
-            return false;
-
-        string digits;
-        try
-        {
-            digits = name.Substring(prefixLen, digitsLen);
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return false;
-        }
-
-        if (!int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var idx))
+        if (!TryParseJournalSegmentIndex(Path.GetFileName(path).AsSpan(), out var idx))
             return false;
 
         if (idx < fromSegment)
@@ -179,5 +183,26 @@ internal static class JournalReader
 
         segment = new JournalSegment { Index = idx, Path = path };
         return true;
+    }
+
+    private static bool TryParseJournalSegmentIndex(ReadOnlySpan<char> name, out int index)
+    {
+        index = 0;
+        var prefix = StorageFilePrefixes.Journal.AsSpan();
+        var extension = StorageFileExtensions.Journal.AsSpan();
+        if (name.IsEmpty)
+            return false;
+
+        if (!name.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        if (!name.EndsWith(extension, StringComparison.Ordinal))
+            return false;
+
+        var numberPart = name.Slice(prefix.Length, name.Length - prefix.Length - extension.Length);
+        if (numberPart.IsEmpty)
+            return false;
+
+        return int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
     }
 }

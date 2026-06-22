@@ -29,17 +29,15 @@ internal static class JournalReadPath
         policy.EnsureRollCapacityOrThrow(onDiskCount, JournalReader.GetOnDiskTotalBytes(dataDir));
     }
 
-    internal static IEnumerable<JournalSegment> EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
+    internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
     internal static IEnumerable<JournalRecord> ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken)
     {
-        var segments = new List<JournalSegment>();
-        foreach (var segment in EnumerateSegments(dataDir, fromSegment))
-            segments.Add(segment);
+        var segments = EnumerateSegments(dataDir, fromSegment);
 
-        for (var i = 0; i < segments.Count; i++)
+        for (var i = 0; i < segments.Length; i++)
         {
-            var tolerateTruncatedTail = i == segments.Count - 1;
+            var tolerateTruncatedTail = i == segments.Length - 1;
             var reader = new BinaryJournalSegmentReader(segments[i].Path, tolerateTruncatedTail, cancellationToken);
             foreach (var record in ReadSegmentRecords(reader))
                 yield return record;
