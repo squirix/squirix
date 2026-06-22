@@ -41,6 +41,7 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
         private JournalRecord? _current;
         private bool _disposed;
         private long _offset;
+        private byte[]? _rentedFrameBuffer;
         private bool _valid;
 
         public Enumerator(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken)
@@ -76,6 +77,7 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
             if (_disposed)
                 return;
 
+            ReturnRentedFrameBuffer();
             _stream?.Dispose();
             _disposed = true;
         }
@@ -97,6 +99,8 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
 
         private bool MoveNextFrame()
         {
+            ReturnRentedFrameBuffer();
+
             var read = JournalFrameReader.ReadNext(_stream!, _offset, out var buffer, out var payloadLength);
             if (read.Status is JournalFrameReadStatus.EndOfFile)
                 return false;
@@ -112,20 +116,22 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
                 return Stop();
             }
 
-            try
-            {
-                if (buffer is null)
-                    throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
+            if (buffer is null)
+                throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
 
-                _current = BinaryJournalCodec.Decode(buffer.AsSpan(0, payloadLength));
-                _offset = read.NextFrameOffset;
-                return true;
-            }
-            finally
-            {
-                if (buffer is not null)
-                    ArrayPool<byte>.Shared.Return(buffer);
-            }
+            _rentedFrameBuffer = buffer;
+            _current = BinaryJournalCodec.Decode(buffer, payloadLength);
+            _offset = read.NextFrameOffset;
+            return true;
+        }
+
+        private void ReturnRentedFrameBuffer()
+        {
+            if (_rentedFrameBuffer is null)
+                return;
+
+            ArrayPool<byte>.Shared.Return(_rentedFrameBuffer);
+            _rentedFrameBuffer = null;
         }
 
         private bool ShouldThrowOnReadFailure(JournalFrameReadStatus status) =>

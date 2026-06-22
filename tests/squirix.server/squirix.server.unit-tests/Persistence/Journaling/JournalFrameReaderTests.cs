@@ -44,7 +44,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         {
             Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
             Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
-            Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer.AsSpan(0, firstLength)).Key.Key);
+            Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer!, firstLength).Key.Key);
         }
         finally
         {
@@ -57,7 +57,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         {
             Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
             Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
-            Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer.AsSpan(0, secondLength)).Key.Key);
+            Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer!, secondLength).Key.Key);
         }
         finally
         {

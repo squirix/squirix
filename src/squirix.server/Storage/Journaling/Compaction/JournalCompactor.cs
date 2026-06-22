@@ -75,7 +75,7 @@ internal static class JournalCompactor
     private static void ApplyPut(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
     {
         var key = new CacheKey(record.Key.Namespace, record.Key.Key);
-        if (!JournalEntryPayload.TryDecode<object?>(record.PutEntryBytes ?? [], out var entry))
+        if (!JournalEntryPayload.TryDecode<object?>(record.PutEntryBytes.Span, out var entry))
             throw CreateCompactionDecodeFailure("put", key.Key);
 
         if (IsExpired(entry))

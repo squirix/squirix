@@ -71,8 +71,11 @@ internal static class BinaryJournalCodec
     public static int Encode(JournalRecord record, Span<byte> destination) =>
         Encode(record, destination, Utf8KeyLengths.From(record.Key));
 
-    public static JournalRecord Decode(ReadOnlySpan<byte> frameBody)
+    public static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(frameLength, frameBuffer.Length);
+
+        var frameBody = frameBuffer.AsSpan(0, frameLength);
         if (frameBody.Length < FixedPrefixSize)
             throw new InvalidDataException("binary journal frame body is truncated.");
 
@@ -98,7 +101,7 @@ internal static class BinaryJournalCodec
                 UnixMs = unixMs,
                 Operation = JournalOperationKind.Put,
                 Key = cacheKey,
-                PutEntryBytes = frameBody.Slice(offset, payloadLen).ToArray(),
+                PutEntryBytes = payloadLen > 0 ? frameBuffer.AsMemory(offset, payloadLen) : ReadOnlyMemory<byte>.Empty,
                 PutOperationId = opIdLen > 0 ? Encoding.UTF8.GetString(frameBody.Slice(offset + payloadLen, opIdLen)) : string.Empty,
             },
             JournalOpcode.Remove => new JournalRecord
@@ -131,7 +134,7 @@ internal static class BinaryJournalCodec
     {
         var extra = record.Operation switch
         {
-            JournalOperationKind.Put => (record.PutEntryBytes?.Length ?? 0) + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
+            JournalOperationKind.Put => record.PutEntryBytes.Length + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
             JournalOperationKind.TouchExpiration => 8,
             _ => 0,
         };
@@ -140,7 +143,7 @@ internal static class BinaryJournalCodec
 
     private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
     {
-        var payload = record.PutEntryBytes ?? [];
+        var payload = record.PutEntryBytes.Span;
         payload.CopyTo(destination[offset..]);
         offset += payload.Length;
         if (opIdLen > 0)
@@ -155,7 +158,7 @@ internal static class BinaryJournalCodec
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
-                payloadLen = record.PutEntryBytes?.Length ?? 0;
+                payloadLen = record.PutEntryBytes.Length;
                 opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
                 break;
 
