@@ -97,11 +97,11 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
         static (span, state) =>
         {
             state.Prefix.AsSpan().CopyTo(span);
-            var suffix = span.Slice(state.Prefix.Length);
+            var suffix = span[state.Prefix.Length..];
             if (!state.Index.TryFormat(suffix, out var charsWritten, "D6", CultureInfo.InvariantCulture))
                 throw new InvalidOperationException("Manifest index did not fit fixed-width field.");
 
-            StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix.Slice(charsWritten));
+            StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix[charsWritten..]);
         });
 
     /// <summary>Encodes a segment-roll manifest into the session encode buffer.</summary>
@@ -122,20 +122,6 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
     {
         ManifestPointer.Write(PointerBuffer, manifestIndex);
         ManifestDurability.WriteCurrentPointerBlocking(PointerWriter, PointerBuffer);
-    }
-
-    /// <summary>Durably publishes roll payload and pointer using the production roll durability path.</summary>
-    /// <param name="targetPath">Path to a new <c>.bmqx</c> file.</param>
-    /// <param name="encodedLength">Number of valid bytes in <see cref="EncodeBuffer" />.</param>
-    /// <param name="manifestIndex">Manifest index for the pointer payload.</param>
-    public void WriteRoll(string targetPath, int encodedLength, int manifestIndex)
-    {
-        ManifestPointer.Write(PointerBuffer, manifestIndex);
-        ManifestDurability.WriteManifestRollBlocking(
-            targetPath,
-            EncodeBuffer.AsSpan(0, encodedLength),
-            PointerWriter,
-            PointerBuffer);
     }
 
     public void Dispose()

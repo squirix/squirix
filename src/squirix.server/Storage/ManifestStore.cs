@@ -71,13 +71,10 @@ internal sealed class ManifestStore : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_cache.IsInitialized)
-            {
-                lock (_cacheSync)
-                    return _cache.Current;
-            }
-
-            return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
+            if (!_cache.IsInitialized)
+                return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
+            lock (_cacheSync)
+                return _cache.Current;
         }
         finally
         {
@@ -152,11 +149,11 @@ internal sealed class ManifestStore : IDisposable
             static (span, state) =>
             {
                 state.Prefix.AsSpan().CopyTo(span);
-                var suffix = span.Slice(state.Prefix.Length);
+                var suffix = span[state.Prefix.Length..];
                 if (!state.Index.TryFormat(suffix, out var charsWritten, "D6", CultureInfo.InvariantCulture))
                     throw new InvalidOperationException("Manifest index did not fit fixed-width field.");
 
-                StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix.Slice(charsWritten));
+                StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix[charsWritten..]);
             });
 
     private void EnsureDataDirectoryExists()
@@ -190,13 +187,12 @@ internal sealed class ManifestStore : IDisposable
         if (_nextIndexInitialized)
             return;
 
-        int? fromCache;
         lock (_nextIndexInitLock)
         {
             if (_nextIndexInitialized)
                 return;
 
-            fromCache = TryReadCurrentIndexForInit();
+            var fromCache = TryReadCurrentIndexForInit();
             if (fromCache is not null)
             {
                 _nextManifestIndex = fromCache.Value;

@@ -13,7 +13,7 @@ public sealed class ManifestCodecTests : UnitTestBase
     [Fact]
     public void EncodeDecodeRoundTripsMinimalManifest()
     {
-        var manifest = new Storage.Manifest.ManifestState { CurrentJournal = 2, NextSequence = 42 };
+        var manifest = new ManifestState { CurrentJournal = 2, NextSequence = 42 };
 
         var bytes = ManifestCodec.Encode(manifest);
         var decoded = ManifestCodec.Decode(bytes);
@@ -29,11 +29,11 @@ public sealed class ManifestCodecTests : UnitTestBase
     public void EncodeDecodeRoundTripsSnapshotRef()
     {
         var created = new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             CurrentJournal = 5,
             NextSequence = 100,
-            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+            LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = 3,
                 LastAppliedSequence = 99,
@@ -57,7 +57,7 @@ public sealed class ManifestCodecTests : UnitTestBase
     [Fact]
     public void WriteRollEncodedMatchesWriteEncodedWithoutSnapshot()
     {
-        var manifest = new Storage.Manifest.ManifestState { CurrentJournal = 7, NextSequence = 99 };
+        var manifest = new ManifestState { CurrentJournal = 7, NextSequence = 99 };
 
         var expected = ManifestCodec.Encode(manifest);
         Span<byte> roll = stackalloc byte[ManifestCodec.RollEncodedWithoutSnapshotLength];
@@ -72,11 +72,11 @@ public sealed class ManifestCodecTests : UnitTestBase
     public void WriteRollEncodedMatchesWriteEncodedWithSnapshot()
     {
         var created = new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc);
-        var manifest = new Storage.Manifest.ManifestState
+        var manifest = new ManifestState
         {
             CurrentJournal = 5,
             NextSequence = 100,
-            LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+            LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = 3,
                 LastAppliedSequence = 99,
@@ -105,7 +105,7 @@ public sealed class ManifestCodecTests : UnitTestBase
     [Fact]
     public void DecodeThrowsWhenCrcIsInvalid()
     {
-        var bytes = ManifestCodec.Encode(new Storage.Manifest.ManifestState());
+        var bytes = ManifestCodec.Encode(new ManifestState());
         bytes[^1] ^= 0xFF;
 
         _ = Assert.Throws<InvalidDataException>(() => ManifestCodec.Decode(bytes));

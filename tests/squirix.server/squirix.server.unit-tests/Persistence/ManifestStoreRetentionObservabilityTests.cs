@@ -88,7 +88,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
 
         await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
         await ManifestStoreTestSupport.WaitUntilAsync(
-            () => readiness.IsDegraded && readiness.ConsecutiveWriteFailures is 2,
+            () => readiness is { IsDegraded: true, ConsecutiveWriteFailures: 2 },
             TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
         Assert.True(readiness.IsDegraded);

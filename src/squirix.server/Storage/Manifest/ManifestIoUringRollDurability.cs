@@ -8,7 +8,7 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>Cross-platform entry that delegates to io_uring on Linux when available.</summary>
 internal static class ManifestIoUringRollDurability
 {
-    internal static bool IsSupported => OperatingSystem.IsLinux() && IoUringAvailability.IsSupported;
+    private static bool IsSupported => OperatingSystem.IsLinux() && IoUringAvailability.IsSupported;
 
     internal static bool TryWriteRollBlocking(
         string targetPath,

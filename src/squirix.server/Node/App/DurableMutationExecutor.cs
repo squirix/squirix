@@ -97,9 +97,7 @@ internal sealed class DurableMutationExecutor
         try
         {
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(
-                ct => applyMemory(context, applyState, ct),
-                cancellationToken).ConfigureAwait(false);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(ct => applyMemory(context, applyState, ct), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -171,11 +169,7 @@ internal sealed class DurableMutationExecutor
                 ct => PrepareGroupCommitPlanAsync(conflictKey, state, context, mutationState, precondition, appendJournal, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            return await ApplyGroupCommitPlanAsync(
-                plan,
-                state,
-                ct => applyMemory(context, mutationState, ct),
-                cancellationToken).ConfigureAwait(false);
+            return await ApplyGroupCommitPlanAsync(plan, state, ct => applyMemory(context, mutationState, ct), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -295,12 +289,7 @@ internal sealed class DurableMutationExecutor
         GroupCommitExecutionState state,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         Func<CancellationToken, ValueTask> appendJournal,
-        CancellationToken cancellationToken) => await PrepareGroupCommitPlanCoreAsync(
-        conflictKey,
-        state,
-        precondition,
-        appendJournal,
-        cancellationToken).ConfigureAwait(false);
+        CancellationToken cancellationToken) => await PrepareGroupCommitPlanCoreAsync(conflictKey, state, precondition, appendJournal, cancellationToken).ConfigureAwait(false);
 
     private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TResult>(
         CacheKey conflictKey,

@@ -25,7 +25,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
         var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
         Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
@@ -75,8 +75,8 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
         var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
         Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 

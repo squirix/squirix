@@ -48,11 +48,11 @@ internal static class ManifestCodec
         destination[offset++] = Version;
 
         var bodyStart = offset;
-        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), manifest.Format);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], manifest.Format);
         offset += 4;
-        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), manifest.CurrentJournal);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], manifest.CurrentJournal);
         offset += 4;
-        BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), manifest.NextSequence);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[offset..], manifest.NextSequence);
         offset += 8;
 
         if (manifest.LastSnapshot is null)
@@ -62,26 +62,26 @@ internal static class ManifestCodec
         else
         {
             destination[offset++] = 1;
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), manifest.LastSnapshot.Index);
+            BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], manifest.LastSnapshot.Index);
             offset += 4;
-            BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), manifest.LastSnapshot.LastAppliedSequence);
+            BinaryPrimitives.WriteUInt64LittleEndian(destination[offset..], manifest.LastSnapshot.LastAppliedSequence);
             offset += 8;
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), manifest.LastSnapshot.ReplayFromJournalSegment);
+            BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], manifest.LastSnapshot.ReplayFromJournalSegment);
             offset += 4;
             var createdMs = new DateTimeOffset(manifest.LastSnapshot.CreatedUtc).ToUnixTimeMilliseconds();
-            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(offset), createdMs);
+            BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], createdMs);
             offset += 8;
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset), ushort.CreateTruncating(pathBytes.Length));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(pathBytes.Length));
             offset += 2;
             if (pathBytes.Length > 0)
             {
-                pathBytes.CopyTo(destination.Slice(offset));
+                pathBytes.CopyTo(destination[offset..]);
                 offset += pathBytes.Length;
             }
         }
 
         var crcPayload = destination.Slice(bodyStart, offset - bodyStart);
-        BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(offset), Crc32C.Compute(crcPayload));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(crcPayload));
     }
 
     public static ManifestState Decode(ReadOnlySpan<byte> fileBytes)
@@ -92,11 +92,11 @@ internal static class ManifestCodec
         if (body.Length < 4 + 4 + 8 + 1)
             throw new InvalidDataException("Manifest body is truncated.");
 
-        var format = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
+        var format = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
         offset += 4;
-        var currentJournal = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
+        var currentJournal = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
         offset += 4;
-        var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body.Slice(offset));
+        var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
         offset += 8;
         var hasSnapshot = body[offset++] is not 0;
         var lastSnapshot = hasSnapshot ? DecodeSnapshotRef(body, ref offset) : null;
@@ -155,11 +155,11 @@ internal static class ManifestCodec
         destination[offset++] = Version;
 
         var bodyStart = offset;
-        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), format);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], format);
         offset += 4;
-        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), currentJournal);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], currentJournal);
         offset += 4;
-        BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), nextSequence);
+        BinaryPrimitives.WriteUInt64LittleEndian(destination[offset..], nextSequence);
         offset += 8;
 
         if (snapshot is null)
@@ -169,25 +169,25 @@ internal static class ManifestCodec
         else
         {
             destination[offset++] = 1;
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), snapshot.Index);
+            BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], snapshot.Index);
             offset += 4;
-            BinaryPrimitives.WriteUInt64LittleEndian(destination.Slice(offset), snapshot.LastAppliedSequence);
+            BinaryPrimitives.WriteUInt64LittleEndian(destination[offset..], snapshot.LastAppliedSequence);
             offset += 8;
-            BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), snapshot.ReplayFromJournalSegment);
+            BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], snapshot.ReplayFromJournalSegment);
             offset += 4;
             var createdMs = new DateTimeOffset(snapshot.CreatedUtc).ToUnixTimeMilliseconds();
-            BinaryPrimitives.WriteInt64LittleEndian(destination.Slice(offset), createdMs);
+            BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], createdMs);
             offset += 8;
-            BinaryPrimitives.WriteUInt16LittleEndian(destination.Slice(offset), ushort.CreateTruncating(snapshotPathUtf8.Length));
+            BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], ushort.CreateTruncating(snapshotPathUtf8.Length));
             offset += 2;
             if (!snapshotPathUtf8.IsEmpty)
             {
-                snapshotPathUtf8.CopyTo(destination.Slice(offset));
+                snapshotPathUtf8.CopyTo(destination[offset..]);
                 offset += snapshotPathUtf8.Length;
             }
         }
 
-        BinaryPrimitives.WriteUInt32LittleEndian(destination.Slice(offset), Crc32C.Compute(destination.Slice(bodyStart, offset - bodyStart)));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(destination.Slice(bodyStart, offset - bodyStart)));
         return encodedLength;
     }
 
@@ -196,15 +196,15 @@ internal static class ManifestCodec
         if (body.Length < offset + 4 + 8 + 4 + 8 + 2)
             throw new InvalidDataException("Manifest snapshot section is truncated.");
 
-        var snapshotIndex = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
+        var snapshotIndex = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
         offset += 4;
-        var lastAppliedSequence = BinaryPrimitives.ReadUInt64LittleEndian(body.Slice(offset));
+        var lastAppliedSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
         offset += 8;
-        var replayFromJournalSegment = BinaryPrimitives.ReadInt32LittleEndian(body.Slice(offset));
+        var replayFromJournalSegment = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
         offset += 4;
-        var createdMs = BinaryPrimitives.ReadInt64LittleEndian(body.Slice(offset));
+        var createdMs = BinaryPrimitives.ReadInt64LittleEndian(body[offset..]);
         offset += 8;
-        var pathLen = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(offset));
+        var pathLen = BinaryPrimitives.ReadUInt16LittleEndian(body[offset..]);
         offset += 2;
         if (body.Length < offset + pathLen)
             throw new InvalidDataException("Manifest snapshot path is truncated.");
@@ -237,7 +237,7 @@ internal static class ManifestCodec
 
         var bodyEnd = fileBytes.Length - FooterSize;
         body = fileBytes.Slice(FileHeaderSize, bodyEnd - FileHeaderSize);
-        var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes.Slice(bodyEnd));
+        var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(fileBytes[bodyEnd..]);
         if (Crc32C.Compute(body) != expectedCrc)
             throw new InvalidDataException("Manifest file failed CRC validation.");
     }

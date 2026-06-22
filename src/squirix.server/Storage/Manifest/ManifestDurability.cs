@@ -7,14 +7,7 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>WAL-ordered durable writes for Manifest data files and the fixed-size CURRENT pointer.</summary>
 internal static class ManifestDurability
 {
-    internal static FileOptions GetDataFileOptions()
-    {
-        var options = FileOptions.SequentialScan;
-        if (OperatingSystem.IsWindows())
-            options |= FileOptions.WriteThrough;
-
-        return options;
-    }
+    internal static void FlushPointerIfNeeded(SafeFileHandle handle) => RandomAccess.FlushToDisk(handle);
 
     internal static FileOptions GetPointerFileOptions() => FileOptions.None;
 
@@ -28,8 +21,6 @@ internal static class ManifestDurability
 
         writer.Write(pointerBuffer);
     }
-
-    internal static void FlushPointerIfNeeded(SafeFileHandle handle) => RandomAccess.FlushToDisk(handle);
 
     internal static void WriteManifestDataFileBlocking(string targetPath, ReadOnlySpan<byte> encoded)
     {
@@ -49,11 +40,7 @@ internal static class ManifestDurability
     /// <param name="encoded">Encoded manifest bytes.</param>
     /// <param name="pointerWriter">Reusable pointer writer for <c>man-current</c>.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
-    internal static void WriteManifestRollBlocking(
-        string targetPath,
-        ReadOnlySpan<byte> encoded,
-        IManifestPointerWriter pointerWriter,
-        ReadOnlySpan<byte> pointerBuffer)
+    internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer)
     {
         if (ManifestIoUringRollDurability.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
             return;
@@ -62,9 +49,18 @@ internal static class ManifestDurability
         WriteCurrentPointerBlocking(pointerWriter, pointerBuffer);
     }
 
-    internal static void FlushDataFileIfNeeded(SafeFileHandle handle)
+    private static void FlushDataFileIfNeeded(SafeFileHandle handle)
     {
         if (!OperatingSystem.IsWindows())
             RandomAccess.FlushToDisk(handle);
+    }
+
+    private static FileOptions GetDataFileOptions()
+    {
+        var options = FileOptions.SequentialScan;
+        if (OperatingSystem.IsWindows())
+            options |= FileOptions.WriteThrough;
+
+        return options;
     }
 }

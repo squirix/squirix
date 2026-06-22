@@ -23,7 +23,7 @@ public sealed class ManifestStoreTests : UnitTestBase, IAsyncLifetime
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
         var currentPath = PathKit.Combine(Dir.Path, "man-current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken);
@@ -58,7 +58,7 @@ public sealed class ManifestStoreTests : UnitTestBase, IAsyncLifetime
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
         Assert.False(File.Exists(PathKit.Combine(Dir.Path, "man-current.tmp")));
         Assert.Equal(12, (await File.ReadAllBytesAsync(PathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);
