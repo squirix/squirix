@@ -18,8 +18,8 @@ When a node cannot start or operators need to inspect on-disk layout:
 2. Copy the full data directory to a safe location.
 3. Work on the copy first. See [operational runbook](operational-runbook.md).
 
-Do not delete journal segments, manifest files, or `man-current` manually unless a documented repair workflow confirms it is
-safe.
+Do not delete journal segments, manifest files, or `man-current` manually unless a documented repair workflow
+confirms it is safe.
 
 Typical offline workflows (semantics only):
 

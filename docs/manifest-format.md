@@ -8,6 +8,7 @@ The active manifest index is stored in a fixed-size `man-current` pointer (magic
 Filename pattern: `man-NNNNNN.bmqx`.
 
 ### File layout (little-endian)
+
 | Region  | Size     | Value                            |
 | ------- | -------- | -------------------------------- |
 | magic   | 4        | ASCII `SQMF`                     |
