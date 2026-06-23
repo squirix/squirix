@@ -31,16 +31,13 @@ public sealed class CallPolicyTests : UnitTestBase
             timeProvider: TimeProvider.System);
         using var deadline = RpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await policy.ExecuteAsync(
-                static async token =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
+            static async token =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                return 1;
+            },
+            DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
     }
@@ -53,7 +50,7 @@ public sealed class CallPolicyTests : UnitTestBase
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { _ = await policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
@@ -164,12 +161,11 @@ public sealed class CallPolicyTests : UnitTestBase
 
             await entered.Task.WaitAsync(timeout, TimeProvider.System, DefaultCancellationToken);
 
-            var disposeTask = policy.DisposeAsync().AsTask();
             release.SetResult();
-            await disposeTask;
+            await policy.DisposeAsync();
 
             Assert.Equal(7, await inFlight);
-            _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => { _ = await policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken); });
+            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
         }
         finally
         {
@@ -297,16 +293,13 @@ public sealed class CallPolicyTests : UnitTestBase
         using var deadline = RpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await policy.ExecuteAsync(
-                static async token =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
+            static async token =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                return 1;
+            },
+            DefaultCancellationToken).AsTask());
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
 
         Assert.True(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget")));

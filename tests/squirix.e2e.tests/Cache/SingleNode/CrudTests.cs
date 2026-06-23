@@ -17,7 +17,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
@@ -48,7 +48,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -60,7 +60,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -72,7 +72,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fi
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies the public core transport does not round-trip internal tag metadata.</summary>

@@ -111,9 +111,8 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
             },
             cancellationToken: DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await clientA.TryAddEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            clientA.TryAddEntryAsync(
                 new TryAddEntryAsyncRequest
                 {
                     OperationId = MismatchOperationId,
@@ -121,8 +120,7 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
                     Key = keyB,
                     Entry = new CacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
                 },
-                cancellationToken: DefaultCancellationToken);
-        });
+                cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Equal(OperationIdReuseMismatchException.StableDetail, ex.Status.Detail);

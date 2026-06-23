@@ -57,7 +57,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         using var dir = new TempDirectory("squirix-snap-writer-tmp");
         var writer = new SnapshotWriter(dir);
         var items = FailingItems();
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { _ = await writer.WriteAsync(1, items, [], DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
         Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }

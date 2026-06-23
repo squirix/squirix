@@ -37,15 +37,14 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
             },
             DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () =>
-        {
-            _ = await JournalCoordinatorFactory.CreateAsync(
+        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            JournalCoordinatorFactory.CreateAsync(
                 persistence,
-                await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+                manifest,
                 manifestStore,
                 new JournalStartupGate(),
-                DefaultCancellationToken);
-        });
+                DefaultCancellationToken));
 
         Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
         Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);

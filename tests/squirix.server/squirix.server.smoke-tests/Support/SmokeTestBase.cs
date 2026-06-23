@@ -97,6 +97,82 @@ public abstract class SmokeTestBase : IDisposable
         return MtlsTestContext.CreatePeers(ref _mtls, mapped);
     }
 
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        string url,
+        string nodeId,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        TestNodeSecurityOptions? security = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        [CallerMemberName] string? testName = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        url,
+        BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        security,
+        backpressureOptions,
+        memoryPressureOptions,
+        testName,
+        cancellationToken);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
+        string nodeId,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        TestNodeSecurityOptions? security = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        [CallerMemberName] string? testName = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        url,
+        BuildClusterPeers([(nodeId, url)]),
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        security,
+        backpressureOptions,
+        memoryPressureOptions,
+        testName,
+        cancellationToken);
+
     /// <summary>
     /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
     /// using the provided peers, persistence, snapshot and service options.
@@ -126,7 +202,7 @@ public abstract class SmokeTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
+    private ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,

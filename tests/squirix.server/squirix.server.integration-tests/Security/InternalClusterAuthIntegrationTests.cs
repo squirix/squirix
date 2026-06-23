@@ -24,9 +24,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node-a", Url = url.AbsoluteUri } };
 
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(url, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -36,12 +35,10 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -101,12 +98,10 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.True(
             ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown,
@@ -169,9 +164,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
@@ -179,8 +173,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                     Key = "spoofed-owner-write",
                     Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -211,9 +204,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
@@ -221,8 +213,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                     Key = key,
                     Entry = new CacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Contains("owned by 'node-b'", ex.Status.Detail, StringComparison.Ordinal);

@@ -26,7 +26,6 @@ internal sealed class JournalEventLoop
     private readonly JournalWriteBatchBuffer _writeBatch;
     private string? _activeSegmentPath;
     private long _activeSegmentWrittenBytes;
-    private int _currentSegmentIndex;
     private volatile bool _dirty;
     private JournalDurabilityGroupCommit? _groupCommit;
     private int _journalSegmentCount;
@@ -51,7 +50,7 @@ internal sealed class JournalEventLoop
         _opt = opt;
         _writeBatch = new JournalWriteBatchBuffer(opt.JournalWriteBatchBytes);
         _policy = new JournalSegmentPolicy(opt);
-        _currentSegmentIndex = currentSegmentIndex;
+        CurrentSegmentIndex = currentSegmentIndex;
         _journalTotalBytes = journalTotalBytes;
         _journalSegmentCount = journalSegmentCount;
         _bgToken = bgToken;
@@ -59,7 +58,7 @@ internal sealed class JournalEventLoop
 
     internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
 
-    internal int CurrentSegmentIndex => _currentSegmentIndex;
+    internal int CurrentSegmentIndex { get; private set; }
 
     internal bool IsDurabilityFlushPending => _dirty;
 
@@ -120,15 +119,15 @@ internal sealed class JournalEventLoop
         // of rescanning the directory (two EnumerateFiles passes plus a stat per segment) on the hot
         // roll path. The counters are seeded at startup and resynced after compaction (MaintenanceEnd).
         _policy.EnsureRollCapacityOrThrow(_journalSegmentCount, _journalTotalBytes);
-        _pendingRollTargetSegmentIndex = _currentSegmentIndex + 1;
+        _pendingRollTargetSegmentIndex = CurrentSegmentIndex + 1;
         _segmentRollInFlight = true;
         _host.PublishRoll(_pendingRollTargetSegmentIndex);
     }
 
     private void CompleteSegmentRollOnJournalThread()
     {
-        _currentSegmentIndex = _pendingRollTargetSegmentIndex;
-        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, _currentSegmentIndex);
+        CurrentSegmentIndex = _pendingRollTargetSegmentIndex;
+        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
         _segmentWriter.OpenSegment(_activeSegmentPath, false);
         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
         JournalFraming.WriteFileHeader(header);
@@ -218,7 +217,7 @@ internal sealed class JournalEventLoop
             return;
         }
 
-        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, _currentSegmentIndex);
+        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
         var append = File.Exists(_activeSegmentPath);
         _segmentWriter.OpenSegment(_activeSegmentPath, append);
         if (_segmentWriter.Length == 0)
@@ -337,7 +336,7 @@ internal sealed class JournalEventLoop
                 return false;
 
             case JournalWorkKind.MaintenanceEnd:
-                _currentSegmentIndex = item.ResetSegmentIndex;
+                CurrentSegmentIndex = item.ResetSegmentIndex;
                 _host.SetNextSequence(item.ResetSequence);
                 _activeSegmentWrittenBytes = 0;
                 _dirty = false;

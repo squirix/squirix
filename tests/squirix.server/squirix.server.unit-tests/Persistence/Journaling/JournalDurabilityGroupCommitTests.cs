@@ -129,23 +129,27 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             manifestStore,
             new JournalStartupGate(),
             DefaultCancellationToken);
-        var pipelined = Assert.IsType<JournalCoordinator>(journal);
         var executor = new DurableMutationExecutor(journal);
-        var observedPendingFlushDuringMemoryApply = false;
+        var observedPendingFlushDuringMemoryApply = new PendingFlushObservation();
+        var key = CacheKey.Default("k");
+        var payload = JournalEntryPayloadKit.EncodePut("v");
 
         _ = await executor.ExecuteAsync(
-            CacheKey.Default("k"),
+            key,
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            ct => journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, ct),
-            _ =>
+            journal,
+            (Key: key, Payload: payload),
+            static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, null, ct),
+            observedPendingFlushDuringMemoryApply,
+            static (j, observation, _) =>
             {
-                observedPendingFlushDuringMemoryApply = pipelined.IsDurabilityFlushPending;
+                observation.PendingDuringApply = Assert.IsType<JournalCoordinator>(j).IsDurabilityFlushPending;
                 return new ValueTask<int>(1);
             },
             DefaultCancellationToken);
 
-        Assert.False(observedPendingFlushDuringMemoryApply);
-        Assert.False(pipelined.IsDurabilityFlushPending);
+        Assert.False(observedPendingFlushDuringMemoryApply.PendingDuringApply);
+        Assert.False(Assert.IsType<JournalCoordinator>(journal).IsDurabilityFlushPending);
     }
 
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
@@ -282,5 +286,10 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         public int Value => Volatile.Read(ref _value);
 
         public void Increment() => _ = Interlocked.Increment(ref _value);
+    }
+
+    private sealed class PendingFlushObservation
+    {
+        public bool PendingDuringApply { get; set; }
     }
 }

@@ -2,7 +2,6 @@ using System;
 using System.Net;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Hosting;
@@ -14,14 +13,15 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>Verifies external-access hardening for the primary HTTPS listener.</summary>
 public sealed class ExternalAccessHardeningTests : IntegrationTestBase
 {
+    private const string NodeId = "node-external-hardening";
+
     /// <summary>Verifies health is served on the primary HTTPS listener.</summary>
     [Fact]
     public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
-        await using var node = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions());
+        await using var node = await StartNodeAsync(url, NodeId, security: new TestNodeSecurityOptions());
 
         var response = await HttpClient.GetAsync(new Uri(url, "/health"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -33,17 +33,14 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
     {
         var mainPort = AllocateDedicatedPort();
         var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
 
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
@@ -53,9 +50,9 @@ public sealed class ExternalAccessHardeningTests : IntegrationTestBase
     {
         var mainPort = AllocateDedicatedPort();
         var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { _ = await StartNodeAsync(url, peers, security: new TestNodeSecurityOptions()); });
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            StartNodeAsync(url, NodeId, security: new TestNodeSecurityOptions()).AsTask());
         Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);
     }
 }

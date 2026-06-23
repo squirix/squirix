@@ -70,7 +70,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(url, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 }

@@ -17,7 +17,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => { await Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>

@@ -1,5 +1,4 @@
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
@@ -16,9 +15,7 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     public async Task DefaultModeSupportsCacheOperations()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node_ephemeral_ops", Url = url.AbsoluteUri } };
-
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(url, "node_ephemeral_ops");
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
@@ -32,9 +29,7 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     public async Task DefaultStartupDoesNotCreatePersistenceFiles()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node_ephemeral", Url = url.AbsoluteUri } };
-
-        await using var node = await StartNodeAsync(url, peers);
+        await using var node = await StartNodeAsync(url, "node_ephemeral");
         Assert.False(node.PersistenceEnabled);
         Assert.True(string.IsNullOrWhiteSpace(node.DataDir));
         Assert.Null(node.Services.GetService(typeof(PersistenceOptions)));

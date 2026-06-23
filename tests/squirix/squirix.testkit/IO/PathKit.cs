@@ -28,10 +28,10 @@ public static class PathKit
     /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(string path1, string path2) => CombineCore(true, [path1, path2]);
+    public static string Combine(string path1, string path2) => CombineCore(true, path1, path2);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3) => CombineCore(true, [path1, path2, path3]);
+    public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
     /// <summary>
     /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
@@ -50,57 +50,32 @@ public static class PathKit
         return Combine(root, tfmSegment, ProcessSessionSegment);
     }
 
-    private static string BuildProcessSessionSegment()
+    private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        long startTicks;
-        try
+        if (heapBuffer is not null)
         {
-            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (InvalidOperationException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (PlatformNotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (NotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
+            heapBuffer.Add(segment);
+            return;
         }
 
-        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+        if (count >= buffer.Length)
+        {
+            heapBuffer = new List<string>(buffer.Length + 4);
+            for (var i = 0; i < count; i++)
+                heapBuffer.Add(buffer[i]);
+            heapBuffer.Add(segment);
+            return;
+        }
+
+        buffer[count++] = segment;
     }
 
-    private static string CombineCore(bool sanitize, ReadOnlySpan<string> paths)
+    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        if (paths.Length is 0)
-            return string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+            return;
 
-        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
-        var count = 0;
-        List<string>? heapBuffer = null;
-
-        try
-        {
-            foreach (var path in paths)
-            {
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
-
-                AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
-            }
-
-            if (heapBuffer is not null)
-                return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
-
-            return JoinSegments(buffer.AsSpan(0, count));
-        }
-        finally
-        {
-            ArrayPool<string>.Shared.Return(buffer, true);
-        }
+        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
     }
 
     private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
@@ -133,24 +108,65 @@ public static class PathKit
             AddSegment(SanitizePath(sanitizedParts[i]), buffer, ref count, ref heapBuffer);
     }
 
-    private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static string BuildProcessSessionSegment()
     {
+        long startTicks;
+        try
+        {
+            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (InvalidOperationException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (NotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+
+        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string CombineCore(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2, null, 2);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, 3);
+
+    private static string CombineCore(bool sanitize, string? path1, string? path2, string? path3, int pathCount)
+    {
+        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
+        var count = 0;
+        List<string>? heapBuffer = null;
+
+        try
+        {
+            if (pathCount >= 1)
+                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 2)
+                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 3)
+                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
+
+            return FinishCombine(buffer, count, heapBuffer);
+        }
+        finally
+        {
+            ArrayPool<string>.Shared.Return(buffer, true);
+        }
+    }
+
+    private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
+    {
+        if (count is 0)
+            return string.Empty;
+
         if (heapBuffer is not null)
-        {
-            heapBuffer.Add(segment);
-            return;
-        }
+            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
 
-        if (count >= buffer.Length)
-        {
-            heapBuffer = new List<string>(buffer.Length + 4);
-            for (var i = 0; i < count; i++)
-                heapBuffer.Add(buffer[i]);
-            heapBuffer.Add(segment);
-            return;
-        }
-
-        buffer[count++] = segment;
+        return JoinSegments(buffer.AsSpan(0, count));
     }
 
     private static string JoinSegments(ReadOnlySpan<string> segments)
@@ -182,20 +198,6 @@ public static class PathKit
         }
 
         return result;
-    }
-
-    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
-    {
-        var length = span.Length;
-        while (length > 0)
-        {
-            var last = span[length - 1];
-            if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
-                break;
-            length--;
-        }
-
-        return length;
     }
 
     /// <summary>
@@ -234,5 +236,19 @@ public static class PathKit
         }
 
         return s;
+    }
+
+    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
+    {
+        var length = span.Length;
+        while (length > 0)
+        {
+            var last = span[length - 1];
+            if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
+                break;
+            length--;
+        }
+
+        return length;
     }
 }

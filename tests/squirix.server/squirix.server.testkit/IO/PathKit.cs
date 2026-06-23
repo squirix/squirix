@@ -27,17 +27,18 @@ public static class PathKit
     /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(string path1, string path2) => CombineCore(true, [path1, path2]);
+    public static string Combine(string path1, string path2) => CombineCore(true, path1, path2);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3) => CombineCore(true, [path1, path2, path3]);
+    public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4, string path5) => CombineCore(true, [path1, path2, path3, path4, path5]);
+    public static string Combine(string path1, string path2, string path3, string path4, string path5) =>
+        CombineCore(true, path1, path2, path3, path4, path5);
 
     /// <inheritdoc cref="Combine(string,string)" />
     public static string Combine(string path1, string path2, string path3, string path4, string path5, string path6) =>
-        CombineCore(true, [path1, path2, path3, path4, path5, path6]);
+        CombineCore(true, path1, path2, path3, path4, path5, path6);
 
     /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="sanitize">
@@ -47,10 +48,11 @@ public static class PathKit
     /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, [path1, path2]);
+    public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2);
 
     /// <inheritdoc cref="Combine(bool,string,string)" />
-    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, [path1, path2, path3, path4]);
+    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) =>
+        CombineCore(sanitize, path1, path2, path3, path4);
 
     /// <summary>
     /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
@@ -92,34 +94,80 @@ public static class PathKit
         return $"pid{System.Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    private static string CombineCore(bool sanitize, ReadOnlySpan<string> paths)
-    {
-        if (paths.Length is 0)
-            return string.Empty;
+    private static string CombineCore(bool sanitize, string path1, string path2) =>
+        CombineCore(sanitize, path1, path2, null, null, null, null, 2);
 
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3) =>
+        CombineCore(sanitize, path1, path2, path3, null, null, null, 3);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4) =>
+        CombineCore(sanitize, path1, path2, path3, path4, null, null, 4);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5) =>
+        CombineCore(sanitize, path1, path2, path3, path4, path5, null, 5);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5, string path6) =>
+        CombineCore(sanitize, path1, path2, path3, path4, path5, path6, 6);
+
+    private static string CombineCore(
+        bool sanitize,
+        string? path1,
+        string? path2,
+        string? path3,
+        string? path4,
+        string? path5,
+        string? path6,
+        int pathCount)
+    {
         var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
         var count = 0;
         List<string>? heapBuffer = null;
 
         try
         {
-            foreach (var path in paths)
-            {
-                if (string.IsNullOrWhiteSpace(path))
-                    continue;
+            if (pathCount >= 1)
+                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 2)
+                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 3)
+                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 4)
+                AppendIfNotWhiteSpace(path4, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 5)
+                AppendIfNotWhiteSpace(path5, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 6)
+                AppendIfNotWhiteSpace(path6, sanitize, buffer, ref count, ref heapBuffer);
 
-                AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
-            }
-
-            if (heapBuffer is not null)
-                return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
-
-            return JoinSegments(buffer.AsSpan(0, count));
+            return FinishCombine(buffer, count, heapBuffer);
         }
         finally
         {
             ArrayPool<string>.Shared.Return(buffer, true);
         }
+    }
+
+    private static void AppendIfNotWhiteSpace(
+        string? path,
+        bool sanitize,
+        string[] buffer,
+        ref int count,
+        ref List<string>? heapBuffer)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
+    }
+
+    private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
+    {
+        if (count is 0)
+            return string.Empty;
+
+        if (heapBuffer is not null)
+            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
+
+        return JoinSegments(buffer.AsSpan(0, count));
     }
 
     private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)

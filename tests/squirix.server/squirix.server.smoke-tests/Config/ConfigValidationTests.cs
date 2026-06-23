@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.SmokeTests.Support;
@@ -16,8 +15,6 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalidBackpressure = new BackpressureOptions
         {
             MaxInFlight = 8,
@@ -25,15 +22,12 @@ public sealed class ConfigValidationTests : SmokeTestBase
             RejectThreshold = 6,
         };
 
-        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () =>
-        {
-            _ = await StartNodeAsync(
-                url,
-                peers,
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() =>
+            StartNodeAsync(
+                GetNextHttpUri(),
+                "nodeA",
                 backpressureOptions: invalidBackpressure,
-                extraScope: Guid.NewGuid().ToString("N"),
-                cancellationToken: DefaultCancellationToken);
-        });
+                cancellationToken: DefaultCancellationToken).AsTask());
 
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }
@@ -42,8 +36,6 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
         var invalid = new MemoryPressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
@@ -51,10 +43,12 @@ public sealed class ConfigValidationTests : SmokeTestBase
             CriticalPressureThresholdPercent = 50,
         };
 
-        var ex = await Assert.ThrowsAsync<OptionsValidationException>(async () =>
-        {
-            _ = await StartNodeAsync(url, peers, memoryPressureOptions: invalid, extraScope: Guid.NewGuid().ToString("N"), cancellationToken: DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() =>
+            StartNodeAsync(
+                GetNextHttpUri(),
+                "nodeA",
+                memoryPressureOptions: invalid,
+                cancellationToken: DefaultCancellationToken).AsTask());
 
         Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
     }

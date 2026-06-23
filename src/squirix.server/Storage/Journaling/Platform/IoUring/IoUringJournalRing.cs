@@ -141,7 +141,7 @@ internal sealed class IoUringJournalRing : IDisposable
         }
     }
 
-    private unsafe void EnqueueWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)
+    private void EnqueueWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)
     {
         ref var sqe = ref ReserveSqe();
         sqe.Opcode = LinuxIoUringSyscalls.OpWrite;
@@ -152,7 +152,7 @@ internal sealed class IoUringJournalRing : IDisposable
         _sqTailLocal++;
     }
 
-    private unsafe void EnqueueFsync(int fileDescriptor)
+    private void EnqueueFsync(int fileDescriptor)
     {
         ref var sqe = ref ReserveSqe();
         sqe.Opcode = LinuxIoUringSyscalls.OpFsync;

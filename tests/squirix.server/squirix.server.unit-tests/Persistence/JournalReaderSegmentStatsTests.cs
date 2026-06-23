@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
@@ -34,7 +33,7 @@ public sealed class JournalReaderSegmentStatsTests : UnitTestBase
     [Fact]
     public void GetOnDiskSegmentStatsReturnsEmptyWhenDirectoryMissing()
     {
-        var dir = PathKit.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
 
         var stats = JournalReader.GetOnDiskSegmentStats(dir);
 

@@ -95,7 +95,7 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
     {
         var peers = BuildPeers(1);
         await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () => { await pool.WarmUpAsync(DefaultCancellationToken).AsTask(); });
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
         Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }
 

@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using System.IO;
 using Squirix.Server.Storage;
@@ -30,7 +29,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsReturnsEmptyWhenDirectoryMissing()
     {
-        var dir = PathKit.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
         var segments = JournalReader.EnumerateSegments(dir, 1);
         Assert.Empty(segments);
     }

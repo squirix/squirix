@@ -72,7 +72,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
             gate,
             NullLogger<RecoveryService<object?>>.Instance);
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(async () => { await recovery.StartAsync(DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(() => recovery.StartAsync(DefaultCancellationToken));
 
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
 

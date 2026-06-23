@@ -128,6 +128,88 @@ public abstract class IntegrationTestBase : IDisposable
         return MtlsTestContext.CreatePeers(ref _mtls, mapped);
     }
 
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        string url,
+        string nodeId,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
+        [CallerMemberName] string? testName = null) =>
+        StartNodeAsync(
+            url,
+            BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
+            callPolicyFactory,
+            configureGrpc,
+            servicesConfigure,
+            snapshotOptions,
+            persistenceOptions,
+            usePersistence,
+            output,
+            cleanTestDir,
+            extraScope,
+            peerHandlerFactory,
+            backpressureOptions,
+            memoryPressureOptions,
+            security,
+            waitForRecovery,
+            testName);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
+        string nodeId,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
+        [CallerMemberName] string? testName = null) =>
+        StartNodeAsync(
+            url,
+            BuildClusterPeers([(nodeId, url)]),
+            callPolicyFactory,
+            configureGrpc,
+            servicesConfigure,
+            snapshotOptions,
+            persistenceOptions,
+            usePersistence,
+            output,
+            cleanTestDir,
+            extraScope,
+            peerHandlerFactory,
+            backpressureOptions,
+            memoryPressureOptions,
+            security,
+            waitForRecovery,
+            testName);
+
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
@@ -237,7 +319,7 @@ public abstract class IntegrationTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
+    private ValueTask<TestNodeHost> StartNodeAsync(
         string url,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,

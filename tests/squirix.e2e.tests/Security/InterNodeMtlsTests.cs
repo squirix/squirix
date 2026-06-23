@@ -95,7 +95,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = MtlsTestNodeProfile.NoOutboundClientCertificate });
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }
@@ -107,7 +107,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = MtlsTestNodeProfile.UntrustedOutboundClientCertificate });
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }
@@ -119,7 +119,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeBProfile = MtlsTestNodeProfile.UntrustedInboundServerCertificate });
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }
@@ -131,7 +131,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = MtlsTestNodeProfile.ExpiredPeerCertificate });
         var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { await cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken); });
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }

@@ -93,6 +93,6 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
         var controller = new JournalCompactionController(opt, manifestStore, SnapshotStoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
-        _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => { _ = await controller.TryTriggerNowAsync(DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 }

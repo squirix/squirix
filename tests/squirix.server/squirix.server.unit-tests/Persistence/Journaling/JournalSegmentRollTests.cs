@@ -83,7 +83,11 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        await ManifestStoreTestSupport.WaitUntilAsync(() => manifestStore.ReadCurrentOrDefaultBlocking().CurrentJournal is 2, TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await ManifestStoreTestSupport.WaitUntilAsync(
+            manifestStore,
+            static s => s.ReadCurrentOrDefaultBlocking().CurrentJournal is 2,
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         Assert.False(ContainsPutKey(dir, 1, "overflow-key"));

@@ -100,14 +100,12 @@ public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("before"), payload, null, DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<IOException>(async () =>
-        {
-            _ = await journal.ExecuteSnapshotCutAsync(
+        _ = await Assert.ThrowsAsync<IOException>(() =>
+            journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
                 static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.ManifestState.SnapshotRef>(new IOException("simulated snapshot failure")),
-                DefaultCancellationToken).AsTask();
-        });
+                DefaultCancellationToken).AsTask());
 
         await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);

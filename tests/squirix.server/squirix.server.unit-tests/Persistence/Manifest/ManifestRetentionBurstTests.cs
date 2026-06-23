@@ -30,14 +30,16 @@ public sealed class ManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
         for (var i = 1; i <= 20; i++)
             store.PublishRollBlocking(i, Convert.ToUInt64(i));
 
+        var manifestPath = PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20));
         await ManifestStoreTestSupport.WaitUntilAsync(
-            () => File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20))),
+            manifestPath,
+            static path => File.Exists(path),
             TimeSpan.FromSeconds(5),
             DefaultCancellationToken);
 
-        var currentPath = PathKit.Combine(Dir.Path, "man-current");
+        var currentPath = PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestCurrentPointer);
         Assert.Equal(20, ManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
-        Assert.True(File.Exists(PathKit.Combine(Dir.Path, "man-000020.bmqx")));
+        Assert.True(File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20))));
     }
 
     /// <summary>Disposes the temporary directory after the test class finishes.</summary>

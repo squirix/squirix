@@ -1,10 +1,8 @@
 using System;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Networking;
 using Xunit;
 using Xunit.Sdk;
 
@@ -26,9 +24,8 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     public async Task MetricsEndpointExposesCountersAfterOperations()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node_A", Url = ListenUrls.CanonicalAuthority(url) } };
 
-        await using var node = await StartNodeAsync(url, peers, cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(url, "node_A", cancellationToken: DefaultCancellationToken);
         var cache = GetCacheApiClient(node);
 
         const string key = "smoke:1";

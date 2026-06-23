@@ -42,7 +42,12 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             },
             DefaultCancellationToken);
 
-        await ManifestStoreTestSupport.WaitUntilAsync(() => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        var staleJournalPaths = (JournalPath(1), JournalPath(2));
+        await ManifestStoreTestSupport.WaitUntilAsync(
+            staleJournalPaths,
+            static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -78,7 +83,12 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             },
             DefaultCancellationToken);
 
-        await ManifestStoreTestSupport.WaitUntilAsync(() => !FileKit.Exists(SnapshotPath(1)), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        var staleSnapshotPath = SnapshotPath(1);
+        await ManifestStoreTestSupport.WaitUntilAsync(
+            staleSnapshotPath,
+            static path => !FileKit.Exists(path),
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));

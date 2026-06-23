@@ -6,7 +6,6 @@ using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Networking;
@@ -34,13 +33,11 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
-        var peers = new[] { new Peer { NodeId = "node-metrics-auth", Url = bindUrl } };
 
         await using var node = await StartNodeAsync(
             bindUrl,
-            peers,
+            "node-metrics-auth",
             security: TestJwtHelper.ToSecurityOptions(credentials),
-            extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/metrics"), DefaultCancellationToken);

@@ -2,7 +2,6 @@ using System;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -41,9 +40,8 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     public async Task ReadyDetailsEndpointReportsReadinessSignals()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node_health_A", Url = url.AbsoluteUri } };
 
-        await using var node = await StartNodeAsync(url, peers, usePersistence: true);
+        await using var node = await StartNodeAsync(url, "node_health_A", usePersistence: true);
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
