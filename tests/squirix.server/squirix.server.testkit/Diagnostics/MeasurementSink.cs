@@ -12,7 +12,7 @@ namespace Squirix.Server.TestKit.Diagnostics;
 /// </summary>
 public sealed class MeasurementSink : IDisposable
 {
-    private readonly ConcurrentQueue<(string InstrumentName, object Value, KeyValuePair<string, object?>[] Tags)> _events = new();
+    private readonly ConcurrentQueue<CapturedMeasurement> _events = new();
     private readonly MeterListener _listener = new();
 
     /// <summary>
@@ -27,28 +27,28 @@ public sealed class MeasurementSink : IDisposable
                 listener.EnableMeasurementEvents(instrument);
         };
 
-        _listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) => { _events.Enqueue((instrument.Name, value, CloneTags(tags))); });
-        _listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) => { _events.Enqueue((instrument.Name, value, CloneTags(tags))); });
+        _listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) => { _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)); });
+        _listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) => { _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)); });
 
         _listener.Start();
     }
 
     /// <summary>Determines whether a measurement event with the specified instrument name has been observed.</summary>
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
-    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> if a matching event was captured; otherwise, <see langword="false" />.</returns>
     public bool HasEvent(string instrumentName) => HasEventCore(_events, instrumentName, ReadOnlySpan<(string Key, string Value)>.Empty);
 
     /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
     /// <param name="tag1">Expected tag key/value pair that must be present on the measurement.</param>
-    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> if a matching event was captured; otherwise, <see langword="false" />.</returns>
     public bool HasEvent(string instrumentName, (string Key, string Value) tag1) => HasEventCore(_events, instrumentName, [tag1]);
 
     /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
     /// <param name="tag1">First expected tag key/value pair.</param>
     /// <param name="tag2">Second expected tag key/value pair.</param>
-    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> if a matching event was captured; otherwise, <see langword="false" />.</returns>
     public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2) => HasEventCore(_events, instrumentName, [tag1, tag2]);
 
     /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
@@ -56,7 +56,7 @@ public sealed class MeasurementSink : IDisposable
     /// <param name="tag1">First expected tag key/value pair.</param>
     /// <param name="tag2">Second expected tag key/value pair.</param>
     /// <param name="tag3">Third expected tag key/value pair.</param>
-    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    /// <returns><see langword="true" /> if a matching event was captured; otherwise, <see langword="false" />.</returns>
     public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2, (string Key, string Value) tag3) =>
         HasEventCore(_events, instrumentName, [tag1, tag2, tag3]);
 
@@ -65,42 +65,45 @@ public sealed class MeasurementSink : IDisposable
     /// </summary>
     public void Dispose() => _listener.Dispose();
 
-    private static KeyValuePair<string, object?>[] CloneTags(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+    private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName, ReadOnlySpan<(string Key, string Value)> expectedTags)
     {
-        var arr = new KeyValuePair<string, object?>[tags.Length];
-        for (var i = 0; i < tags.Length; i++)
-            arr[i] = tags[i];
-        return arr;
+        foreach (var measurement in events)
+        {
+            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(measurement, expectedTags))
+                return true;
+        }
+
+        return false;
     }
 
-    private static bool HasTags(KeyValuePair<string, object?>[] tags, ReadOnlySpan<(string Key, string Value)> expected)
+    private static bool HasTags(in CapturedMeasurement measurement, ReadOnlySpan<(string Key, string Value)> expected)
     {
-        foreach (var (k, v) in expected)
+        foreach (var (key, value) in expected)
         {
-            var found = false;
-            foreach (var tag in tags)
-            {
-                if (!string.Equals(tag.Key, k, StringComparison.OrdinalIgnoreCase) || !TagValueEquals(tag.Value, v))
-                    continue;
-                found = true;
-                break;
-            }
-
-            if (!found)
+            if (!MeasurementHasTag(measurement, key, value))
                 return false;
         }
 
         return true;
     }
 
-    private static bool HasEventCore(
-        ConcurrentQueue<(string InstrumentName, object Value, KeyValuePair<string, object?>[] Tags)> events,
-        string instrumentName,
-        ReadOnlySpan<(string Key, string Value)> expectedTags)
+    private static bool MeasurementHasTag(in CapturedMeasurement measurement, string key, string expectedValue)
     {
-        foreach (var (eventInstrumentName, _, eventTags) in events)
+        if (measurement.OverflowTags is not null)
         {
-            if (string.Equals(eventInstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(eventTags, expectedTags))
+            foreach (var tag in measurement.OverflowTags)
+            {
+                if (string.Equals(tag.Key, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, expectedValue))
+                    return true;
+            }
+
+            return false;
+        }
+
+        for (var i = 0; i < measurement.TagCount; i++)
+        {
+            measurement.GetTag(i, out var tagKey, out var tagValue);
+            if (string.Equals(tagKey, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tagValue, expectedValue))
                 return true;
         }
 
@@ -113,4 +116,84 @@ public sealed class MeasurementSink : IDisposable
         string s => string.Equals(s, expected, StringComparison.OrdinalIgnoreCase),
         _ => string.Equals(Convert.ToString(tagValue, CultureInfo.InvariantCulture), expected, StringComparison.OrdinalIgnoreCase),
     };
+
+    private readonly struct CapturedMeasurement
+    {
+        public readonly string InstrumentName;
+        public readonly KeyValuePair<string, object?>[]? OverflowTags;
+        public readonly int TagCount;
+        private readonly string? _tagKey0;
+        private readonly string? _tagKey1;
+        private readonly string? _tagKey2;
+        private readonly object? _tagValue0;
+        private readonly object? _tagValue1;
+        private readonly object? _tagValue2;
+
+        private CapturedMeasurement(
+            string instrumentName,
+            int tagCount,
+            string? tagKey0,
+            string? tagKey1,
+            string? tagKey2,
+            object? tagValue0,
+            object? tagValue1,
+            object? tagValue2,
+            KeyValuePair<string, object?>[]? overflowTags)
+        {
+            InstrumentName = instrumentName;
+            TagCount = tagCount;
+            _tagKey0 = tagKey0;
+            _tagKey1 = tagKey1;
+            _tagKey2 = tagKey2;
+            _tagValue0 = tagValue0;
+            _tagValue1 = tagValue1;
+            _tagValue2 = tagValue2;
+            OverflowTags = overflowTags;
+        }
+
+        public static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        {
+            if (tags.Length is 0)
+                return new CapturedMeasurement(instrumentName, 0, null, null, null, null, null, null, null);
+
+            if (tags.Length <= 3)
+            {
+                return new CapturedMeasurement(
+                    instrumentName,
+                    tags.Length,
+                    tags.Length > 0 ? tags[0].Key : null,
+                    tags.Length > 1 ? tags[1].Key : null,
+                    tags.Length > 2 ? tags[2].Key : null,
+                    tags.Length > 0 ? tags[0].Value : null,
+                    tags.Length > 1 ? tags[1].Value : null,
+                    tags.Length > 2 ? tags[2].Value : null,
+                    null);
+            }
+
+            var overflow = new KeyValuePair<string, object?>[tags.Length];
+            tags.CopyTo(overflow);
+            return new CapturedMeasurement(instrumentName, tags.Length, null, null, null, null, null, null, overflow);
+        }
+
+        public void GetTag(int index, out string key, out object? value)
+        {
+            switch (index)
+            {
+                case 0:
+                    key = _tagKey0 ?? string.Empty;
+                    value = _tagValue0;
+                    return;
+                case 1:
+                    key = _tagKey1 ?? string.Empty;
+                    value = _tagValue1;
+                    return;
+                case 2:
+                    key = _tagKey2 ?? string.Empty;
+                    value = _tagValue2;
+                    return;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(index));
+            }
+        }
+    }
 }

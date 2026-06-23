@@ -88,7 +88,7 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(params (string NodeId, Uri Url)[] topology)
+    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Url)> topology)
     {
         var mapped = new (string NodeId, string Url)[topology.Length];
         for (var i = 0; i < topology.Length; i++)

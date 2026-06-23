@@ -101,9 +101,9 @@ public static class DirectoryKit
     /// <exception cref="UnauthorizedAccessException">Propagated from <see cref="CreateDirectory(string,string?,bool,bool)" /> on access errors.</exception>
     public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
-        var d = PathKit.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"));
-        if (!string.IsNullOrEmpty(hint))
-            d = PathKit.Combine(d, hint);
+        var d = string.IsNullOrEmpty(hint)
+            ? Path.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+            : Path.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         CreateDirectory(d);
         return d;
     }
