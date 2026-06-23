@@ -16,4 +16,9 @@
         <ProjectReference Include="..\..\src\squirix\Squirix.csproj"/>
         <ProjectReference Include="..\..\src\squirix.server\Squirix.Server.csproj"/>
     </ItemGroup>
+    <ItemGroup>
+        <None Update="Squirix.settings.json">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
 </Project>

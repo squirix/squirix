@@ -58,9 +58,10 @@ public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
 
         var mutationTask = AsSingleUseTaskAsync(
             journal.ExecuteUnderSnapshotBarrierAsync(
-                async _ =>
+                mutationEntered,
+                static async (entered, _) =>
                 {
-                    mutationEntered.SetResult();
+                    entered.SetResult();
                     await Task.Yield();
                     return 42;
                 },

@@ -173,15 +173,14 @@ internal sealed class RemoteCache<T> : ICache<T>
         var response = await ExecuteAsync(
             static (client, state, ct) =>
             {
-                var responseAsync = client.TouchAsync(
-                    new TouchAsyncRequest
-                    {
-                        OperationId = state.OperationId,
-                        CacheName = state.CacheName,
-                        Key = state.Key,
-                        Expiration = state.Expiration,
-                    },
-                    cancellationToken: ct).ResponseAsync;
+                var touchAsyncRequest = new TouchAsyncRequest
+                {
+                    OperationId = state.OperationId,
+                    CacheName = state.CacheName,
+                    Key = state.Key,
+                    Expiration = state.Expiration,
+                };
+                var responseAsync = client.TouchAsync(touchAsyncRequest, cancellationToken: ct).ResponseAsync;
                 return new ValueTask<TouchAsyncResponse>(responseAsync);
             },
             (CacheName: _cacheName, Key: key, OperationId: RpcOperationIdentity.New(), Expiration: Duration.FromTimeSpan(expiration)),

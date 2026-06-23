@@ -8,10 +8,11 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Bounded ring queue for journal work items (multi-producer, single consumer).</summary>
 internal sealed class BoundedJournalRing : IDisposable
 {
-    private readonly JournalWorkItem[] _slots;
-    private readonly int[] _published;
     private readonly SemaphoreSlim _availableSlots;
     private readonly int _mask;
+    private readonly int[] _published;
+    private readonly JournalWorkItem[] _slots;
+    private readonly AutoResetEvent _workSignal = new(false);
     private long _head;
     private long _tail;
 
@@ -33,6 +34,8 @@ internal sealed class BoundedJournalRing : IDisposable
         {
             while (!TryEnqueueCore(in item))
                 Thread.SpinWait(32);
+
+            NotifyWorkAvailable();
         }
         catch
         {
@@ -40,6 +43,8 @@ internal sealed class BoundedJournalRing : IDisposable
             throw;
         }
     }
+
+    public void NotifyWorkAvailable() => _ = _workSignal.Set();
 
     public bool TryDequeue(out JournalWorkItem item)
     {
@@ -50,37 +55,39 @@ internal sealed class BoundedJournalRing : IDisposable
         return true;
     }
 
-    public void SpinWaitForWork(CancellationToken cancellationToken)
+    public void WaitForWork(int timeoutMs, CancellationToken cancellationToken)
     {
+        var deadline = timeoutMs is Timeout.Infinite ? long.MaxValue : Environment.TickCount64 + timeoutMs;
+
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (Volatile.Read(ref _tail) > Volatile.Read(ref _head))
+            if (HasQueuedWork())
                 return;
 
-            Thread.SpinWait(64);
+            var waitMs = timeoutMs is Timeout.Infinite ? Timeout.Infinite : ComputeRemainingWaitMs(deadline);
+            if (waitMs is 0 && timeoutMs is not Timeout.Infinite)
+                return;
+
+            _ = _workSignal.WaitOne(waitMs);
         }
     }
 
-    public void Dispose() => _availableSlots.Dispose();
-
-    private bool TryEnqueueCore(ref readonly JournalWorkItem item)
+    public void Dispose()
     {
-        while (true)
-        {
-            var tail = Interlocked.Read(ref _tail);
-            var head = Volatile.Read(ref _head);
-            if (tail - head >= _slots.Length)
-                return false;
-
-            if (Interlocked.CompareExchange(ref _tail, tail + 1, tail) != tail)
-                continue;
-
-            var index = Convert.ToInt32(tail & _mask);
-            _slots[index] = item;
-            Volatile.Write(ref _published[index], 1);
-            return true;
-        }
+        _workSignal.Dispose();
+        _availableSlots.Dispose();
     }
+
+    private static int ComputeRemainingWaitMs(long deadline)
+    {
+        var remaining = deadline - Environment.TickCount64;
+        if (remaining <= 0)
+            return 0;
+
+        return remaining > int.MaxValue ? int.MaxValue : Convert.ToInt32(remaining);
+    }
+
+    private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);
 
     private bool TryDequeueCore(out JournalWorkItem item)
     {
@@ -103,5 +110,24 @@ internal sealed class BoundedJournalRing : IDisposable
         Volatile.Write(ref _published[index], 0);
         Volatile.Write(ref _head, head + 1);
         return true;
+    }
+
+    private bool TryEnqueueCore(ref readonly JournalWorkItem item)
+    {
+        while (true)
+        {
+            var tail = Interlocked.Read(ref _tail);
+            var head = Volatile.Read(ref _head);
+            if (tail - head >= _slots.Length)
+                return false;
+
+            if (Interlocked.CompareExchange(ref _tail, tail + 1, tail) != tail)
+                continue;
+
+            var index = Convert.ToInt32(tail & _mask);
+            _slots[index] = item;
+            Volatile.Write(ref _published[index], 1);
+            return true;
+        }
     }
 }

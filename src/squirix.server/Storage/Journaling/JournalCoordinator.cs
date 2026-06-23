@@ -28,6 +28,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private readonly Lock _durabilityWaitersLock = new();
     private readonly JournalDurabilityGroupCommit? _groupCommit;
     private readonly Thread _journalThread;
+    private readonly ManifestRollPublisher _manifestRollPublisher;
     private readonly ManifestStore _manifestStore;
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly PersistenceOptions _opt;
@@ -36,8 +37,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     private readonly BoundedJournalRing _ring = new(RingCapacity);
     private readonly IJournalSegmentWriter _segmentWriter;
-    private readonly Lock _sequenceLock = new();
     private readonly JournalStartupGate _startupGate;
+    private readonly JournalWriteBatchBuffer _writeBatch = new();
     private string? _activeSegmentPath;
     private long _activeSegmentWrittenBytes;
     private double _avgAppendLatencyMs;
@@ -46,8 +47,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private int _disposed;
     private int _durabilityFlushScheduled;
     private List<JournalDurabilityWaiter>? _durabilityWaiters;
-    private int _groupCommitCheckpointPending;
-    private TaskCompletionSource? _groupCommitCheckpointTcs;
     private Exception? _journalThreadFailure;
     private long _journalTotalBytes;
     private ulong _nextSequence;
@@ -61,10 +60,11 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _opt = opt;
         _manifestStore = manifestStore;
         _startupGate = startupGate;
+        _manifestRollPublisher = new ManifestRollPublisher(manifestStore, OnManifestRollFailed);
         _segmentWriter = JournalSegmentWriterFactory.Create(opt.JournalPlatformBackend);
         _policy = new JournalSegmentPolicy(opt);
         _journalTotalBytes = JournalReader.GetOnDiskTotalBytes(_opt.DataDir);
-        _groupCommit = _opt.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(GroupCommitFlushAsync, _opt) : null;
+        _groupCommit = _opt.IsJournalGroupCommitEnabled ? new JournalDurabilityGroupCommit(FlushGroupCommitOnJournalThread, () => _ring.NotifyWorkAvailable(), _opt) : null;
         _ = DirectoryEx.CreateDirectory(_opt.DataDir);
         CurrentSegmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         _nextSequence = DetermineNextSequence(manifest, _opt);
@@ -84,14 +84,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public bool IsJournalGroupCommitEnabled => _opt.IsJournalGroupCommitEnabled;
 
-    public ulong NextSequence
-    {
-        get
-        {
-            lock (_sequenceLock)
-                return _nextSequence;
-        }
-    }
+    public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
 
@@ -193,6 +186,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         await EnqueueShutdownAsync().ConfigureAwait(false);
         await AwaitJournalThreadDuringDisposeAsync(failures).ConfigureAwait(false);
         await _segmentWriter.DisposeAsync().ConfigureAwait(false);
+        _manifestRollPublisher.Dispose();
         _ring.Dispose();
         _bgCts.Dispose();
         _mutationGate.Dispose();
@@ -276,9 +270,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _startupGate.WaitAsync(cancellationToken);
 
-    internal async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
-
-    private static void CompleteJournalWorkItem(JournalWorkItem item) => _ = item.Completion?.TrySetResult();
+    private static void CompleteJournalWorkItem(JournalWorkItem item) => item.Completion?.SetResult();
 
     private static long ComputeValidLength(FileStream stream)
     {
@@ -448,8 +440,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     private ulong AllocateSequence()
     {
-        lock (_sequenceLock)
-            return ++_nextSequence;
+        while (true)
+        {
+            var current = Volatile.Read(ref _nextSequence);
+            var next = current + 1UL;
+            if (Interlocked.CompareExchange(ref _nextSequence, next, current) == current)
+                return next;
+        }
     }
 
     private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
@@ -578,10 +575,34 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
+    private void CompleteStagedAppend(JournalWorkItem item)
+    {
+        var frameBytes = item.FrameBytes;
+        try
+        {
+            _ = Interlocked.Decrement(ref _queuedAppends);
+        }
+        finally
+        {
+            if (frameBytes is not null)
+                ArrayPool<byte>.Shared.Return(frameBytes);
+        }
+
+        CompleteJournalWorkItem(item);
+    }
+
     private void DetachDurabilityWaiter(JournalDurabilityWaiter waiter)
     {
         lock (_durabilityWaitersLock)
             _ = _durabilityWaiters?.Remove(waiter);
+    }
+
+    private void DrainDueGroupCommitBatches()
+    {
+        if (_groupCommit is null || Volatile.Read(ref _queuedAppends) > 0)
+            return;
+
+        _groupCommit.DrainDueBatchesOnJournalThread();
     }
 
     private async ValueTask EnqueueAppendAsync(byte[] frameBytes, int frameLength, CancellationToken cancellationToken)
@@ -723,7 +744,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private void EnsureSegmentOpen()
     {
         if (_activeSegmentPath is not null)
+        {
+            SyncActiveSegmentBytesToWriterLength();
             return;
+        }
 
         _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
         var append = File.Exists(_activeSegmentPath);
@@ -754,10 +778,48 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             _ = waiter.TrySetException(reason);
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
-        _ = Interlocked.Exchange(ref _groupCommitCheckpointPending, 0);
-        var checkpoint = Interlocked.Exchange(ref _groupCommitCheckpointTcs, null);
-        if (checkpoint is not null)
-            _ = checkpoint.TrySetException(reason);
+    }
+
+    private async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
+
+    private void FlushGroupCommitOnJournalThread()
+    {
+        FlushWriteBatch();
+        if (_dirty)
+            FsyncOnJournalThread();
+    }
+
+    private void FlushWriteBatch()
+    {
+        if (_writeBatch.IsEmpty)
+            return;
+
+        var span = _writeBatch.ActiveSpan;
+        SyncActiveSegmentBytesToWriterLength();
+        var offset = _activeSegmentWrittenBytes;
+        try
+        {
+            _segmentWriter.Write(span, offset);
+        }
+        catch (IOException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+        catch (ObjectDisposedException)
+        {
+            TruncateActiveSegmentAfterFailedFrame(offset);
+            throw;
+        }
+
+        Volatile.Write(ref _activeSegmentWrittenBytes, offset + span.Length);
+        _journalTotalBytes += span.Length;
+        _dirty = true;
+
+        foreach (var pending in _writeBatch.PendingAppends)
+            CompleteStagedAppend(pending.Item);
+
+        _writeBatch.Clear();
     }
 
     private void FsyncOnJournalThread()
@@ -769,28 +831,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _dirty = false;
     }
 
-    private async ValueTask GroupCommitFlushAsync(CancellationToken cancellationToken)
-    {
-        if (!_dirty)
-            return;
-
-        if (Volatile.Read(ref _queuedAppends) > 0)
-        {
-            _ = Interlocked.Exchange(ref _groupCommitCheckpointPending, 1);
-            var checkpoint = Volatile.Read(ref _groupCommitCheckpointTcs);
-            if (checkpoint is null || checkpoint.Task.IsCompleted)
-            {
-                var created = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var existing = Interlocked.CompareExchange(ref _groupCommitCheckpointTcs, created, checkpoint);
-                checkpoint = existing ?? created;
-            }
-
-            await checkpoint.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
-    }
+    private long GetEffectiveActiveSegmentBytes() => _activeSegmentWrittenBytes + _writeBatch.StagedByteLength;
 
     private bool HasPendingMemoryApply()
     {
@@ -804,18 +845,40 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         {
             while (true)
             {
-                if (!_ring.TryDequeue(out var item))
+                var hadWork = false;
+                while (_ring.TryDequeue(out var item))
                 {
-                    _ring.SpinWaitForWork(_bgCts.Token);
-                    if (!_ring.TryDequeue(out item))
-                        continue;
+                    hadWork = true;
+                    if (item.Kind is JournalWorkKind.Append)
+                    {
+                        if (item.Completion is not null || !TryAcceptAppendIntoBatch(item))
+                        {
+                            FlushWriteBatch();
+                            _ = ProcessJournalWorkItem(item);
+                        }
+                    }
+                    else
+                    {
+                        FlushWriteBatch();
+                        if (!ProcessJournalWorkItem(item))
+                            continue;
+                        FlushWriteBatch();
+                        return;
+                    }
                 }
 
-                if (ProcessJournalWorkItem(item))
-                    return;
+                FlushWriteBatch();
+                DrainDueGroupCommitBatches();
+
+                if (!hadWork)
+                {
+                    var timeoutMs = Volatile.Read(ref _queuedAppends) > 0 ? Timeout.Infinite : _groupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
+                    _ring.WaitForWork(timeoutMs, _bgCts.Token);
+                    DrainDueGroupCommitBatches();
+                }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException)
         {
             Volatile.Write(ref _journalThreadFailure, ex);
             FailPendingDurabilityWaiters(ex);
@@ -828,11 +891,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     private void MaybeRollSegment(int incomingFrameBytes)
     {
-        if (!_policy.ShouldRollSegment(_activeSegmentWrittenBytes, incomingFrameBytes))
+        SyncActiveSegmentBytesToWriterLength();
+        if (!ShouldRollSegmentForAppend(incomingFrameBytes))
             return;
 
-        JournalReadPath.EnsureSegmentRollCapacityOrThrow(_opt.DataDir, _policy);
+        FlushWriteBatch();
         RollSegmentOnJournalThread();
+    }
+
+    private void OnManifestRollFailed(Exception ex)
+    {
+        Volatile.Write(ref _journalThreadFailure, ex);
+        FailPendingDurabilityWaiters(ex);
     }
 
     private void ProcessAppend(JournalWorkItem item)
@@ -849,9 +919,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                 ArrayPool<byte>.Shared.Return(frameBytes);
         }
 
-        if (!_opt.IsJournalGroupCommitEnabled)
-            CompleteDurabilityCheckpointOnJournalThread();
-        else
+        if (_opt.IsJournalGroupCommitEnabled)
             TryCompleteGroupCommitCheckpoint();
 
         CompleteJournalWorkItem(item);
@@ -889,14 +957,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
             case JournalWorkKind.Flush:
             case JournalWorkKind.DurabilityCheckpoint:
+                FlushWriteBatch();
                 CompleteDurabilityCheckpointOnJournalThread();
                 return false;
 
             case JournalWorkKind.Shutdown:
+                FlushWriteBatch();
                 FsyncOnJournalThread();
                 return true;
 
             case JournalWorkKind.MaintenanceBegin:
+                FlushWriteBatch();
                 FsyncOnJournalThread();
                 _activeSegmentPath = null;
                 CompleteJournalWorkItem(item);
@@ -904,8 +975,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
             case JournalWorkKind.MaintenanceEnd:
                 CurrentSegmentIndex = item.ResetSegmentIndex;
-                lock (_sequenceLock)
-                    _nextSequence = item.ResetSequence;
+                Volatile.Write(ref _nextSequence, item.ResetSequence);
                 _activeSegmentWrittenBytes = 0;
                 _dirty = false;
                 CompleteJournalWorkItem(item);
@@ -931,7 +1001,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private void RollSegmentOnJournalThread()
     {
         FsyncOnJournalThread();
-        CurrentSegmentIndex++;
+        JournalReadPath.EnsureSegmentRollCapacityOrThrow(_opt.DataDir, _policy);
+        var nextSegmentIndex = CurrentSegmentIndex + 1;
+
+        // Publish manifest BEFORE opening new segment so failure doesn't leave us in bad state
+        _manifestRollPublisher.PublishRollAndWait(nextSegmentIndex, Volatile.Read(ref _nextSequence));
+
+        // Only update local state after successful manifest publish
+        CurrentSegmentIndex = nextSegmentIndex;
         _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
         _segmentWriter.OpenSegment(_activeSegmentPath, false);
         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
@@ -940,7 +1017,18 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         Volatile.Write(ref _activeSegmentWrittenBytes, JournalFraming.FileHeaderSize);
         _journalTotalBytes += JournalFraming.FileHeaderSize;
         _dirty = false;
-        WriteManifestAfterRollSync();
+    }
+
+    private bool ShouldRollSegmentForAppend(int incomingFrameBytes) => _policy.ShouldRollSegment(GetEffectiveActiveSegmentBytes(), incomingFrameBytes);
+
+    private void SyncActiveSegmentBytesToWriterLength()
+    {
+        if (_activeSegmentPath is null)
+            return;
+
+        var length = _segmentWriter.Length;
+        if (length > _activeSegmentWrittenBytes)
+            Volatile.Write(ref _activeSegmentWrittenBytes, length);
     }
 
     private void ThrowIfJournalThreadFailed()
@@ -956,22 +1044,25 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _dirty = frameStart > 0;
     }
 
-    private void TryCompleteGroupCommitCheckpoint()
+    private bool TryAcceptAppendIntoBatch(JournalWorkItem item)
     {
-        if (Volatile.Read(ref _groupCommitCheckpointPending) is 0)
-            return;
+        EnsureSegmentOpen();
+        _policy.EnsureAppendCapacityOrThrow(_journalTotalBytes, item.FrameLength);
+        if (ShouldRollSegmentForAppend(item.FrameLength))
+        {
+            FlushWriteBatch();
+            RollSegmentOnJournalThread();
+            return false;
+        }
 
-        if (Volatile.Read(ref _queuedAppends) > 0)
-            return;
+        if (_writeBatch.TryStageAppend(item))
+            return true;
 
-        if (_dirty)
-            FsyncOnJournalThread();
-
-        _ = Interlocked.Exchange(ref _groupCommitCheckpointPending, 0);
-        var checkpoint = Interlocked.Exchange(ref _groupCommitCheckpointTcs, null);
-        if (checkpoint is not null)
-            _ = checkpoint.TrySetResult();
+        FlushWriteBatch();
+        return _writeBatch.TryStageAppend(item);
     }
+
+    private void TryCompleteGroupCommitCheckpoint() => DrainDueGroupCommitBatches();
 
     private ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken)
     {
@@ -1007,6 +1098,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         EnsureSegmentOpen();
         _policy.EnsureAppendCapacityOrThrow(_journalTotalBytes, item.FrameLength);
         MaybeRollSegment(item.FrameLength);
+        SyncActiveSegmentBytesToWriterLength();
         var offset = _activeSegmentWrittenBytes;
         try
         {
@@ -1026,14 +1118,5 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         Volatile.Write(ref _activeSegmentWrittenBytes, offset + item.FrameLength);
         _journalTotalBytes += item.FrameLength;
         _dirty = true;
-    }
-
-    private void WriteManifestAfterRollSync()
-    {
-        ulong nextSequence;
-        lock (_sequenceLock)
-            nextSequence = _nextSequence;
-
-        _manifestStore.PublishRollBlocking(CurrentSegmentIndex, nextSequence);
     }
 }

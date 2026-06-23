@@ -73,8 +73,5 @@ nunit-*.xml
 #BenchmarkDotNet
 BenchmarkDotNet.Artifacts/*
 
-# External package smoke (generated at run time)
-samples/external-package-smoke/Squirix.settings.json
-
 # C# DevKit
 *.lscache

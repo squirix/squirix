@@ -42,10 +42,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             },
             DefaultCancellationToken);
 
-        await ManifestStoreTestSupport.WaitUntilAsync(
-            () => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)),
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
+        await ManifestStoreTestSupport.WaitUntilAsync(() => !FileKit.Exists(JournalPath(1)) && !FileKit.Exists(JournalPath(2)), TimeSpan.FromSeconds(5), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(JournalPath(1)));
         Assert.False(FileKit.Exists(JournalPath(2)));
@@ -81,10 +78,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             },
             DefaultCancellationToken);
 
-        await ManifestStoreTestSupport.WaitUntilAsync(
-            () => !FileKit.Exists(SnapshotPath(1)),
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
+        await ManifestStoreTestSupport.WaitUntilAsync(() => !FileKit.Exists(SnapshotPath(1)), TimeSpan.FromSeconds(5), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));
@@ -109,8 +103,13 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
 
     private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{index.ToString(CultureInfo.InvariantCulture)}");
 
-    private string JournalPath(int index) => PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+    private string JournalPath(int index) => PathKit.Combine(
+        false,
+        Dir,
+        $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 
-    private string SnapshotPath(int index) =>
-        PathKit.Combine(false, Dir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
+    private string SnapshotPath(int index) => PathKit.Combine(
+        false,
+        Dir,
+        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
 }

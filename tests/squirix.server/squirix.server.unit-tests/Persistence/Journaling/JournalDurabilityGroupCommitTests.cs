@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
@@ -28,14 +29,8 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         var flushCounter = new AtomicCounter();
-
-        var groupCommit = new JournalDurabilityGroupCommit(
-            _ =>
-            {
-                flushCounter.Increment();
-                return ValueTask.CompletedTask;
-            },
-            options);
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
 
         using var canceledCts = new CancellationTokenSource();
 
@@ -45,7 +40,10 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         await WaitUntilCompletedAsync(canceled);
         Assert.True(canceled.IsCanceled);
 
-        await WaitUntilCompletedAsync(AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken)));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await WaitUntilCompletedAsync(second);
 
         Assert.Equal(1, flushCounter.Value);
     }
@@ -60,10 +58,14 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             JournalGroupCommitMaxBatch = 8,
         };
         var flushFailure = new InvalidOperationException("flush failed");
-        var groupCommit = new JournalDurabilityGroupCommit(_ => throw flushFailure, options);
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(() => throw flushFailure, options, time);
 
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
 
         await WaitUntilCompletedAsync(first);
         await WaitUntilCompletedAsync(second);
@@ -85,14 +87,8 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         var flushCounter = new AtomicCounter();
-
-        var groupCommit = new JournalDurabilityGroupCommit(
-            _ =>
-            {
-                flushCounter.Increment();
-                return ValueTask.CompletedTask;
-            },
-            options);
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
 
         using var firstCts = new CancellationTokenSource();
 
@@ -104,6 +100,8 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         await WaitUntilCompletedAsync(first);
         Assert.True(first.IsCanceled);
 
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
         await WaitUntilCompletedAsync(second);
 
         Assert.Equal(1, flushCounter.Value);
@@ -160,18 +158,15 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         var flushCounter = new AtomicCounter();
-
-        var groupCommit = new JournalDurabilityGroupCommit(
-            _ =>
-            {
-                flushCounter.Increment();
-                return ValueTask.CompletedTask;
-            },
-            options);
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
 
         var waiters = new Task[8];
         for (var i = 0; i < waiters.Length; i++)
             waiters[i] = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+
+        groupCommit.DrainDueBatchesOnJournalThread();
+        groupCommit.DrainDueBatchesOnJournalThread();
 
         await Task.WhenAll(waiters);
 
@@ -205,22 +200,19 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var flushProbe = new JournalFlushProbe(pipelined);
-        var groupCommit = new JournalDurabilityGroupCommit(flushProbe.FlushAsync, options);
-
         await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), null, DefaultCancellationToken);
-
         await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), null, DefaultCancellationToken);
 
-        var firstCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var secondCommit = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var firstCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
+        var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
         await Task.WhenAll(firstCommit, secondCommit);
 
-        Assert.Equal(1, flushProbe.FlushCount);
         Assert.False(pipelined.IsDurabilityFlushPending);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();
+
+    private static JournalDurabilityGroupCommit CreateGroupCommit(Action flush, PersistenceOptions options, FakeTimeProvider time) => new(flush, static () => { }, options, time);
 
     private static async Task WaitUntilCompletedAsync(Task task)
     {
@@ -238,24 +230,5 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         public int Value => Volatile.Read(ref _value);
 
         public void Increment() => _ = Interlocked.Increment(ref _value);
-    }
-
-    private sealed class JournalFlushProbe
-    {
-        private readonly JournalCoordinator _journal;
-        private int _flushCount;
-
-        public JournalFlushProbe(JournalCoordinator journal)
-        {
-            _journal = journal;
-        }
-
-        public int FlushCount => Volatile.Read(ref _flushCount);
-
-        public async ValueTask FlushAsync(CancellationToken cancellationToken)
-        {
-            _ = Interlocked.Increment(ref _flushCount);
-            await _journal.FlushAsync(cancellationToken);
-        }
     }
 }

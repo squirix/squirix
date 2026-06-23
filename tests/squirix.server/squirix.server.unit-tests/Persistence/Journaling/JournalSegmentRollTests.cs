@@ -12,7 +12,6 @@ using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -84,6 +83,8 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
+        await ManifestStoreTestSupport.WaitUntilAsync(() => manifestStore.ReadCurrentOrDefaultBlocking().CurrentJournal is 2, TimeSpan.FromSeconds(5), DefaultCancellationToken);
+
         Assert.Equal(2, (await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken)).CurrentJournal);
         Assert.False(ContainsPutKey(dir, 1, "overflow-key"));
         Assert.True(ContainsPutKey(dir, 2, "overflow-key"));
@@ -92,13 +93,15 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     private static async Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
     {
         manifestStore.PublishRollBlocking(1, 1);
-        await File.WriteAllTextAsync(
-            PathKit.Combine(dataDir, ManifestStoreTestSupport.ManifestDataFileName(2)),
-            string.Empty,
-            DefaultCancellationToken);
+        await File.WriteAllTextAsync(PathKit.Combine(dataDir, ManifestStoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
     }
 
-    private static byte[] BuildLargePutPayload() => JournalEntryPayloadKit.EncodePut(new string('y', 16_000));
+    private static byte[] BuildLargePutPayload()
+    {
+        var payload = new byte[16_000];
+        Array.Fill(payload, Convert.ToByte('y'));
+        return payload;
+    }
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
     {
@@ -129,7 +132,8 @@ public sealed class JournalSegmentRollTests : UnitTestBase
 
     private static async Task FillSegmentOneForOverflowAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)
     {
-        var fillPayload = JournalEntryPayloadKit.EncodePut(new string('x', 128));
+        var fillPayload = new byte[8_192];
+        Array.Fill(fillPayload, Convert.ToByte('x'));
         var fillKey = CacheKey.Default("fill");
         var fillFrameLen = FrameLength(fillPayload, fillKey);
         const long maxBytes = 1024L * 1024L;
