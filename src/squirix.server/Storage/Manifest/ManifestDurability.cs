@@ -40,9 +40,10 @@ internal static class ManifestDurability
     /// <param name="encoded">Encoded manifest bytes.</param>
     /// <param name="pointerWriter">Reusable pointer writer for <c>man-current</c>.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
-    internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer)
+    /// <param name="uringRollWriter">Reusable per-store io_uring roll writer, or null to use the portable path.</param>
+    internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer, ManifestIoUringRollWriter? uringRollWriter)
     {
-        if (ManifestIoUringRollDurability.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
+        if (uringRollWriter is not null && uringRollWriter.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
             return;
 
         WriteManifestDataFileBlocking(targetPath, encoded);

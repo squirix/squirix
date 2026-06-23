@@ -18,6 +18,7 @@ internal sealed record PersistenceOptions
         JournalMaxTotalBytesMb = JournalSegmentLimits.DefaultMaxTotalBytesMb;
         JournalGroupCommitMaxBatch = 32;
         JournalGroupCommitMaxWait = TimeSpan.Zero;
+        JournalWriteBatchBytes = JournalWriteBatchBuffer.DefaultCapacityBytes;
     }
 
     public string DataDir { get; init; } = string.Empty;
@@ -113,6 +114,24 @@ internal sealed record PersistenceOptions
 
     [JsonPropertyName("journalPlatformBackend")]
     public JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
+
+    /// <summary>
+    /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is
+    /// allocated lazily on first staged append. Frames larger than this value bypass coalescing and
+    /// are written directly.
+    /// </summary>
+    [JsonPropertyName("journalWriteBatchBytes")]
+    public int JournalWriteBatchBytes
+    {
+        get;
+        init
+        {
+            if (value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalWriteBatchBytes must be greater than zero.");
+
+            field = value;
+        }
+    }
 
     public int ManifestRetentionCount
     {

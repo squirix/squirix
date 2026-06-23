@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
@@ -39,22 +40,29 @@ internal static class JournalReader
     /// <summary>Sums on-disk journal segment file lengths under <paramref name="dataDir" />.</summary>
     /// <param name="dataDir">Persistence directory containing journal segment files.</param>
     /// <returns>Total byte length of parsed journal segment files.</returns>
-    public static long GetOnDiskTotalBytes(string dataDir)
+    public static long GetOnDiskTotalBytes(string dataDir) => GetOnDiskSegmentStats(dataDir).TotalBytes;
+
+    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
+    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
+    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
+    public static JournalSegmentStats GetOnDiskSegmentStats(string dataDir)
     {
         if (!Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
-            return 0L;
+            return default;
 
+        var segmentCount = 0;
         var totalBytes = 0L;
         foreach (var path in files)
         {
             if (!TryParseJournalSegment(path, 1, out _))
                 continue;
 
+            segmentCount++;
             if (TryGetSegmentLength(path, out var length))
                 totalBytes += length;
         }
 
-        return totalBytes;
+        return new JournalSegmentStats(segmentCount, totalBytes);
     }
 
     public static IEnumerable<JournalRecord> ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken)
@@ -194,4 +202,10 @@ internal static class JournalReader
 
         return int.TryParse(numberPart, NumberStyles.None, CultureInfo.InvariantCulture, out index);
     }
+
+    /// <summary>On-disk journal segment file count and aggregate byte length.</summary>
+    /// <param name="SegmentCount">Number of parsed journal segment files.</param>
+    /// <param name="TotalBytes">Sum of parsed journal segment file lengths.</param>
+    [StructLayout(LayoutKind.Auto)]
+    internal readonly record struct JournalSegmentStats(int SegmentCount, long TotalBytes);
 }
