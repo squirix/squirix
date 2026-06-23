@@ -20,24 +20,77 @@ public static class PathKit
 {
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
+    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    public static string Combine(params string[] paths) => Combine(true, paths);
+    public static string Combine(string path1, string path2) => CombineCore(true, [path1, path2]);
+
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3) => CombineCore(true, [path1, path2, path3]);
+
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3, string path4, string path5) => CombineCore(true, [path1, path2, path3, path4, path5]);
+
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3, string path4, string path5, string path6) =>
+        CombineCore(true, [path1, path2, path3, path4, path5, path6]);
 
     /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="sanitize">
     /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
     /// before combining.
     /// </param>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    public static string Combine(bool sanitize = true, params string[] paths)
-    {
-        ArgumentNullException.ThrowIfNull(paths);
+    public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, [path1, path2]);
 
+    /// <inheritdoc cref="Combine(bool,string,string)" />
+    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, [path1, path2, path3, path4]);
+
+    /// <summary>
+    /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
+    /// </summary>
+    /// <param name="subdirectory">
+    /// Optional root subdirectory under the system temp path. When provided, it is appended before
+    /// the target-framework and process-id segments.
+    /// </param>
+    /// <returns>
+    /// A path of the form <c>&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
+    /// </returns>
+    public static string GetProcTempPath(string subdirectory = "")
+    {
+        var root = Combine(Path.GetTempPath(), subdirectory);
+        var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
+        return Combine(root, tfmSegment, ProcessSessionSegment);
+    }
+
+    private static string BuildProcessSessionSegment()
+    {
+        long startTicks;
+        try
+        {
+            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (InvalidOperationException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (NotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+
+        return $"pid{System.Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string CombineCore(bool sanitize, ReadOnlySpan<string> paths)
+    {
         if (paths.Length is 0)
             return string.Empty;
 
@@ -79,46 +132,6 @@ public static class PathKit
         }
 
         return JoinSegments(segments);
-    }
-
-    /// <summary>
-    /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
-    /// </summary>
-    /// <param name="subdirectory">
-    /// Optional root subdirectory under the system temp path. When provided, it is appended before
-    /// the target-framework and process-id segments.
-    /// </param>
-    /// <returns>
-    /// A path of the form <c>&lt;temp&gt;\&lt;subdirectory&gt;\&lt;tfm&gt;\pid&lt;processId&gt;-start&lt;utcTicks&gt;</c>.
-    /// </returns>
-    public static string GetProcTempPath(string subdirectory = "")
-    {
-        var root = Combine(Path.GetTempPath(), subdirectory);
-        var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
-        return Combine(root, tfmSegment, ProcessSessionSegment);
-    }
-
-    private static string BuildProcessSessionSegment()
-    {
-        long startTicks;
-        try
-        {
-            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (InvalidOperationException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (PlatformNotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (NotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-
-        return $"pid{System.Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private static string JoinSegments(List<string> segments)

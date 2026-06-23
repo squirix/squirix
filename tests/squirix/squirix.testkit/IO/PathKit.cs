@@ -21,11 +21,14 @@ public static class PathKit
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
     private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
+    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    public static string Combine(params string[] paths) => Combine(true, paths);
+    public static string Combine(string path1, string path2) => CombineCore(true, [path1, path2]);
+
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3) => CombineCore(true, [path1, path2, path3]);
 
     /// <summary>
     /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
@@ -67,18 +70,8 @@ public static class PathKit
         return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="sanitize">
-    /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
-    /// before combining.
-    /// </param>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    private static string Combine(bool sanitize = true, params string[] paths)
+    private static string CombineCore(bool sanitize, ReadOnlySpan<string> paths)
     {
-        ArgumentNullException.ThrowIfNull(paths);
-
         if (paths.Length is 0)
             return string.Empty;
 
