@@ -33,22 +33,32 @@ public sealed class MeasurementSink : IDisposable
         _listener.Start();
     }
 
+    /// <summary>Determines whether a measurement event with the specified instrument name has been observed.</summary>
+    /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
+    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    public bool HasEvent(string instrumentName) => HasEventCore(_events, instrumentName, ReadOnlySpan<(string Key, string Value)>.Empty);
+
     /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
     /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
-    /// <param name="expectedTags">Expected tag key/value pairs that must be present on the measurement.</param>
+    /// <param name="tag1">Expected tag key/value pair that must be present on the measurement.</param>
     /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
-    public bool HasEvent(string instrumentName, params (string Key, string Value)[] expectedTags)
-    {
-        ArgumentNullException.ThrowIfNull(expectedTags);
+    public bool HasEvent(string instrumentName, (string Key, string Value) tag1) => HasEventCore(_events, instrumentName, [tag1]);
 
-        foreach (var (eventInstrumentName, _, eventTags) in _events)
-        {
-            if (string.Equals(eventInstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(eventTags, expectedTags))
-                return true;
-        }
+    /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
+    /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
+    /// <param name="tag1">First expected tag key/value pair.</param>
+    /// <param name="tag2">Second expected tag key/value pair.</param>
+    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2) => HasEventCore(_events, instrumentName, [tag1, tag2]);
 
-        return false;
-    }
+    /// <summary>Determines whether a measurement event with the specified instrument name and tags has been observed.</summary>
+    /// <param name="instrumentName">The instrument name (e.g., counter or histogram name).</param>
+    /// <param name="tag1">First expected tag key/value pair.</param>
+    /// <param name="tag2">Second expected tag key/value pair.</param>
+    /// <param name="tag3">Third expected tag key/value pair.</param>
+    /// <returns><see langword="true"/> if a matching event was captured; otherwise, <see langword="false"/>.</returns>
+    public bool HasEvent(string instrumentName, (string Key, string Value) tag1, (string Key, string Value) tag2, (string Key, string Value) tag3) =>
+        HasEventCore(_events, instrumentName, [tag1, tag2, tag3]);
 
     /// <summary>
     /// Disposes the underlying <see cref="MeterListener" /> and releases resources.
@@ -63,7 +73,7 @@ public sealed class MeasurementSink : IDisposable
         return arr;
     }
 
-    private static bool HasTags(KeyValuePair<string, object?>[] tags, (string Key, string Value)[] expected)
+    private static bool HasTags(KeyValuePair<string, object?>[] tags, ReadOnlySpan<(string Key, string Value)> expected)
     {
         foreach (var (k, v) in expected)
         {
@@ -83,11 +93,24 @@ public sealed class MeasurementSink : IDisposable
         return true;
     }
 
-    private static bool TagValueEquals(object? tagValue, string expected) =>
-        tagValue switch
+    private static bool HasEventCore(
+        ConcurrentQueue<(string InstrumentName, object Value, KeyValuePair<string, object?>[] Tags)> events,
+        string instrumentName,
+        ReadOnlySpan<(string Key, string Value)> expectedTags)
+    {
+        foreach (var (eventInstrumentName, _, eventTags) in events)
         {
-            null => string.IsNullOrEmpty(expected),
-            string s => string.Equals(s, expected, StringComparison.OrdinalIgnoreCase),
-            _ => string.Equals(Convert.ToString(tagValue, CultureInfo.InvariantCulture), expected, StringComparison.OrdinalIgnoreCase),
-        };
+            if (string.Equals(eventInstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && HasTags(eventTags, expectedTags))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool TagValueEquals(object? tagValue, string expected) => tagValue switch
+    {
+        null => string.IsNullOrEmpty(expected),
+        string s => string.Equals(s, expected, StringComparison.OrdinalIgnoreCase),
+        _ => string.Equals(Convert.ToString(tagValue, CultureInfo.InvariantCulture), expected, StringComparison.OrdinalIgnoreCase),
+    };
 }

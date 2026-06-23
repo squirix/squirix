@@ -39,7 +39,7 @@ internal static class FileEx
     /// </remarks>
     public static bool TryDeleteFile(string? path) => string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || TryDeleteExistingFile(path);
 
-    internal static string? FindFile(string[] paths)
+    internal static string? FindFile(ReadOnlySpan<string> paths)
     {
         var cwd = Directory.GetCurrentDirectory();
         foreach (var name in paths)
