@@ -28,7 +28,6 @@ internal sealed class ManifestStore : IDisposable
     private readonly string _currentPath;
     private readonly byte[] _currentPointerBuffer = new byte[ManifestPointer.Size];
     private readonly ManifestPersistentPointerWriter _currentPointerWriter;
-    private readonly ManifestIoUringRollWriter _uringRollWriter = new();
     private readonly string _dataDir;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _manifestFileNamePrefix;
@@ -99,7 +98,6 @@ internal sealed class ManifestStore : IDisposable
     public void Dispose()
     {
         _currentPointerWriter.Dispose();
-        _uringRollWriter.Dispose();
         _gate.Dispose();
     }
 
@@ -296,7 +294,7 @@ internal sealed class ManifestStore : IDisposable
 
         var targetPath = BuildManifestFilePath(nextIndex);
         ManifestPointer.Write(_currentPointerBuffer, nextIndex);
-        ManifestDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer, _uringRollWriter);
+        ManifestDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
 
         var manifest = new ManifestState
         {
