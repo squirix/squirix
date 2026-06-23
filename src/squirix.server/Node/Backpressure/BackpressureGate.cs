@@ -79,6 +79,8 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         _slots.Dispose();
     }
 
+    internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
+
     private async ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
         string operation,
@@ -94,7 +96,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
     {
         _ = Interlocked.Increment(ref _inFlight);
         _ = Interlocked.Increment(ref client.InFlightRef);
-        return new BackpressureLease(() => Release(clientId, client));
+        return new BackpressureLease(this, clientId, client);
     }
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
@@ -237,7 +239,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         }
     }
 
-    private sealed class ClientState
+    internal sealed class ClientState
     {
         private int _inFlight;
         private int _queueDepth;
@@ -258,7 +260,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         public RateLimiter? RateLimiter { get; }
     }
 
-    private sealed class RateLimiter
+    internal sealed class RateLimiter
     {
         private readonly double _burst;
         private readonly Lock _gate = new();
