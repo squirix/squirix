@@ -73,7 +73,10 @@ internal sealed class CallPolicy : ICallPolicy
         }
     }
 
-    public async ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken)
+    public ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken) =>
+        ExecuteAsync(action, static (inner, ct) => inner(ct), cancellationToken);
+
+    public async ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         ThrowIfDraining();
@@ -94,7 +97,7 @@ internal sealed class CallPolicy : ICallPolicy
             try
             {
                 ThrowIfDraining();
-                return await RunRetryLoopAsync(action, hasDeadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false);
+                return await RunRetryLoopAsync(state, action, hasDeadlineBudget, effectiveToken, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -228,8 +231,9 @@ internal sealed class CallPolicy : ICallPolicy
             TryDisposeSemaphoreUnderLock();
     }
 
-    private async ValueTask<T> RunRetryLoopAsync<T>(
-        Func<CancellationToken, ValueTask<T>> action,
+    private async ValueTask<T> RunRetryLoopAsync<TState, T>(
+        TState state,
+        Func<TState, CancellationToken, ValueTask<T>> action,
         bool hasDeadlineBudget,
         CancellationToken effectiveToken,
         CancellationToken cancellationToken)
@@ -240,7 +244,7 @@ internal sealed class CallPolicy : ICallPolicy
         while (OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
         {
             attempt++;
-            var outcome = await TryOneAttemptAsync(action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+            var outcome = await TryOneAttemptAsync(state, action, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
             if (outcome.Succeeded)
                 return outcome.Value!;
 
@@ -297,8 +301,9 @@ internal sealed class CallPolicy : ICallPolicy
         _ = _disposeTcs?.TrySetResult(true);
     }
 
-    private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<T>(
-        Func<CancellationToken, ValueTask<T>> action,
+    private async ValueTask<AttemptOutcome<T>> TryOneAttemptAsync<TState, T>(
+        TState state,
+        Func<TState, CancellationToken, ValueTask<T>> action,
         int attempt,
         CancellationToken effectiveToken,
         CancellationToken cancellationToken)
@@ -308,7 +313,7 @@ internal sealed class CallPolicy : ICallPolicy
 
         try
         {
-            return AttemptOutcome<T>.Success(await action(attemptCts.Token).ConfigureAwait(false));
+            return AttemptOutcome<T>.Success(await action(state, attemptCts.Token).ConfigureAwait(false));
         }
         catch (OperationCanceledException oce)
         {

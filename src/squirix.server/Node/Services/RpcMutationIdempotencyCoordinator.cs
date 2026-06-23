@@ -15,10 +15,22 @@ internal sealed class RpcMutationIdempotencyCoordinator
         _guard = guard ?? throw new ArgumentNullException(nameof(guard));
     }
 
-    public async Task<TResponse> ExecuteAsync<TResponse>(
+    public Task<TResponse> ExecuteAsync<TResponse>(
         string rawOperationId,
         string fingerprint,
         Func<CancellationToken, Task<TResponse>> execute,
+        CancellationToken cancellationToken)
+        where TResponse : IMessage<TResponse>, new()
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+        return ExecuteAsync(rawOperationId, fingerprint, execute, static (inner, ct) => inner(ct), cancellationToken);
+    }
+
+    public async Task<TResponse> ExecuteAsync<TState, TResponse>(
+        string rawOperationId,
+        string fingerprint,
+        TState state,
+        Func<TState, CancellationToken, Task<TResponse>> execute,
         CancellationToken cancellationToken)
         where TResponse : IMessage<TResponse>, new()
     {
@@ -28,7 +40,7 @@ internal sealed class RpcMutationIdempotencyCoordinator
         if (_guard.TryReplay(operationId, fingerprint, new MessageParser<TResponse>(static () => new TResponse()), out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
-        var response = await execute(cancellationToken).ConfigureAwait(false);
+        var response = await execute(state, cancellationToken).ConfigureAwait(false);
         _guard.RecordSuccess(operationId, fingerprint, response);
         return response;
     }

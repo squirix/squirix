@@ -8,5 +8,5 @@ internal interface ICallPolicy : IAsyncDisposable
 {
     void BeginDrain();
 
-    ValueTask<T> ExecuteAsync<T>(Func<CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken);
+    ValueTask<T> ExecuteAsync<TState, T>(TState state, Func<TState, CancellationToken, ValueTask<T>> action, CancellationToken cancellationToken);
 }

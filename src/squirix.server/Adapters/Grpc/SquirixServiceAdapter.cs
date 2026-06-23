@@ -63,7 +63,8 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     public override Task<GetOrAddAsyncResponse> GetOrAdd(GetOrAddAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.GetOrAdd(request.CacheName, request.Key, request.Entry),
-        ct => GetOrAddAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.GetOrAddAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override async Task<GetValueAsyncResponse> GetValue(GetValueAsyncRequest request, ServerCallContext context)
@@ -80,37 +81,43 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     public override Task<RemoveAsyncResponse> Remove(RemoveAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.Remove(request.CacheName, request.Key),
-        ct => RemoveAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.RemoveAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<RemoveExpirationAsyncResponse> RemoveExpiration(RemoveExpirationAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.RemoveExpiration(request.CacheName, request.Key),
-        ct => RemoveExpirationAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.RemoveExpirationAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<SetAsyncResponse> SetEntry(SetEntryAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.SetEntry(request.CacheName, request.Key, request.Entry),
-        ct => SetEntryAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.SetEntryAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<TouchAsyncResponse> Touch(TouchAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.Touch(request.CacheName, request.Key, request.Expiration),
-        ct => TouchAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.TouchAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<TryAddAsyncResponse> TryAddEntry(TryAddEntryAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.TryAddEntry(request.CacheName, request.Key, request.Entry),
-        ct => TryAddEntryAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.TryAddEntryAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     public override Task<UpdateAsyncResponse> Update(UpdateAsyncRequest request, ServerCallContext context) => _idempotency.ExecuteAsync(
         request.OperationId,
         RpcMutationFingerprints.Update(request.CacheName, request.Key, request.Entry),
-        ct => UpdateAsyncCoreAsync(request, ct),
+        (Adapter: this, Request: request),
+        static (s, ct) => s.Adapter.UpdateAsyncCoreAsync(s.Request, ct),
         context.CancellationToken);
 
     private static string RequireCacheName(string cacheName) => string.IsNullOrWhiteSpace(cacheName)
