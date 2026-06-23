@@ -27,8 +27,9 @@ Segment file(s)
 Complete durability waiters
 ```
 
-Manifest roll notifications are handed off to a dedicated manifest publisher thread so journal I/O does
-not block on manifest disk writes.
+Manifest roll notifications are handed off to a dedicated manifest publisher thread. The journal thread
+starts the publish asynchronously and opens the next segment only after manifest success, without
+blocking on manifest disk I/O.
 
 ## Invariants (must hold for all journal changes)
 
@@ -71,7 +72,8 @@ not block on manifest disk writes.
 - Group commit timer and write batching live in the journal event loop (no `Task.Delay` on the flush
   path).
 - Manifest roll is eventually consistent on disk immediately after roll; recovery still scans on-disk
-  segment indices when manifest lags.
+  segment indices when manifest lags. The journal thread waits for manifest success before opening the
+  next segment, but does not block on manifest disk I/O.
 - Violating any invariant (e.g. shared `FileStream`, second writer thread) requires an explicit design
   change and doc update.
 

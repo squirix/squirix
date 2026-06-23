@@ -70,26 +70,12 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    /// <summary>Fails any pending commit waiters during shutdown.</summary>
+    /// <summary>Fails any pending commit waiters during shutdown or journal pipeline failure.</summary>
     /// <param name="reason">Failure reason propagated to pending waiters.</param>
     /// <returns>A completed task once pending waiters are failed.</returns>
     public ValueTask CancelPendingAsync(Exception reason)
     {
-        ArgumentNullException.ThrowIfNull(reason);
-        List<JournalDurabilityWaiter> pending;
-        lock (_sync)
-        {
-            pending = _waiters;
-            _waiters = [];
-            _batchDeadlineTicks = 0;
-        }
-
-        foreach (var waiter in pending)
-        {
-            waiter.SetException(reason);
-            waiter.ReturnToPool();
-        }
-
+        CancelPendingCore(reason);
         return ValueTask.CompletedTask;
     }
 
@@ -117,6 +103,23 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
+    internal void CancelPendingCore(Exception reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        List<JournalDurabilityWaiter> pending;
+        lock (_sync)
+        {
+            pending = _waiters;
+            _waiters = [];
+            _batchDeadlineTicks = 0;
+        }
+
+        foreach (var waiter in pending)
+            waiter.SetException(reason);
+
+        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
+    }
+
     private bool TryTakeDueBatch(out List<JournalDurabilityWaiter> batch)
     {
         lock (_sync)
@@ -142,7 +145,7 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    private async ValueTask CancelWaiterAsync(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
+    private ValueTask CancelWaiterAsync(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
         lock (_sync)
@@ -154,6 +157,8 @@ internal sealed class JournalDurabilityGroupCommit
 
         if (removed)
             waiter.SetCanceled(cancellationToken);
+
+        return ValueTask.CompletedTask;
     }
 
     private void CompleteBatchOnJournalThread(List<JournalDurabilityWaiter> batch)

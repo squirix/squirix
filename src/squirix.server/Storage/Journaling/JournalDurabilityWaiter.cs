@@ -12,10 +12,20 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
     private static readonly ConcurrentBag<JournalDurabilityWaiter> Pool = [];
 
     private ManualResetValueTaskSourceCore<bool> _core;
+    private int _leased;
 
     private JournalDurabilityWaiter() => _core = default;
 
-    public static JournalDurabilityWaiter Rent() => Pool.TryTake(out var waiter) ? waiter : new JournalDurabilityWaiter();
+    public static JournalDurabilityWaiter Rent()
+    {
+        while (Pool.TryTake(out var waiter))
+        {
+            if (Interlocked.CompareExchange(ref waiter._leased, 1, 0) is 0)
+                return waiter;
+        }
+
+        return new JournalDurabilityWaiter { _leased = 1 };
+    }
 
     public ValueTask AwaitAsync(CancellationToken cancellationToken)
     {
@@ -71,6 +81,9 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
 
     public void ReturnToPool()
     {
+        if (Interlocked.CompareExchange(ref _leased, 0, 1) is not 1)
+            return;
+
         _core.Reset();
         Pool.Add(this);
     }

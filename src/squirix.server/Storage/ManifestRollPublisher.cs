@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace Squirix.Server.Storage;
@@ -24,19 +23,17 @@ internal sealed class ManifestRollPublisher : IDisposable
         _thread.Start();
     }
 
-    public void PublishRollAndWait(int currentJournal, ulong nextSequence)
+    /// <summary>Enqueues a roll; <paramref name="onSuccess" /> runs on the manifest thread after a successful publish.</summary>
+    /// <param name="currentJournal">Journal segment index being rolled to.</param>
+    /// <param name="nextSequence">Next journal sequence after the roll.</param>
+    /// <param name="onSuccess">Callback invoked after manifest publish succeeds.</param>
+    public void PublishRoll(int currentJournal, ulong nextSequence, Action onSuccess)
     {
+        ArgumentNullException.ThrowIfNull(onSuccess);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
 
-        using var done = new ManualResetEventSlim(false);
-        Exception? failure = null;
-        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, done, ex => failure = ex), TimeSpan.FromSeconds(30)))
+        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
             throw new InvalidOperationException("manifest roll publisher is shutting down.");
-
-        if (!done.Wait(TimeSpan.FromSeconds(5), CancellationToken.None))
-            throw new TimeoutException("manifest roll did not complete within 5 seconds.");
-        if (failure is not null)
-            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     public void Dispose()
@@ -59,6 +56,7 @@ internal sealed class ManifestRollPublisher : IDisposable
                 try
                 {
                     _manifestStore.PublishRollBlocking(request.CurrentJournal, request.NextSequence);
+                    request.SignalSuccess();
                 }
                 catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException)
                 {
@@ -68,7 +66,6 @@ internal sealed class ManifestRollPublisher : IDisposable
                 finally
                 {
                     _ = Interlocked.Decrement(ref _inFlight);
-                    request.SignalComplete();
                 }
             }
         }
@@ -78,14 +75,25 @@ internal sealed class ManifestRollPublisher : IDisposable
         }
     }
 
-    private sealed class ManifestRollRequest(int currentJournal, ulong nextSequence, ManualResetEventSlim done, Action<Exception> captureFailure)
+    private sealed class ManifestRollRequest
     {
-        public int CurrentJournal { get; } = currentJournal;
+        private readonly Action? _onSuccess;
+        private readonly Action<Exception>? _captureFailure;
 
-        public ulong NextSequence { get; } = nextSequence;
+        public ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
+        {
+            CurrentJournal = currentJournal;
+            NextSequence = nextSequence;
+            _onSuccess = onSuccess;
+            _captureFailure = captureFailure;
+        }
 
-        public void CaptureFailure(Exception ex) => captureFailure(ex);
+        public int CurrentJournal { get; }
 
-        public void SignalComplete() => done.Set();
+        public ulong NextSequence { get; }
+
+        public void CaptureFailure(Exception ex) => _captureFailure?.Invoke(ex);
+
+        public void SignalSuccess() => _onSuccess?.Invoke();
     }
 }

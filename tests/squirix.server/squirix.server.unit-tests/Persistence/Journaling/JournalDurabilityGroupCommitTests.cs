@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
@@ -176,6 +177,26 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         Assert.True(flushCounter.Value >= 1);
     }
 
+    /// <summary>Ensures canceling pending group-commit waiters propagates journal pipeline failures.</summary>
+    [Fact]
+    public async Task CancelPendingFailsPendingGroupCommitWaiters()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 8,
+        };
+        var failure = new IOException("journal pipeline failed");
+        var groupCommit = CreateGroupCommit(static () => { }, options, new FakeTimeProvider());
+
+        var waiter = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        await groupCommit.CancelPendingAsync(failure);
+        await WaitUntilCompletedAsync(waiter);
+
+        Assert.True(waiter.IsFaulted);
+        Assert.Same(failure, waiter.Exception?.InnerException);
+    }
+
     /// <summary>Ensures concurrent durability waits share one flush when group commit is enabled.</summary>
     [Fact]
     public async Task GroupCommitSharesFlushAcrossConcurrentWaiters()
@@ -208,6 +229,37 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         await Task.WhenAll(firstCommit, secondCommit);
 
         Assert.False(pipelined.IsDurabilityFlushPending);
+    }
+
+    /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>
+    [Fact]
+    public async Task JournalPipelineFailureFailsPendingGroupCommitDurabilityWait()
+    {
+        using var dir = new TempDirectory("squirix-journal-gc-pipeline-fail");
+        var options = new PersistenceOptions
+        {
+            DataDir = dir,
+            JournalMaxSegmentMb = 1,
+            FlushIntervalMs = 600_000,
+            ManifestRetentionCount = 1,
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 32,
+        };
+
+        using var manifestStore = new ManifestStore(options);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
+
+        await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, DefaultCancellationToken);
+        var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
+
+        await journal.DisposeAsync();
+        await WaitUntilCompletedAsync(durability);
+        Assert.True(durability.IsFaulted);
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();

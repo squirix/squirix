@@ -53,7 +53,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private long _ops;
     private int _pendingMemoryApplyCount;
     private TaskCompletionSource? _pendingMemoryApplyDrained;
+    private int _pendingRollTargetSegmentIndex;
     private int _queuedAppends;
+    private int _segmentRollCompletionPending;
+    private bool _segmentRollInFlight;
 
     private JournalCoordinator(PersistenceOptions opt, ManifestState manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
     {
@@ -780,6 +783,14 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
 
+    private void FailJournalPipeline(Exception reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        Volatile.Write(ref _journalThreadFailure, reason);
+        FailPendingDurabilityWaiters(reason);
+        _groupCommit?.CancelPendingCore(reason);
+    }
+
     private async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
 
     private void FlushGroupCommitOnJournalThread()
@@ -820,6 +831,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator
             CompleteStagedAppend(pending.Item);
 
         _writeBatch.Clear();
+
+        if (_opt.IsJournalGroupCommitEnabled)
+            TryCompleteGroupCommitCheckpoint();
     }
 
     private void FsyncOnJournalThread()
@@ -843,45 +857,13 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     {
         try
         {
-            while (true)
-            {
-                var hadWork = false;
-                while (_ring.TryDequeue(out var item))
-                {
-                    hadWork = true;
-                    if (item.Kind is JournalWorkKind.Append)
-                    {
-                        if (item.Completion is not null || !TryAcceptAppendIntoBatch(item))
-                        {
-                            FlushWriteBatch();
-                            _ = ProcessJournalWorkItem(item);
-                        }
-                    }
-                    else
-                    {
-                        FlushWriteBatch();
-                        if (!ProcessJournalWorkItem(item))
-                            continue;
-                        FlushWriteBatch();
-                        return;
-                    }
-                }
-
-                FlushWriteBatch();
-                DrainDueGroupCommitBatches();
-
-                if (!hadWork)
-                {
-                    var timeoutMs = Volatile.Read(ref _queuedAppends) > 0 ? Timeout.Infinite : _groupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
-                    _ring.WaitForWork(timeoutMs, _bgCts.Token);
-                    DrainDueGroupCommitBatches();
-                }
-            }
+            JournalWorkItem? rollDeferredAppend = null;
+            for (var running = true; running;)
+                running = RunJournalThreadIteration(ref rollDeferredAppend);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException)
         {
-            Volatile.Write(ref _journalThreadFailure, ex);
-            FailPendingDurabilityWaiters(ex);
+            FailJournalPipeline(ex);
         }
         catch (OperationCanceledException) when (_bgCts.IsCancellationRequested)
         {
@@ -889,20 +871,143 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         }
     }
 
-    private void MaybeRollSegment(int incomingFrameBytes)
+    private bool DrainJournalRing(ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
     {
-        SyncActiveSegmentBytesToWriterLength();
-        if (!ShouldRollSegmentForAppend(incomingFrameBytes))
-            return;
+        shutdownRequested = false;
+        var hadWork = false;
+        while (_ring.TryDequeue(out var item))
+        {
+            hadWork = true;
+            if (item.Kind is JournalWorkKind.Append)
+            {
+                if (TryAcceptAppendIntoBatch(item, out var rollDeferred))
+                    continue;
+
+                if (rollDeferred)
+                {
+                    rollDeferredAppend = item;
+                    return hadWork;
+                }
+
+                FlushWriteBatch();
+                _ = ProcessJournalWorkItem(item);
+                continue;
+            }
+
+            FlushWriteBatch();
+            if (!ProcessJournalWorkItem(item))
+                continue;
+
+            FlushWriteBatch();
+            shutdownRequested = true;
+            return hadWork;
+        }
+
+        return hadWork;
+    }
+
+    private bool RunJournalThreadIteration(ref JournalWorkItem? rollDeferredAppend)
+    {
+        if (TryCompletePendingSegmentRoll() && rollDeferredAppend is not null)
+        {
+            ProcessRollDeferredAppend(ref rollDeferredAppend);
+            return true;
+        }
+
+        if (rollDeferredAppend is not null)
+        {
+            ThrowIfJournalThreadFailed();
+            _ring.WaitForWork(Timeout.Infinite, _bgCts.Token);
+            return true;
+        }
+
+        var hadWork = DrainJournalRing(ref rollDeferredAppend, out var shutdownRequested);
+        if (shutdownRequested)
+            return false;
+
+        if (rollDeferredAppend is not null)
+            return true;
 
         FlushWriteBatch();
-        RollSegmentOnJournalThread();
+        DrainDueGroupCommitBatches();
+
+        if (hadWork)
+            return true;
+
+        var timeoutMs = Volatile.Read(ref _queuedAppends) > 0 ? Timeout.Infinite : _groupCommit?.GetJournalThreadWaitTimeoutMs() ?? Timeout.Infinite;
+        _ring.WaitForWork(timeoutMs, _bgCts.Token);
+        DrainDueGroupCommitBatches();
+        return true;
+    }
+
+    private void BeginSegmentRollOnJournalThread()
+    {
+        if (_segmentRollInFlight)
+            return;
+
+        FsyncOnJournalThread();
+        JournalReadPath.EnsureSegmentRollCapacityOrThrow(_opt.DataDir, _policy);
+        _pendingRollTargetSegmentIndex = CurrentSegmentIndex + 1;
+        _segmentRollInFlight = true;
+        _manifestRollPublisher.PublishRoll(
+            _pendingRollTargetSegmentIndex,
+            Volatile.Read(ref _nextSequence),
+            OnManifestRollSucceeded);
+    }
+
+    private void CompleteSegmentRollOnJournalThread()
+    {
+        CurrentSegmentIndex = _pendingRollTargetSegmentIndex;
+        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
+        _segmentWriter.OpenSegment(_activeSegmentPath, false);
+        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
+        JournalFraming.WriteFileHeader(header);
+        _segmentWriter.Write(header, 0);
+        Volatile.Write(ref _activeSegmentWrittenBytes, JournalFraming.FileHeaderSize);
+        _journalTotalBytes += JournalFraming.FileHeaderSize;
+        _dirty = false;
+        _segmentRollInFlight = false;
     }
 
     private void OnManifestRollFailed(Exception ex)
     {
-        Volatile.Write(ref _journalThreadFailure, ex);
-        FailPendingDurabilityWaiters(ex);
+        _segmentRollInFlight = false;
+        Volatile.Write(ref _segmentRollCompletionPending, 0);
+        FailJournalPipeline(ex);
+        _ring.NotifyWorkAvailable();
+    }
+
+    private void OnManifestRollSucceeded()
+    {
+        Volatile.Write(ref _segmentRollCompletionPending, 1);
+        _ring.NotifyWorkAvailable();
+    }
+
+    private void ProcessRollDeferredAppend(ref JournalWorkItem? rollDeferredAppend)
+    {
+        var item = rollDeferredAppend ?? throw new InvalidOperationException("roll-deferred append is missing.");
+        rollDeferredAppend = null;
+        if (TryAcceptAppendIntoBatch(item, out var rollDeferred))
+            return;
+
+        if (rollDeferred)
+        {
+            rollDeferredAppend = item;
+            return;
+        }
+
+        FlushWriteBatch();
+        _ = ProcessJournalWorkItem(item);
+    }
+
+    private bool TryCompletePendingSegmentRoll()
+    {
+        if (Volatile.Read(ref _segmentRollCompletionPending) is 0)
+            return false;
+
+        Volatile.Write(ref _segmentRollCompletionPending, 0);
+        CompleteSegmentRollOnJournalThread();
+        return true;
     }
 
     private void ProcessAppend(JournalWorkItem item)
@@ -998,27 +1103,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _ = waiter.TrySetCanceled(cancellationToken);
     }
 
-    private void RollSegmentOnJournalThread()
-    {
-        FsyncOnJournalThread();
-        JournalReadPath.EnsureSegmentRollCapacityOrThrow(_opt.DataDir, _policy);
-        var nextSegmentIndex = CurrentSegmentIndex + 1;
-
-        // Publish manifest BEFORE opening new segment so failure doesn't leave us in bad state
-        _manifestRollPublisher.PublishRollAndWait(nextSegmentIndex, Volatile.Read(ref _nextSequence));
-
-        // Only update local state after successful manifest publish
-        CurrentSegmentIndex = nextSegmentIndex;
-        _activeSegmentPath = JournalReadPath.BuildSegmentPath(_opt.DataDir, CurrentSegmentIndex);
-        _segmentWriter.OpenSegment(_activeSegmentPath, false);
-        Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
-        JournalFraming.WriteFileHeader(header);
-        _segmentWriter.Write(header, 0);
-        Volatile.Write(ref _activeSegmentWrittenBytes, JournalFraming.FileHeaderSize);
-        _journalTotalBytes += JournalFraming.FileHeaderSize;
-        _dirty = false;
-    }
-
     private bool ShouldRollSegmentForAppend(int incomingFrameBytes) => _policy.ShouldRollSegment(GetEffectiveActiveSegmentBytes(), incomingFrameBytes);
 
     private void SyncActiveSegmentBytesToWriterLength()
@@ -1044,14 +1128,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         _dirty = frameStart > 0;
     }
 
-    private bool TryAcceptAppendIntoBatch(JournalWorkItem item)
+    private bool TryAcceptAppendIntoBatch(JournalWorkItem item, out bool rollDeferred)
     {
+        rollDeferred = false;
         EnsureSegmentOpen();
         _policy.EnsureAppendCapacityOrThrow(_journalTotalBytes, item.FrameLength);
         if (ShouldRollSegmentForAppend(item.FrameLength))
         {
             FlushWriteBatch();
-            RollSegmentOnJournalThread();
+            BeginSegmentRollOnJournalThread();
+            rollDeferred = true;
             return false;
         }
 
@@ -1097,8 +1183,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
         EnsureSegmentOpen();
         _policy.EnsureAppendCapacityOrThrow(_journalTotalBytes, item.FrameLength);
-        MaybeRollSegment(item.FrameLength);
         SyncActiveSegmentBytesToWriterLength();
+        if (ShouldRollSegmentForAppend(item.FrameLength))
+            throw new InvalidOperationException("append requires a segment roll; use the journal thread deferral path.");
         var offset = _activeSegmentWrittenBytes;
         try
         {

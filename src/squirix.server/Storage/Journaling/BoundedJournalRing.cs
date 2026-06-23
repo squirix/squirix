@@ -57,19 +57,21 @@ internal sealed class BoundedJournalRing : IDisposable
 
     public void WaitForWork(int timeoutMs, CancellationToken cancellationToken)
     {
-        var deadline = timeoutMs is Timeout.Infinite ? long.MaxValue : Environment.TickCount64 + timeoutMs;
+        if (HasQueuedWork() || cancellationToken.IsCancellationRequested || timeoutMs is 0)
+            return;
 
-        while (!cancellationToken.IsCancellationRequested)
+        var waitMs = timeoutMs;
+        if (timeoutMs is not Timeout.Infinite)
         {
-            if (HasQueuedWork())
+            waitMs = ComputeRemainingWaitMs(Environment.TickCount64 + timeoutMs);
+            if (waitMs is 0)
                 return;
-
-            var waitMs = timeoutMs is Timeout.Infinite ? Timeout.Infinite : ComputeRemainingWaitMs(deadline);
-            if (waitMs is 0 && timeoutMs is not Timeout.Infinite)
-                return;
-
-            _ = _workSignal.WaitOne(waitMs);
         }
+
+        // A fired signal means "re-evaluate": ring work, a group-commit deadline, or manifest roll
+        // completion. Returning here lets the journal loop re-drain and recompute its next wait so a
+        // group-commit notify (which adds no ring item) can never be lost.
+        _ = _workSignal.WaitOne(waitMs);
     }
 
     public void Dispose()
