@@ -32,6 +32,8 @@ internal sealed class IoUringJournalRing : IDisposable
     private readonly unsafe LinuxIoUringSyscalls.IoUringCqe* _cqes;
     private uint _sqTailLocal;
     private bool _disposed;
+    private nint _bounceBuffer;
+    private nuint _bounceCapacity;
 
     internal IoUringJournalRing(uint entries)
     {
@@ -75,6 +77,16 @@ internal sealed class IoUringJournalRing : IDisposable
             return;
 
         _disposed = true;
+        unsafe
+        {
+            if (_bounceBuffer != 0)
+            {
+                NativeMemory.Free((void*)_bounceBuffer);
+                _bounceBuffer = 0;
+                _bounceCapacity = 0;
+            }
+        }
+
         if (_sqRing != -1)
             _ = LinuxIoUringSyscalls.Munmap(_sqRing, _sqRingSize);
 
@@ -93,17 +105,12 @@ internal sealed class IoUringJournalRing : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         unsafe
         {
-            var native = (byte*)NativeMemory.Alloc((nuint)buffer.Length);
-            try
-            {
-                buffer.CopyTo(new Span<byte>(native, buffer.Length));
-                EnqueueWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
-                SubmitAndWait();
-            }
-            finally
-            {
-                NativeMemory.Free(native);
-            }
+            // Reuse a single pinned bounce buffer across writes. The ring is single-issuer and each
+            // Write blocks until completion in SubmitAndWait, so the buffer is free for the next call.
+            var native = (byte*)EnsureBounceCapacity((nuint)buffer.Length);
+            buffer.CopyTo(new Span<byte>(native, buffer.Length));
+            EnqueueWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
+            SubmitAndWait();
         }
     }
 
@@ -140,12 +147,23 @@ internal sealed class IoUringJournalRing : IDisposable
         }
     }
 
+    private unsafe void* EnsureBounceCapacity(nuint length)
+    {
+        var required = length == 0 ? 1 : length;
+        if (_bounceBuffer != 0 && _bounceCapacity >= required)
+            return (void*)_bounceBuffer;
+
+        if (_bounceBuffer != 0)
+            NativeMemory.Free((void*)_bounceBuffer);
+
+        _bounceBuffer = (nint)NativeMemory.Alloc(required);
+        _bounceCapacity = required;
+        return (void*)_bounceBuffer;
+    }
+
     private unsafe void EnqueueWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)
     {
-        var sqeIndex = _sqTailLocal & _sqMask;
-        var sqeSlot = _sqArray[sqeIndex];
-        ref var sqe = ref Unsafe.Add(ref *_sqeEntries, (int)sqeSlot);
-        sqe = default;
+        ref var sqe = ref ReserveSqe();
         sqe.Opcode = LinuxIoUringSyscalls.OpWrite;
         sqe.Fd = fileDescriptor;
         sqe.Off = offset;
@@ -156,14 +174,26 @@ internal sealed class IoUringJournalRing : IDisposable
 
     private unsafe void EnqueueFsync(int fileDescriptor)
     {
-        var sqeIndex = _sqTailLocal & _sqMask;
-        var sqeSlot = _sqArray[sqeIndex];
-        ref var sqe = ref Unsafe.Add(ref *_sqeEntries, (int)sqeSlot);
-        sqe = default;
+        ref var sqe = ref ReserveSqe();
         sqe.Opcode = LinuxIoUringSyscalls.OpFsync;
         sqe.Fd = fileDescriptor;
         sqe.FsyncFlags = LinuxIoUringSyscalls.FsyncDatasync;
         _sqTailLocal++;
+    }
+
+    /// <summary>
+    /// Reserves the SQE for the current tail slot and maps it through the submission-queue index array.
+    /// The kernel-mmap'd <c>array</c> is zero-initialized, so it must be populated explicitly: without
+    /// this, every entry in a multi-SQE batch resolves to <c>sqe[0]</c> and only the last enqueued
+    /// operation survives (silently dropping the data/pointer writes in <see cref="WriteManifestRoll" />).
+    /// </summary>
+    private unsafe ref LinuxIoUringSyscalls.IoUringSqe ReserveSqe()
+    {
+        var slot = _sqTailLocal & _sqMask;
+        _sqArray[slot] = slot;
+        ref var sqe = ref Unsafe.Add(ref *_sqeEntries, (int)slot);
+        sqe = default;
+        return ref sqe;
     }
 
     private unsafe void SubmitAndWait()
