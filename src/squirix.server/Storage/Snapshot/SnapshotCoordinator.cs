@@ -9,6 +9,7 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Entries.Binary;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 
@@ -137,12 +138,16 @@ internal sealed class SnapshotCoordinator<T>
 
         static CacheEntry<object?> ToSnapshotEntry(CacheEntry<T> source)
         {
-            if (source is CacheEntry<object?> objectEntry)
+            // Serialize an arbitrary object to its JsonElement form once here, so the snapshot encoder's
+            // repeated length/write passes never re-serialize it. Directly-encodable values pass through
+            // unchanged, preserving the zero-copy fast path for the object pipeline.
+            var normalized = CacheEntryCodec.NormalizeValue(source.Value);
+            if (source is CacheEntry<object?> objectEntry && ReferenceEquals(normalized, source.Value))
                 return objectEntry;
 
             return new CacheEntry<object?>
             {
-                Value = source.Value,
+                Value = normalized,
                 ExpiresUtc = source.ExpiresUtc,
                 Expiration = source.Expiration,
                 Version = source.Version,

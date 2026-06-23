@@ -128,88 +128,6 @@ public abstract class IntegrationTestBase : IDisposable
         return MtlsTestContext.CreatePeers(ref _mtls, mapped);
     }
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
-        string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
-        Action<GrpcServiceOptions>? configureGrpc = null,
-        Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
-        PersistenceOptions? persistenceOptions = null,
-        bool usePersistence = false,
-        ITestOutputHelper? output = null,
-        bool cleanTestDir = true,
-        string? extraScope = null,
-        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
-        TestNodeSecurityOptions? security = null,
-        bool waitForRecovery = true,
-        [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(
-            url,
-            BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
-            callPolicyFactory,
-            configureGrpc,
-            servicesConfigure,
-            snapshotOptions,
-            persistenceOptions,
-            usePersistence,
-            output,
-            cleanTestDir,
-            extraScope,
-            peerHandlerFactory,
-            backpressureOptions,
-            memoryPressureOptions,
-            security,
-            waitForRecovery,
-            testName);
-
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        Uri url,
-        string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
-        Action<GrpcServiceOptions>? configureGrpc = null,
-        Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
-        PersistenceOptions? persistenceOptions = null,
-        bool usePersistence = false,
-        ITestOutputHelper? output = null,
-        bool cleanTestDir = true,
-        string? extraScope = null,
-        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
-        TestNodeSecurityOptions? security = null,
-        bool waitForRecovery = true,
-        [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(
-            url,
-            BuildClusterPeers([(nodeId, url)]),
-            callPolicyFactory,
-            configureGrpc,
-            servicesConfigure,
-            snapshotOptions,
-            persistenceOptions,
-            usePersistence,
-            output,
-            cleanTestDir,
-            extraScope,
-            peerHandlerFactory,
-            backpressureOptions,
-            memoryPressureOptions,
-            security,
-            waitForRecovery,
-            testName);
-
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
     /// <param name="peers">Configured cluster peers.</param>
@@ -262,66 +180,13 @@ public abstract class IntegrationTestBase : IDisposable
         return material is not { Enabled: true } ? LoopbackHttp.CreateHandler() : GrpcTransportEndpoints.CreateMtlsHandler(material, targetPeerNodeId);
     }
 
-    /// <summary>
-    /// Starts a new <see cref="SquirixNodeHost" /> for integration testing with configurable peers,
-    /// persistence, gRPC configuration, and extra services.
-    /// </summary>
-    /// <param name="url">
-    /// The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.
-    /// </param>
-    /// <param name="peers">
-    /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
-    /// </param>
-    /// <param name="callPolicyFactory">
-    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
-    /// The factory receives the peer URL and should return a configured policy instance.
-    /// </param>
-    /// <param name="configureGrpc">
-    /// Optional callback to configure <see cref="GrpcServiceOptions" />.
-    /// </param>
-    /// <param name="servicesConfigure">Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).</param>
-    /// <param name="snapshotOptions">
-    /// Optional snapshot trigger options; when <see langword="null" />, the node uses its built-in defaults.
-    /// </param>
-    /// <param name="persistenceOptions">
-    /// Optional base persistence options. The data directory is overridden per test (node id + scope);
-    /// other fields are honored as provided.
-    /// </param>
-    /// <param name="usePersistence">
-    /// When <see langword="true" />, starts the node with journal/snapshot persistence enabled using a test-scoped data directory.
-    /// </param>
-    /// <param name="output">Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.</param>
-    /// <param name="cleanTestDir">
-    /// If <see langword="true" />, the per-test data directory is cleaned before startup. If <see langword="false" />, it is reused.
-    /// </param>
-    /// <param name="extraScope">Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.</param>
-    /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
-    /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
-    /// <param name="memoryPressureOptions">
-    /// Optional memory pressure options; when <see langword="null" />, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
-    /// </param>
-    /// <param name="security">Optional per-node security override. When set, environment variables are not read for auth on this startup.</param>
-    /// <param name="waitForRecovery">
-    /// When persistence is enabled, blocks host startup until journal replay completes. Set to <see langword="false" /> to exercise non-blocking recovery.
-    /// </param>
-    /// <param name="testName">
-    /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
-    /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
-    /// </param>
-    /// <returns>
-    /// A started <see cref="TestNodeHost" /> wrapper containing the running application, its base URL, and the resolved data directory.
-    /// Dispose it to stop the node and release resources.
-    /// </returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="url" /> (the self node).
-    /// </exception>
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    private ValueTask<TestNodeHost> StartNodeAsync(
+    internal ValueTask<TestNodeHost> StartNodeAsync(
         string url,
-        Peer[] peers,
+        string nodeId,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
@@ -337,8 +202,48 @@ public abstract class IntegrationTestBase : IDisposable
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
-        new Uri(url, UriKind.Absolute),
-        peers,
+        url,
+        BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        peerHandlerFactory,
+        backpressureOptions,
+        memoryPressureOptions,
+        security,
+        waitForRecovery,
+        testName);
+
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        Uri url,
+        string nodeId,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        url,
+        BuildClusterPeers([(nodeId, url)]),
         callPolicyFactory,
         configureGrpc,
         servicesConfigure,
@@ -517,4 +422,97 @@ public abstract class IntegrationTestBase : IDisposable
             JournalMaxSegmentMb = 64,
         };
     }
+
+    /// <summary>
+    /// Starts a new <see cref="SquirixNodeHost" /> for integration testing with configurable peers,
+    /// persistence, gRPC configuration, and extra services.
+    /// </summary>
+    /// <param name="url">
+    /// The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.
+    /// </param>
+    /// <param name="peers">
+    /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
+    /// </param>
+    /// <param name="callPolicyFactory">
+    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
+    /// The factory receives the peer URL and should return a configured policy instance.
+    /// </param>
+    /// <param name="configureGrpc">
+    /// Optional callback to configure <see cref="GrpcServiceOptions" />.
+    /// </param>
+    /// <param name="servicesConfigure">Optional callback to register/override services in the node’s DI container (e.g., test doubles, exporters).</param>
+    /// <param name="snapshotOptions">
+    /// Optional snapshot trigger options; when <see langword="null" />, the node uses its built-in defaults.
+    /// </param>
+    /// <param name="persistenceOptions">
+    /// Optional base persistence options. The data directory is overridden per test (node id + scope);
+    /// other fields are honored as provided.
+    /// </param>
+    /// <param name="usePersistence">
+    /// When <see langword="true" />, starts the node with journal/snapshot persistence enabled using a test-scoped data directory.
+    /// </param>
+    /// <param name="output">Optional xUnit output helper. When provided, logs are routed to xUnit; otherwise Console/Debug loggers are used.</param>
+    /// <param name="cleanTestDir">
+    /// If <see langword="true" />, the per-test data directory is cleaned before startup. If <see langword="false" />, it is reused.
+    /// </param>
+    /// <param name="extraScope">Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.</param>
+    /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
+    /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
+    /// <param name="memoryPressureOptions">
+    /// Optional memory pressure options; when <see langword="null" />, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
+    /// </param>
+    /// <param name="security">Optional per-node security override. When set, environment variables are not read for auth on this startup.</param>
+    /// <param name="waitForRecovery">
+    /// When persistence is enabled, blocks host startup until journal replay completes. Set to <see langword="false" /> to exercise non-blocking recovery.
+    /// </param>
+    /// <param name="testName">
+    /// Optional scope hint from the caller (often via <see cref="CallerMemberNameAttribute" />).
+    /// Under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> uses the active test case id when available.
+    /// </param>
+    /// <returns>
+    /// A started <see cref="TestNodeHost" /> wrapper containing the running application, its base URL, and the resolved data directory.
+    /// Dispose it to stop the node and release resources.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="url" /> (the self node).
+    /// </exception>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    private ValueTask<TestNodeHost> StartNodeAsync(
+        string url,
+        Peer[] peers,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        TestNodeSecurityOptions? security = null,
+        bool waitForRecovery = true,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        new Uri(url, UriKind.Absolute),
+        peers,
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        peerHandlerFactory,
+        backpressureOptions,
+        memoryPressureOptions,
+        security,
+        waitForRecovery,
+        testName);
 }

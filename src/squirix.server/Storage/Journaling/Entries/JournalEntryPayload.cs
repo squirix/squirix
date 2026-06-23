@@ -48,7 +48,7 @@ internal static class JournalEntryPayload
         var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
         return new CacheEntry<object?>
         {
-            Value = entry.Value,
+            Value = CacheEntryCodec.NormalizeValue(entry.Value),
             ExpiresUtc = expiresUtc,
             Expiration = expiration,
             Version = entry.Version,

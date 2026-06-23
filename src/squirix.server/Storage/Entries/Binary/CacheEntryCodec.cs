@@ -16,6 +16,21 @@ internal static class CacheEntryCodec
 {
     private const int MaxUtf16StringLength = ushort.MaxValue;
 
+    /// <summary>
+    /// Returns a value already in a directly-encodable form: primitives, strings, byte arrays and
+    /// <see cref="JsonElement" /> pass through unchanged, while any other object is serialized to a
+    /// <see cref="JsonElement" /> exactly once. Callers normalize before the
+    /// <see cref="ComputeEncodedLength" /> / <see cref="Write" /> pair so an arbitrary object is not
+    /// re-serialized on every length and write pass.
+    /// </summary>
+    /// <param name="value">The raw cache value.</param>
+    /// <returns>The same value when directly encodable; otherwise its <see cref="JsonElement" /> form.</returns>
+    public static object? NormalizeValue(object? value) => value switch
+    {
+        null or bool or string or byte[] or sbyte or byte or short or ushort or int or uint or long or float or double or decimal or JsonElement => value,
+        _ => SerializationProvider.Instance.SerializeToElement(value),
+    };
+
     public static int ComputeEncodedLength(CacheEntry<object?> entry)
     {
         var length = 1 + 1 + 8;

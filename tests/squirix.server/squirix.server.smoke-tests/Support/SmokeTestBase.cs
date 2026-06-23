@@ -173,69 +173,6 @@ public abstract class SmokeTestBase : IDisposable
         testName,
         cancellationToken);
 
-    /// <summary>
-    /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
-    /// using the provided peers, persistence, snapshot and service options.
-    /// </summary>
-    /// <param name="url">The URL this node should bind to.</param>
-    /// <param name="peers">Cluster peers including this node.</param>
-    /// <param name="callPolicyFactory">Optional factory for client call policies.</param>
-    /// <param name="configureGrpc">Optional action to configure gRPC options.</param>
-    /// <param name="servicesConfigure">Optional action to configure DI services.</param>
-    /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
-    /// <param name="persistenceOptions">Optional persistence options.</param>
-    /// <param name="usePersistence">When <see langword="true" />, starts the node with journal/snapshot persistence enabled.</param>
-    /// <param name="output">Optional xUnit output helper for log capture.</param>
-    /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
-    /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
-    /// <param name="security">
-    /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
-    /// </param>
-    /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
-    /// <param name="memoryPressureOptions">Optional memory pressure options; when <see langword="null" />, defaults merged from settings and environment are used.</param>
-    /// <param name="testName">
-    /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token to stop startup.</param>
-    /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    private ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
-        Peer[] peers,
-        Func<string, CallPolicy>? callPolicyFactory = null,
-        Action<GrpcServiceOptions>? configureGrpc = null,
-        Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
-        PersistenceOptions? persistenceOptions = null,
-        bool usePersistence = false,
-        ITestOutputHelper? output = null,
-        bool cleanTestDir = true,
-        string? extraScope = null,
-        TestNodeSecurityOptions? security = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
-        [CallerMemberName] string? testName = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        new Uri(url, UriKind.Absolute),
-        peers,
-        callPolicyFactory,
-        configureGrpc,
-        servicesConfigure,
-        snapshotOptions,
-        persistenceOptions,
-        usePersistence,
-        output,
-        cleanTestDir,
-        extraScope,
-        security,
-        backpressureOptions,
-        memoryPressureOptions,
-        testName,
-        cancellationToken);
-
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -455,4 +392,67 @@ public abstract class SmokeTestBase : IDisposable
             SnapshotIntervalSec = 60,
         };
     }
+
+    /// <summary>
+    /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
+    /// using the provided peers, persistence, snapshot and service options.
+    /// </summary>
+    /// <param name="url">The URL this node should bind to.</param>
+    /// <param name="peers">Cluster peers including this node.</param>
+    /// <param name="callPolicyFactory">Optional factory for client call policies.</param>
+    /// <param name="configureGrpc">Optional action to configure gRPC options.</param>
+    /// <param name="servicesConfigure">Optional action to configure DI services.</param>
+    /// <param name="snapshotOptions">Optional snapshot trigger options.</param>
+    /// <param name="persistenceOptions">Optional persistence options.</param>
+    /// <param name="usePersistence">When <see langword="true" />, starts the node with journal/snapshot persistence enabled.</param>
+    /// <param name="output">Optional xUnit output helper for log capture.</param>
+    /// <param name="cleanTestDir">Whether to clean the test directory before starting.</param>
+    /// <param name="extraScope">Optional extra scope string for test directory isolation.</param>
+    /// <param name="security">
+    /// Per-node security override. Defaults to unauthenticated when omitted. Environment variables are not read for auth when an override is supplied.
+    /// </param>
+    /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
+    /// <param name="memoryPressureOptions">Optional memory pressure options; when <see langword="null" />, defaults merged from settings and environment are used.</param>
+    /// <param name="testName">
+    /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token to stop startup.</param>
+    /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
+    private ValueTask<TestNodeHost> StartNodeAsync(
+        string url,
+        Peer[] peers,
+        Func<string, CallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        SnapshotTriggerOptions? snapshotOptions = null,
+        PersistenceOptions? persistenceOptions = null,
+        bool usePersistence = false,
+        ITestOutputHelper? output = null,
+        bool cleanTestDir = true,
+        string? extraScope = null,
+        TestNodeSecurityOptions? security = null,
+        BackpressureOptions? backpressureOptions = null,
+        MemoryPressureOptions? memoryPressureOptions = null,
+        [CallerMemberName] string? testName = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        new Uri(url, UriKind.Absolute),
+        peers,
+        callPolicyFactory,
+        configureGrpc,
+        servicesConfigure,
+        snapshotOptions,
+        persistenceOptions,
+        usePersistence,
+        output,
+        cleanTestDir,
+        extraScope,
+        security,
+        backpressureOptions,
+        memoryPressureOptions,
+        testName,
+        cancellationToken);
 }
