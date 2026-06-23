@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Security.Cryptography;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
@@ -26,8 +27,18 @@ internal static class RpcMutationFingerprints
 
     private static string HashMessage(IMessage message)
     {
-        Span<byte> digest = stackalloc byte[32];
-        _ = SHA256.HashData(message.ToByteArray(), digest);
-        return HexFormat.FormatSha256HexUpper(digest);
+        var size = message.CalculateSize();
+        var buffer = ArrayPool<byte>.Shared.Rent(size);
+        try
+        {
+            message.WriteTo(buffer.AsSpan(0, size));
+            Span<byte> digest = stackalloc byte[32];
+            _ = SHA256.HashData(buffer.AsSpan(0, size), digest);
+            return HexFormat.FormatSha256HexUpper(digest);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 }
