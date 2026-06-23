@@ -32,8 +32,6 @@ internal sealed class IoUringJournalRing : IDisposable
     private readonly unsafe LinuxIoUringSyscalls.IoUringCqe* _cqes;
     private uint _sqTailLocal;
     private bool _disposed;
-    private nint _bounceBuffer;
-    private nuint _bounceCapacity;
 
     internal IoUringJournalRing(uint entries)
     {
@@ -77,15 +75,6 @@ internal sealed class IoUringJournalRing : IDisposable
             return;
 
         _disposed = true;
-        unsafe
-        {
-            if (_bounceBuffer != 0)
-            {
-                NativeMemory.Free((void*)_bounceBuffer);
-                _bounceBuffer = 0;
-                _bounceCapacity = 0;
-            }
-        }
 
         if (_sqRing != -1)
             _ = LinuxIoUringSyscalls.Munmap(_sqRing, _sqRingSize);
@@ -105,12 +94,17 @@ internal sealed class IoUringJournalRing : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         unsafe
         {
-            // Reuse a single pinned bounce buffer across writes. The ring is single-issuer and each
-            // Write blocks until completion in SubmitAndWait, so the buffer is free for the next call.
-            var native = (byte*)EnsureBounceCapacity((nuint)buffer.Length);
-            buffer.CopyTo(new Span<byte>(native, buffer.Length));
-            EnqueueWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
-            SubmitAndWait();
+            var native = (byte*)NativeMemory.Alloc((nuint)buffer.Length);
+            try
+            {
+                buffer.CopyTo(new Span<byte>(native, buffer.Length));
+                EnqueueWrite(fileDescriptor, (ulong)native, (uint)buffer.Length, (ulong)fileOffset);
+                SubmitAndWait();
+            }
+            finally
+            {
+                NativeMemory.Free(native);
+            }
         }
     }
 
@@ -145,20 +139,6 @@ internal sealed class IoUringJournalRing : IDisposable
                 NativeMemory.Free(pointerNative);
             }
         }
-    }
-
-    private unsafe void* EnsureBounceCapacity(nuint length)
-    {
-        var required = length == 0 ? 1 : length;
-        if (_bounceBuffer != 0 && _bounceCapacity >= required)
-            return (void*)_bounceBuffer;
-
-        if (_bounceBuffer != 0)
-            NativeMemory.Free((void*)_bounceBuffer);
-
-        _bounceBuffer = (nint)NativeMemory.Alloc(required);
-        _bounceCapacity = required;
-        return (void*)_bounceBuffer;
     }
 
     private unsafe void EnqueueWrite(int fileDescriptor, ulong bufferAddress, uint length, ulong offset)

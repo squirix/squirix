@@ -18,7 +18,7 @@ internal static partial class LinuxIoUringSyscalls
 
     internal const uint EnterGetEvents = 1 << 0;
 
-    internal const byte OpWrite = 1;
+    internal const byte OpWrite = 23;
     internal const byte OpFsync = 3;
 
     internal const uint FsyncDatasync = 1;
@@ -78,7 +78,7 @@ internal static partial class LinuxIoUringSyscalls
         internal uint Dropped;
         internal uint Array;
         internal uint Resv1;
-        internal uint Resv2;
+        internal ulong Resv2;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -90,9 +90,9 @@ internal static partial class LinuxIoUringSyscalls
         internal uint RingEntries;
         internal uint Overflow;
         internal uint Cqes;
+        internal uint Flags;
         internal uint Resv1;
-        internal uint Resv2;
-        internal uint Resv3;
+        internal ulong Resv2;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -127,19 +127,19 @@ internal static partial class LinuxIoUringSyscalls
         [FieldOffset(4)]
         internal int Fd;
 
-        [FieldOffset(16)]
+        [FieldOffset(8)]
         internal ulong Off;
 
-        [FieldOffset(24)]
+        [FieldOffset(16)]
         internal ulong Addr;
 
-        [FieldOffset(32)]
+        [FieldOffset(24)]
         internal uint Len;
 
-        [FieldOffset(36)]
+        [FieldOffset(28)]
         internal uint FsyncFlags;
 
-        [FieldOffset(40)]
+        [FieldOffset(32)]
         internal ulong UserData;
     }
 
