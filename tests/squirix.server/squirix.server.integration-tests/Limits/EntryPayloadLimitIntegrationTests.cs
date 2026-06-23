@@ -81,4 +81,89 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
         var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
         Assert.False(getResponse.Found);
     }
+
+    /// <summary>Verifies cluster forwarding preserves ResourceExhausted when a remote owner rejects an oversized update.</summary>
+    [Fact]
+    public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwnerUpdate()
+    {
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+
+        await using var nodeA = await StartNodeAsync(urlA, peers);
+        await using var nodeB = await StartNodeAsync(urlB, peers);
+
+        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "payload-limit-update");
+
+        using var channelA = CreateGrpcChannel(urlA);
+        var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
+
+        _ = await clientA.SetEntryAsync(
+            new SetEntryAsyncRequest
+            {
+                OperationId = RpcOperationIdentity.New(),
+                CacheName = "default",
+                Key = key,
+                Entry = new CacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken);
+
+        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            clientA.UpdateAsync(
+                new UpdateAsyncRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = key,
+                    Entry = new CacheEntry<object?> { Value = value }.MapToProto(),
+                },
+                cancellationToken: DefaultCancellationToken).ResponseAsync);
+
+        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
+
+        var getResponse = await clientA.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
+        Assert.True(getResponse.Found);
+        Assert.Equal("small", getResponse.Value.StringValue);
+    }
+
+    /// <summary>Verifies updating an existing entry above the limit returns ResourceExhausted and preserves the prior value.</summary>
+    [Fact]
+    public async Task GrpcUpdateAboveLimitReturnsResourceExhaustedAndPreservesValue()
+    {
+        var url = GetNextHttpUri();
+        await using var node = await StartNodeAsync(url, NodeId);
+
+        using var channel = CreateGrpcChannel(url);
+        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+
+        _ = await client.SetEntryAsync(
+            new SetEntryAsyncRequest
+            {
+                OperationId = RpcOperationIdentity.New(),
+                CacheName = "default",
+                Key = "grpc-update-over-limit",
+                Entry = new CacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken);
+
+        var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.UpdateAsync(
+                new UpdateAsyncRequest
+                {
+                    OperationId = RpcOperationIdentity.New(),
+                    CacheName = "default",
+                    Key = "grpc-update-over-limit",
+                    Entry = new CacheEntry<object?> { Value = value }.MapToProto(),
+                },
+                cancellationToken: DefaultCancellationToken).ResponseAsync);
+
+        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
+        Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
+
+        var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: DefaultCancellationToken);
+        Assert.True(getResponse.Found);
+        Assert.Equal("small", getResponse.Value.StringValue);
+    }
 }

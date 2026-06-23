@@ -72,24 +72,15 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
 
-        var existing = await _inner.GetEntryAsync(cacheName, key, cancellationToken).ConfigureAwait(false);
-        if (existing is null)
-            return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
-
-        var updateEntry = new CacheEntry<T>
-        {
-            Value = value,
-            ExpiresUtc = existing.ExpiresUtc,
-            Expiration = existing.Expiration,
-            Version = existing.Version,
-        };
-        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(updateEntry);
-        return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+        // The encoded-size guard for updates needs the existing entry metadata, so it is enforced by the
+        // memory-admission layer (the owner-local stage that already reads the existing entry) to avoid a
+        // duplicate read here and a redundant network read when the key is owned by a remote node.
+        return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 
     private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry)
