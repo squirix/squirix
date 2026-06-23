@@ -14,9 +14,8 @@ public sealed class TestKeyOwnerHelper
     /// <summary>Initializes a new instance of the <see cref="TestKeyOwnerHelper" /> class.</summary>
     /// <param name="nodeIds">Node identifiers participating in the ring.</param>
     /// <param name="virtualNodes">Number of virtual nodes per physical node.</param>
-    public TestKeyOwnerHelper(IEnumerable<string> nodeIds, int virtualNodes = 128)
+    public TestKeyOwnerHelper(ReadOnlySpan<string> nodeIds, int virtualNodes = 128)
     {
-        ArgumentNullException.ThrowIfNull(nodeIds);
         var nodes = new List<string>();
         foreach (var nodeId in nodeIds)
         {

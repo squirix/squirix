@@ -53,7 +53,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-forward");
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
         await using var nodeB = await StartNodeAsync(urlB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
@@ -83,7 +83,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     {
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
@@ -119,7 +119,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     {
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
@@ -156,7 +156,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
         await using var nodeB = await StartNodeAsync(urlB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
@@ -191,7 +191,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     {
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);

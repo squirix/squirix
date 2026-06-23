@@ -59,8 +59,13 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         }
 
         var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
-        Assert.Equal(16, selected.Length);
-        Assert.Equal(40, selected[0].Index);
-        Assert.Equal(25, selected[15].Index);
+        Assert.Equal(16, selected.Count);
+
+        var indices = new int[selected.Count];
+        for (var i = 0; i < indices.Length; i++)
+            indices[i] = selected.Dequeue().Index;
+
+        Assert.Equal(25, indices[0]);
+        Assert.Equal(40, indices[^1]);
     }
 }

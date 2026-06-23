@@ -25,7 +25,7 @@ internal static class JournalReadPath
         ArgumentException.ThrowIfNullOrEmpty(dataDir);
         ArgumentNullException.ThrowIfNull(policy);
 
-        var onDiskCount = JournalReader.SelectNewestSegments(dataDir, 1, policy.SegmentCountProbeLimit).Length;
+        var onDiskCount = JournalReader.SelectNewestSegments(dataDir, 1, policy.SegmentCountProbeLimit).Count;
         policy.EnsureRollCapacityOrThrow(onDiskCount, JournalReader.GetOnDiskTotalBytes(dataDir));
     }
 

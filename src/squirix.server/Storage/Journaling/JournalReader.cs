@@ -78,10 +78,10 @@ internal static class JournalReader
     /// <param name="fromSegment">Minimum segment index to consider (inclusive).</param>
     /// <param name="maxCount">Maximum number of segments to return; non-positive yields an empty array.</param>
     /// <returns>Segments with the greatest indices, ordered from newest (highest index) to oldest among the selection.</returns>
-    public static JournalSegment[] SelectNewestSegments(string dataDir, int fromSegment, int maxCount)
+    public static PriorityQueue<JournalSegment, int> SelectNewestSegments(string dataDir, int fromSegment, int maxCount)
     {
         if (maxCount <= 0 || !Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
-            return [];
+            return new PriorityQueue<JournalSegment, int>();
 
         var pq = new PriorityQueue<JournalSegment, int>();
         foreach (var path in files)
@@ -102,18 +102,7 @@ internal static class JournalReader
             pq.Enqueue(seg, seg.Index);
         }
 
-        return MaterializeNewestSegments(pq);
-    }
-
-    private static JournalSegment[] MaterializeNewestSegments(PriorityQueue<JournalSegment, int> pq)
-    {
-        var taken = new JournalSegment[pq.Count];
-        var index = 0;
-        while (pq.Count > 0)
-            taken[index++] = pq.Dequeue();
-
-        Array.Sort(taken, static (a, b) => b.Index.CompareTo(a.Index));
-        return taken;
+        return pq;
     }
 
     private static bool TryGetJournalFiles(string dataDir, out string[] files)
