@@ -94,7 +94,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 
     private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry)
     {
-        EntryPayloadSizeGuard.EnsureWithinLimit(entry);
+        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
         return Task.CompletedTask;
     }
 }

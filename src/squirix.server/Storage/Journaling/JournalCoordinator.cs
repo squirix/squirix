@@ -95,9 +95,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         return new JournalCoordinator(opt, manifest, manifestStore, startupGate);
     }
 
-    public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
+    public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
     {
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes);
+        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         if (_opt.IsJournalGroupCommitEnabled)
         {
             return AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, operationId, cancellationToken);
@@ -106,9 +106,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         return AppendRecordWithDurabilityCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes, operationId ?? string.Empty), cancellationToken);
     }
 
-    public ValueTask AppendPutAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
+    public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
     {
-        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes);
+        EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         return AppendRecordCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes, operationId ?? string.Empty), cancellationToken);
     }
 
@@ -294,7 +294,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
     private JournalRecord AllocateRecord(
         CacheKey key,
         JournalOperationKind operation,
-        byte[]? putEntryBytes = null,
+        ReadOnlyMemory<byte> putEntryBytes = default,
         string? putOperationId = null,
         DateTime? touchExpirationUtc = null)
     {
@@ -320,7 +320,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         }
     }
 
-    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
+    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
     {
         await AppendPutAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
         await AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);

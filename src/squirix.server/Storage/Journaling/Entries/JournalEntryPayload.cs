@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using Squirix.Server.Storage.Entries.Binary;
 
 namespace Squirix.Server.Storage.Journaling.Entries;
@@ -14,6 +15,24 @@ internal static class JournalEntryPayload
         var buffer = new byte[CacheEntryCodec.ComputeEncodedLength(objectEntry)];
         CacheEntryCodec.Write(objectEntry, buffer);
         return buffer;
+    }
+
+    /// <summary>
+    /// Encodes the entry into a buffer rented from <see cref="ArrayPool{T}.Shared" />. The rented array is
+    /// oversized, so callers must use the returned logical length and return <paramref name="pooledBuffer" />
+    /// to the shared pool exactly once when done.
+    /// </summary>
+    /// <typeparam name="T">The cache value type.</typeparam>
+    /// <param name="entry">The entry to encode.</param>
+    /// <param name="pooledBuffer">The rented buffer holding the encoded bytes (length may exceed the logical payload).</param>
+    /// <returns>The logical length of the encoded payload within <paramref name="pooledBuffer" />.</returns>
+    public static int Encode<T>(CacheEntry<T> entry, out byte[] pooledBuffer)
+    {
+        var objectEntry = ToObjectEntry(entry);
+        var length = CacheEntryCodec.ComputeEncodedLength(objectEntry);
+        pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
+        CacheEntryCodec.Write(objectEntry, pooledBuffer);
+        return length;
     }
 
     public static bool TryDecode<T>(ReadOnlySpan<byte> source, out CacheEntry<T>? entry)

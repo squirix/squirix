@@ -1,5 +1,7 @@
 using System;
+using System.Buffers;
 using Squirix.Server.Limits;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
@@ -22,17 +24,32 @@ public static class EntryPayloadWritePathBenchmarkSupport
     {
         ArgumentNullException.ThrowIfNull(entry);
         var guardBytes = EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
-        EntryPayloadSizeGuard.EnsureWithinLimit(entry);
-        return guardBytes + entry.PreparedJournalEntryBytes!.Length;
+        var length = JournalEntryPayload.Encode(entry, out var buffer);
+        try
+        {
+            return guardBytes + length;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
-    /// <summary>Simulates reusing one binary encoding for both validation and journal append.</summary>
+    /// <summary>Simulates the write path: a length-only validation check followed by a single pooled journal encode.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length after validation.</returns>
     public static int SerializeOnceThenLengthCheck(CacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        EntryPayloadSizeGuard.EnsureWithinLimit(entry);
-        return entry.PreparedJournalEntryBytes!.Length;
+        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
+        var length = JournalEntryPayload.Encode(entry, out var buffer);
+        try
+        {
+            return length;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 }

@@ -39,7 +39,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
-    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
     {
         var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
@@ -48,7 +48,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
-    public async ValueTask AppendPutAsync(CacheKey key, byte[] entryBytes, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
     {
         var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });

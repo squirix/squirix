@@ -21,12 +21,5 @@ internal static class EntryPayloadSizeGuard
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
-    public static void EnsureWithinLimit<T>(CacheEntry<T> entry)
-    {
-        var bytes = JournalEntryPayload.Encode(entry);
-        entry.PreparedJournalEntryBytes = bytes;
-        EnsureEntryBytesWithinLimit(bytes);
-    }
-
     public static int MeasureSerializedBytes<T>(CacheEntry<T> entry) => JournalEntryPayload.ComputeEncodedLength(entry);
 }

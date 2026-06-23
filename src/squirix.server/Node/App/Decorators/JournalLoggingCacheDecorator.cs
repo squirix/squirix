@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
@@ -75,17 +76,24 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return;
         }
 
-        var payload = GetOrBuildJournalPayload(entry);
-        var cacheKey = new CacheKey(cacheName, key);
-        _ = await _durableMutations.ExecuteAsync(
-            cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            this,
-            new PutJournalArgs(cacheKey, payload),
-            static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
-            new SetMemoryArgs(operationId, cacheName, key, entry),
-            static (self, args, ct) => self.ApplySetEntryAsync(args, ct),
-            cancellationToken).ConfigureAwait(false);
+        var payloadLength = JournalEntryPayload.Encode(entry, out var payloadBuffer);
+        try
+        {
+            var cacheKey = new CacheKey(cacheName, key);
+            _ = await _durableMutations.ExecuteAsync(
+                cacheKey,
+                static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+                this,
+                new PutJournalArgs(cacheKey, payloadBuffer.AsMemory(0, payloadLength)),
+                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
+                new SetMemoryArgs(operationId, cacheName, key, entry),
+                static (self, args, ct) => self.ApplySetEntryAsync(args, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payloadBuffer);
+        }
     }
 
     public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
@@ -118,32 +126,32 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (existing is null)
             return false;
 
-        var payload = JournalEntryPayload.Encode(
+        var payloadLength = JournalEntryPayload.Encode(
             new CacheEntry<T>
             {
                 Value = value,
                 ExpiresUtc = existing.ExpiresUtc,
                 Expiration = existing.Expiration,
                 Version = existing.Version,
-            });
-        var cacheKey = new CacheKey(cacheName, key);
-        return await _durableMutations.ExecuteAsync(
-            cacheKey,
-            static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
-            this,
-            new PutJournalArgs(cacheKey, payload),
-            static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
-            new UpdateMemoryArgs(operationId, cacheName, key, value),
-            static (self, args, ct) => self._inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static byte[] GetOrBuildJournalPayload(CacheEntry<T> entry)
-    {
-        if (entry.PreparedJournalEntryBytes is { } prepared)
-            return prepared;
-
-        return JournalEntryPayload.Encode(entry);
+            },
+            out var payloadBuffer);
+        try
+        {
+            var cacheKey = new CacheKey(cacheName, key);
+            return await _durableMutations.ExecuteAsync(
+                cacheKey,
+                static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
+                this,
+                new PutJournalArgs(cacheKey, payloadBuffer.AsMemory(0, payloadLength)),
+                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
+                new UpdateMemoryArgs(operationId, cacheName, key, value),
+                static (self, args, ct) => self._inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payloadBuffer);
+        }
     }
 
     private static async ValueTask<DurableMutationCondition<bool>> EvaluateTryAddPreconditionAsync(
@@ -168,20 +176,27 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (!IsLocalOwner(cacheName, key))
             return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
 
-        var payload = GetOrBuildJournalPayload(entry);
-        var cacheKey = new CacheKey(cacheName, key);
-        var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payload, cacheKey);
-        return await _durableMutations.ExecuteAsync(
-            cacheKey,
-            this,
-            args,
-            static (self, state, ct) => EvaluateTryAddPreconditionAsync(self, state, ct),
-            static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, null, ct),
-            static (self, state, ct) => self._inner.TryAddEntryAsync(state.OperationId, state.CacheName, state.Key, state.Entry, ct),
-            cancellationToken).ConfigureAwait(false);
+        var payloadLength = JournalEntryPayload.Encode(entry, out var payloadBuffer);
+        try
+        {
+            var cacheKey = new CacheKey(cacheName, key);
+            var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payloadBuffer.AsMemory(0, payloadLength), cacheKey);
+            return await _durableMutations.ExecuteAsync(
+                cacheKey,
+                this,
+                args,
+                static (self, state, ct) => EvaluateTryAddPreconditionAsync(self, state, ct),
+                static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, null, ct),
+                static (self, state, ct) => self._inner.TryAddEntryAsync(state.OperationId, state.CacheName, state.Key, state.Entry, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payloadBuffer);
+        }
     }
 
-    private readonly record struct PutJournalArgs(CacheKey CacheKey, byte[] Payload);
+    private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);
 
     private readonly record struct RemoveExpirationJournalArgs(CacheKey CacheKey);
 
@@ -197,7 +212,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
 
     private readonly record struct TouchMemoryArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
-    private readonly record struct TryAddMutationArgs(string OperationId, string CacheName, string Key, CacheEntry<T> Entry, byte[] Payload, CacheKey CacheKey);
+    private readonly record struct TryAddMutationArgs(string OperationId, string CacheName, string Key, CacheEntry<T> Entry, ReadOnlyMemory<byte> Payload, CacheKey CacheKey);
 
     private readonly record struct UpdateMemoryArgs(string OperationId, string CacheName, string Key, T? Value);
 }

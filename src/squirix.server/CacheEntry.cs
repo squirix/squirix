@@ -55,7 +55,4 @@ public sealed class CacheEntry<T>
             field = value;
         }
     }
-
-    /// <summary>Gets or sets journal entry bytes prepared during payload size validation for reuse on durable write.</summary>
-    internal byte[]? PreparedJournalEntryBytes { get; set; }
 }

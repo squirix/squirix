@@ -21,7 +21,7 @@ public sealed class EntryPayloadSizeGuardTests : UnitTestBase
         var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
         var entry = new CacheEntry<object?> { Value = value, Version = 1 };
 
-        var ex = Assert.Throws<SquirixException>(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));
+        var ex = Assert.Throws<SquirixException>(() => EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry));
 
         Assert.Equal(SquirixErrorCode.PayloadTooLarge, ex.Code);
         Assert.Equal("PayloadTooLarge", ex.Error);
@@ -35,7 +35,7 @@ public sealed class EntryPayloadSizeGuardTests : UnitTestBase
         var value = await EntryLimitKit.CreateStringValueAtMostSerializedBytesAsync(SquirixEntryLimits.MaxEntrySizeBytes);
         var entry = new CacheEntry<object?> { Value = value, Version = 1 };
 
-        var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureWithinLimit(entry));
+        var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry));
 
         Assert.Null(ex);
         Assert.True(EntryPayloadSizeGuard.MeasureSerializedBytes(entry) <= SquirixEntryLimits.MaxEntrySizeBytes);
