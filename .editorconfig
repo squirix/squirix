@@ -80,7 +80,11 @@ dotnet_diagnostic.S6618.severity = none
 
 # Performance
 # Mark members as static
-dotnet_diagnostic.CA1822.severity = warning
+dotnet_diagnostic.CA1822.severity = error
+# Use Span-based string append
+dotnet_diagnostic.CA1834.severity = error
+# Use SearchValues for char search
+dotnet_diagnostic.CA1861.severity = error
 # Unused private fields
 dotnet_diagnostic.CA1823.severity = warning
 # Avoid unnecessary zero-length array allocations
