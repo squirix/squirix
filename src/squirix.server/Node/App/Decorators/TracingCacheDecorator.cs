@@ -86,7 +86,18 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
             CacheOperationClassifier.ClassifyFoundBool,
             cancellationToken);
 
-    private static string GetSpanName(string operation) => $"squirix.cache.{operation}";
+    private static string GetSpanName(string operation) => operation switch
+    {
+        CacheOperationNames.Get => SpanNames.Get,
+        CacheOperationNames.GetEntry => SpanNames.GetEntry,
+        CacheOperationNames.Remove => SpanNames.Remove,
+        CacheOperationNames.RemoveExpiration => SpanNames.RemoveExpiration,
+        CacheOperationNames.Set => SpanNames.Set,
+        CacheOperationNames.Touch => SpanNames.Touch,
+        CacheOperationNames.TryAdd => SpanNames.TryAdd,
+        CacheOperationNames.Update => SpanNames.Update,
+        _ => $"squirix.cache.{operation}",
+    };
 
     private static void RecordResult(Activity? activity, string result)
     {
@@ -207,4 +218,16 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
 
     private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
+
+    private static class SpanNames
+    {
+        public const string Get = "squirix.cache.get";
+        public const string GetEntry = "squirix.cache.get_entry";
+        public const string Remove = "squirix.cache.remove";
+        public const string RemoveExpiration = "squirix.cache.remove_expiration";
+        public const string Set = "squirix.cache.set";
+        public const string Touch = "squirix.cache.touch";
+        public const string TryAdd = "squirix.cache.try_add";
+        public const string Update = "squirix.cache.update";
+    }
 }

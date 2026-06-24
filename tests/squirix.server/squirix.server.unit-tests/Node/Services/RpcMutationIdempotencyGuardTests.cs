@@ -21,16 +21,17 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     {
         var guard = new RpcMutationIdempotencyGuard();
         var coordinator = new RpcMutationIdempotencyCoordinator(guard);
-        var executions = 0;
+        var ctx = new ExecutionCounter();
         var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
         var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "k", entry);
 
         var first = await coordinator.ExecuteAsync(
             ValidOperationId,
             fingerprint,
-            _ =>
+            ctx,
+            static (state, _) =>
             {
-                executions++;
+                state.Value++;
                 return Task.FromResult(new TryAddAsyncResponse { Added = true });
             },
             DefaultCancellationToken);
@@ -38,16 +39,17 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
         var second = await coordinator.ExecuteAsync(
             ValidOperationId,
             fingerprint,
-            _ =>
+            ctx,
+            static (state, _) =>
             {
-                executions++;
+                state.Value++;
                 return Task.FromResult(new TryAddAsyncResponse { Added = false });
             },
             DefaultCancellationToken);
 
         Assert.True(first.Added);
         Assert.True(second.Added);
-        Assert.Equal(1, executions);
+        Assert.Equal(1, ctx.Value);
     }
 
     /// <summary>Ensures expired idempotency records are swept and no longer replay.</summary>
@@ -155,5 +157,10 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 
         Assert.False(replayed);
         Assert.Null(response);
+    }
+
+    private sealed class ExecutionCounter
+    {
+        public int Value { get; set; }
     }
 }

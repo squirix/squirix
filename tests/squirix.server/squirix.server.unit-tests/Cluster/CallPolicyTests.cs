@@ -81,21 +81,22 @@ public sealed class CallPolicyTests : UnitTestBase
         await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-e", timeProvider: TimeProvider.System);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var running = 0;
         var peakRunning = new PeakCounter();
+        var sync = new ConcurrencySyncState(firstEntered, releaseFirst, peakRunning);
 
         var first = policy.ExecuteAsync(
-            async ct =>
+            sync,
+            static async (s, ct) =>
             {
-                peakRunning.Record(Interlocked.Increment(ref running));
+                s.Peak.Record(s.Running.Increment());
                 try
                 {
-                    firstEntered.SetResult();
-                    await releaseFirst.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                    s.FirstEntered.SetResult();
+                    await s.ReleaseFirst.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
                 }
                 finally
                 {
-                    _ = Interlocked.Decrement(ref running);
+                    _ = s.Running.Decrement();
                 }
 
                 return 1;
@@ -104,16 +105,17 @@ public sealed class CallPolicyTests : UnitTestBase
         await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, DefaultCancellationToken);
 
         var second = policy.ExecuteAsync(
-            __ =>
+            sync,
+            static (s, ct) =>
             {
-                peakRunning.Record(Interlocked.Increment(ref running));
+                s.Peak.Record(s.Running.Increment());
                 try
                 {
                     return ValueTask.FromResult(2);
                 }
                 finally
                 {
-                    _ = Interlocked.Decrement(ref running);
+                    _ = s.Running.Decrement();
                 }
             },
             DefaultCancellationToken);
@@ -149,12 +151,14 @@ public sealed class CallPolicyTests : UnitTestBase
         {
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var gate = new EnterReleaseGate(entered, release);
 
             var inFlight = policy.ExecuteAsync(
-                async ct =>
+                gate,
+                static async (g, ct) =>
                 {
-                    entered.SetResult();
-                    await release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                    g.Entered.SetResult();
+                    await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
                     return 7;
                 },
                 DefaultCancellationToken);
@@ -180,13 +184,14 @@ public sealed class CallPolicyTests : UnitTestBase
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(50), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-h", timeProvider: TimeProvider.System);
         using var cts = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var attempts = 0;
+        var attempts = new InvocationCounter();
 
         var pending = policy.ExecuteAsync(
-            async token =>
+            new CancellationProbeState(entered, attempts),
+            static async (s, token) =>
             {
-                _ = Interlocked.Increment(ref attempts);
-                _ = entered.TrySetResult();
+                _ = s.Attempts.Increment();
+                _ = s.Entered.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, TimeProvider.System, token);
                 return 1;
             },
@@ -196,7 +201,7 @@ public sealed class CallPolicyTests : UnitTestBase
         await cts.CancelAsync();
 
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(pending.AsTask);
-        Assert.Equal(1, attempts);
+        Assert.Equal(1, attempts.Value);
     }
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
@@ -204,12 +209,13 @@ public sealed class CallPolicyTests : UnitTestBase
     public async Task ExecuteAsyncRetriesPerAttemptTimeoutAndSucceedsOnNextAttempt()
     {
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(25), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-i", timeProvider: TimeProvider.System);
-        var attempts = 0;
+        var attempts = new InvocationCounter();
 
         var value = await policy.ExecuteAsync(
-            async token =>
+            attempts,
+            static async (counter, token) =>
             {
-                var attempt = Interlocked.Increment(ref attempts);
+                var attempt = counter.Increment();
                 if (attempt is not 1)
                     return 42;
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
@@ -218,7 +224,7 @@ public sealed class CallPolicyTests : UnitTestBase
             DefaultCancellationToken);
 
         Assert.Equal(42, value);
-        Assert.Equal(2, attempts);
+        Assert.Equal(2, attempts.Value);
     }
 
     /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
@@ -230,12 +236,14 @@ public sealed class CallPolicyTests : UnitTestBase
         await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var drainGate = new EnterReleaseGate(firstEntered, releaseFirst);
 
         var first = policy.ExecuteAsync(
-            async ct =>
+            drainGate,
+            static async (g, ct) =>
             {
-                firstEntered.SetResult();
-                await releaseFirst.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                g.Entered.SetResult();
+                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
                 return 1;
             },
             DefaultCancellationToken);
@@ -264,9 +272,10 @@ public sealed class CallPolicyTests : UnitTestBase
         var attempts = new InvocationCounter();
 
         var executeTask = policy.ExecuteAsync(
-            _ =>
+            attempts,
+            static (counter, _) =>
             {
-                var attempt = attempts.Increment();
+                var attempt = counter.Increment();
                 return attempt is 1 ? ValueTask.FromException<int>(new HttpRequestException("boom")) : new ValueTask<int>(42);
             },
             DefaultCancellationToken);
@@ -314,6 +323,31 @@ public sealed class CallPolicyTests : UnitTestBase
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
 
+    private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
+    {
+        public InvocationCounter Attempts { get; } = attempts;
+
+        public TaskCompletionSource Entered { get; } = entered;
+    }
+
+    private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
+    {
+        public TaskCompletionSource FirstEntered { get; } = firstEntered;
+
+        public PeakCounter Peak { get; } = peak;
+
+        public TaskCompletionSource ReleaseFirst { get; } = releaseFirst;
+
+        public RunningCounter Running { get; } = new();
+    }
+
+    private sealed class EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+    {
+        public TaskCompletionSource Entered { get; } = entered;
+
+        public TaskCompletionSource Release { get; } = release;
+    }
+
     private sealed class InvocationCounter
     {
         private int _count;
@@ -341,5 +375,14 @@ public sealed class CallPolicyTests : UnitTestBase
                 current = observed;
             }
         }
+    }
+
+    private sealed class RunningCounter
+    {
+        private int _count;
+
+        internal int Decrement() => Interlocked.Decrement(ref _count);
+
+        internal int Increment() => Interlocked.Increment(ref _count);
     }
 }

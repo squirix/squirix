@@ -4,9 +4,9 @@ namespace Squirix.Server.Node.Backpressure;
 
 internal readonly struct BackpressureLease : IDisposable
 {
-    private readonly BackpressureGate? _gate;
-    private readonly string? _clientId;
     private readonly BackpressureGate.ClientState? _client;
+    private readonly string? _clientId;
+    private readonly BackpressureGate? _gate;
 
     internal BackpressureLease(BackpressureGate gate, string clientId, BackpressureGate.ClientState client)
     {
@@ -17,9 +17,5 @@ internal readonly struct BackpressureLease : IDisposable
 
     public static BackpressureLease Empty => default;
 
-    public void Dispose()
-    {
-        if (_gate is not null)
-            _gate.ReleaseLease(_clientId!, _client!);
-    }
+    public void Dispose() => _gate?.ReleaseLease(_clientId!, _client!);
 }

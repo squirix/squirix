@@ -288,7 +288,8 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
             }
         }
 
-        public static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        public static RateLimiter? Create(int? ratePerSecond, int? burst) =>
+            ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         public bool TryAcquire()
         {
