@@ -40,10 +40,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntry("old"))], [], DefaultCancellationToken);
 
         var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
-        _ = await Assert.ThrowsAnyAsync<IOException>(async () =>
-        {
-            _ = await failingWriter.WriteAsync(1, [(CacheKey.Default("replacement"), BuildEntry("new"))], [], DefaultCancellationToken);
-        });
+        _ = await Assert.ThrowsAnyAsync<IOException>(async () => _ = await failingWriter.WriteAsync(1, [(CacheKey.Default("replacement"), BuildEntry("new"))], [], DefaultCancellationToken));
 
         Assert.True(File.Exists(path));
         Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));

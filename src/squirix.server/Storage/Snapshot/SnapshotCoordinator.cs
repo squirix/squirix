@@ -124,7 +124,8 @@ internal sealed class SnapshotCoordinator<T>
 
     private async ValueTask<CapturedSnapshotView> CaptureSnapshotViewAsync(Activity? currentActivity, CancellationToken cancellationToken)
     {
-        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>();
+        var capacity = _cache is ILocalCacheStats stats ? stats.EntryCount : 0;
+        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(capacity);
         await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
             if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)

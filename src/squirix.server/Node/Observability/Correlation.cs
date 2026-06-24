@@ -40,19 +40,26 @@ internal static class Correlation
             ClientInterceptorContext<TRequest, TResponse> context,
             AsyncUnaryCallContinuation<TRequest, TResponse> continuation)
         {
-            var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName);
+            var callOptions = AttachTraceHeaders(context.Options, context.Method.FullName, out var ownedActivity);
             var ctx2 = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
             var scope = BeginStandardScope(_log, _nodeId, context.Method.FullName);
             var call = base.AsyncUnaryCall(request, ctx2, continuation);
-            return WrapUnaryCallAsync(scope, call);
+            return WrapUnaryCallAsync(scope, ownedActivity, call);
         }
 
-        private static CallOptions AttachTraceHeaders(CallOptions opt, string method)
+        private static CallOptions AttachTraceHeaders(CallOptions opt, string method, out Activity? ownedActivity)
         {
             var meta = opt.Headers ?? [];
 
-            // Ensure there is an Activity to propagate; keep it cheap.
-            var activity = Activity.Current ?? ActivitySourceHolder.StartClient(method);
+            // Reuse the ambient Activity when present (the caller owns it); otherwise start a client Activity
+            // to propagate. We own only the one we start, so its lifetime is tied to the outbound call below.
+            ownedActivity = null;
+            var activity = Activity.Current;
+            if (activity is null)
+            {
+                activity = ActivitySourceHolder.StartClient(method);
+                ownedActivity = activity;
+            }
 
             if (activity is null)
                 return new CallOptions(meta, opt.Deadline, opt.CancellationToken, opt.WriteOptions, opt.PropagationToken, opt.Credentials);
@@ -82,9 +89,9 @@ internal static class Correlation
             meta.Add(new Metadata.Entry(key, value));
         }
 
-        private static AsyncUnaryCall<TResponse> WrapUnaryCallAsync<TResponse>(IDisposable scope, AsyncUnaryCall<TResponse> inner)
+        private static AsyncUnaryCall<TResponse> WrapUnaryCallAsync<TResponse>(IDisposable scope, Activity? ownedActivity, AsyncUnaryCall<TResponse> inner)
         {
-            var scopeDisposed = 0;
+            var disposed = 0;
 
             async Task<TResponse> ResponseAsync()
             {
@@ -92,13 +99,13 @@ internal static class Correlation
                 {
 #pragma warning disable VSTHRD003
 
-                    // Scope must live until the outbound unary call completes.
+                    // Scope and owned client Activity must live until the outbound unary call completes.
                     return await inner.ResponseAsync.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
                 }
                 finally
                 {
-                    DisposeScopeOnce();
+                    DisposeOnce();
                 }
             }
 
@@ -109,14 +116,16 @@ internal static class Correlation
                 inner.GetTrailers,
                 () =>
                 {
-                    DisposeScopeOnce();
+                    DisposeOnce();
                     inner.Dispose();
                 });
 
-            void DisposeScopeOnce()
+            void DisposeOnce()
             {
-                if (Interlocked.Exchange(ref scopeDisposed, 1) is 0)
-                    scope.Dispose();
+                if (Interlocked.Exchange(ref disposed, 1) is not 0)
+                    return;
+                scope.Dispose();
+                ownedActivity?.Dispose();
             }
         }
     }

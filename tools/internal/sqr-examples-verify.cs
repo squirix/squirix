@@ -53,7 +53,8 @@ foreach (var file in files)
 
     foreach (var smokeArgs in GetSmokeArgs(name))
     {
-        await output.WriteLineAsync($"---- {relativePath} {string.Join(' ', smokeArgs)} ----").ConfigureAwait(false);
+        var smokeCommand = FormatSmokeCommand(smokeArgs);
+        await output.WriteLineAsync($"---- {relativePath} {smokeCommand} ----").ConfigureAwait(false);
         if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) is not 0)
             return 1;
     }
@@ -69,6 +70,26 @@ static IEnumerable<string[]> GetSmokeArgs(string fileName)
         "squirix-runner.cs" => [["--skip-load"]],
         _ => [],
     };
+}
+
+static string FormatSmokeCommand(string[] args)
+{
+    if (args.Length is 0)
+        return string.Empty;
+
+    if (args.Length is 1)
+        return args[0];
+
+    var builder = new System.Text.StringBuilder();
+    for (var i = 0; i < args.Length; i++)
+    {
+        if (i > 0)
+            builder.Append(' ');
+
+        builder.Append(args[i]);
+    }
+
+    return builder.ToString();
 }
 
 static async Task<int> RunDotnetAsync(string workingDirectory, string[] args, CancellationToken cancellationToken)

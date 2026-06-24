@@ -10,12 +10,13 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Binary snapshot strict-load throughput benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class SnapshotReadBenchmarks
+public sealed class SnapshotReadBenchmarks
 {
     private SnapshotBenchmarkHost? _host;
     private string? _snapshotPath;
 
     /// <summary>Loads the warmed snapshot with strict validation.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark]
     public async Task LoadStrictAsync()
     {

@@ -169,12 +169,13 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
-        var endpoints = new List<Endpoint>();
+        var capacity = 0;
         foreach (var source in routeBuilder.DataSources)
-        {
-            foreach (var endpoint in source.Endpoints)
-                endpoints.Add(endpoint);
-        }
+            capacity += source.Endpoints.Count;
+
+        var endpoints = new List<Endpoint>(capacity);
+        foreach (var source in routeBuilder.DataSources)
+            endpoints.AddRange(source.Endpoints);
 
         return endpoints;
     }

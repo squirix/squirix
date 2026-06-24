@@ -18,6 +18,7 @@ internal static class RingHelpers
     /// Keys are produced in the form <c>"key-{NextInt64()}"</c>. Using a fixed <paramref name="seed" />
     /// guarantees the same sequence across runs, which is important for reproducible property failures.
     /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="count" /> is negative.</exception>
     public static IEnumerable<string> MakeKeys(int count, int seed)
     {
         if (count < 0)

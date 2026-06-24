@@ -46,7 +46,7 @@ public sealed class KeyInputValidatorTests : UnitTestBase
     [MemberData(nameof(InvalidKeys))]
     public void ValidateRejectsInvalidKeys(string? key, string expectedMessage)
     {
-        var ex = Assert.Throws<ArgumentException>(() => { KeyInputValidator.Validate(key, "key"); });
+        var ex = Assert.Throws<ArgumentException>(() => KeyInputValidator.Validate(key, nameof(key)));
 
         Assert.False(KeyInputValidator.TryValidate(key, out var error));
         Assert.Equal(expectedMessage, KeyInputValidator.GetMessage(error));

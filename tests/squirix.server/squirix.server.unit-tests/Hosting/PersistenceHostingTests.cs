@@ -20,7 +20,7 @@ public sealed class PersistenceHostingTests : UnitTestBase
     {
         var options = new SquirixServerOptions { DataDirectory = "/tmp/data" };
 
-        var ex = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
         Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
     }
 

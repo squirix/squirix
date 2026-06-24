@@ -18,7 +18,7 @@ namespace Squirix.Benchmarks.Server;
 /// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class ReadPathBreakdownBenchmarks : IAsyncDisposable
+public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
 {
     private const string BenchmarkNodeId = "bench-client-pool-node";
     private const string CacheName = "bench-read-path-breakdown";
@@ -38,7 +38,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
-    public async Task CleanupAsync() => await DisposeAsync().ConfigureAwait(false);
+    public ValueTask CleanupAsync() => DisposeAsync();
 
     /// <summary>Starts an in-process node and seeds keys for breakdown reads.</summary>
     [GlobalSetup]
@@ -164,8 +164,6 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
 
         _peers = null;
-
-        GC.SuppressFinalize(this);
     }
 
     private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";

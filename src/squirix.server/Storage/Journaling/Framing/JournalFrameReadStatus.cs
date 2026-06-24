@@ -3,23 +3,23 @@ namespace Squirix.Server.Storage.Journaling.Framing;
 internal enum JournalFrameReadStatus
 {
     /// <summary>The frame header, payload, and checksum were read and validated successfully.</summary>
-    Success,
+    Success = 0,
 
     /// <summary>No more bytes were available at the requested frame offset.</summary>
-    EndOfFile,
+    EndOfFile = 1,
 
     /// <summary>The 4-byte frame length header was cut before completion.</summary>
-    TruncatedHeader,
+    TruncatedHeader = 2,
 
     /// <summary>The payload bytes ended before the declared length was fully available.</summary>
-    TruncatedPayload,
+    TruncatedPayload = 3,
 
     /// <summary>The trailing 4-byte checksum footer was cut before completion.</summary>
-    TruncatedChecksum,
+    TruncatedChecksum = 4,
 
     /// <summary>The stored checksum footer does not match the payload bytes.</summary>
-    ChecksumMismatch,
+    ChecksumMismatch = 5,
 
     /// <summary>The declared payload length exceeds the supported in-memory frame size.</summary>
-    OversizedFrame,
+    OversizedFrame = 6,
 }

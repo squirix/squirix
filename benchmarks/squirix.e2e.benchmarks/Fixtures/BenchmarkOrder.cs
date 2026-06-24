@@ -50,9 +50,9 @@ public sealed class BenchmarkOrder
 
     /// <summary>Gets the order lines.</summary>
     [JsonInclude]
-    public IReadOnlyList<BenchmarkOrderLine> Lines { get; private set; }
+    public IReadOnlyList<BenchmarkOrderLine> Lines { get; }
 
     /// <summary>Gets diagnostic tags.</summary>
     [JsonInclude]
-    public IReadOnlyDictionary<string, string> Tags { get; private set; }
+    public IReadOnlyDictionary<string, string> Tags { get; }
 }

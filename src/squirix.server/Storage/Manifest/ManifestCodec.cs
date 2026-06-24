@@ -33,6 +33,38 @@ internal static class ManifestCodec
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
+    public static ManifestState Decode(ReadOnlySpan<byte> fileBytes)
+    {
+        ValidateFileEnvelope(fileBytes, out var body);
+
+        var offset = 0;
+        if (body.Length < 4 + 4 + 8 + 1)
+            throw new InvalidDataException("Manifest body is truncated.");
+
+        var format = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
+        offset += 4;
+        var currentJournal = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
+        offset += 4;
+        var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
+        offset += 8;
+        var hasSnapshot = body[offset++] is not 0;
+        var lastSnapshot = hasSnapshot ? DecodeSnapshotRef(body, ref offset) : null;
+
+        return new ManifestState
+        {
+            Format = format,
+            CurrentJournal = currentJournal,
+            NextSequence = nextSequence,
+            LastSnapshot = lastSnapshot,
+        };
+    }
+
+    public static byte[] Encode(ManifestState manifest)
+    {
+        var length = ComputeEncodedLength(manifest);
+        return BufferEx.EncodeToOwned(length, manifest, static (m, span) => WriteEncoded(m, span));
+    }
+
     public static void WriteEncoded(ManifestState manifest, Span<byte> destination)
     {
         var path = manifest.LastSnapshot?.Path;
@@ -85,39 +117,6 @@ internal static class ManifestCodec
         BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(crcPayload));
     }
 
-    public static ManifestState Decode(ReadOnlySpan<byte> fileBytes)
-    {
-        ValidateFileEnvelope(fileBytes, out var body);
-
-        var offset = 0;
-        if (body.Length < 4 + 4 + 8 + 1)
-            throw new InvalidDataException("Manifest body is truncated.");
-
-        var format = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
-        offset += 4;
-        var currentJournal = BinaryPrimitives.ReadInt32LittleEndian(body[offset..]);
-        offset += 4;
-        var nextSequence = BinaryPrimitives.ReadUInt64LittleEndian(body[offset..]);
-        offset += 8;
-        var hasSnapshot = body[offset++] is not 0;
-        var lastSnapshot = hasSnapshot ? DecodeSnapshotRef(body, ref offset) : null;
-
-        return new ManifestState
-        {
-            Format = format,
-            CurrentJournal = currentJournal,
-            NextSequence = nextSequence,
-            LastSnapshot = lastSnapshot,
-        };
-    }
-
-    public static byte[] Encode(ManifestState manifest)
-    {
-        var buffer = new byte[ComputeEncodedLength(manifest)];
-        WriteEncoded(manifest, buffer);
-        return buffer;
-    }
-
     internal static int ComputeRollEncodedLength(ManifestState.SnapshotRef? snapshot, int snapshotPathUtf8Length)
     {
         if (snapshotPathUtf8Length > ushort.MaxValue)
@@ -135,6 +134,8 @@ internal static class ManifestCodec
     /// <param name="snapshotPathUtf8">UTF-8 bytes for <paramref name="snapshot" /> path when present.</param>
     /// <param name="destination">Output buffer; must be at least <see cref="ComputeRollEncodedLength" /> bytes.</param>
     /// <returns>Total encoded byte length written to <paramref name="destination" />.</returns>
+    /// <exception cref="InvalidDataException">Thrown when <paramref name="snapshotPathUtf8" /> exceeds the maximum encoded length.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="destination" /> is too small for the encoded roll manifest.</exception>
     internal static int WriteRollEncoded(
         int format,
         int currentJournal,
@@ -225,8 +226,7 @@ internal static class ManifestCodec
         };
     }
 
-    private static int GetSnapshotPathUtf8ByteCount(string? path) =>
-        string.IsNullOrEmpty(path) ? 0 : Encoding.UTF8.GetByteCount(path);
+    private static int GetSnapshotPathUtf8ByteCount(string? path) => string.IsNullOrEmpty(path) ? 0 : Encoding.UTF8.GetByteCount(path);
 
     private static void ValidateFileEnvelope(ReadOnlySpan<byte> fileBytes, out ReadOnlySpan<byte> body)
     {

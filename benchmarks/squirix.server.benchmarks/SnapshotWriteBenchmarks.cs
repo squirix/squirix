@@ -9,12 +9,13 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Binary snapshot write throughput benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class SnapshotWriteBenchmarks
+public sealed class SnapshotWriteBenchmarks
 {
     private SnapshotBenchmarkHost? _host;
     private int _operationsPerInvoke;
 
     /// <summary>Writes repeated full snapshots using the binary backend.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark]
     public async Task WriteSnapshotAsync()
     {

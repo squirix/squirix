@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -25,18 +26,25 @@ public sealed class JournalTruncatedSegmentReplayTests : UnitTestBase
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [record]);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-        var bytes = new byte[original.Length];
-        Array.Copy(original, bytes, original.Length);
-        bytes[^1] ^= 0xFF;
-        await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
-        var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
-
-        _ = Assert.Throws<InvalidDataException>(() =>
+        var bytes = ArrayPool<byte>.Shared.Rent(original.Length);
+        try
         {
-            foreach (var unused in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
-                _ = unused;
-        });
-        Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
+            original.CopyTo(bytes.AsSpan(0, original.Length));
+            bytes[original.Length - 1] ^= 0xFF;
+            await File.WriteAllBytesAsync(path, bytes.AsMemory(0, original.Length), DefaultCancellationToken);
+            var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
+
+            _ = Assert.Throws<InvalidDataException>(() =>
+            {
+                foreach (var unused in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
+                    _ = unused;
+            });
+            Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
+        }
     }
 
     /// <summary>CRC mismatch throws <see cref="InvalidDataException" /> to surface corruption.</summary>
@@ -73,9 +81,8 @@ public sealed class JournalTruncatedSegmentReplayTests : UnitTestBase
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             fs.SetLength(fs.Length - 1);
 
-        var list = new List<JournalRecord>();
-        foreach (var record in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
-            list.Add(record);
+        var list = new List<JournalRecord>(2);
+        list.AddRange(JournalReader.ReadAll(dir, 1, DefaultCancellationToken));
 
         _ = Assert.Single(list);
         Assert.Equal(JournalOperationKind.Put, list[0].Operation);

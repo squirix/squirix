@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -69,7 +68,7 @@ public static class DirectoryKit
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Path must be a non-empty string.", nameof(path));
 
-        ValidateNoInvalidChars(path);
+        PathValidationKit.ValidateNoInvalidChars(path);
 
         var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
         var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? System.Environment.CurrentDirectory, path));
@@ -77,7 +76,7 @@ public static class DirectoryKit
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
 
-        ValidateSegments(full);
+        PathValidationKit.ValidateSegments(full);
 
         if (forbidSymlinks)
             EnsureNoSymlinksInChain(full, baseFull);
@@ -102,8 +101,8 @@ public static class DirectoryKit
     public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
         var d = string.IsNullOrEmpty(hint)
-            ? Path.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
-            : Path.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
+            ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+            : Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         CreateDirectory(d);
         return d;
     }
@@ -268,7 +267,7 @@ public static class DirectoryKit
         // strict case-sensitive on Linux.
         var ignoreCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var baseWithSep = baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : baseFull + Path.DirectorySeparatorChar;
+        var baseWithSep = baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : $"{baseFull}{Path.DirectorySeparatorChar}";
         return candidateFull.Equals(baseFull, comparison) || candidateFull.StartsWith(baseWithSep, comparison);
     }
 
@@ -307,35 +306,12 @@ public static class DirectoryKit
         }
     }
 
-    private static bool IsWindowsReservedName(string seg)
-    {
-        // Check name without extension
-        var name = seg;
-        var dot = seg.IndexOf('.', StringComparison.Ordinal);
-        if (dot > 0)
-            name = seg[..dot];
-
-        string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        foreach (var reserved in fixedNames)
-        {
-            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3].ToUpperInvariant();
-        var equals = prefix.Equals("COM", StringComparison.Ordinal) || prefix.Equals("LPT", StringComparison.Ordinal);
-        return equals && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
     private static string? PrepareBaseFullPath(string? baseDir, bool forbidSymlinks)
     {
         if (string.IsNullOrWhiteSpace(baseDir))
             return null;
 
-        ValidateNoInvalidChars(baseDir);
+        PathValidationKit.ValidateNoInvalidChars(baseDir);
         var baseFull = Path.GetFullPath(baseDir);
 
         if (forbidSymlinks)
@@ -366,44 +342,6 @@ public static class DirectoryKit
         catch (UnauthorizedAccessException)
         {
             // ignore
-        }
-    }
-
-    private static void ValidateNoInvalidChars(string path)
-    {
-        if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
-            throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
-
-        // Wildcards typically indicate a glob, not a concrete path
-        if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
-            throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
-    }
-
-    private static void ValidateSegments(string fullPath)
-    {
-        var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-        var rest = fullPath[root.Length..];
-        var segments = rest.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var rawSeg in segments)
-        {
-            var seg = rawSeg.Trim();
-            if (seg.Length is 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
-
-            // Windows-only constraints
-            if (OperatingSystem.IsWindows())
-            {
-                if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
-
-                if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
-            }
-
-            // File-name level invalid chars (cross-platform)
-            if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
         }
     }
 }

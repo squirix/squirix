@@ -113,15 +113,15 @@ internal static class ProtoEx
         };
     }
 
-    private static async ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
+    private static ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
 
         if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
-            return await FromValueAsync<T>(wrapped, serializer).ConfigureAwait(false);
+            return FromValueAsync<T>(wrapped, serializer);
 
-        return await DeserializeAsync<T>(Value.ForStruct(value), serializer).ConfigureAwait(false);
+        return DeserializeAsync<T>(Value.ForStruct(value), serializer);
     }
 
     private static async ValueTask<T?> FromValueAsync<T>(Value value, ISquirixSerializer serializer)
@@ -221,6 +221,8 @@ internal static class ProtoEx
     /// <remarks>
     /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
     /// </remarks>
+    /// <param name="el">JSON subtree to convert.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
     private static Value ValueFromJson(JsonElement el)
     {
         return el.ValueKind switch
@@ -239,14 +241,13 @@ internal static class ProtoEx
 
     private static Struct WrapAsStruct(string fieldName, Value v)
     {
-        var s = new Struct
+        return new Struct
         {
             Fields =
             {
                 [fieldName] = v,
             },
         };
-        return s;
     }
 
     private static void WriteValue(Utf8JsonWriter writer, Value value)

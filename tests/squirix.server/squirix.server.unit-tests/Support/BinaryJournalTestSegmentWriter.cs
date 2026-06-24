@@ -11,6 +11,7 @@ using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
@@ -41,14 +42,22 @@ internal static class BinaryJournalTestSegmentWriter
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         JournalFraming.WriteFileHeader(stream);
-        foreach (var record in records)
-        {
-            var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
-            var body = new byte[bodyLength];
-            _ = BinaryJournalCodec.Encode(record, body);
-            JournalFraming.WriteFrame(stream, body);
-        }
+        for (var i = 0; i < records.Count; i++)
+            WriteRecordFrame(stream, records[i]);
 
         await stream.FlushAsync(CancellationToken.None);
+    }
+
+    private static void WriteRecordFrame(Stream stream, JournalRecord record)
+    {
+        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        BufferKit.WithBuffer(
+            bodyLength,
+            (stream, record),
+            static (ctx, body) =>
+            {
+                _ = BinaryJournalCodec.Encode(ctx.record, body);
+                JournalFraming.WriteFrame(ctx.stream, body);
+            });
     }
 }

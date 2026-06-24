@@ -116,7 +116,7 @@ public sealed class ConsistentHashRingPropertyTests
             $"n={n.ToString(CultureInfo.InvariantCulture)}, vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}, perNode≈{k.ToString("F1", CultureInfo.InvariantCulture)}, sample={sample.ToString(CultureInfo.InvariantCulture)}, " +
             $"maxDev={maxDev.ToString("P2", CultureInfo.InvariantCulture)}, threshold={threshold.ToString("P2", CultureInfo.InvariantCulture)}, " +
             $"sampling={samplingTerm.ToString("P2", CultureInfo.InvariantCulture)}, discrete={discretenessTerm.ToString("P2", CultureInfo.InvariantCulture)}, " +
-            $"counts=[{string.Join(", ", counts.Values)}]";
+            $"counts=[{FormatCounts(counts.Values)}]";
         Assert.True(maxDev <= threshold, userMessage);
     }
 
@@ -195,6 +195,16 @@ public sealed class ConsistentHashRingPropertyTests
             if (!string.Equals(before, after, StringComparison.Ordinal))
                 Assert.Equal(victim, before);
         }
+    }
+
+    private static string FormatCounts(Dictionary<string, int>.ValueCollection values)
+    {
+        var parts = new string[values.Count];
+        var index = 0;
+        foreach (var count in values)
+            parts[index++] = count.ToString(CultureInfo.InvariantCulture);
+
+        return string.Join(", ", parts.AsSpan());
     }
 
     private static void RunProperty(int maxTest, Action<string[], int, int> property)

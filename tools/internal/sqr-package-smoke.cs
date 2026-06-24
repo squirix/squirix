@@ -117,7 +117,9 @@ static string BuildSettingsJson(string url)
         },
     };
 
+#pragma warning disable ZA1001 // Ad-hoc smoke settings DTO; source generation is not worth the ceremony here.
     return JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+#pragma warning restore ZA1001
 }
 
 static int GetFreeTcpPort()
@@ -156,7 +158,9 @@ static bool HasClientPackage(string directory)
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
             && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
+        {
             return true;
+        }
     }
 
     return false;
@@ -164,10 +168,8 @@ static bool HasClientPackage(string directory)
 
 static bool HasServerPackage(string directory)
 {
-    foreach (var _ in Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly))
-        return true;
-
-    return false;
+    using var enumerator = Directory.EnumerateFiles(directory, "squirix.server*.nupkg", SearchOption.TopDirectoryOnly).GetEnumerator();
+    return enumerator.MoveNext();
 }
 
 static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)

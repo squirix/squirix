@@ -20,6 +20,8 @@ internal static class PathEx
     /// <param name="rootDirectory">Trusted absolute root directory.</param>
     /// <param name="relativePath">Relative path under <paramref name="rootDirectory" />.</param>
     /// <returns>Absolute normalized path under the root.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="rootDirectory" /> or <paramref name="relativePath" /> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when paths are empty, rooted, or escape <paramref name="rootDirectory" />.</exception>
     public static string Combine(string rootDirectory, string relativePath)
     {
         ArgumentNullException.ThrowIfNull(rootDirectory);
@@ -86,5 +88,5 @@ internal static class PathEx
             throw new ArgumentException("Path segments must be relative.", nameof(segment));
     }
 
-    private static string EnsureTrailingDirectorySeparator(string path) => Path.EndsInDirectorySeparator(path) ? path : path + Path.DirectorySeparatorChar;
+    private static string EnsureTrailingDirectorySeparator(string path) => Path.EndsInDirectorySeparator(path) ? path : $"{path}{Path.DirectorySeparatorChar}";
 }

@@ -1,8 +1,9 @@
 using System.IO;
-using System.Text.Json;
+using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Serialization;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -12,17 +13,6 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>Tests JSON merge and configuration binding for memory pressure settings.</summary>
 public sealed class MemoryPressureSettingsBindingTests : UnitTestBase
 {
-    private static readonly JsonSerializerOptions CamelWriteOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-    };
-
-    private static readonly JsonSerializerOptions CaseInsensitiveReadOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>
     /// Verifies System.Text.Json can bind camelCase <c>MemoryPressure</c> threshold fields into <see cref="MemoryPressureSettings" /> for merge.
     /// </summary>
@@ -30,7 +20,8 @@ public sealed class MemoryPressureSettingsBindingTests : UnitTestBase
     public void JsonDeserializeMemoryPressureSettingsBindsThresholdFields()
     {
         const string json = """{"highPressureThresholdPercent":72,"criticalPressureThresholdPercent":91}""";
-        var section = JsonSerializer.Deserialize<MemoryPressureSettings>(json, CaseInsensitiveReadOptions);
+        var serializer = new SystemTextJsonSerializer();
+        var section = serializer.Deserialize<MemoryPressureSettings>(json);
         Assert.NotNull(section);
         var merged = section.MergeInto(new UnresolvedMemoryPressureOptions());
         var resolved = MemoryPressureOptionsResolver.Resolve(merged, new FixedMemoryBudgetProvider(10_000));
@@ -49,8 +40,9 @@ public sealed class MemoryPressureSettingsBindingTests : UnitTestBase
             CriticalPressureThresholdPercent = 90,
         };
 
-        var json = JsonSerializer.Serialize(original, CamelWriteOptions);
-        var restored = JsonSerializer.Deserialize<MemoryPressureOptions>(json, CaseInsensitiveReadOptions);
+        var serializer = new SystemTextJsonSerializer();
+        var json = Encoding.UTF8.GetString(serializer.SerializeToUtf8Bytes(original));
+        var restored = serializer.Deserialize<MemoryPressureOptions>(json);
         Assert.NotNull(restored);
         restored.Validate();
         Assert.Equal(original, restored);

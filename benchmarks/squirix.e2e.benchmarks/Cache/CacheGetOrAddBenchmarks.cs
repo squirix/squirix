@@ -6,7 +6,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for GetOrAddAsync.</summary>
 [BenchmarkCategory("e2e", "get-or-add")]
-public class CacheGetOrAddBenchmarks : CacheBenchmarkBase
+public sealed class CacheGetOrAddBenchmarks : CacheBenchmarkBase
 {
     /// <summary>Measures GetOrAddAsync miss and create path.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>

@@ -19,10 +19,10 @@ internal sealed class RemoteClientSession : IRemoteClientSession
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         _remoteClients.BeginDrain();
-        await _remoteClients.DisposeAsync().ConfigureAwait(false);
+        return _remoteClients.DisposeAsync();
     }
 
     public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);

@@ -190,7 +190,7 @@ internal static class SquirixOptionsValidators
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            var failures = new List<string>();
+            var failures = new List<string>(_validators is IReadOnlyCollection<IValidateOptions<TOptions>> validators ? validators.Count : 0);
             foreach (var validator in _validators)
             {
                 var result = validator.Validate(Options.DefaultName, _options.Value);

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using NetArchTest.Rules;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -153,9 +154,8 @@ public sealed class ArchitectureTests : UnitTestBase
     {
         var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
-        var paths = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
-            paths.Add(path);
+        var paths = new List<string>(200);
+        paths.AddRange(Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories));
 
         paths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
@@ -373,7 +373,7 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        XElement? serverProtobuf = null;
+        XElement? xElement = null;
         foreach (var element in LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants())
         {
             if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
@@ -382,14 +382,13 @@ public sealed class ArchitectureTests : UnitTestBase
             if (!string.Equals(element.Attribute("Include")?.Value, @"..\shared\transport\grpc\Protos\SquirixCache.proto", StringComparison.Ordinal))
                 continue;
 
-            serverProtobuf = element;
+            xElement = element;
             break;
         }
 
-        Assert.NotNull(serverProtobuf);
-        Assert.Equal("Server;Client", serverProtobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", serverProtobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", serverProtobuf.Attribute("Access")?.Value);
+        Assert.Equal("Server;Client", xElement?.Attribute("GrpcServices")?.Value);
+        Assert.Equal(@"..\shared\transport\grpc\Protos", xElement?.Attribute("ProtoRoot")?.Value);
+        Assert.Equal("Internal", xElement?.Attribute("Access")?.Value);
     }
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
@@ -398,11 +397,13 @@ public sealed class ArchitectureTests : UnitTestBase
     {
         var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
         var serverPackageReferences = new List<string>();
-        foreach (var include in ReadIncludes(project, "PackageReference"))
-        {
-            if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
-                serverPackageReferences.Add(include);
-        }
+        ListKit.ForEach(
+            ReadIncludes(project, "PackageReference"),
+            include =>
+            {
+                if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+                    serverPackageReferences.Add(include);
+            });
 
         serverPackageReferences.Sort(StringComparer.Ordinal);
         var unexpectedPackageReferences = CollectExcept(serverPackageReferences, KnownServerPackageDependencyBaseline, StringComparer.Ordinal);
@@ -410,11 +411,13 @@ public sealed class ArchitectureTests : UnitTestBase
         Assert.Empty(unexpectedPackageReferences);
 
         var serverFrameworkReferences = new List<string>();
-        foreach (var include in ReadIncludes(project, "FrameworkReference"))
-        {
-            if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                serverFrameworkReferences.Add(include);
-        }
+        ListKit.ForEach(
+            ReadIncludes(project, "FrameworkReference"),
+            include =>
+            {
+                if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
+                    serverFrameworkReferences.Add(include);
+            });
 
         serverFrameworkReferences.Sort(StringComparer.Ordinal);
         var unexpectedFrameworkReferences = CollectExcept(serverFrameworkReferences, KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal);
@@ -427,13 +430,13 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerProjectShouldNotReferenceSquirixProject()
     {
-        var references = ReadProjectIncludes("src/squirix.server/Squirix.Server.csproj", "ProjectReference");
+        var list = ReadProjectIncludes("src/squirix.server/Squirix.Server.csproj", "ProjectReference");
 
         Assert.DoesNotContain(
-            references,
+            list,
             static reference => reference.Contains("squirix.csproj", StringComparison.OrdinalIgnoreCase) &&
                                 !reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(list, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
@@ -477,14 +480,13 @@ public sealed class ArchitectureTests : UnitTestBase
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
 
-        var mapperPaths = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly))
-            mapperPaths.Add(path);
+        var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
         mapperPaths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
-        foreach (var path in mapperPaths)
+        for (var i = 0; i < mapperPaths.Count; i++)
         {
+            var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             foreach (var marker in ForbiddenSharedGrpcTransportMapperRuntimeMarkers)
             {
@@ -501,14 +503,13 @@ public sealed class ArchitectureTests : UnitTestBase
     public async Task SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
     {
         var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
-        var mapperPaths = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly))
-            mapperPaths.Add(path);
+        var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
         mapperPaths.Sort(StringComparer.Ordinal);
         var offenders = new List<string>();
-        foreach (var path in mapperPaths)
+        for (var i = 0; i < mapperPaths.Count; i++)
         {
+            var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
             if (!text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
                 offenders.Add(Path.GetFileName(path));

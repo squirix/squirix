@@ -7,7 +7,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Isolates segment-roll manifest costs: data-file fsync, pointer fsync, and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class ManifestPublishBreakdownBenchmarks
+public sealed class ManifestPublishBreakdownBenchmarks
 {
     private ManifestRollBreakdownSession? _session;
     private int _nextFileIndex = 10_000;
@@ -16,6 +16,7 @@ public class ManifestPublishBreakdownBenchmarks
     private ulong _nextSequence = 2;
 
     /// <summary>Full production roll publish path via manifest store roll blocking API.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
     public void PublishRollBlocking()
     {
@@ -26,6 +27,7 @@ public class ManifestPublishBreakdownBenchmarks
     }
 
     /// <summary>Creates a new <c>.bmqx</c> file and fsyncs it using a fixed pre-encoded roll payload.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollDataFileOnly()
     {
@@ -40,6 +42,7 @@ public class ManifestPublishBreakdownBenchmarks
     }
 
     /// <summary>Overwrites <c>man-current</c> and fsyncs the pointer (no numbered manifest file).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollPointerOnly()
     {
@@ -50,6 +53,7 @@ public class ManifestPublishBreakdownBenchmarks
     }
 
     /// <summary>Roll encode plus numbered manifest file write (no pointer update).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void RollEncodeAndDataFile()
     {

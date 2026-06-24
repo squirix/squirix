@@ -58,6 +58,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
     /// Default is 0 (disabled).
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public long JournalGrowthThrottleBytes
     {
         get;
@@ -75,6 +76,7 @@ internal sealed class SnapshotTriggerOptions
     /// If the observed p95 (or chosen percentile) exceeds this value within the evaluation window,
     /// snapshot attempts are throttled for <see cref="LatencyThrottleDuration" />. Default is 0 (disabled).
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative, NaN, or infinite.</exception>
     public double LatencySloMilliseconds
     {
         get;
@@ -91,6 +93,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the duration to suppress snapshot attempts after a latency SLO breach.
     /// Default is 10 seconds.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public TimeSpan LatencyThrottleDuration
     {
         get;
@@ -107,6 +110,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the debounce guard: a minimum gap enforced between consecutive snapshots even if triggers fire back-to-back.
     /// Default is 1 minute.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public TimeSpan MinGapBetweenSnapshots
     {
         get;
@@ -123,6 +127,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the journal-size trigger: snapshot becomes eligible after at least this many bytes have been appended to the journal
     /// since the previous snapshot. Default is 128 MiB.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public long SnapshotEveryNBytes
     {
         get;
@@ -139,6 +144,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the operation-count trigger: snapshot becomes eligible after at least this many mutating operations
     /// have been applied since the previous snapshot. Default is 250,000.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public long SnapshotEveryNOps
     {
         get;
@@ -155,6 +161,7 @@ internal sealed class SnapshotTriggerOptions
     /// Gets the time-based trigger interval: minimum elapsed time since the previous snapshot to consider a new snapshot.
     /// Default is 5 minutes.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     public TimeSpan SnapshotInterval
     {
         get;

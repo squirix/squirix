@@ -87,7 +87,7 @@ public abstract class CacheBenchmarkBase
 
     /// <summary>Gets the next globally unique add key for benchmark paths that require missing keys across all BenchmarkDotNet iterations.</summary>
     /// <returns>A key that has not been returned by this benchmark instance before.</returns>
-    protected string NextUniqueAddKey() => string.Concat("unique:add:", Interlocked.Increment(ref _uniqueAddOffset).ToString("D10", CultureInfo.InvariantCulture));
+    protected string NextUniqueAddKey() => $"unique:add:{Interlocked.Increment(ref _uniqueAddOffset).ToString("D10", CultureInfo.InvariantCulture)}";
 
     /// <summary>Allows derived benchmark classes to seed state that is specific to their pure-operation benchmark methods.</summary>
     /// <param name="cancellationToken">A cancellation token.</param>

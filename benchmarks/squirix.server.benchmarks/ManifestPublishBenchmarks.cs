@@ -9,13 +9,14 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Manifest publish throughput (segment-roll manifest updates).</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class ManifestPublishBenchmarks
+public sealed class ManifestPublishBenchmarks
 {
     private ManifestBenchmarkHost? _host;
     private int _operationsPerInvoke;
     private ulong _nextSequence = 1;
 
     /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark]
     public void PublishManifest()
     {

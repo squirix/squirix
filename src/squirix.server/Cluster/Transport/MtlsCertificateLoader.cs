@@ -9,6 +9,8 @@ internal static class MtlsCertificateLoader
     /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
     /// <param name="nodeCertificate">The node certificate.</param>
     /// <param name="trustAnchor">The configured cluster CA.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key or does not chain to the trust root.</exception>
     public static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         ArgumentNullException.ThrowIfNull(nodeCertificate);
@@ -38,6 +40,9 @@ internal static class MtlsCertificateLoader
     /// <summary>Ensures the node certificate common name matches the configured cluster node identifier.</summary>
     /// <param name="nodeCertificate">The node certificate.</param>
     /// <param name="nodeId">Configured local cluster node identifier.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="nodeId" /> is null or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the certificate identity does not match <paramref name="nodeId" />.</exception>
     public static void EnsureNodeCertificateMatchesNodeId(X509Certificate2 nodeCertificate, string nodeId)
     {
         ArgumentNullException.ThrowIfNull(nodeCertificate);
@@ -53,6 +58,8 @@ internal static class MtlsCertificateLoader
     /// <summary>Loads the local node certificate and private key.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <returns>The loaded node certificate.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the loaded certificate does not include a private key.</exception>
     public static X509Certificate2 LoadNodeCertificate(MtlsOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -62,7 +69,7 @@ internal static class MtlsCertificateLoader
             return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.Exportable);
         }
 
-        var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath!);
+        var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
         return certificate.HasPrivateKey ? certificate : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
     }
 

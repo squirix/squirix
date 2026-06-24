@@ -27,6 +27,9 @@ internal sealed class ManifestRollPublisher : IDisposable
     /// <param name="currentJournal">Journal segment index being rolled to.</param>
     /// <param name="nextSequence">Next journal sequence after the roll.</param>
     /// <param name="onSuccess">Callback invoked after manifest publish succeeds.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="onSuccess" /> is null.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown when the publisher has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the roll queue is shutting down.</exception>
     public void PublishRoll(int currentJournal, ulong nextSequence, Action onSuccess)
     {
         ArgumentNullException.ThrowIfNull(onSuccess);

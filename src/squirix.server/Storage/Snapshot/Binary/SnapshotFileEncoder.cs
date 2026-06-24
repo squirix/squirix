@@ -54,9 +54,7 @@ internal static class SnapshotFileEncoder
         destination.SetLength(totalFileSize);
         destination.Position = 0;
 
-        Span<byte> header = stackalloc byte[Codec.FileHeaderSize];
-        Codec.WriteFileHeader(header);
-        destination.Write(header);
+        WriteFileHeader(destination);
 
         var crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
         foreach (var (key, entry) in items)
@@ -73,10 +71,22 @@ internal static class SnapshotFileEncoder
             crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
         }
 
+        WriteFileFooter(destination, crc);
+        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void WriteFileHeader(FileStream destination)
+    {
+        Span<byte> header = stackalloc byte[Codec.FileHeaderSize];
+        Codec.WriteFileHeader(header);
+        destination.Write(header);
+    }
+
+    private static void WriteFileFooter(FileStream destination, uint crc)
+    {
         Span<byte> footer = stackalloc byte[Codec.FileFooterSize];
         BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
         destination.Write(footer);
-        await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)

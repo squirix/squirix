@@ -4,8 +4,8 @@ namespace Squirix.E2EBenchmarks.Fixtures;
 public enum BenchmarkUserStatus
 {
     /// <summary>Active user profile.</summary>
-    Active,
+    Active = 0,
 
     /// <summary>Blocked user profile.</summary>
-    Blocked,
+    Blocked = 1,
 }

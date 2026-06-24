@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using Squirix.Server.Storage;
@@ -12,7 +13,10 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Hosts a warmed manifest store for roll-path breakdown benchmarks.</summary>
 internal sealed class ManifestRollBreakdownSession : IDisposable
 {
+    private const int EncodeBufferSize = 512;
+
     private readonly TempDirectory _dataDir;
+    private readonly byte[] _encodeBuffer;
 
     private ManifestRollBreakdownSession(
         TempDirectory dataDir,
@@ -21,30 +25,24 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
         ManifestState.SnapshotRef? snapshot,
         byte[] snapshotPathUtf8,
         byte[] encodeBuffer,
-        byte[] pointerBuffer,
         string manifestFileNamePrefix,
         IManifestPointerWriter pointerWriter)
     {
         _dataDir = dataDir;
+        _encodeBuffer = encodeBuffer;
         Store = store;
         Format = format;
         Snapshot = snapshot;
         SnapshotPathUtf8 = snapshotPathUtf8;
-        EncodeBuffer = encodeBuffer;
-        PointerBuffer = pointerBuffer;
         ManifestFileNamePrefix = manifestFileNamePrefix;
         PointerWriter = pointerWriter;
     }
 
     public ManifestStore Store { get; }
 
-    private byte[] EncodeBuffer { get; }
-
     private int Format { get; }
 
     private string ManifestFileNamePrefix { get; }
-
-    private byte[] PointerBuffer { get; }
 
     private IManifestPointerWriter PointerWriter { get; }
 
@@ -70,8 +68,7 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
         var current = store.ReadCurrentOrDefaultBlocking();
         var snapshotPathUtf8 = current.LastSnapshot?.Path is { Length: > 0 } path ? Encoding.UTF8.GetBytes(path) : [];
 
-        var encodeBuffer = new byte[512];
-        var pointerBuffer = new byte[ManifestPointer.Size];
+        var encodeBuffer = ArrayPool<byte>.Shared.Rent(EncodeBufferSize);
         var manifestFileNamePrefix = PathEx.Combine(dataDir.Path, StorageFilePrefixes.Manifest);
         var currentPath = PathEx.Combine(dataDir.Path, $"{StorageFilePrefixes.Manifest}current");
         var pointerWriter = new ManifestPersistentPointerWriter(currentPath);
@@ -83,7 +80,6 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
             current.LastSnapshot,
             snapshotPathUtf8,
             encodeBuffer,
-            pointerBuffer,
             manifestFileNamePrefix,
             pointerWriter);
     }
@@ -96,12 +92,12 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
         (Prefix: ManifestFileNamePrefix, Index: index),
         static (span, state) =>
         {
-            state.Prefix.AsSpan().CopyTo(span);
+            state.Prefix.CopyTo(span);
             var suffix = span[state.Prefix.Length..];
             if (!state.Index.TryFormat(suffix, out var charsWritten, "D6", CultureInfo.InvariantCulture))
                 throw new InvalidOperationException("Manifest index did not fit fixed-width field.");
 
-            StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix[charsWritten..]);
+            StorageFileExtensions.Manifest.CopyTo(suffix[charsWritten..]);
         });
 
     /// <summary>Encodes a segment-roll manifest into the session encode buffer.</summary>
@@ -109,23 +105,25 @@ internal sealed class ManifestRollBreakdownSession : IDisposable
     /// <param name="nextSequence">Updated next journal sequence.</param>
     /// <returns>Encoded byte length.</returns>
     public int EncodeRoll(int currentJournal, ulong nextSequence) =>
-        ManifestCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, SnapshotPathUtf8, EncodeBuffer);
+        ManifestCodec.WriteRollEncoded(Format, currentJournal, nextSequence, Snapshot, SnapshotPathUtf8, _encodeBuffer);
 
     /// <summary>Writes a pre-encoded manifest file and flushes it to disk.</summary>
     /// <param name="targetPath">Path to a new <c>.bmqx</c> file.</param>
-    /// <param name="encodedLength">Number of valid bytes in <see cref="EncodeBuffer" />.</param>
-    public void WriteDataFile(string targetPath, int encodedLength) => ManifestDurability.WriteManifestDataFileBlocking(targetPath, EncodeBuffer.AsSpan(0, encodedLength));
+    /// <param name="encodedLength">Number of valid bytes in the session encode buffer.</param>
+    public void WriteDataFile(string targetPath, int encodedLength) => ManifestDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
 
     /// <summary>Writes the SQMC current pointer and flushes it to disk.</summary>
     /// <param name="manifestIndex">Manifest index for the pointer payload.</param>
     public void WritePointer(int manifestIndex)
     {
-        ManifestPointer.Write(PointerBuffer, manifestIndex);
-        ManifestDurability.WriteCurrentPointerBlocking(PointerWriter, PointerBuffer);
+        Span<byte> pointerBuffer = stackalloc byte[ManifestPointer.Size];
+        ManifestPointer.Write(pointerBuffer, manifestIndex);
+        ManifestDurability.WriteCurrentPointerBlocking(PointerWriter, pointerBuffer);
     }
 
     public void Dispose()
     {
+        ArrayPool<byte>.Shared.Return(_encodeBuffer);
         PointerWriter.Dispose();
         Store.Dispose();
         _dataDir.Dispose();

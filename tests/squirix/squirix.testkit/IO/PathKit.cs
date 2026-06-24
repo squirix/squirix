@@ -193,7 +193,7 @@ public static class PathKit
                 {
                     state.Prefix.AsSpan(0, state.PrefixLen).CopyTo(dest);
                     dest[state.PrefixLen] = Path.DirectorySeparatorChar;
-                    state.Segment.AsSpan().CopyTo(dest[(state.PrefixLen + 1)..]);
+                    state.Segment.CopyTo(dest[(state.PrefixLen + 1)..]);
                 });
         }
 

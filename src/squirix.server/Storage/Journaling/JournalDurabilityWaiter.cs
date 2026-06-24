@@ -95,6 +95,6 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
     void IValueTaskSource.OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags) =>
         _core.OnCompleted(continuation, state, token, flags);
 
-    private static async ValueTask AwaitWithCancellationAsync(ValueTask pending, CancellationToken cancellationToken) =>
-        await pending.AsTask().WaitAsync(cancellationToken).ConfigureAwait(false);
+    private static ValueTask AwaitWithCancellationAsync(ValueTask pending, CancellationToken cancellationToken) =>
+        new(pending.AsTask().WaitAsync(cancellationToken));
 }

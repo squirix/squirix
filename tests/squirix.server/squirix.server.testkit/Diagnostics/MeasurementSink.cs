@@ -27,8 +27,8 @@ public sealed class MeasurementSink : IDisposable
                 listener.EnableMeasurementEvents(instrument);
         };
 
-        _listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) => { _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)); });
-        _listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) => { _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)); });
+        _listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) => _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)));
+        _listener.SetMeasurementEventCallback<double>((instrument, _, tags, _) => _events.Enqueue(CapturedMeasurement.Capture(instrument.Name, tags)));
 
         _listener.Start();
     }

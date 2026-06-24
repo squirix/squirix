@@ -6,21 +6,21 @@ namespace Squirix.Benchmarks.Client;
 
 /// <summary>Phase-1 remote client benchmark: connect and dispose per iteration.</summary>
 [MemoryDiagnoser]
-public class ClientConnectBenchmarks : RemoteBenchmarkLifecycleBase
+public sealed class ClientConnectBenchmarks : RemoteBenchmarkLifecycleBase
 {
     /// <summary>Measures client bootstrap and teardown against a node started in global setup.</summary>
     /// <returns>A task that completes after the client is disposed.</returns>
     [Benchmark]
     [InvocationCount(1)]
-    public async Task ConnectAndDisposeAsync() => await ConnectAndDisposeClientAsync().ConfigureAwait(false);
+    public Task ConnectAndDisposeAsync() => ConnectAndDisposeClientAsync();
 
     /// <summary>Starts the benchmark node.</summary>
     /// <returns>A task that completes after the node is started.</returns>
     [GlobalSetup]
-    public async Task SetupBenchmarkAsync() => await StartNodeAsync().ConfigureAwait(false);
+    public Task SetupBenchmarkAsync() => StartNodeAsync();
 
     /// <summary>Stops the benchmark node.</summary>
     /// <returns>A task that completes after the node is stopped.</returns>
     [GlobalCleanup]
-    public async Task TeardownBenchmarkAsync() => await StopNodeAsync().ConfigureAwait(false);
+    public Task TeardownBenchmarkAsync() => StopNodeAsync();
 }

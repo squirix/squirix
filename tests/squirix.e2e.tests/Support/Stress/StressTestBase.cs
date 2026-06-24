@@ -34,13 +34,13 @@ public abstract class StressTestBase : EndToEndTestBase
         return cts;
     }
 
-    internal static async Task RunWritersAsync(int writers, Func<int, Task> writerBody, TimeSpan budget)
+    internal static Task RunWritersAsync(int writers, Func<int, Task> writerBody, TimeSpan budget)
     {
         ArgumentNullException.ThrowIfNull(writerBody);
         var tasks = new Task[writers];
         for (var w = 0; w < writers; w++)
             tasks[w] = writerBody(w);
 
-        await Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
+        return Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
     }
 }

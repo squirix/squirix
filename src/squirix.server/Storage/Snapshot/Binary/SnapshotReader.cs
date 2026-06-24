@@ -20,7 +20,7 @@ internal sealed class SnapshotReader : ISnapshotReader
     {
         cancellationToken.ThrowIfCancellationRequested();
         var entries = new List<(CacheKey Key, CacheEntry<T> Entry)>(1024);
-        var idempotencyRecords = new List<PersistedIdempotencyRecord>();
+        var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
         foreach (var record in new SnapshotRecordEnumerable(path, true, cancellationToken))
         {
             switch (record)

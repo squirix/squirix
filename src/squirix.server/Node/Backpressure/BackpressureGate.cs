@@ -132,7 +132,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private (BackpressureDecision Decision, BackpressureLease Lease)? TryRejectByClientRateLimit(string transport, string operation, ClientState client)
     {
-        if (!_options.Enabled || client.RateLimiter is null || client.RateLimiter.TryAcquire())
+        if (!_options.Enabled || client.RateLimiter?.TryAcquire() is not false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "client");
@@ -151,7 +151,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private (BackpressureDecision Decision, BackpressureLease Lease)? TryRejectByNodeRateLimit(string transport, string operation)
     {
-        if (_nodeRateLimiter is null || _nodeRateLimiter.TryAcquire())
+        if (_nodeRateLimiter?.TryAcquire() is not false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "node");
@@ -299,7 +299,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
                 if (_tokens < 1d)
                     return false;
 
-                _tokens -= 1d;
+                _tokens--;
                 return true;
             }
         }

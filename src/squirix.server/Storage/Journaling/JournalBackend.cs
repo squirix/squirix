@@ -4,5 +4,5 @@ namespace Squirix.Server.Storage.Journaling;
 public enum JournalBackend
 {
     /// <summary>Single-writer pipelined journal with binary frames.</summary>
-    Pipelined,
+    Pipelined = 0,
 }

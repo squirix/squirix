@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Entries;
 
@@ -12,9 +13,8 @@ internal static class JournalEntryPayload
     public static byte[] Encode<T>(CacheEntry<T> entry)
     {
         var objectEntry = ToObjectEntry(entry);
-        var buffer = new byte[CacheEntryCodec.ComputeEncodedLength(objectEntry)];
-        CacheEntryCodec.Write(objectEntry, buffer);
-        return buffer;
+        var length = CacheEntryCodec.ComputeEncodedLength(objectEntry);
+        return BufferEx.EncodeToOwned(length, objectEntry, static (entry, span) => CacheEntryCodec.Write(entry, span));
     }
 
     /// <summary>

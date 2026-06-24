@@ -19,9 +19,7 @@ internal static class ArchitectureAssertions
             return;
         }
 
-        var names = new List<string>();
-        foreach (var name in result.FailingTypeNames)
-            names.Add(name);
+        var names = new List<string>(result.FailingTypeNames);
 
         names.Sort(StringComparer.Ordinal);
         Assert.Fail(string.Join(Environment.NewLine, names));

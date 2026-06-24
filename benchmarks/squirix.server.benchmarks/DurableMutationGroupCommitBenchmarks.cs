@@ -16,7 +16,7 @@ namespace Squirix.Server.Benchmarks;
 [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
-public class DurableMutationGroupCommitBenchmarks
+public sealed class DurableMutationGroupCommitBenchmarks
 {
     private const int DefaultOperationsPerWriter = 2_000;
     private const int DefaultParallelWriters = 8;
@@ -40,31 +40,38 @@ public class DurableMutationGroupCommitBenchmarks
     }
 
     /// <summary>Runs durable PUT mutations with per-key group commit (production-like path).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark executor was not initialized.</exception>
     [Benchmark]
-    public async Task ExecutePutMutationAsync()
+    public Task ExecutePutMutationAsync()
     {
         var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
         var executor = _executor ?? throw new InvalidOperationException("Benchmark executor was not initialized.");
         var payload = _putPayload;
         var operationsPerWriter = GetOperationsPerWriter();
         var parallelWriters = GetParallelWriters();
-        await Parallel.ForEachAsync(
+        return Parallel.ForEachAsync(
             new int[parallelWriters],
             new ParallelOptions { MaxDegreeOfParallelism = parallelWriters },
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
                 var key = new CacheKey("bench", $"m{writerId.ToString(CultureInfo.InvariantCulture)}");
+                var coordinator = host.Coordinator;
+                var append = (Key: key, Payload: payload);
                 for (var i = 0; i < operationsPerWriter; i++)
                 {
                     await executor.ExecuteAsync(
                         key,
                         static _ => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
-                        ct => host.Coordinator.AppendPutAsync(key, payload, null, ct),
-                        static _ => new ValueTask<int>(1),
+                        coordinator,
+                        append,
+                        static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, null, ct),
+                        0,
+                        static (_, _, _) => new ValueTask<int>(1),
                         cancellationToken).ConfigureAwait(false);
                 }
-            }).ConfigureAwait(false);
+            });
     }
 
     /// <summary>Creates the journal coordinator, executor, and payload for the current parameter set.</summary>

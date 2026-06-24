@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -114,8 +115,7 @@ internal sealed class JournalDurabilityGroupCommit
             _batchDeadlineTicks = 0;
         }
 
-        foreach (var waiter in pending)
-            waiter.SetException(reason);
+        ListEx.ForEach(pending, waiter => waiter.SetException(reason));
 
         // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
     }
@@ -169,24 +169,20 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (IOException ex)
         {
-            foreach (var waiter in batch)
-                waiter.SetException(ex);
+            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
             return;
         }
         catch (ObjectDisposedException ex)
         {
-            foreach (var waiter in batch)
-                waiter.SetException(ex);
+            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
             return;
         }
         catch (InvalidOperationException ex)
         {
-            foreach (var waiter in batch)
-                waiter.SetException(ex);
+            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
             return;
         }
 
-        foreach (var waiter in batch)
-            waiter.SetResult();
+        ListEx.ForEach(batch, static waiter => waiter.SetResult());
     }
 }

@@ -24,7 +24,7 @@ public sealed class JournalWriteBatchBufferTests
     public void TryStageAppendCopiesFrameAndTracksPending()
     {
         var buffer = new JournalWriteBatchBuffer(64);
-        var frame = new byte[] { 1, 2, 3, 4 };
+        byte[] frame = [1, 2, 3, 4];
 
         Assert.True(buffer.TryStageAppend(MakeItem(frame)));
 
@@ -49,7 +49,7 @@ public sealed class JournalWriteBatchBufferTests
     public void ClearResetsBuffer()
     {
         var buffer = new JournalWriteBatchBuffer(64);
-        _ = buffer.TryStageAppend(MakeItem(new byte[] { 9, 9 }));
+        _ = buffer.TryStageAppend(MakeItem([.. "\t\t"u8]));
 
         buffer.Clear();
 

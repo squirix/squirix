@@ -166,6 +166,31 @@ csharp_indent_case_contents_when_block = false
 # Rider/ReSharper C# formatting
 [*.cs]
 
+# Roslynator (RCS): all rules at warning+ so they appear in dotnet build (TreatWarningsAsErrors => error).
+dotnet_analyzer_diagnostic.category-roslynator.severity = warning
+# Remove unnecessary case label — conflicts with exhaustive switch style in this codebase.
+dotnet_diagnostic.RCS1069.severity = none
+# Convert interpolated string to concatenation
+dotnet_diagnostic.RCS1217.severity = none
+
+
+# ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).
+# No single category-zeroalloc — rules use Performance.* subcategories (see ZeroAlloc DiagnosticCategories.cs).
+# Do NOT use category-Performance: that also elevates CA18xx/CA186x NetAnalyzers in the same bucket.
+dotnet_analyzer_diagnostic.category-Performance.Collections.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Strings.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Memory.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Logging.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Boxing.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Linq.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Regex.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Enums.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Sealing.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
+
 # General line break behavior
 resharper_csharp_keep_existing_linebreaks = false
 resharper_keep_existing_linebreaks = false
@@ -244,15 +269,42 @@ dotnet_diagnostic.MA0047.severity = none
 dotnet_diagnostic.MA0048.severity = none
 # MA0051: Method exceeds configured line/statement limits (verify/pack scripts are intentionally long).
 dotnet_diagnostic.MA0051.severity = none
+# RCS1110: Declare type inside namespace (inline helper types in file-based scripts).
+dotnet_diagnostic.RCS1110.severity = none
+# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
+dotnet_diagnostic.ZA0901.severity = none
 
 [examples/**]
 # MA0048: File name must match the primary type name (script file names differ from inline types).
 dotnet_diagnostic.MA0048.severity = none
+# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
+dotnet_diagnostic.ZA0901.severity = none
 
 [{tests,benchmarks}/**]
 # SA1615: Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant).
 # Other paths (for example src/**) keep the default SA1615 severity when a member is already documented.
 dotnet_diagnostic.SA1615.severity = none
+
+[tests/**]
+# xUnit.net: dotnet build prints warning+ only. Info/Hidden rules stay silent until elevated.
+# These fire only on violations — clean tests => 0 xUnit lines in build output.
+dotnet_diagnostic.xUnit1030.severity = error
+dotnet_diagnostic.xUnit1031.severity = error
+dotnet_diagnostic.xUnit1049.severity = error
+dotnet_diagnostic.xUnit1051.severity = error
+dotnet_diagnostic.xUnit2000.severity = error
+dotnet_diagnostic.xUnit2002.severity = error
+dotnet_diagnostic.xUnit2003.severity = error
+dotnet_diagnostic.xUnit2004.severity = error
+dotnet_diagnostic.xUnit2006.severity = error
+dotnet_diagnostic.xUnit2012.severity = error
+dotnet_diagnostic.xUnit2017.severity = error
+dotnet_diagnostic.xUnit2021.severity = error
+
+[benchmarks/**]
+# BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig.
+dotnet_diagnostic.BDN1400.severity = error
+dotnet_diagnostic.BDN1500.severity = error
 
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none

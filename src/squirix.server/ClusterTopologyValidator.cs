@@ -155,7 +155,7 @@ internal static class ClusterTopologyValidator
 
     private static void ValidateUrl(List<string> failures, Uri? value, string name)
     {
-        if (value is null || !value.IsAbsoluteUri || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (value?.IsAbsoluteUri is not true || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             failures.Add($"{name} must be an absolute https URI.");
             return;

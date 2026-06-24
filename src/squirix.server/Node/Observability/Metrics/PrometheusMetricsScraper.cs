@@ -65,6 +65,15 @@ internal sealed class PrometheusMetricsScraper : IDisposable
         _ = sb.Append('\n');
     }
 
+    private static int CountExportLines(Dictionary<string, Dictionary<string, double>> exported)
+    {
+        var count = 0;
+        foreach (var byLabels in exported.Values)
+            count += byLabels.Count;
+
+        return count;
+    }
+
     private static MeterListener CreateListener()
     {
         var listener = new MeterListener
@@ -99,16 +108,20 @@ internal sealed class PrometheusMetricsScraper : IDisposable
 
     private string ScrapePublic()
     {
-        var exportedSums = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
-        var exportedLast = new Dictionary<string, Dictionary<string, double>>(StringComparer.Ordinal);
+        Dictionary<string, Dictionary<string, double>> exportedSums;
+        Dictionary<string, Dictionary<string, double>> exportedLast;
+        int lineCount;
 
         lock (_lock)
         {
+            exportedSums = new Dictionary<string, Dictionary<string, double>>(_sums.Count, StringComparer.Ordinal);
+            exportedLast = new Dictionary<string, Dictionary<string, double>>(_last.Count, StringComparer.Ordinal);
             AggregateForExport(_sums, exportedSums, true);
             AggregateForExport(_last, exportedLast, false);
+            lineCount = CountExportLines(exportedSums) + CountExportLines(exportedLast);
         }
 
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(lineCount * 64);
         foreach (var (metric, byLabels) in exportedSums)
         {
             foreach (var (labels, value) in byLabels)

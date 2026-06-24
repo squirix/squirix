@@ -9,6 +9,11 @@ namespace Squirix.Server.Serialization;
 /// <summary>
 /// <see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.
 /// </summary>
+/// <remarks>
+/// Intentional reflection fallback for arbitrary application payload types.
+/// Persistence and REST DTOs use dedicated <see cref="JsonSerializerContext" /> types at call sites.
+/// </remarks>
+#pragma warning disable ZA1001 // Generic serializer boundary; reflection fallback is required for unknown T.
 internal sealed class SystemTextJsonSerializer : ISquirixSerializer
 {
     private readonly JsonSerializerOptions _options;
@@ -56,3 +61,4 @@ internal sealed class SystemTextJsonSerializer : ISquirixSerializer
         return options;
     }
 }
+#pragma warning restore ZA1001

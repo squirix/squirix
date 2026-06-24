@@ -4,6 +4,10 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Squirix.Server.Storage.Manifest;
 
+// PERF (Linux): a manifest roll is two writes (data file + fixed pointer) plus fsyncs — a good fit for a
+// single batched io_uring submission. That io_uring roll writer was archived after the raw ring caused a
+// fatal AccessViolationException on Linux; the portable RandomAccess path below is used on every platform for now.
+
 /// <summary>WAL-ordered durable writes for Manifest data files and the fixed-size CURRENT pointer.</summary>
 internal static class ManifestDurability
 {
@@ -14,6 +18,7 @@ internal static class ManifestDurability
     /// <summary>Overwrites the fixed-size SQMC pointer in place.</summary>
     /// <param name="writer">Pointer writer with an open or reusable <c>man-current</c> handle.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="pointerBuffer" /> is not exactly 12 bytes.</exception>
     internal static void WriteCurrentPointerBlocking(IManifestPointerWriter writer, ReadOnlySpan<byte> pointerBuffer)
     {
         if (pointerBuffer.Length != ManifestPointer.Size)
@@ -40,12 +45,8 @@ internal static class ManifestDurability
     /// <param name="encoded">Encoded manifest bytes.</param>
     /// <param name="pointerWriter">Reusable pointer writer for <c>man-current</c>.</param>
     /// <param name="pointerBuffer">Exactly 12 encoded SQMC bytes.</param>
-    /// <param name="uringRollWriter">Reusable per-store io_uring roll writer, or null to use the portable path.</param>
-    internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer, ManifestIoUringRollWriter? uringRollWriter)
+    internal static void WriteManifestRollBlocking(string targetPath, ReadOnlySpan<byte> encoded, IManifestPointerWriter pointerWriter, ReadOnlySpan<byte> pointerBuffer)
     {
-        if (uringRollWriter is not null && uringRollWriter.TryWriteRollBlocking(targetPath, encoded, pointerWriter, pointerBuffer))
-            return;
-
         WriteManifestDataFileBlocking(targetPath, encoded);
         WriteCurrentPointerBlocking(pointerWriter, pointerBuffer);
     }

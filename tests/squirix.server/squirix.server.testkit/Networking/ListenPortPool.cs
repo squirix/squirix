@@ -60,6 +60,5 @@ public sealed class ListenPortPool
         return FormatLoopbackHttps(port);
     }
 
-    private static string FormatLoopbackHttps(int port) =>
-        string.Concat("https://127.0.0.1:", port.ToString(CultureInfo.InvariantCulture));
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 }

@@ -14,15 +14,17 @@ internal sealed class KeyOwnerHelper
     public KeyOwnerHelper(IEnumerable<string> nodeIds, int virtualNodes = 128)
     {
         ArgumentNullException.ThrowIfNull(nodeIds);
-        var nodes = new List<string>();
+        var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
         {
-            if (!string.IsNullOrWhiteSpace(nodeId) && !nodes.Exists(existing => string.Equals(existing, nodeId, StringComparison.Ordinal)))
-                nodes.Add(nodeId);
+            if (!string.IsNullOrWhiteSpace(nodeId))
+                _ = uniqueNodes.Add(nodeId);
         }
 
-        if (nodes.Count is 0)
+        if (uniqueNodes.Count is 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));
+
+        var nodes = new List<string>(uniqueNodes);
 
         var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
         for (var i = 0; i < nodes.Count; i++)
@@ -30,7 +32,7 @@ internal sealed class KeyOwnerHelper
             var node = nodes[i];
             for (var vnode = 0; vnode < virtualNodes; vnode++)
             {
-                var key = string.Concat(node, "#", vnode.ToString(CultureInfo.InvariantCulture));
+                var key = $"{node}#{vnode.ToString(CultureInfo.InvariantCulture)}";
                 ring.Add((HashString(key), node));
             }
         }
@@ -44,7 +46,7 @@ internal sealed class KeyOwnerHelper
         var keys = new List<string>(count);
         for (var i = 0; i < maxAttempts && keys.Count < count; i++)
         {
-            var candidate = string.Concat(prefix, ":", i.ToString(CultureInfo.InvariantCulture));
+            var candidate = $"{prefix}:{i.ToString(CultureInfo.InvariantCulture)}";
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                 keys.Add(candidate);
         }
@@ -62,7 +64,7 @@ internal sealed class KeyOwnerHelper
     private static ulong HashCacheRouteKey(string cacheName, string key)
     {
         var canonical = string.IsNullOrWhiteSpace(cacheName) ? "default" : cacheName;
-        var routeKey = string.Concat(canonical.Length.ToString(CultureInfo.InvariantCulture), ":", canonical, "\x1F", key);
+        var routeKey = $"{canonical.Length.ToString(CultureInfo.InvariantCulture)}:{canonical}\x1F{key}";
         return HashString(routeKey);
     }
 

@@ -14,6 +14,7 @@ internal sealed record UnresolvedMemoryPressureOptions
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="MemoryPressureState.Critical" />.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not in the range (0, 100].</exception>
     public int CriticalPressureThresholdPercent
     {
         get;
@@ -29,6 +30,7 @@ internal sealed record UnresolvedMemoryPressureOptions
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="MemoryPressureState.High" />.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not in the range (0, 100].</exception>
     public int HighPressureThresholdPercent
     {
         get;
@@ -45,6 +47,7 @@ internal sealed record UnresolvedMemoryPressureOptions
     /// Gets the optional explicit maximum estimated cache size in bytes.
     /// When unset, startup resolves the limit to <see cref="MemoryPressureOptionsResolver.RamBudgetPercent" /> of available memory.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     public long? MaxEstimatedCacheBytes
     {
         get;

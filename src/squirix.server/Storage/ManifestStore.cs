@@ -28,7 +28,6 @@ internal sealed class ManifestStore : IDisposable
     private readonly string _currentPath;
     private readonly byte[] _currentPointerBuffer = new byte[ManifestPointer.Size];
     private readonly ManifestPersistentPointerWriter _currentPointerWriter;
-    private readonly ManifestIoUringRollWriter _uringRollWriter = new();
     private readonly string _dataDir;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _manifestFileNamePrefix;
@@ -99,7 +98,6 @@ internal sealed class ManifestStore : IDisposable
     public void Dispose()
     {
         _currentPointerWriter.Dispose();
-        _uringRollWriter.Dispose();
         _gate.Dispose();
     }
 
@@ -152,12 +150,12 @@ internal sealed class ManifestStore : IDisposable
         (Prefix: _manifestFileNamePrefix, Index: index),
         static (span, state) =>
         {
-            state.Prefix.AsSpan().CopyTo(span);
+            state.Prefix.CopyTo(span);
             var suffix = span[state.Prefix.Length..];
             if (!state.Index.TryFormat(suffix, out var charsWritten, "D6", CultureInfo.InvariantCulture))
                 throw new InvalidOperationException("Manifest index did not fit fixed-width field.");
 
-            StorageFileExtensions.Manifest.AsSpan().CopyTo(suffix[charsWritten..]);
+            StorageFileExtensions.Manifest.CopyTo(suffix[charsWritten..]);
         });
 
     private void EnsureDataDirectoryExists()
@@ -296,7 +294,7 @@ internal sealed class ManifestStore : IDisposable
 
         var targetPath = BuildManifestFilePath(nextIndex);
         ManifestPointer.Write(_currentPointerBuffer, nextIndex);
-        ManifestDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer, _uringRollWriter);
+        ManifestDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
 
         var manifest = new ManifestState
         {
@@ -388,11 +386,7 @@ internal sealed class ManifestStore : IDisposable
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
             return;
 
-        _ = Task.Factory.StartNew(
-            RunRetentionWorkerLoop,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default);
+        _ = Task.Factory.StartNew(RunRetentionWorkerLoop, CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
     }
 
     private void SeedNextManifestIndex(int publishedIndex)

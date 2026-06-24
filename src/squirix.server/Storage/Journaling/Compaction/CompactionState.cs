@@ -4,17 +4,17 @@ namespace Squirix.Server.Storage.Journaling.Compaction;
 internal enum CompactionState
 {
     /// <summary>No compaction is scheduled or running.</summary>
-    Idle,
+    Idle = 0,
 
     /// <summary>Compaction is requested and pending (e.g., waiting for a trigger/min-gap).</summary>
-    Waiting,
+    Waiting = 1,
 
     /// <summary>Compaction is in progress.</summary>
-    Running,
+    Running = 2,
 
     /// <summary>Compaction is temporarily deferred (backoff after completion or failure).</summary>
-    BackingOff,
+    BackingOff = 3,
 
     /// <summary>The last compaction attempt failed.</summary>
-    Failed,
+    Failed = 4,
 }

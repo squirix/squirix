@@ -106,7 +106,7 @@ public sealed class CallPolicyTests : UnitTestBase
 
         var second = policy.ExecuteAsync(
             sync,
-            static (s, ct) =>
+            static (s, __) =>
             {
                 s.Peak.Record(s.Running.Increment());
                 try
@@ -257,7 +257,7 @@ public sealed class CallPolicyTests : UnitTestBase
         releaseFirst.SetResult();
 
         Assert.Equal(1, await first);
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => { _ = await queued; });
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => _ = await queued);
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy")));
     }

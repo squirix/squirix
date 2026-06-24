@@ -337,9 +337,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
             var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
             var frameLen = JournalFraming.FrameTotalLength(bodyLen);
             var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
-            var body = frameBytes.AsSpan(JournalFraming.FrameHeaderSize, bodyLen);
-            _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
-            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
+            const int bodyOffset = JournalFraming.FrameHeaderSize;
+            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, bodyLen), keyUtf8);
+            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, bodyLen));
 
             var startedMs = Environment.TickCount64;
             await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
@@ -368,9 +368,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
             var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
             var frameLen = JournalFraming.FrameTotalLength(bodyLen);
             var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
-            var body = frameBytes.AsSpan(JournalFraming.FrameHeaderSize, bodyLen);
-            _ = BinaryJournalCodec.Encode(record, body, keyUtf8);
-            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), body);
+            const int bodyOffset = JournalFraming.FrameHeaderSize;
+            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, bodyLen), keyUtf8);
+            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, bodyLen));
 
             var startedMs = Environment.TickCount64;
             var waiter = JournalDurabilityWaiter.Rent();
@@ -442,8 +442,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
 
         _eventLoop.FsyncOnJournalThread();
 
-        foreach (var waiter in waiters)
-            _ = waiter.TrySetResult();
+        ListEx.ForEach(waiters, static waiter => _ = waiter.TrySetResult());
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
@@ -595,10 +594,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         }
     }
 
-    private async ValueTask EnqueueShutdownAsync()
+    private ValueTask EnqueueShutdownAsync()
     {
         var shutdownItem = new JournalWorkItem { Kind = JournalWorkKind.Shutdown };
-        await _ring.EnqueueAsync(shutdownItem, CancellationToken.None).ConfigureAwait(false);
+        return _ring.EnqueueAsync(shutdownItem, CancellationToken.None);
     }
 
     private void FailPendingDurabilityWaiters(Exception reason)
@@ -613,8 +612,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         if (waiters is null)
             return;
 
-        foreach (var waiter in waiters)
-            _ = waiter.TrySetException(reason);
+        ListEx.ForEach(waiters, waiter => _ = waiter.TrySetException(reason));
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
@@ -627,7 +625,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         _groupCommit?.CancelPendingCore(reason);
     }
 
-    private async ValueTask FlushAsync(CancellationToken cancellationToken) => await EnqueueFlushAsync(cancellationToken).ConfigureAwait(false);
+    private ValueTask FlushAsync(CancellationToken cancellationToken) => EnqueueFlushAsync(cancellationToken);
 
     private bool HasPendingMemoryApply()
     {

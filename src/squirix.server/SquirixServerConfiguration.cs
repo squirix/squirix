@@ -250,9 +250,8 @@ public static class SquirixServerConfiguration
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static ClusterConfig ToClusterConfig(SquirixServerOptions? options)
+    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
         ClusterTopologyValidator.Validate(options);
 
         var peers = new Peer[options.Peers.Count is 0 ? 1 : options.Peers.Count];

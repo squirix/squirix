@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Squirix.TestKit.Testing;
 
@@ -116,10 +117,12 @@ public static class ExportedTypeReflection
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
-        var lines = new List<string>();
         var types = GetExportedTypesSorted(assembly);
-        foreach (var type in types)
+        var lines = new List<string>(types.Count);
+        var typesSpan = CollectionsMarshal.AsSpan(types);
+        for (var typeIndex = 0; typeIndex < typesSpan.Length; typeIndex++)
         {
+            var type = typesSpan[typeIndex];
             lines.Add(FormatTypeLine(type));
             if (type.IsEnum)
             {
@@ -146,8 +149,9 @@ public static class ExportedTypeReflection
         }
 
         enumFields.Sort(static (left, right) => StringComparer.Ordinal.Compare(FormatFieldLine(left), FormatFieldLine(right)));
-        foreach (var field in enumFields)
-            lines.Add(FormatFieldLine(field));
+        var enumFieldsSpan = CollectionsMarshal.AsSpan(enumFields);
+        for (var fieldIndex = 0; fieldIndex < enumFieldsSpan.Length; fieldIndex++)
+            lines.Add(FormatFieldLine(enumFieldsSpan[fieldIndex]));
     }
 
     private static void AddMemberLines(Type type, List<string> memberLines)
@@ -163,8 +167,7 @@ public static class ExportedTypeReflection
 
         foreach (var property in type.GetProperties(DeclaredMemberFlags))
         {
-            foreach (var line in FormatPropertyLines(property))
-                memberLines.Add(line);
+            memberLines.AddRange(FormatPropertyLines(property));
         }
 
         foreach (var evt in type.GetEvents(DeclaredMemberFlags))

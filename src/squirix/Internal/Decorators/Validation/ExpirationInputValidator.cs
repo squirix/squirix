@@ -10,6 +10,7 @@ internal static class ExpirationInputValidator
     /// </summary>
     /// <param name="expiration">The expiration to validate.</param>
     /// <param name="parameterName">The caller parameter name for exceptions.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="expiration" /> is zero or negative.</exception>
     public static void ValidateRequiredPositive(TimeSpan expiration, string parameterName)
     {
         if (expiration <= TimeSpan.Zero)

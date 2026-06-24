@@ -4,17 +4,17 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 public enum BenchmarkTopology
 {
     /// <summary>One Squirix node and one client connected to that node.</summary>
-    SingleNode,
+    SingleNode = 0,
 
     /// <summary>Two nodes with a node A client and keys owned by node A.</summary>
-    TwoNodeLocalOwner,
+    TwoNodeLocalOwner = 1,
 
     /// <summary>Two nodes with a node A client and keys owned by node B.</summary>
-    TwoNodeRemoteOwner,
+    TwoNodeRemoteOwner = 2,
 
     /// <summary>Two nodes with keys distributed across both owners.</summary>
-    TwoNodeUniformKeys,
+    TwoNodeUniformKeys = 3,
 
     /// <summary>Two nodes with a small hot keyset distributed across both owners.</summary>
-    TwoNodeHotKeys,
+    TwoNodeHotKeys = 4,
 }

@@ -14,7 +14,7 @@ namespace Squirix.Benchmarks.Payload;
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
-public class EntryPayloadWritePathBenchmarks
+public sealed class EntryPayloadWritePathBenchmarks
 {
     private ServerCacheEntry _entry = new() { Value = string.Empty, Version = 1 };
 
@@ -39,6 +39,7 @@ public class EntryPayloadWritePathBenchmarks
     public int SerializeOnceThenLengthCheck() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheck(_entry);
 
     /// <summary>Builds the entry under test for the selected payload profile.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile"/> is not a supported value.</exception>
     [GlobalSetup]
     public async Task SetupEntryAsync()
     {

@@ -21,9 +21,9 @@ public sealed class ManifestPointerTests
     [Fact]
     public void ReadThrowsWhenCrcIsInvalid()
     {
-        _ = Assert.Throws<InvalidDataException>(() =>
+        _ = Assert.Throws<InvalidDataException>(static () =>
         {
-            var buffer = new byte[ManifestPointer.Size];
+            Span<byte> buffer = stackalloc byte[ManifestPointer.Size];
             ManifestPointer.Write(buffer, 1);
             buffer[^1] ^= 0xFF;
             _ = ManifestPointer.Read(buffer);

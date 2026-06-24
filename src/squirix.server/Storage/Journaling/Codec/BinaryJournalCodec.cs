@@ -46,11 +46,9 @@ internal static class BinaryJournalCodec
                 return offset;
 
             case JournalOperationKind.TouchExpiration:
-            {
                 var expiresMs = record.TouchExpirationUtc is { } utc ? new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds() : 0L;
                 BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], expiresMs);
                 return offset + 8;
-            }
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:

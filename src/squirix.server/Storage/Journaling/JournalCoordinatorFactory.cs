@@ -11,19 +11,11 @@ internal static class JournalCoordinatorFactory
     public static async Task<IJournalCoordinator> CreateAsync(
         PersistenceOptions persistence,
         Manifest.ManifestState manifest,
-        ManifestStore manifestStore,
-        JournalStartupGate startupGate,
+        ManifestStore store,
+        JournalStartupGate gate,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(persistence);
-        if (persistence.JournalBackend is not JournalBackend.Pipelined)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(persistence),
-                persistence.JournalBackend,
-                "Only the pipelined journal backend is supported.");
-        }
-
-        return await JournalCoordinator.CreateAsync(persistence, manifest, manifestStore, startupGate, cancellationToken).ConfigureAwait(false);
+        return await JournalCoordinator.CreateAsync(persistence, manifest, store, gate, cancellationToken).ConfigureAwait(false);
     }
 }

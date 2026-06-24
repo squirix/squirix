@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,31 +51,13 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
 
         const int iterations = 256;
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        var sources = new CancellationTokenSource[iterations];
-        var tasks = new Task[iterations];
-        try
-        {
-            for (var i = 0; i < iterations; i++)
-            {
-                var key = CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}");
-                sources[i] = new CancellationTokenSource(TimeSpan.FromMilliseconds(i % 4));
-                tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, sources[i].Token);
-            }
-
-            await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, DefaultCancellationToken);
-        }
-        finally
-        {
-            foreach (var source in sources)
-                source.Dispose();
-        }
+        await RunCancellationStormAsync(journal, payload, iterations, DefaultCancellationToken);
 
         var opsBefore = journal.AppendedOps;
 
         // The pool/counter must still be intact: a clean durable mutation completes promptly.
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, null, DefaultCancellationToken)
-            .AsTask()
-            .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, null, DefaultCancellationToken).AsTask()
+                     .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(journal.AppendedOps > opsBefore);
     }
@@ -106,33 +89,51 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        var payload = new byte[16_000];
-        Array.Fill(payload, Convert.ToByte('z'));
-
-        var deadline = Environment.TickCount64 + 30_000;
-        var i = 0;
-        while (pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline)
-        {
-            await journal.AppendPutAsync(CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}"), payload, null, DefaultCancellationToken);
-            await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken)
-                .AsTask()
-                .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-            i++;
-        }
-
-        Assert.Equal(2, pipelined.CurrentSegmentIndex);
-        Assert.False(pipelined.IsDurabilityFlushPending);
-    }
-
-    private static async Task AppendIgnoringCancellationAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, CancellationToken cancellationToken)
-    {
+        const int payloadSize = 16_000;
+        var payload = ArrayPool<byte>.Shared.Rent(payloadSize);
         try
         {
-            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, null, cancellationToken);
+            Array.Fill(payload, Convert.ToByte('z'), 0, payloadSize);
+
+            var deadline = Environment.TickCount64 + 30_000;
+            for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
+            {
+                await journal.AppendPutAsync(CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}"), payload.AsMemory(0, payloadSize), null, DefaultCancellationToken);
+                await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+                i++;
+            }
+
+            Assert.Equal(2, pipelined.CurrentSegmentIndex);
+            Assert.False(pipelined.IsDurabilityFlushPending);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payload);
+        }
+    }
+
+    private static async Task AppendIgnoringCancellationAsync(IJournalCoordinator journal, CacheKey key, byte[] payload, int cancelAfterMs)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(cancelAfterMs));
+        try
+        {
+            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, null, cts.Token);
         }
         catch (OperationCanceledException)
         {
             // Expected for the pre-enqueue backpressure path; must not corrupt shared state.
         }
+    }
+
+    private static Task RunCancellationStormAsync(IJournalCoordinator journal, byte[] payload, int iterations, CancellationToken cancellationToken)
+    {
+        var tasks = new Task[iterations];
+        for (var i = 0; i < iterations; i++)
+        {
+            var key = CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}");
+            tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, i % 4);
+        }
+
+        return Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System, cancellationToken);
     }
 }

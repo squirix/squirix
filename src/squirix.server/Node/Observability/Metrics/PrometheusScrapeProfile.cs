@@ -6,5 +6,5 @@ namespace Squirix.Server.Node.Observability.Metrics;
 internal enum PrometheusScrapeProfile
 {
     /// <summary>Strip identifying labels and aggregate series before HTTP export.</summary>
-    Public,
+    Public = 0,
 }

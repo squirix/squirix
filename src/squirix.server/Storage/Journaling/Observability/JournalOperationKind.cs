@@ -4,29 +4,29 @@ namespace Squirix.Server.Storage.Journaling.Observability;
 internal enum JournalOperationKind
 {
     /// <summary>A remove journal record.</summary>
-    Remove,
+    Remove = 0,
 
     /// <summary>A remove-expiration journal record.</summary>
-    RemoveExpiration,
+    RemoveExpiration = 1,
 
     /// <summary>A touch-expiration journal record.</summary>
-    TouchExpiration,
+    TouchExpiration = 2,
 
     /// <summary>A put journal record.</summary>
-    Put,
+    Put = 3,
 
     /// <summary>Await durability commit completion.</summary>
-    AwaitDurabilityCommit,
+    AwaitDurabilityCommit = 4,
 
     /// <summary>Wait for journal startup to complete.</summary>
-    WaitForStartup,
+    WaitForStartup = 5,
 
     /// <summary>Exclusive maintenance work under the journal gate.</summary>
-    MaintenanceExclusive,
+    MaintenanceExclusive = 6,
 
     /// <summary>Snapshot cut coordination.</summary>
-    SnapshotCut,
+    SnapshotCut = 7,
 
     /// <summary>Work executed under the snapshot barrier.</summary>
-    UnderSnapshotBarrier,
+    UnderSnapshotBarrier = 8,
 }

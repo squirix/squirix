@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using Squirix.Server.Serialization;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
@@ -7,16 +8,12 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>Covers misuse prevention for the public server-hosting options.</summary>
 public sealed class SquirixServerOptionsValidatorTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
     /// <summary>Ensures the public defaults are valid and use the first reserved standalone port.</summary>
     [Fact]
     public void DefaultsAreValid()
     {
         var options = new SquirixServerOptions();
-
         SquirixServerOptionsValidator.Validate(options);
-
         Assert.Equal(new Uri("https://localhost:5001"), options.Url);
     }
 
@@ -35,7 +32,7 @@ public sealed class SquirixServerOptionsValidatorTests
             ],
         };
 
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures duplicate peer URLs are rejected.</summary>
@@ -53,7 +50,7 @@ public sealed class SquirixServerOptionsValidatorTests
             ],
         };
 
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures blank and excessively long identifiers are rejected.</summary>
@@ -64,20 +61,20 @@ public sealed class SquirixServerOptionsValidatorTests
     public void InvalidNodeIdIsRejected(string nodeId)
     {
         var options = new SquirixServerOptions { NodeId = nodeId };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures JSON deserialization populates explicit peers for settings validation.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when JSON deserialization fails.</exception>
     [Fact]
     public void JsonDeserializationPopulatesPeers()
     {
         const string json =
             """{"ClusterId":"c","NodeId":"node-a","Url":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-b","Url":"https://localhost:5002"}]}""";
-        var options = JsonSerializer.Deserialize<SquirixServerOptions>(json, JsonOptions) ?? throw new InvalidOperationException("Deserialization failed.");
+        var options = JsonSerializer.Deserialize(json, SquirixServerHostingJsonContext.Default.SquirixServerOptions) ?? throw new InvalidOperationException("Deserialization failed.");
         _ = Assert.Single(options.Peers);
         Assert.Equal("node-b", options.Peers[0].NodeId);
-        var ex = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
         Assert.Contains("local NodeId", ex.Message, StringComparison.Ordinal);
     }
 
@@ -96,7 +93,6 @@ public sealed class SquirixServerOptionsValidatorTests
             ],
         };
         options.Peers[0].Url = options.Url;
-
         SquirixServerOptionsValidator.Validate(options);
     }
 
@@ -114,8 +110,7 @@ public sealed class SquirixServerOptionsValidatorTests
                 new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") },
             ],
         };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures node identifiers have a bounded length.</summary>
@@ -123,8 +118,7 @@ public sealed class SquirixServerOptionsValidatorTests
     public void LongNodeIdIsRejected()
     {
         var options = new SquirixServerOptions { NodeId = new string('n', 129) };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures explicitly configured peers contain the local node.</summary>
@@ -135,8 +129,7 @@ public sealed class SquirixServerOptionsValidatorTests
         {
             Peers = [new SquirixServerPeerOptions { NodeId = "other", Url = new Uri("https://localhost:5002") }],
         };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures peer endpoint URIs cannot carry HTTP resource paths.</summary>
@@ -153,8 +146,7 @@ public sealed class SquirixServerOptionsValidatorTests
                 new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002/cache") },
             ],
         };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures endpoint URIs cannot carry HTTP resource paths.</summary>
@@ -162,8 +154,7 @@ public sealed class SquirixServerOptionsValidatorTests
     public void UrlWithPathIsRejected()
     {
         var options = new SquirixServerOptions { Url = new Uri("https://localhost:5001/cache") };
-
-        _ = Assert.Throws<ArgumentException>(() => { SquirixServerOptionsValidator.Validate(options); });
+        _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
     /// <summary>Ensures a multi-peer cluster with a matching local peer is accepted.</summary>
@@ -180,7 +171,6 @@ public sealed class SquirixServerOptionsValidatorTests
                 new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") },
             ],
         };
-
         SquirixServerOptionsValidator.Validate(options);
     }
 }

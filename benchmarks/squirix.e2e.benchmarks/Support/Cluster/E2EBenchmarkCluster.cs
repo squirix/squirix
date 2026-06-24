@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -15,12 +16,12 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
-    private readonly Dictionary<string, TestNodeHost> _nodes;
+    private readonly FrozenDictionary<string, TestNodeHost> _nodes;
     private readonly TempDirectory? _dataDir;
     private BenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
+    private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
     {
         _nodes = nodes;
         _dataDir = dataDir;
@@ -66,7 +67,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
                     : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
-            return new E2EBenchmarkCluster(nodes, dataDir);
+            return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
         }
         catch (InvalidOperationException)
         {

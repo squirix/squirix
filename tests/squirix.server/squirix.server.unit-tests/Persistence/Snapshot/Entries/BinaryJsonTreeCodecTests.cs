@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -14,14 +15,19 @@ public sealed class BinaryJsonTreeCodecTests : UnitTestBase
     {
         using var document = JsonDocument.Parse("""{"name":"alice","scores":[1,2,3],"active":true}""");
         var element = document.RootElement;
-        var buffer = new byte[BinaryJsonTreeCodec.ComputeEncodedLength(element)];
-        var written = BinaryJsonTreeCodec.Write(element, buffer);
-
-        Assert.Equal(buffer.Length, written);
-        Assert.True(BinaryJsonTreeCodec.TryRead(buffer, out var roundTrip, out var bytesRead));
-        Assert.Equal(written, bytesRead);
-        Assert.Equal("alice", roundTrip.GetProperty("name").GetString());
-        Assert.Equal(3, roundTrip.GetProperty("scores").GetArrayLength());
-        Assert.True(roundTrip.GetProperty("active").GetBoolean());
+        var length = BinaryJsonTreeCodec.ComputeEncodedLength(element);
+        BufferKit.WithBuffer(
+            length,
+            element,
+            static (e, buffer) =>
+            {
+                var written = BinaryJsonTreeCodec.Write(e, buffer);
+                Assert.Equal(buffer.Length, written);
+                Assert.True(BinaryJsonTreeCodec.TryRead(buffer, out var roundTrip, out var bytesRead));
+                Assert.Equal(written, bytesRead);
+                Assert.Equal("alice", roundTrip.GetProperty("name").GetString());
+                Assert.Equal(3, roundTrip.GetProperty("scores").GetArrayLength());
+                Assert.True(roundTrip.GetProperty("active").GetBoolean());
+            });
     }
 }

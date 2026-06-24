@@ -6,6 +6,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node public CRUD operations.</summary>
+/// <param name="fixture">Shared single-node cluster fixture.</param>
 public sealed class CrudTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>

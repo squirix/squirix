@@ -1,5 +1,5 @@
 using System;
-using System.Text.Json;
+using Squirix.Server.Serialization;
 using Squirix.Server.Storage.Snapshot;
 using Xunit;
 
@@ -10,11 +10,6 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// </summary>
 public sealed class SnapshotTriggerOptionsTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
@@ -51,7 +46,7 @@ public sealed class SnapshotTriggerOptionsTests
     [InlineData(nameof(SnapshotTriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => { _ = CreateWithInvalidScalar(propertyName); });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => _ = CreateWithInvalidScalar(propertyName));
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
@@ -64,7 +59,7 @@ public sealed class SnapshotTriggerOptionsTests
         const string json =
             """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
-        var options = JsonSerializer.Deserialize<SnapshotTriggerOptions>(json, JsonOptions);
+        var options = new SystemTextJsonSerializer().Deserialize<SnapshotTriggerOptions>(json);
 
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromMinutes(3), options.SnapshotInterval);

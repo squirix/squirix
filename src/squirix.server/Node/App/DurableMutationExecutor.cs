@@ -24,24 +24,6 @@ internal sealed class DurableMutationExecutor
         Func<CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken) => ExecuteAsync(null, precondition, appendJournal, applyMemory, cancellationToken);
 
-    public async ValueTask<TResult> ExecuteAsync<TResult>(
-        CacheKey? conflictKey,
-        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        Func<CancellationToken, ValueTask> appendJournal,
-        Func<CancellationToken, ValueTask<TResult>> applyMemory,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(precondition);
-        ArgumentNullException.ThrowIfNull(appendJournal);
-        ArgumentNullException.ThrowIfNull(applyMemory);
-
-        await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
-
-        return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
-            ? await ExecuteGroupCommitAsync(conflictKey.Value, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
-            : await ExecuteMonolithicAsync(precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
-    }
-
     public async ValueTask<TResult> ExecuteAsync<TContext, TAppendState, TApplyState, TResult>(
         CacheKey? conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
@@ -135,6 +117,24 @@ internal sealed class DurableMutationExecutor
             if (state.PendingMemoryApply)
                 _journal.CompletePendingMemoryApply();
         }
+    }
+
+    private async ValueTask<TResult> ExecuteAsync<TResult>(
+        CacheKey? conflictKey,
+        Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<CancellationToken, ValueTask> appendJournal,
+        Func<CancellationToken, ValueTask<TResult>> applyMemory,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(precondition);
+        ArgumentNullException.ThrowIfNull(appendJournal);
+        ArgumentNullException.ThrowIfNull(applyMemory);
+
+        await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
+
+        return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
+            ? await ExecuteGroupCommitAsync(conflictKey.Value, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
+            : await ExecuteMonolithicAsync(precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<TResult> ExecuteGroupCommitAsync<TContext, TAppendState, TApplyState, TResult>(

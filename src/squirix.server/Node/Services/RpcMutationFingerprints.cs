@@ -11,19 +11,21 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Builds deterministic fingerprints for mutating cache RPC requests.</summary>
 internal static class RpcMutationFingerprints
 {
-    public static string GetOrAdd(string cacheName, string key, CacheEntryWire entry) => string.Join("get-or-add-async", cacheName, key, HashMessage(entry));
+    public static string GetOrAdd(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("get-or-add-async", cacheName, key, HashMessage(entry));
 
-    public static string Remove(string cacheName, string key) => string.Join("remove-async", cacheName, key);
+    public static string Remove(string cacheName, string key) => JoinFingerprint("remove-async", cacheName, key);
 
-    public static string RemoveExpiration(string cacheName, string key) => string.Join("remove-expiration-async", cacheName, key);
+    public static string RemoveExpiration(string cacheName, string key) => JoinFingerprint("remove-expiration-async", cacheName, key);
 
-    public static string SetEntry(string cacheName, string key, CacheEntryWire entry) => string.Join("set-entry-async", cacheName, key, HashMessage(entry));
+    public static string SetEntry(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("set-entry-async", cacheName, key, HashMessage(entry));
 
-    public static string Touch(string cacheName, string key, Duration expiration) => string.Join("touch-async", cacheName, key, HashMessage(expiration));
+    public static string Touch(string cacheName, string key, Duration expiration) => JoinFingerprint("touch-async", cacheName, key, HashMessage(expiration));
 
-    public static string TryAddEntry(string cacheName, string key, CacheEntryWire entry) => string.Join("try-add-entry-async", cacheName, key, HashMessage(entry));
+    public static string TryAddEntry(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("try-add-entry-async", cacheName, key, HashMessage(entry));
 
-    public static string Update(string cacheName, string key, CacheEntryWire entry) => string.Join("update-async", cacheName, key, HashMessage(entry));
+    public static string Update(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("update-async", cacheName, key, HashMessage(entry));
+
+    private static string JoinFingerprint(string separator, params ReadOnlySpan<string?> parts) => string.Join(separator, parts);
 
     private static string HashMessage(IMessage message)
     {

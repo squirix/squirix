@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 
 namespace Squirix.Server.TestKit.IO;
@@ -33,74 +32,17 @@ public static class FileKit
         File.WriteAllText(full, contents);
     }
 
-    private static bool IsWindowsReservedName(string seg)
-    {
-        var name = seg;
-        var dot = seg.IndexOf('.', StringComparison.Ordinal);
-        if (dot > 0)
-            name = seg[..dot];
-
-        string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        foreach (var reserved in fixedNames)
-        {
-            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3].ToUpperInvariant();
-        return (string.Equals(prefix, "COM", StringComparison.Ordinal) || string.Equals(prefix, "LPT", StringComparison.Ordinal)) &&
-               int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
     private static string ValidateAndGetFullPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Path must be a non-empty string.", nameof(path));
 
-        ValidateNoInvalidChars(path);
+        PathValidationKit.ValidateNoInvalidChars(path);
 
         var full = Path.GetFullPath(path);
-        ValidateSegments(full);
+        PathValidationKit.ValidateSegments(full);
 
         var fileName = Path.GetFileName(full);
         return string.IsNullOrWhiteSpace(fileName) ? throw new ArgumentException("Path must include a file name.", nameof(path)) : full;
-    }
-
-    private static void ValidateNoInvalidChars(string path)
-    {
-        if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
-            throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
-
-        if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
-            throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
-    }
-
-    private static void ValidateSegments(string fullPath)
-    {
-        var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-        var rest = fullPath[root.Length..];
-        var segments = rest.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var rawSeg in segments)
-        {
-            var seg = rawSeg.Trim();
-            if (seg.Length is 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
-
-            if (OperatingSystem.IsWindows())
-            {
-                if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
-
-                if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
-            }
-
-            if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
-        }
     }
 }

@@ -20,10 +20,7 @@ internal static class SquirixFrameworkServiceRegistration
             configureGrpc?.Invoke(o);
         });
         _ = services.AddHealthChecks();
-        _ = services.ConfigureHttpJsonOptions(static o =>
-        {
-            o.SerializerOptions.PropertyNameCaseInsensitive = true;
-        });
+        _ = services.ConfigureHttpJsonOptions(static o => o.SerializerOptions.PropertyNameCaseInsensitive = true);
         _ = services.AddSingleton<GrpcInvocationContextInterceptor>();
         _ = services.AddSingleton<ResourceExhaustedExceptionInterceptor>();
 

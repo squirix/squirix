@@ -4,14 +4,14 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 public enum BenchmarkValueShape
 {
     /// <summary>A small primitive long value.</summary>
-    PrimitiveLong,
+    PrimitiveLong = 0,
 
     /// <summary>A small string value.</summary>
-    SmallString,
+    SmallString = 1,
 
     /// <summary>A compact immutable custom record.</summary>
-    SmallCustomRecord,
+    SmallCustomRecord = 2,
 
     /// <summary>A mutable nested custom class.</summary>
-    NestedCustomClass,
+    NestedCustomClass = 3,
 }

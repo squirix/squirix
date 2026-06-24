@@ -3,23 +3,23 @@ namespace Squirix.Server.Storage.Journaling;
 internal enum JournalWorkKind
 {
     /// <summary>Append a framed journal record.</summary>
-    Append,
+    Append = 0,
 
     /// <summary>Append a framed journal record and complete one durability waiter after fsync.</summary>
-    AppendWithDurability,
+    AppendWithDurability = 1,
 
     /// <summary>Flush durability to disk.</summary>
-    Flush,
+    Flush = 2,
 
     /// <summary>Run a durability checkpoint (fsync + complete waiters) without an append payload.</summary>
-    DurabilityCheckpoint,
+    DurabilityCheckpoint = 3,
 
     /// <summary>Shut down the journal I/O thread.</summary>
-    Shutdown,
+    Shutdown = 4,
 
     /// <summary>Begin exclusive maintenance (flush and release segment).</summary>
-    MaintenanceBegin,
+    MaintenanceBegin = 5,
 
     /// <summary>End exclusive maintenance (re-sync manifest state).</summary>
-    MaintenanceEnd,
+    MaintenanceEnd = 6,
 }

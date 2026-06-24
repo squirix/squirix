@@ -57,12 +57,13 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="nodeId">Node identifier to stop.</param>
-    public async ValueTask StopNodeAsync(string nodeId)
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId"/> is not a running node.</exception>
+    public ValueTask StopNodeAsync(string nodeId)
     {
         if (!_nodes.Remove(nodeId, out var node))
             throw new InvalidOperationException($"Node '{nodeId}' is not running.");
 
-        await node.DisposeAsync();
+        return node.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()

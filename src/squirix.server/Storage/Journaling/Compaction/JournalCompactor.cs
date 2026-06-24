@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -181,8 +182,7 @@ internal static class JournalCompactor
         _ = FileEx.TryDeleteFile(backupJournalPath);
     }
 
-    private static int GetNextJournalSegmentIndex(JournalSegment[] segments) =>
-        segments.Length is 0 ? 1 : segments[^1].Index + 1;
+    private static int GetNextJournalSegmentIndex(JournalSegment[] segments) => segments.Length is 0 ? 1 : segments[^1].Index + 1;
 
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
@@ -203,21 +203,29 @@ internal static class JournalCompactor
                 if (IsExpired(e))
                     continue;
 
-                seq = await WriteCompactedPutEntryAsync(fs, k, JournalEntryPayload.Encode(e), seq, cancellationToken).ConfigureAwait(false);
+                var payloadLength = JournalEntryPayload.Encode(e, out var payloadBuffer);
+                try
+                {
+                    seq = await WriteCompactedPutEntryAsync(fs, k, payloadBuffer.AsMemory(0, payloadLength), seq, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(payloadBuffer);
+                }
             }
 
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static async Task WriteCompactedJournalHeaderAsync(FileStream fs, CancellationToken cancellationToken)
+    private static Task WriteCompactedJournalHeaderAsync(FileStream fs, CancellationToken cancellationToken)
     {
-        var header = new byte[JournalFraming.FileHeaderSize];
-        JournalFraming.WriteFileHeader(header);
-        await fs.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        JournalFraming.WriteFileHeader(fs);
+        return Task.CompletedTask;
     }
 
-    private static async Task<ulong> WriteCompactedPutEntryAsync(FileStream fs, CacheKey key, byte[] body, ulong sequence, CancellationToken cancellationToken)
+    private static async Task<ulong> WriteCompactedPutEntryAsync(FileStream fs, CacheKey key, ReadOnlyMemory<byte> body, ulong sequence, CancellationToken cancellationToken)
     {
         var record = new JournalRecord
         {
@@ -231,14 +239,22 @@ internal static class JournalCompactor
 
         var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
         var frameLen = JournalFraming.FrameTotalLength(bodyLen);
-        var frame = new byte[frameLen];
-        var bodySpan = frame.AsSpan(JournalFraming.FrameHeaderSize, bodyLen);
-        var encodedLength = BinaryJournalCodec.Encode(record, bodySpan);
-        if (encodedLength != bodyLen)
-            throw new InvalidOperationException("unexpected journal frame length after encode.");
+        var frame = ArrayPool<byte>.Shared.Rent(frameLen);
+        try
+        {
+            const int bodyOffset = JournalFraming.FrameHeaderSize;
+            var encodedLength = BinaryJournalCodec.Encode(record, frame.AsSpan(bodyOffset, bodyLen));
+            if (encodedLength != bodyLen)
+                throw new InvalidOperationException("unexpected journal frame length after encode.");
 
-        JournalFraming.WriteFrame(frame, bodySpan);
-        await fs.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
+            JournalFraming.WriteFrame(frame.AsSpan(0, frameLen), frame.AsSpan(bodyOffset, bodyLen));
+            await fs.WriteAsync(frame.AsMemory(0, frameLen), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(frame);
+        }
+
         return sequence + 1UL;
     }
 }

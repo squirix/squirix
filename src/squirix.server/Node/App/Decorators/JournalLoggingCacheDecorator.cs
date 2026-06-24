@@ -34,13 +34,13 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public async ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
-            return await _inner.RemoveAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+            return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
         var cacheKey = new CacheKey(cacheName, key);
-        return await _durableMutations.ExecuteAsync(
+        return _durableMutations.ExecuteAsync(
             cacheKey,
             static _ => ValueTask.FromResult(DurableMutationCondition<CacheRemoveResult<T>>.Apply()),
             this,
@@ -48,16 +48,16 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             static (self, args, ct) => self._journal.AppendRemoveAsync(args.CacheKey, ct),
             new RemoveMemoryArgs(operationId, cacheName, key),
             static (self, args, ct) => self._inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
     }
 
-    public async ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
-            return await _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken).ConfigureAwait(false);
+            return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
         var cacheKey = new CacheKey(cacheName, key);
-        return await _durableMutations.ExecuteAsync(
+        return _durableMutations.ExecuteAsync(
             cacheKey,
             static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             this,
@@ -65,7 +65,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             static (self, args, ct) => self._journal.AppendRemoveExpirationAsync(args.CacheKey, ct),
             new RemoveExpirationMemoryArgs(operationId, cacheName, key),
             static (self, args, ct) => self._inner.RemoveExpirationAsync(args.OperationId, args.CacheName, args.Key, ct),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
     }
 
     public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
@@ -96,14 +96,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         }
     }
 
-    public async ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
-            return await _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken).ConfigureAwait(false);
+            return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
         var cacheKey = new CacheKey(cacheName, key);
         var expiresUtc = DateTime.UtcNow.Add(expiration);
-        return await _durableMutations.ExecuteAsync(
+        return _durableMutations.ExecuteAsync(
             cacheKey,
             static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
             this,
@@ -111,7 +111,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             static (self, args, ct) => self._journal.AppendTouchExpirationAsync(args.CacheKey, args.ExpiresUtc, ct),
             new TouchMemoryArgs(operationId, cacheName, key, expiration),
             static (self, args, ct) => self._inner.TouchAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
     }
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>

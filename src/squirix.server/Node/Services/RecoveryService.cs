@@ -134,15 +134,15 @@ internal sealed class RecoveryService<T> : IHostedService
             case JournalOperationKind.Put:
             {
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
-                var payload = record.PutEntryBytes.Span;
-                if (!JournalEntryPayload.TryDecode<T>(payload, out var entry))
+                var putEntryBytes = record.PutEntryBytes;
+                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
                     throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
-                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), payload);
+                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), putEntryBytes.Span);
                 await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
                 _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, insertFingerprint);
                 break;

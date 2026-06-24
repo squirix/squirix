@@ -4,11 +4,11 @@ namespace Squirix.Server.Node.MemoryPressure;
 internal enum MemoryPressureState
 {
     /// <summary>Below the configured high-pressure threshold (including zero estimated usage).</summary>
-    Normal,
+    Normal = 0,
 
     /// <summary>At or above the high threshold and below the critical threshold.</summary>
-    High,
+    High = 1,
 
     /// <summary>At or above the critical threshold.</summary>
-    Critical,
+    Critical = 2,
 }

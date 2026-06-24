@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.TestKit.IO;
 using Squirix.TestKit.Testing;
@@ -43,15 +44,17 @@ public sealed class PublicApiGoldenSnapshotTests
         if (unexpected.Count > 0)
         {
             _ = sb.AppendLine("Unexpected (new) exports:");
-            foreach (var u in unexpected)
-                _ = sb.Append("  + ").AppendLine(u);
+            var unexpectedSpan = CollectionsMarshal.AsSpan(unexpected);
+            for (var i = 0; i < unexpectedSpan.Length; i++)
+                _ = sb.Append("  + ").AppendLine(unexpectedSpan[i]);
         }
 
         if (missing.Count > 0)
         {
             _ = sb.AppendLine("Missing (removed) exports:");
-            foreach (var m in missing)
-                _ = sb.Append("  - ").AppendLine(m);
+            var missingSpan = CollectionsMarshal.AsSpan(missing);
+            for (var i = 0; i < missingSpan.Length; i++)
+                _ = sb.Append("  - ").AppendLine(missingSpan[i]);
         }
 
         Assert.Fail(sb.ToString());

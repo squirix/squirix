@@ -38,10 +38,8 @@ internal sealed record PersistenceOptions
     /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
     public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
-    [JsonPropertyName("journalBackend")]
-    public JournalBackend JournalBackend { get; init; } = JournalBackend.Pipelined;
-
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     [JsonPropertyName("groupCommitMaxBatch")]
     public int JournalGroupCommitMaxBatch
     {
@@ -59,6 +57,7 @@ internal sealed record PersistenceOptions
     /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
     /// When zero, group commit is disabled and each durable mutation flushes independently.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     [JsonPropertyName("groupCommitMaxWait")]
     [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
     public TimeSpan JournalGroupCommitMaxWait
@@ -120,6 +119,7 @@ internal sealed record PersistenceOptions
     /// allocated lazily on first staged append. Frames larger than this value bypass coalescing and
     /// are written directly.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     [JsonPropertyName("journalWriteBatchBytes")]
     public int JournalWriteBatchBytes
     {

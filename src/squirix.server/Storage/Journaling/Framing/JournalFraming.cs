@@ -8,7 +8,10 @@ namespace Squirix.Server.Storage.Journaling.Framing;
 
 internal static class JournalFraming
 {
-    internal const int FileHeaderSize = 4 + 1; // Magic(4) + Version(1)
+    /// <summary>
+    /// Magic(4) + Version(1).
+    /// </summary>
+    internal const int FileHeaderSize = 4 + 1;
 
     internal const int FrameHeaderSize = JournalFrameEnvelope.HeaderSize;
 
@@ -75,6 +78,7 @@ internal static class JournalFraming
     /// </summary>
     /// <param name="fileLength">Total segment file length in bytes.</param>
     /// <param name="header">First <see cref="FileHeaderSize" /> bytes when the file is at least that long.</param>
+    /// <exception cref="InvalidDataException">Thrown when the segment file is non-empty but does not contain a valid journal header.</exception>
     private static void ThrowIfSegmentHeaderInvalid(long fileLength, ReadOnlySpan<byte> header)
     {
         switch (fileLength)

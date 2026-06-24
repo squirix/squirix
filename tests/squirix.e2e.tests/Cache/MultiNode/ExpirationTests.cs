@@ -6,6 +6,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for multi-node expiration, Touch, and RemoveExpiration semantics.</summary>
+/// <param name="fixture">Shared two-node cluster fixture.</param>
 public sealed class ExpirationTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
     /// <summary>Verifies remote AddAsync treats an expired key as absent and inserts a new value.</summary>

@@ -75,6 +75,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
     [Fact]
     public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
     {
@@ -179,6 +180,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     }
 
     /// <summary>Verifies trusted inter-node mTLS with internal owner-routing metadata is rejected when the key is not owned locally.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
     [Fact]
     public async Task TrustedInternalOwnerRpcOnWrongOwnerNodeReturnsStaleOwner()
     {

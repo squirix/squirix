@@ -14,6 +14,7 @@ namespace Squirix.Server.UnitTests.Cluster.Transport;
 public sealed class GrpcTransportEndpointsTests
 {
     /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the created handler is not a <see cref="SocketsHttpHandler"/>.</exception>
     [Fact]
     public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
     {
@@ -48,6 +49,7 @@ public sealed class GrpcTransportEndpointsTests
     }
 
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
     [Fact]
     public async Task CreateMtlsHandlerRejectsMissingPeerServerCertificate()
     {

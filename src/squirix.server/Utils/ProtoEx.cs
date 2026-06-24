@@ -186,6 +186,7 @@ internal static class ProtoEx
     ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
     ///     </para>
     /// </remarks>
+    /// <param name="value">Untyped cache scalar to normalize.</param>
     private static object? NormalizeUntypedScalarForUntypedCache(object? value)
     {
         return value switch
@@ -208,11 +209,9 @@ internal static class ProtoEx
                 return v.BoolValue;
 
             case Value.KindOneofCase.NumberValue:
-            {
                 var d = v.NumberValue;
                 var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? Convert.ToInt64(d) : d;
                 return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(d) : d2;
-            }
 
             case Value.KindOneofCase.NullValue:
                 return null;
@@ -328,6 +327,8 @@ internal static class ProtoEx
     /// <remarks>
     /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
     /// </remarks>
+    /// <param name="el">JSON subtree to convert.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
     private static Value ValueFromJson(JsonElement el)
     {
         return el.ValueKind switch
@@ -346,14 +347,13 @@ internal static class ProtoEx
 
     private static Struct WrapAsStruct(string fieldName, Value v)
     {
-        var s = new Struct
+        return new Struct
         {
             Fields =
             {
                 [fieldName] = v,
             },
         };
-        return s;
     }
 
     private static void WriteValue(Utf8JsonWriter w, Value v)

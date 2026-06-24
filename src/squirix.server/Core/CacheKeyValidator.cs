@@ -58,11 +58,13 @@ internal static class CacheKeyValidator
     /// <param name="key">The key to validate.</param>
     /// <param name="parameterName">The caller parameter name for the exception.</param>
     /// <returns>The original key when valid.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
     public static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
 
     /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
     /// <param name="error">The validation failure.</param>
     /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="error" /> is not a known validation failure.</exception>
     private static string GetMessage(CacheKeyValidationError error) => error switch
     {
         CacheKeyValidationError.Required => "Cache key is required.",

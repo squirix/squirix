@@ -33,12 +33,10 @@ public static class PathKit
     public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4, string path5) =>
-        CombineCore(true, path1, path2, path3, path4, path5);
+    public static string Combine(string path1, string path2, string path3, string path4, string path5) => CombineCore(true, path1, path2, path3, path4, path5);
 
     /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4, string path5, string path6) =>
-        CombineCore(true, path1, path2, path3, path4, path5, path6);
+    public static string Combine(string path1, string path2, string path3, string path4, string path5, string path6) => CombineCore(true, path1, path2, path3, path4, path5, path6);
 
     /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="sanitize">
@@ -51,8 +49,7 @@ public static class PathKit
     public static string Combine(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2);
 
     /// <inheritdoc cref="Combine(bool,string,string)" />
-    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) =>
-        CombineCore(sanitize, path1, path2, path3, path4);
+    public static string Combine(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4);
 
     /// <summary>
     /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
@@ -71,103 +68,32 @@ public static class PathKit
         return Combine(root, tfmSegment, ProcessSessionSegment);
     }
 
-    private static string BuildProcessSessionSegment()
+    private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
-        long startTicks;
-        try
+        if (heapBuffer is not null)
         {
-            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
-        }
-        catch (InvalidOperationException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (PlatformNotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
-        }
-        catch (NotSupportedException)
-        {
-            startTicks = DateTime.UtcNow.Ticks;
+            heapBuffer.Add(segment);
+            return;
         }
 
-        return $"pid{System.Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+        if (count >= buffer.Length)
+        {
+            heapBuffer = new List<string>(buffer.Length + 4);
+            for (var i = 0; i < count; i++)
+                heapBuffer.Add(buffer[i]);
+            heapBuffer.Add(segment);
+            return;
+        }
+
+        buffer[count++] = segment;
     }
 
-    private static string CombineCore(bool sanitize, string path1, string path2) =>
-        CombineCore(sanitize, path1, path2, null, null, null, null, 2);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3) =>
-        CombineCore(sanitize, path1, path2, path3, null, null, null, 3);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4) =>
-        CombineCore(sanitize, path1, path2, path3, path4, null, null, 4);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5) =>
-        CombineCore(sanitize, path1, path2, path3, path4, path5, null, 5);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5, string path6) =>
-        CombineCore(sanitize, path1, path2, path3, path4, path5, path6, 6);
-
-    private static string CombineCore(
-        bool sanitize,
-        string? path1,
-        string? path2,
-        string? path3,
-        string? path4,
-        string? path5,
-        string? path6,
-        int pathCount)
-    {
-        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
-        var count = 0;
-        List<string>? heapBuffer = null;
-
-        try
-        {
-            if (pathCount >= 1)
-                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
-            if (pathCount >= 2)
-                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
-            if (pathCount >= 3)
-                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
-            if (pathCount >= 4)
-                AppendIfNotWhiteSpace(path4, sanitize, buffer, ref count, ref heapBuffer);
-            if (pathCount >= 5)
-                AppendIfNotWhiteSpace(path5, sanitize, buffer, ref count, ref heapBuffer);
-            if (pathCount >= 6)
-                AppendIfNotWhiteSpace(path6, sanitize, buffer, ref count, ref heapBuffer);
-
-            return FinishCombine(buffer, count, heapBuffer);
-        }
-        finally
-        {
-            ArrayPool<string>.Shared.Return(buffer, true);
-        }
-    }
-
-    private static void AppendIfNotWhiteSpace(
-        string? path,
-        bool sanitize,
-        string[] buffer,
-        ref int count,
-        ref List<string>? heapBuffer)
+    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
     {
         if (string.IsNullOrWhiteSpace(path))
             return;
 
         AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
-    }
-
-    private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
-    {
-        if (count is 0)
-            return string.Empty;
-
-        if (heapBuffer is not null)
-            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
-
-        return JoinSegments(buffer.AsSpan(0, count));
     }
 
     private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
@@ -200,24 +126,79 @@ public static class PathKit
             AddSegment(SanitizePath(sanitizedParts[i]), buffer, ref count, ref heapBuffer);
     }
 
-    private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    private static string BuildProcessSessionSegment()
     {
+        long startTicks;
+        try
+        {
+            startTicks = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+        }
+        catch (InvalidOperationException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+        catch (NotSupportedException)
+        {
+            startTicks = DateTime.UtcNow.Ticks;
+        }
+
+        return $"pid{System.Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string CombineCore(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2, null, null, null, null, 2);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, null, null, null, 3);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4, null, null, 4);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5) =>
+        CombineCore(sanitize, path1, path2, path3, path4, path5, null, 5);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5, string path6) =>
+        CombineCore(sanitize, path1, path2, path3, path4, path5, path6, 6);
+
+    private static string CombineCore(bool sanitize, string? path1, string? path2, string? path3, string? path4, string? path5, string? path6, int pathCount)
+    {
+        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
+        var count = 0;
+        List<string>? heapBuffer = null;
+
+        try
+        {
+            if (pathCount >= 1)
+                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 2)
+                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 3)
+                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 4)
+                AppendIfNotWhiteSpace(path4, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 5)
+                AppendIfNotWhiteSpace(path5, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 6)
+                AppendIfNotWhiteSpace(path6, sanitize, buffer, ref count, ref heapBuffer);
+
+            return FinishCombine(buffer, count, heapBuffer);
+        }
+        finally
+        {
+            ArrayPool<string>.Shared.Return(buffer, true);
+        }
+    }
+
+    private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
+    {
+        if (count is 0)
+            return string.Empty;
+
         if (heapBuffer is not null)
-        {
-            heapBuffer.Add(segment);
-            return;
-        }
+            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
 
-        if (count >= buffer.Length)
-        {
-            heapBuffer = new List<string>(buffer.Length + 4);
-            for (var i = 0; i < count; i++)
-                heapBuffer.Add(buffer[i]);
-            heapBuffer.Add(segment);
-            return;
-        }
-
-        buffer[count++] = segment;
+        return JoinSegments(buffer.AsSpan(0, count));
     }
 
     private static string JoinSegments(ReadOnlySpan<string> segments)
@@ -244,25 +225,11 @@ public static class PathKit
                 {
                     state.Prefix.AsSpan(0, state.PrefixLen).CopyTo(dest);
                     dest[state.PrefixLen] = Path.DirectorySeparatorChar;
-                    state.Segment.AsSpan().CopyTo(dest[(state.PrefixLen + 1)..]);
+                    state.Segment.CopyTo(dest[(state.PrefixLen + 1)..]);
                 });
         }
 
         return result;
-    }
-
-    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
-    {
-        var length = span.Length;
-        while (length > 0)
-        {
-            var last = span[length - 1];
-            if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
-                break;
-            length--;
-        }
-
-        return length;
     }
 
     /// <summary>
@@ -302,5 +269,19 @@ public static class PathKit
         }
 
         return s;
+    }
+
+    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
+    {
+        var length = span.Length;
+        while (length > 0)
+        {
+            var last = span[length - 1];
+            if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
+                break;
+            length--;
+        }
+
+        return length;
     }
 }

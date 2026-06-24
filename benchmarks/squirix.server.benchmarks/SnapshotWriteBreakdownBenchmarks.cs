@@ -7,12 +7,13 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Isolates binary snapshot write costs: temp-file write and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class SnapshotWriteBreakdownBenchmarks
+public sealed class SnapshotWriteBreakdownBenchmarks
 {
     private SnapshotWriteBreakdownSession? _session;
     private int _operationsPerInvoke;
 
     /// <summary>Full binary snapshot publish path (tmp write + rename).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark(Baseline = true)]
     public void PublishSnapshot()
     {
@@ -22,6 +23,7 @@ public class SnapshotWriteBreakdownBenchmarks
     }
 
     /// <summary>Writes a complete temp snapshot file and flushes it to disk (no publish rename).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void WriteTempFileOnly()
     {
@@ -31,6 +33,7 @@ public class SnapshotWriteBreakdownBenchmarks
     }
 
     /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
     [Benchmark]
     public void ManifestWriteOnly()
     {

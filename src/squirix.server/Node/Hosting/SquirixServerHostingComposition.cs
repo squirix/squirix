@@ -26,7 +26,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixServerHostingComposition
 {
-    public static async Task ConfigureBuilderAsync(
+    public static Task ConfigureBuilderAsync(
         WebApplicationBuilder builder,
         SquirixServerOptions options,
         SquirixServerExtensionOptions? extensions = null,
@@ -36,13 +36,13 @@ internal static class SquirixServerHostingComposition
         ArgumentNullException.ThrowIfNull(options);
 
         var cluster = SquirixServerConfiguration.ToClusterConfig(options);
-        await ConfigureBuilderAsync(
+        return ConfigureBuilderAsync(
             builder,
             cluster,
             options.WaitForRecovery,
             persistenceOptionsOverride: ResolvePersistenceOptions(options),
             extensions: extensions,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken);
     }
 
     [SuppressMessage(

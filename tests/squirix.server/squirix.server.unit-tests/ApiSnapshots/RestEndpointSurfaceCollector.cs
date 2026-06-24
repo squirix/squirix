@@ -70,8 +70,8 @@ internal static class RestEndpointSurfaceCollector
 
                 var httpMethods = new List<string>(methods.HttpMethods);
                 httpMethods.Sort(StringComparer.Ordinal);
-                foreach (var method in httpMethods)
-                    routes.Add($"{method} {pattern}");
+                for (var methodIndex = 0; methodIndex < httpMethods.Count; methodIndex++)
+                    routes.Add($"{httpMethods[methodIndex]} {pattern}");
             }
         }
 

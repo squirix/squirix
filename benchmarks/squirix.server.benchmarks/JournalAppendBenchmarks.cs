@@ -14,7 +14,7 @@ namespace Squirix.Server.Benchmarks;
 [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-public class JournalAppendBenchmarks
+public sealed class JournalAppendBenchmarks
 {
     private const int OperationsPerInvoke = 100_000;
     private JournalBenchmarkHost? _host;
@@ -42,6 +42,7 @@ public class JournalAppendBenchmarks
 
     /// <summary>Appends PUT operations and awaits durability after each append.</summary>
     /// <returns>A task that completes when all operations finish.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
     [Benchmark(OperationsPerInvoke = OperationsPerInvoke)]
     public async Task AppendPutAsync()
     {

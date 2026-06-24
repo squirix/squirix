@@ -12,8 +12,10 @@ internal sealed class JournalWriteBatchBuffer
     private readonly int _capacityBytes;
     private readonly List<PendingAppend> _pending = [];
 
-    // Allocated lazily on first staging so idle coordinators (and the many created in tests) do not
-    // each hold a multi-megabyte buffer.
+    /// <summary>
+    /// Allocated lazily on first staging so idle coordinators (and the many created in tests) do not
+    /// each hold a multi-megabyte buffer.
+    /// </summary>
     private byte[]? _buffer;
 
     public JournalWriteBatchBuffer(int capacityBytes = DefaultCapacityBytes)

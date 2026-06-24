@@ -61,9 +61,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        var pointerBuffer = new byte[ManifestPointer.Size];
-        ManifestPointer.Write(pointerBuffer, 123);
-        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), pointerBuffer, DefaultCancellationToken);
+        WriteCurrentPointer(Dir, 123);
 
         _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -92,5 +90,12 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)
+    {
+        Span<byte> pointerBuffer = stackalloc byte[ManifestPointer.Size];
+        ManifestPointer.Write(pointerBuffer, manifestIndex);
+        File.WriteAllBytes(PathKit.Combine(dir, "man-current"), pointerBuffer);
     }
 }

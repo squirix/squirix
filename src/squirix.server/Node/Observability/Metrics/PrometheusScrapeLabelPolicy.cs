@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -8,11 +9,11 @@ namespace Squirix.Server.Node.Observability.Metrics;
 /// <summary>Label filtering for the public HTTP Prometheus scrape profile.</summary>
 internal static class PrometheusScrapeLabelPolicy
 {
-    private static readonly HashSet<string> ExcludedLabelNames = new(StringComparer.Ordinal)
+    private static readonly FrozenSet<string> ExcludedLabelNames = new[]
     {
         "cache",
         "exception_type",
-    };
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     /// <summary>Builds a Prometheus label set string from sorted tags.</summary>
     /// <param name="tags">Sorted tag list.</param>
@@ -62,7 +63,23 @@ internal static class PrometheusScrapeLabelPolicy
         return filtered;
     }
 
-    private static string Escape(string s) => s
-                                             .Replace("\\", @"\\", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)
-                                             .Replace("\"", "\\\"", StringComparison.Ordinal);
+    private static string Escape(string s)
+    {
+        if (s.Length is 0)
+            return string.Empty;
+
+        var sb = new StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            _ = s[i] switch
+            {
+                '\\' => sb.Append(@"\\"),
+                '\n' => sb.Append(@"\n"),
+                '"' => sb.Append(@"\"""),
+                _ => sb.Append(s[i]),
+            };
+        }
+
+        return sb.ToString();
+    }
 }

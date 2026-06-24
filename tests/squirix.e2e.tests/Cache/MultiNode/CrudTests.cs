@@ -7,6 +7,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for multi-node public CRUD and cross-node visibility.</summary>
+/// <param name="fixture">Shared two-node cluster fixture.</param>
 public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>

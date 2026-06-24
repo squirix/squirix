@@ -94,7 +94,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public void RequireOperationIdRejectsEmptyValue()
     {
-        var ex = Assert.Throws<RpcException>(static () => { _ = RpcMutationContracts.RequireOperationId(string.Empty); });
+        var ex = Assert.Throws<RpcException>(static () => _ = RpcMutationContracts.RequireOperationId(string.Empty));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
@@ -104,7 +104,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public void RequireOperationIdRejectsInvalidFormat()
     {
-        var ex = Assert.Throws<RpcException>(static () => { _ = RpcMutationContracts.RequireOperationId("not-a-valid-operation-id"); });
+        var ex = Assert.Throws<RpcException>(static () => _ = RpcMutationContracts.RequireOperationId("not-a-valid-operation-id"));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
@@ -115,7 +115,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public void RequireOperationIdRejectsTooLongValue()
     {
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
-        var ex = Assert.Throws<RpcException>(() => { _ = RpcMutationContracts.RequireOperationId(tooLong); });
+        var ex = Assert.Throws<RpcException>(() => _ = RpcMutationContracts.RequireOperationId(tooLong));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
@@ -126,7 +126,7 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     public void RequireOperationIdRejectsUppercaseHex()
     {
         var uppercase = ValidOperationId.ToUpperInvariant();
-        var ex = Assert.Throws<RpcException>(() => { _ = RpcMutationContracts.RequireOperationId(uppercase); });
+        var ex = Assert.Throws<RpcException>(() => _ = RpcMutationContracts.RequireOperationId(uppercase));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);

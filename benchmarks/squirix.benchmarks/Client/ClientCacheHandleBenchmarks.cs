@@ -6,21 +6,21 @@ namespace Squirix.Benchmarks.Client;
 
 /// <summary>Phase-2 remote client benchmark: acquire a cache handle on an existing connection.</summary>
 [MemoryDiagnoser]
-public class ClientCacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
+public sealed class ClientCacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
 {
     /// <summary>Measures cache handle acquisition after connect.</summary>
     /// <returns>A task that completes after the cache handle is acquired.</returns>
     [Benchmark]
     [InvocationCount(1)]
-    public async Task GetCacheHandleAsync() => await GetCacheHandleAndDisposeAsync("bench-handle").ConfigureAwait(false);
+    public Task GetCacheHandleAsync() => GetCacheHandleAndDisposeAsync("bench-handle");
 
     /// <summary>Starts the benchmark node.</summary>
     /// <returns>A task that completes after the node is started.</returns>
     [GlobalSetup]
-    public async Task SetupBenchmarkAsync() => await StartNodeAsync().ConfigureAwait(false);
+    public Task SetupBenchmarkAsync() => StartNodeAsync();
 
     /// <summary>Stops the benchmark node.</summary>
     /// <returns>A task that completes after the node is stopped.</returns>
     [GlobalCleanup]
-    public async Task TeardownBenchmarkAsync() => await StopNodeAsync().ConfigureAwait(false);
+    public Task TeardownBenchmarkAsync() => StopNodeAsync();
 }

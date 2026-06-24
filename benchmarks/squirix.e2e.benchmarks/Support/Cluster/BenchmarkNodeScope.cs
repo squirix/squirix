@@ -58,11 +58,18 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         BenchmarkRuntime.EnsureInitialized();
 
-        var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
-        var dataDir = usePersistence ? new TempDirectory("squirix-e2e-bench") : null;
+        TempDirectory? dataDir = null;
 
-        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir!, cancellationToken).ConfigureAwait(false)
-            : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+        TestNodeHost host;
+        if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
+        {
+            dataDir = new TempDirectory("squirix-e2e-bench");
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+        }
 
         try
         {

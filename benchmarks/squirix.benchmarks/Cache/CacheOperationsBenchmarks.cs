@@ -9,7 +9,7 @@ namespace Squirix.Benchmarks.Cache;
 /// <summary>Phase-3 remote cache operation benchmarks over a single long-lived client session.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
+public sealed class CacheOperationsBenchmarks : RemoteBenchmarkLifecycleBase
 {
     private const int CheapBatch = 10_000;
     private const string ExistingKey = "bench_existing";

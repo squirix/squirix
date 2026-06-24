@@ -4,8 +4,8 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 public enum E2EBenchmarkDurabilityMode
 {
     /// <summary>In-memory cache without journal/snapshot persistence.</summary>
-    Ephemeral,
+    Ephemeral = 0,
 
     /// <summary>journal/snapshot persistence enabled.</summary>
-    Persistence,
+    Persistence = 1,
 }

@@ -99,7 +99,7 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
         Assert.Equal("yes", recovered.Value);
     }
 
-    private static async Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
+    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
     {
         var gate = new JournalStartupGate(false);
         var recovery = new RecoveryService<object?>(
@@ -109,6 +109,6 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
             new RecoveryOptions { BlockOnStart = true },
             gate,
             NullLogger<RecoveryService<object?>>.Instance);
-        await recovery.StartAsync(DefaultCancellationToken);
+        return recovery.StartAsync(DefaultCancellationToken);
     }
 }

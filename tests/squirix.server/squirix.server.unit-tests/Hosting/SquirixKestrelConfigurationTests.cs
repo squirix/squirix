@@ -81,7 +81,7 @@ public sealed class SquirixKestrelConfigurationTests
             Url = "http://localhost:5001",
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => { SquirixKestrelConfiguration.EnsureHttpsTransport(cluster); });
+        var ex = Assert.Throws<InvalidOperationException>(() => SquirixKestrelConfiguration.EnsureHttpsTransport(cluster));
         Assert.Contains("HTTPS", ex.Message, StringComparison.Ordinal);
     }
 

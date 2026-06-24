@@ -77,7 +77,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
 
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => { await gate.WaitAsync(gateWait.Token).AsTask(); });
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await gate.WaitAsync(gateWait.Token).AsTask());
     }
 
     private static byte[] BuildPutPayload(string value) => JournalEntryPayloadKit.EncodePut(value);

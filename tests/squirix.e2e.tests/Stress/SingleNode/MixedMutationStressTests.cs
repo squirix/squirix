@@ -63,7 +63,7 @@ public sealed class MixedMutationStressTests : StressTestBase
     {
         var expectedValues = new HashSet<string>(StringComparer.Ordinal);
         for (var w = 0; w < writers; w++)
-            _ = expectedValues.Add(string.Concat("w", w.ToString(CultureInfo.InvariantCulture), suffix));
+            _ = expectedValues.Add($"w{w.ToString(CultureInfo.InvariantCulture)}{suffix}");
 
         return expectedValues;
     }
@@ -82,7 +82,7 @@ public sealed class MixedMutationStressTests : StressTestBase
     {
         var keys = new string[keyCount];
         for (var k = 0; k < keyCount; k++)
-            keys[k] = string.Concat("mixed:", k.ToString(CultureInfo.InvariantCulture));
+            keys[k] = $"mixed:{k.ToString(CultureInfo.InvariantCulture)}";
 
         return keys;
     }
@@ -102,14 +102,14 @@ public sealed class MixedMutationStressTests : StressTestBase
 
     private static async Task SetKeysFromWriterAsync(ICache<object?> cache, string[] keys, int writer, CancellationToken token)
     {
-        var value = string.Concat("w", writer.ToString(CultureInfo.InvariantCulture), "-v2");
+        var value = $"w{writer.ToString(CultureInfo.InvariantCulture)}-v2";
         for (var k = 0; k < keys.Length; k++)
             await cache.SetAsync(keys[k], value, cancellationToken: token);
     }
 
     private static async Task TryAddKeysFromWriterAsync(ICache<object?> cache, string[] keys, int writer, int[] addSuccesses, CancellationToken token)
     {
-        var value = string.Concat("w", writer.ToString(CultureInfo.InvariantCulture));
+        var value = $"w{writer.ToString(CultureInfo.InvariantCulture)}";
         for (var k = 0; k < keys.Length; k++)
         {
             if (await cache.TryAddAsync(keys[k], value, cancellationToken: token))

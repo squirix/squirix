@@ -16,6 +16,7 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     private TwoNodeNamedCaches<object?>? _namedCaches;
 
     /// <summary>Gets the shared object-typed named caches for both nodes.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
     public TwoNodeNamedCaches<object?> NamedCaches
     {
         get
@@ -40,6 +41,7 @@ public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
     /// <typeparam name="T">Cached value type.</typeparam>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Named caches for both nodes.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the fixture is not initialized.</exception>
     public ValueTask<TwoNodeNamedCaches<T>> CreateNamedCachesAsync<T>(CancellationToken cancellationToken)
     {
         if (_cluster is null || _clientA is null || _clientB is null)

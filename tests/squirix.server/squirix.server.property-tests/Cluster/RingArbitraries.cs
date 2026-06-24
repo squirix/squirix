@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using FsCheck;
 using FsCheck.Fluent;
 using JetBrains.Annotations;
@@ -40,21 +41,22 @@ internal static class RingArbitraries
     /// </returns>
     private static Gen<string[]> GenNodes(int min, int max)
     {
-        return Gen.Choose(min, max).SelectMany(
+        return Gen.Choose(min, max).SelectMany<int, List<int>, string[]>(
             static size => Gen.Choose(0, int.MaxValue).ListOf(size),
             static (_, ints) =>
             {
                 var nodes = new List<string>(ints.Count);
                 var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var value in ints)
+                var intsSpan = CollectionsMarshal.AsSpan(ints);
+                for (var i = 0; i < intsSpan.Length; i++)
                 {
+                    var value = intsSpan[i];
                     var node = $"node-{value.ToString(CultureInfo.InvariantCulture)}";
                     if (seen.Add(node))
                         nodes.Add(node);
                 }
 
-                string[] result = [.. nodes];
-                return result;
+                return [.. nodes];
             });
     }
 }

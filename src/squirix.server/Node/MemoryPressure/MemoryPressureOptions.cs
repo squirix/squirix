@@ -14,6 +14,7 @@ internal sealed record MemoryPressureOptions
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="MemoryPressureState.Critical" />.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not in the range (0, 100].</exception>
     public int CriticalPressureThresholdPercent
     {
         get;
@@ -29,6 +30,7 @@ internal sealed record MemoryPressureOptions
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="MemoryPressureState.High" />.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not in the range (0, 100].</exception>
     public int HighPressureThresholdPercent
     {
         get;
@@ -42,6 +44,7 @@ internal sealed record MemoryPressureOptions
     }
 
     /// <summary>Gets the maximum estimated cache size in bytes used for pressure thresholds.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     public long MaxEstimatedCacheBytes
     {
         get;
@@ -57,6 +60,7 @@ internal sealed record MemoryPressureOptions
     /// <summary>
     /// Validates configuration; throws <see cref="InvalidOperationException" /> when invalid.
     /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when thresholds or cache byte limits are invalid.</exception>
     public void Validate()
     {
         if (MaxEstimatedCacheBytes <= 0)

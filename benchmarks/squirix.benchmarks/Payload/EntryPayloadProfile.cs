@@ -4,14 +4,14 @@ namespace Squirix.Benchmarks.Payload;
 public enum EntryPayloadProfile
 {
     /// <summary>A 256-byte string payload.</summary>
-    Small256B,
+    Small256B = 0,
 
     /// <summary>A 64 KiB string payload.</summary>
-    Medium64KiB,
+    Medium64KiB = 1,
 
     /// <summary>A 1 MiB string payload.</summary>
-    Large1MiB,
+    Large1MiB = 2,
 
     /// <summary>A string payload at the fixed entry size limit.</summary>
-    NearLimitEntry,
+    NearLimitEntry = 3,
 }

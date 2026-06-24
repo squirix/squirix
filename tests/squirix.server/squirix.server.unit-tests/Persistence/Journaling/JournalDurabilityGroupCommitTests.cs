@@ -251,19 +251,25 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(options);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+        var journal = await JournalCoordinatorFactory.CreateAsync(
             options,
             await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
             manifestStore,
             new JournalStartupGate(),
             DefaultCancellationToken);
 
-        await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, DefaultCancellationToken);
-        var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
-
-        await journal.DisposeAsync();
-        await WaitUntilCompletedAsync(durability);
-        Assert.True(durability.IsFaulted);
+        try
+        {
+            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, DefaultCancellationToken);
+            var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
+            await journal.DisposeAsync();
+            await WaitUntilCompletedAsync(durability);
+            Assert.True(durability.IsFaulted);
+        }
+        finally
+        {
+            await journal.DisposeAsync();
+        }
     }
 
     private static Task AsSingleUseTaskAsync(ValueTask valueTask) => valueTask.AsTask();

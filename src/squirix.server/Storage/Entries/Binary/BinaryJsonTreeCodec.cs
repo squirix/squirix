@@ -45,7 +45,7 @@ internal static class BinaryJsonTreeCodec
         if (!TryReadNode(source, out var node, out bytesRead))
             return false;
 
-        element = node is null ? default : JsonSerializer.SerializeToElement(node);
+        element = node is null ? default : JsonSerializer.SerializeToElement(node, BinaryJsonTreeJsonContext.Default.JsonNode);
         return true;
     }
 

@@ -114,12 +114,12 @@ internal static class JournalRecoveryScan
     {
         try
         {
-            var validLength = await ReadValidSegmentLengthAsync(path, cancellationToken).ConfigureAwait(false);
-            if (validLength == writer.Length)
+            var length = await ReadValidSegmentLengthAsync(path, cancellationToken).ConfigureAwait(false);
+            if (length == writer.Length)
                 return;
 
-            writer.Truncate(validLength);
-            if (validLength == 0)
+            writer.Truncate(length);
+            if (length == 0)
                 WriteFreshFileHeader(writer);
 
             writer.Fsync();

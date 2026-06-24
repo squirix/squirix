@@ -37,11 +37,11 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         await using var node = await StartNodeAsync(
             restartUrl,
             NodeId,
+            servicesConfigure: services => RecoveryReplayTestRegistration.AddDelayedReplay(services, replayDelay),
             usePersistence: true,
             cleanTestDir: false,
             extraScope: Scope,
-            waitForRecovery: false,
-            servicesConfigure: services => RecoveryReplayTestRegistration.AddDelayedReplay(services, replayDelay));
+            waitForRecovery: false);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Address));
         Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Address));

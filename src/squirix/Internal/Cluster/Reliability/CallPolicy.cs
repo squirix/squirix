@@ -159,11 +159,11 @@ internal sealed class CallPolicy : ICallPolicy
         return (cts, true);
     }
 
-    private async Task BackoffAsync(TimeSpan d, CancellationToken outerCt)
+    private Task BackoffAsync(TimeSpan span, CancellationToken cancellationToken)
     {
         CallPolicyMetrics.BackoffsTotal.WithLabels(_peer).Inc(1);
-        CallPolicyMetrics.BackoffSeconds.Observe(_peer, d);
-        await Task.Delay(d, _timeProvider, outerCt).ConfigureAwait(false);
+        CallPolicyMetrics.BackoffSeconds.Observe(_peer, span);
+        return Task.Delay(span, _timeProvider, cancellationToken);
     }
 
     private async Task<Exception> BackoffOrCaptureCancellationAsync(TimeSpan delay, Exception last, CancellationToken outerCt)
@@ -200,6 +200,7 @@ internal sealed class CallPolicy : ICallPolicy
     /// When the per-attempt cap matches the remaining RPC deadline, scheduling a second per-attempt timeout on the
     /// linked source races the budget token and can classify the same wall-clock timeout as a per-attempt cancel.
     /// </summary>
+    /// <param name="attemptCts">Per-attempt cancellation source linked to the RPC budget.</param>
     private void ConfigurePerAttemptTimeout(CancellationTokenSource attemptCts)
     {
         var now = DateTime.UtcNow;
@@ -308,7 +309,7 @@ internal sealed class CallPolicy : ICallPolicy
         CancellationToken effectiveToken,
         CancellationToken cancellationToken)
     {
-        using var attemptCts = effectiveToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(effectiveToken) : new CancellationTokenSource();
+        using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
         ConfigurePerAttemptTimeout(attemptCts);
 
         try
