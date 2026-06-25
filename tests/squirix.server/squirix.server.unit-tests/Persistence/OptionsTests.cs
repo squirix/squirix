@@ -70,7 +70,6 @@ public sealed class OptionsTests
     [Theory]
     [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
     [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
-    [InlineData(nameof(PersistenceOptions.SnapshotIntervalSec))]
     [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
     public void FieldBackedValidationRejectsNonPositiveScalars(string propertyName)
@@ -87,7 +86,7 @@ public sealed class OptionsTests
     public void JsonDeserializeBindsValidatedScalars()
     {
         const string json =
-            """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+            """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = new SystemTextJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
