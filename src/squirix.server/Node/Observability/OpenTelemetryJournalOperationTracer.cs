@@ -1,8 +1,7 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -25,9 +24,6 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     private static void ApplyContextTags(Activity activity, in JournalOperationTraceContext? context)
     {
         if (!activity.IsAllDataRequested)
-            return;
-
-        if (context is null)
             return;
 
         if (context.Key is not null)
@@ -70,5 +66,14 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         }
 
         public void Dispose() => _activity.Dispose();
+
+        public void SetFrameBytes(int payloadBytes)
+        {
+            if (!_activity.IsAllDataRequested)
+                return;
+
+            _ = _activity.SetTag("journal.frame.payload_bytes", payloadBytes);
+            _ = _activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
+        }
     }
 }

@@ -8,29 +8,35 @@ namespace Squirix.Server.Storage;
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
 internal sealed class ManifestRollPublisher : IDisposable
 {
-    private static readonly ParameterizedThreadStart ProcessQueueCallback = static state =>
-    {
-        if (state is ManifestRollPublisher publisher)
-            publisher.ProcessQueue();
-    };
-
-    private readonly ManifestStore _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
-    private readonly BlockingCollection<ManifestRollRequest> _queue = [];
+    private readonly ManifestStore _manifestStore;
+    private readonly BlockingCollection<ManifestRollRequest> _queue = new();
     private readonly Thread _thread;
     private int _disposed;
     private int _inFlight;
 
-    internal ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
+    public ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
-        _thread = new Thread(ProcessQueueCallback)
-        {
-            IsBackground = true,
-            Name = "squirix-manifest-roll",
-        };
-        _thread.Start(this);
+        _thread = new Thread(ProcessQueue) { IsBackground = true, Name = "squirix-manifest-roll" };
+        _thread.Start();
+    }
+
+    /// <summary>Enqueues a roll; <paramref name="onSuccess" /> runs on the manifest thread after a successful publish.</summary>
+    /// <param name="currentJournal">Journal segment index being rolled to.</param>
+    /// <param name="nextSequence">Next journal sequence after the roll.</param>
+    /// <param name="onSuccess">Callback invoked after manifest publish succeeds.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="onSuccess" /> is null.</exception>
+    /// <exception cref="ObjectDisposedException">Thrown when the publisher has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the roll queue is shutting down.</exception>
+    public void PublishRoll(int currentJournal, ulong nextSequence, Action onSuccess)
+    {
+        ArgumentNullException.ThrowIfNull(onSuccess);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
+
+        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
+            throw new InvalidOperationException("manifest roll publisher is shutting down.");
     }
 
     public void Dispose()
@@ -43,27 +49,11 @@ internal sealed class ManifestRollPublisher : IDisposable
         _queue.Dispose();
     }
 
-    /// <summary>Enqueues a roll; <paramref name="onSuccess" /> runs on the manifest thread after a successful publish.</summary>
-    /// <param name="currentJournal">Journal segment index being rolled to.</param>
-    /// <param name="nextSequence">Next journal sequence after the roll.</param>
-    /// <param name="onSuccess">Callback invoked after manifest publish succeeds.</param>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="onSuccess" /> is null.</exception>
-    /// <exception cref="ObjectDisposedException">Thrown when the publisher has been disposed.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the roll queue is shutting down.</exception>
-    internal void PublishRoll(int currentJournal, ulong nextSequence, Action onSuccess)
-    {
-        ArgumentNullException.ThrowIfNull(onSuccess);
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) is 1, this);
-
-        if (!_queue.TryAdd(new ManifestRollRequest(currentJournal, nextSequence, onSuccess), TimeSpan.FromSeconds(30)))
-            throw new InvalidOperationException("manifest roll publisher is shutting down.");
-    }
-
     private void ProcessQueue()
     {
         try
         {
-            while (_queue.TryTake(out var request, Timeout.InfiniteTimeSpan))
+            foreach (var request in _queue.GetConsumingEnumerable(CancellationToken.None))
             {
                 _ = Interlocked.Increment(ref _inFlight);
                 try
@@ -90,10 +80,10 @@ internal sealed class ManifestRollPublisher : IDisposable
 
     private sealed class ManifestRollRequest
     {
-        private readonly Action<Exception>? _captureFailure;
         private readonly Action? _onSuccess;
+        private readonly Action<Exception>? _captureFailure;
 
-        internal ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
+        public ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
         {
             CurrentJournal = currentJournal;
             NextSequence = nextSequence;
@@ -101,12 +91,12 @@ internal sealed class ManifestRollPublisher : IDisposable
             _captureFailure = captureFailure;
         }
 
-        internal int CurrentJournal { get; }
+        public int CurrentJournal { get; }
 
-        internal ulong NextSequence { get; }
+        public ulong NextSequence { get; }
 
-        internal void CaptureFailure(Exception ex) => _captureFailure?.Invoke(ex);
+        public void CaptureFailure(Exception ex) => _captureFailure?.Invoke(ex);
 
-        internal void SignalSuccess() => _onSuccess?.Invoke();
+        public void SignalSuccess() => _onSuccess?.Invoke();
     }
 }

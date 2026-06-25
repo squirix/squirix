@@ -19,9 +19,9 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     [Fact]
     public async Task HealthEndpointAvailableOnPrimaryHttpsListener()
     {
-        var uri = GetNextHttpUri();
+        var url = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() });
+        await using var node = await StartNodeAsync(url, NodeId, security: new TestNodeSecurityOptions());
 
         var response = await HttpClient.GetAsync(new Uri(uri, "/health"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -32,17 +32,15 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     public async Task NonLoopbackListenWithJwtSucceeds()
     {
         var mainPort = AllocateDedicatedPort();
-        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
 
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()) });
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(TestJwtHelper.CreateRandomCredentials()));
 
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
@@ -51,10 +49,10 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
     public async Task ProductionExternalUrlRequiresAuthentication()
     {
         var mainPort = AllocateDedicatedPort();
-        var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
+        var url = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
-            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            StartNodeAsync(url, NodeId, security: new TestNodeSecurityOptions()).AsTask());
         Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);
     }
 }

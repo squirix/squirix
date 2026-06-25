@@ -1,7 +1,6 @@
 using System;
-using Squirix.Server.Runtime;
+using Squirix.Server.Serialization;
 using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -31,7 +30,7 @@ public sealed class JournalCompactionOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsInvalidScalars()
     {
-        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static value => _ = new JournalCompactionOptions { MinTailSegments = value });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalCompactionOptions { MinTailSegments = -1 });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);
@@ -42,7 +41,7 @@ public sealed class JournalCompactionOptionsTests
     public void JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"enabled":true,"minTailSegments":3,"minTailBytes":4096,"minGap":"00:00:30"}""";
-        var options = new ServerJsonSerializer().Deserialize<JournalCompactionOptions>(json);
+        var options = new SystemTextJsonSerializer().Deserialize<JournalCompactionOptions>(json);
         Assert.NotNull(options);
         Assert.True(options.Enabled);
         Assert.Equal(3, options.MinTailSegments);

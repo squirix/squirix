@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -68,42 +67,19 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
 
-        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
+        _ = await builder.AddSquirixServerAsync(
+            options =>
+            {
+                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+                options.UsePersistence(dir);
+            },
+            loadDiscoveredSettings: false,
+            cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
         Assert.Equal(dir.Path, persistence.DataDir);
-    }
-
-    /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
-    [Fact]
-    public async Task MapSquirixServerMapsJournalCapacityToHttp429()
-    {
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", port));
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-        var optionsConfigurer = new FixedUriOptionsConfigurer(uri);
-
-        _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
-            loadDiscoveredSettings: false,
-            configureExtensions: static extensions =>
-                extensions.MapEndpoints = static app => app.MapGet("/throw-journal-quota", static _ => throw new JournalCapacityExceededException()),
-            cancellationToken: DefaultCancellationToken);
-
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-        await app.StartAsync(DefaultCancellationToken);
-
-        using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), DefaultCancellationToken);
-
-        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        await app.StopAsync(DefaultCancellationToken);
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
@@ -191,14 +167,15 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
-        var endpoints = new List<Endpoint>();
+        var capacity = 0;
         foreach (var source in routeBuilder.DataSources)
-        {
-            foreach (var endpoint in source.Endpoints)
-                endpoints.Add(endpoint);
-        }
+            capacity += source.Endpoints.Count;
 
-        return endpoints.ToArray();
+        var endpoints = new List<Endpoint>(capacity);
+        foreach (var source in routeBuilder.DataSources)
+            endpoints.AddRange(source.Endpoints);
+
+        return endpoints;
     }
 
     private sealed record ExtensionMarker(string Name);

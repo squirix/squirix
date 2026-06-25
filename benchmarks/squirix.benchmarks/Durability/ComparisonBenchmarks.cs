@@ -11,7 +11,7 @@ namespace Squirix.Benchmarks.Durability;
 /// <summary>Compares client SDK throughput with ephemeral and persistent server modes.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class ComparisonBenchmarks
+public sealed class DurabilityComparisonBenchmarks
 {
     private const int Batch = 1_024;
     private const string CacheName = "durability-comparison";

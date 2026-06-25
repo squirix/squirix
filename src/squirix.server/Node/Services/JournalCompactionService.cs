@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
@@ -26,7 +27,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
-    private readonly Coordinator _snap;
+    private readonly SnapshotCoordinator<T> _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
     private int _consecutiveFailures;
@@ -34,10 +35,23 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private int _snapshotSubscriptionState;
     private CancellationToken _stoppingToken;
 
-    internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
+    public JournalCompactionService(
+        ILogger<JournalCompactionService<T>> log,
+        IOptions<JournalCompactionOptions> opt,
+        SnapshotCoordinator<T> snap,
+        IExclusiveMaintenanceExecutor journalMaintenance,
+        ManifestStore manifest,
+        ISnapshotReader snapshotReader,
+        IOptions<PersistenceOptions> persistence,
+        ClusterConfig cluster,
+        TimeProvider? timeProvider = null)
     {
-        _log = log ?? throw new ArgumentNullException(nameof(log));
-        ArgumentNullException.ThrowIfNull(opt);
+        _log = log;
+        _snap = snap;
+        _journalMaintenance = journalMaintenance;
+        _manifest = manifest;
+        _snapshotReader = snapshotReader;
+        _nodeId = cluster.NodeId;
         _opt = opt.Value;
         ArgumentNullException.ThrowIfNull(deps);
         _snap = deps.Snapshot;
@@ -89,7 +103,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         LogManager.CompactionStateChanged(_log, prevName, nextName);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(ManifestState.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip

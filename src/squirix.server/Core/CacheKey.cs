@@ -20,5 +20,38 @@ internal sealed record CacheKey(string Namespace, string Key)
             });
     }
 
-    internal static CacheKey Default(string key) => new(ServerCacheNames.DefaultNamespace, key);
+    public static implicit operator string(CacheKey key)
+    {
+        return key.Key;
+    }
+
+    public static bool operator <(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) < 0;
+    }
+
+    public static bool operator <=(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) <= 0;
+    }
+
+    public static bool operator >(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) > 0;
+    }
+
+    public static bool operator >=(CacheKey left, CacheKey right)
+    {
+        return left.CompareTo(right) >= 0;
+    }
+
+    public static CacheKey Default(string key) => new(CacheNames.DefaultNamespace, key);
+
+    public override string ToString() => string.IsNullOrEmpty(Namespace) ? Key : Namespace + ":" + Key;
+
+    public int CompareTo(CacheKey other)
+    {
+        var namespaceComparison = string.CompareOrdinal(Namespace, other.Namespace);
+        return namespaceComparison is not 0 ? namespaceComparison : string.CompareOrdinal(Key, other.Key);
+    }
 }

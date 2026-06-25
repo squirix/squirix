@@ -6,7 +6,7 @@ namespace Squirix.Benchmarks.Client;
 
 /// <summary>Phase-2 remote client benchmark: acquire a cache handle on an existing connection.</summary>
 [MemoryDiagnoser]
-public class CacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
+public sealed class ClientCacheHandleBenchmarks : RemoteBenchmarkLifecycleBase
 {
     /// <summary>Measures cache handle acquisition after connect.</summary>
     /// <returns>A task that completes after the cache handle is acquired.</returns>

@@ -100,7 +100,8 @@ public static class DirectoryKit
     /// <exception cref="UnauthorizedAccessException">Propagated from <see cref="CreateDirectory(string,string?,bool,bool)" /> on access errors.</exception>
     public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
-        var d = string.IsNullOrEmpty(hint) ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+        var d = string.IsNullOrEmpty(hint)
+            ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
             : Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         CreateDirectory(d);
         return d;
@@ -359,29 +360,6 @@ public static class DirectoryKit
         }
     }
 
-    private static bool IsWindowsReservedName(string seg)
-    {
-        // Check name without extension
-        var name = seg;
-        var dot = seg.IndexOf('.', StringComparison.Ordinal);
-        if (dot > 0)
-            name = seg[..dot];
-
-        string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        foreach (var reserved in fixedNames)
-        {
-            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3].ToUpperInvariant();
-        var equals = prefix.Equals("COM", StringComparison.Ordinal) || prefix.Equals("LPT", StringComparison.Ordinal);
-        return equals && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
     private static string? PrepareBaseFullPath(string? baseDir, bool forbidSymlinks)
     {
         if (string.IsNullOrWhiteSpace(baseDir))
@@ -401,5 +379,23 @@ public static class DirectoryKit
             _ = Directory.CreateDirectory(baseFull);
 
         return baseFull;
+    }
+
+    private static void TryMakeWritable(string file)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(file);
+            if (attrs.HasFlag(FileAttributes.ReadOnly))
+                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch (IOException)
+        {
+            // ignore
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // ignore
+        }
     }
 }

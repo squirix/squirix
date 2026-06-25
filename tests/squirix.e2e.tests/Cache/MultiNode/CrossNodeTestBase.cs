@@ -8,7 +8,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// <summary>
 /// Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
-public abstract class CrossNodeTestBase : EndToEndTestBase, IClassFixture<TwoNodeFixture>
+public abstract class MultiNodeTestBase : EndToEndTestBase, IClassFixture<TwoNodeFixture>
 {
     private readonly TwoNodeFixture _fixture;
 

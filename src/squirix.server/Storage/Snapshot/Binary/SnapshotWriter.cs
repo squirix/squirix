@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
@@ -15,8 +16,8 @@ internal sealed class SnapshotWriter : ISnapshotWriter
     private readonly IStorageFileOperations _fileOperations;
     private byte[] _encodeBuffer = new byte[4096];
 
-    internal SnapshotWriter(string dataDir)
-        : this(dataDir, new FileOperations())
+    public SnapshotWriter(string dataDir)
+        : this(dataDir, new StorageFileOperations())
     {
     }
 
@@ -28,16 +29,16 @@ internal sealed class SnapshotWriter : ISnapshotWriter
 
     public async Task<string> WriteAsync(
         int index,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
-        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}.tmp");
+        var tmp = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         try
         {
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
-            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Snapshot}");
-            return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
+            var snap = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
+            return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException($"Failed to publish snapshot to '{snap}'.");
         }
         finally
         {
@@ -55,7 +56,7 @@ internal sealed class SnapshotWriter : ISnapshotWriter
 
     private async Task WriteSnapshotTempFileAsync(
         string tmp,
-        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {

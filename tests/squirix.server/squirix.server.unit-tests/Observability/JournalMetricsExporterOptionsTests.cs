@@ -1,7 +1,6 @@
 using System;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Runtime;
-using Squirix.Server.TestKit;
+using Squirix.Server.Serialization;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -24,7 +23,7 @@ public sealed class JournalMetricsExporterOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsNonPositiveInterval()
     {
-        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(TimeSpan.Zero, static value => _ = new JournalMetricsExporterOptions { Interval = value });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);
@@ -36,7 +35,7 @@ public sealed class JournalMetricsExporterOptionsTests
     public void JsonDeserializeBindsValidatedInterval()
     {
         const string json = """{"interval":"00:00:03"}""";
-        var options = new ServerJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
+        var options = new SystemTextJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromSeconds(3), options.Interval);
     }

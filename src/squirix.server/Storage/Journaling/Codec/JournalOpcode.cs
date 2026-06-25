@@ -1,7 +1,7 @@
 namespace Squirix.Server.Storage.Journaling.Codec;
 
 /// <summary>Binary journal frame opcodes.</summary>
-internal enum JournalOpcode
+internal enum JournalOpcode : byte
 {
     /// <summary>Put operation.</summary>
     Put = 1,
@@ -14,7 +14,4 @@ internal enum JournalOpcode
 
     /// <summary>Touch expiration operation.</summary>
     TouchExpiration = 4,
-
-    /// <summary>Idempotency outcome record (operation id + fingerprint + response bytes).</summary>
-    IdempotencyOutcome = 5,
 }

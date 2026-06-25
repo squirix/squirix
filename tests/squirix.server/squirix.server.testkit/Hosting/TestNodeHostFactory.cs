@@ -44,11 +44,19 @@ public static class TestNodeHostFactory
     /// <returns>A started test node host.</returns>
     public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        Uri uri,
-        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
-        TestNodeHostStartOptions? options,
-        ClusterTls? sharedMtls,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, CopyTopology(topology), options, sharedMtls, cancellationToken);
+        string address,
+        ReadOnlySpan<(string NodeId, string Address)> topology,
+        TestNodeHostStartOptions? options = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(
+        nodeId,
+        address,
+        CopyTopology(topology),
+        options?.DataDir,
+        options?.DataDir is not null,
+        options?.Security,
+        options?.Mtls,
+        options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
+        cancellationToken);
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
     /// <param name="nodeId">The node identifier.</param>
@@ -156,5 +164,12 @@ public static class TestNodeHostFactory
             cancellationToken).ConfigureAwait(false);
 
         return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions is not null);
+    }
+
+    private static (string NodeId, string Address)[] CopyTopology(ReadOnlySpan<(string NodeId, string Address)> topology)
+    {
+        var copy = new (string NodeId, string Address)[topology.Length];
+        topology.CopyTo(copy);
+        return copy;
     }
 }

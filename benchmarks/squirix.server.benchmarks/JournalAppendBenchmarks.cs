@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
-using Squirix.Server.TestKit;
+using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -14,31 +14,31 @@ namespace Squirix.Server.Benchmarks;
 [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-public class JournalAppendBenchmarks
+public sealed class JournalAppendBenchmarks
 {
     private const int OperationsPerInvoke = 100_000;
-    private const JournalPlatformBackend PlatformBackend = JournalPlatformBackend.RandomAccess;
     private JournalBenchmarkHost? _host;
     private CacheKey _key = new("bench", "key");
     private byte[] _putPayload = [];
-
-    /// <summary>Gets group-commit max wait values (zero disables batching delay).</summary>
-    public static IEnumerable<TimeSpan> GroupCommitMaxWaitValues
-    {
-        get
-        {
-            yield return TimeSpan.Zero;
-            yield return TimeSpan.FromMilliseconds(1);
-        }
-    }
 
     /// <summary>Gets or sets the group commit wait values.</summary>
     [ParamsSource(nameof(GroupCommitMaxWaitValues))]
     public TimeSpan GroupCommitMaxWait { get; set; }
 
+    /// <summary>Gets or sets the platform segment writer for pipelined journal.</summary>
+    [Params(JournalPlatformBackend.RandomAccess)]
+    public JournalPlatformBackend PlatformBackend { get; set; }
+
     /// <summary>Gets or sets the PUT payload size in bytes.</summary>
     [Params(256, 4096)]
     public int PutPayloadBytes { get; set; }
+
+    /// <summary>Gets or sets group-commit max wait (zero disables batching delay).</summary>
+    public static IEnumerable<TimeSpan> GroupCommitMaxWaitValues()
+    {
+        yield return TimeSpan.Zero;
+        yield return TimeSpan.FromMilliseconds(1);
+    }
 
     /// <summary>Appends PUT operations and awaits durability after each append.</summary>
     /// <returns>A task that completes when all operations finish.</returns>
@@ -49,7 +49,7 @@ public class JournalAppendBenchmarks
         var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
-            await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
+            await host.Coordinator.AppendPutAsync(_key, _putPayload, null, CancellationToken.None).ConfigureAwait(false);
             await host.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -79,6 +79,6 @@ public class JournalAppendBenchmarks
         _host = await JournalBenchmarkHost.CreateAsync("journal-bench", options, CancellationToken.None).ConfigureAwait(false);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('x'));
-        _key = new CacheKey("bench", $"payload-{InvariantIndexStrings.Format(PutPayloadBytes)}");
+        _key = new CacheKey("bench", $"payload-{PutPayloadBytes}");
     }
 }

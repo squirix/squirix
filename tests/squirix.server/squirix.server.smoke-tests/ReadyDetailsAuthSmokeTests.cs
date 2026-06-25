@@ -3,7 +3,8 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using Squirix.Server.TestKit;
+using Squirix.Server.SmokeTests.Support;
+using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
 
@@ -29,15 +30,12 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
-        var port = new Uri(bindUrl).Port;
-        var remoteDetailsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
-        var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
 
         await using var node = await StartNodeAsync(
             bindUrl,
             "node-ready-details-auth",
-            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            DefaultCancellationToken);
+            security: TestJwtHelper.ToSecurityOptions(credentials),
+            cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), DefaultCancellationToken);
         Assert.True(loopbackAnonymous.IsSuccessStatusCode);

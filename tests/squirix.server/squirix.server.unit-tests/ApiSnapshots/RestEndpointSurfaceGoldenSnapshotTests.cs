@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Networking;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -34,12 +34,12 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected);
         var missing = CollectSetDifference(expected, actual);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var unexpected = CollectSetDifference(actual, expected);
@@ -47,16 +47,13 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
-        for (var i = 0; i < unexpected.Count; i++)
-            _ = sb.Append("  + ").AppendLine(unexpected[i]);
-
-        for (var i = 0; i < missing.Count; i++)
-            _ = sb.Append("  - ").AppendLine(missing[i]);
+        ListKit.ForEach(unexpected, route => _ = sb.Append("  + ").AppendLine(route));
+        ListKit.ForEach(missing, route => _ = sb.Append("  - ").AppendLine(route));
 
         Assert.Fail(sb.ToString());
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -66,6 +63,6 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 }

@@ -1,22 +1,26 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.TestKit;
+using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
+    public static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
     {
-        var body = JournalEntryPayloadKit.EncodePut(value);
+        var body = JournalEntryPayload.Encode(new CacheEntry<object?> { Value = value, Version = 1 });
         return Task.FromResult(
             new JournalRecord
             {
@@ -28,27 +32,13 @@ internal static class BinaryJournalTestSegmentWriter
             });
     }
 
-    internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)
+    public static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, record);
-    }
-
-    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
-    {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
         return WriteSegmentAsync(path, records);
     }
 
-    internal static async Task WriteSegmentAsync(string path, JournalRecord record)
-    {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
-        WriteRecordFrame(stream, record);
-        await stream.FlushAsync(CancellationToken.None);
-    }
-
-    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
+    public static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         JournalFraming.WriteFileHeader(stream);
@@ -60,18 +50,14 @@ internal static class BinaryJournalTestSegmentWriter
 
     private static void WriteRecordFrame(Stream stream, JournalRecord record)
     {
-        var encode = BinaryJournalCodec.PrepareEncode(record);
-        var frameLength = JournalFraming.FrameTotalLength(encode.BodyLength);
+        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
         BufferKit.WithBuffer(
-            frameLength,
-            (stream, record, encode),
-            static (ctx, frame) =>
+            bodyLength,
+            (stream, record),
+            static (ctx, body) =>
             {
-                const int bodyOffset = JournalFraming.FrameHeaderSize;
-                var body = frame.Slice(bodyOffset, ctx.encode.BodyLength);
-                _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.encode);
-                JournalFraming.WriteFrame(frame, body);
-                ctx.stream.Write(frame);
+                _ = BinaryJournalCodec.Encode(ctx.record, body);
+                JournalFraming.WriteFrame(ctx.stream, body);
             });
     }
 }

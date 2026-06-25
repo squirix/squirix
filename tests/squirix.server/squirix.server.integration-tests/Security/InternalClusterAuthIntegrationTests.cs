@@ -22,9 +22,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     public async Task ExternalClientCannotSpoofInternalOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var uri = GetNextHttpUri();
+        var url = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var node = await StartNodeAsync(url, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -34,12 +34,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "spoofed-internal-marker" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -49,9 +47,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     public async Task ExternalJwtAuthSucceedsForwardingUsesInternalMtls()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-forward");
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
         await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
@@ -76,18 +74,18 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     }
 
     /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
     [Fact]
     public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
     {
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers(("node-a", urlA), ("node-b", urlB));
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(urlA, peers);
         await using var nodeB = await StartNodeAsync(urlB, peers);
 
-        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ??
-                           throw new InvalidOperationException("Expected inter-node URL for node-b.");
+        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrl,
@@ -100,12 +98,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.True(
             ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown,
@@ -116,9 +112,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     [Fact]
     public async Task InterNodeForwardingSucceedsJwtOnInternalTransport()
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
@@ -185,9 +181,9 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     public async Task MultiNodeExternalClientSpoofInternalOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
         await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
@@ -200,9 +196,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             { "squirix-internal-owner-rpc", "true" },
         };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),
@@ -210,8 +205,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     Key = "spoofed-owner-write",
                     Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -221,17 +215,16 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     [Fact]
     public async Task TrustedInternalOwnerRpcWrongNodeReturnsStaleOwner()
     {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
+        var urlA = GetNextHttpUri();
+        var urlB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
 
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
         var nodeBUrl = FindPeer(peers, "node-b").Url;
-        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ??
-                            throw new InvalidOperationException("Expected inter-node URL for node-a.");
+        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,
@@ -244,9 +237,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.SetEntryAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
                     OperationId = RpcOperationIdentity.New(),

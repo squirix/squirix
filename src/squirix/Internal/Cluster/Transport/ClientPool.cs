@@ -42,12 +42,13 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var ids = new string[peers.Length];
+        var list = peers as Peer[] ?? [.. peers];
+        var ids = new string[list.Length];
 
-        for (var i = 0; i < peers.Length; i++)
+        for (var i = 0; i < list.Length; i++)
         {
-            var p = peers[i];
-            GrpcTransportEndpoints.RequireHttps(p.Uri);
+            var p = list[i];
+            GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
                 Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
@@ -65,8 +66,7 @@ internal sealed class ClientPool : IClientPool
             ids[i] = p.NodeId;
         }
 
-        _nodeIds = ids;
-        BootstrapNodeIds = _nodeIds;
+        BootstrapNodeIds = [.. ids];
     }
 
     internal IReadOnlyList<string> BootstrapNodeIds { get; }

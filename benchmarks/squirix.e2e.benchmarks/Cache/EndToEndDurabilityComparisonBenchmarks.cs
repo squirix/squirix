@@ -8,7 +8,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>Focused durability comparison benchmarks on a fixed single-node scenario.</summary>
 [BenchmarkCategory("e2e", "durability")]
-public class EndToEndDurabilityComparisonBenchmarks : BenchmarkBase
+public sealed class DurabilityComparisonBenchmarks : CacheBenchmarkBase
 {
     /// <inheritdoc />
     public override IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDurabilityComparisonMatrix();

@@ -23,7 +23,7 @@ public static class Configurator
     /// <param name="uri">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -284,9 +284,9 @@ public static class Configurator
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
+    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
     {
-        SquirixServerOptionsValidator.Validate(options);
+        ClusterTopologyValidator.Validate(options);
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
@@ -324,6 +324,27 @@ public static class Configurator
 
             return;
         }
+    }
+
+    /// <summary>Applies command-line overrides used by the standalone server host.</summary>
+    /// <param name="options">Server options to update.</param>
+    /// <param name="url">Optional URL override.</param>
+    /// <param name="dataDirectory">Optional data directory override.</param>
+    /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
+    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? url, string? dataDirectory, bool persist = false)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (url is not null)
+            options.Url = url;
+        if (persist)
+            options.UsePersistence();
+        if (dataDirectory is not null)
+            options.DataDirectory = dataDirectory;
+
+        ApplyRuntimeDefaults(options);
+        AlignLocalPeerWithNodeUrl(options);
+        ClusterTopologyValidator.Validate(options);
     }
 
     private static int NextFreePort()

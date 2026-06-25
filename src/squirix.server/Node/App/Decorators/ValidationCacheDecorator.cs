@@ -31,6 +31,20 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return _inner.GetEntryAsync(cacheName, key, cancellationToken);
     }
 
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.GetValueAsync(cacheName, key, cancellationToken);
+    }
+
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        KeyInputValidator.Validate(key, nameof(key));
+        cancellationToken.ThrowIfCancellationRequested();
+        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+    }
+
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
         ServerKeyValidator.Validate(key, nameof(key));
@@ -64,25 +78,20 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
-        return _inner.GetValueAsync(cacheName, key, cancellationToken);
+
+        // The encoded-size guard for updates needs the existing entry metadata, so it is enforced by the
+        // memory-admission layer (the owner-local stage that already reads the existing entry) to avoid a
+        // duplicate read here and a redundant network read when the key is owned by a remote node.
+        return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry)
     {
-        KeyInputValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
-    }
-
-    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
-    {
-        KeyInputValidator.Validate(key, nameof(key));
-        cancellationToken.ThrowIfCancellationRequested();
-        await EnsureValueWithinLimitAsync(value, 1).ConfigureAwait(false);
-        return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
+        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
+        return Task.CompletedTask;
     }
 }

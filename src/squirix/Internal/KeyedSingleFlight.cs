@@ -17,8 +17,8 @@ internal sealed class KeyedSingleFlight<TResult>
 
         return _concurrent.GetOrAdd(
             key,
-            static (inFlightKey, runState) => runState.Flight.ExecuteAndCleanupAsync(inFlightKey, runState.State, runState.Action, runState.CancellationToken),
-            new RunAsyncState<TState>(this, state, action, cancellationToken));
+            static (inFlightKey, state) => state.Flight.ExecuteAndCleanupAsync(inFlightKey, state.Action, state.CancellationToken),
+            new RunAsyncState(this, action, cancellationToken));
     }
 
     private async Task<TResult> ExecuteAndCleanupAsync<TState>(string key, TState state, Func<TState, CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)

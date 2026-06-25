@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.TestKit;
+using Squirix.Server.SmokeTests.Support;
+using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -16,23 +17,23 @@ public sealed class AuthSmokeTests : SmokeTestBase
     public async Task CacheRpcRejectsMissingAcceptsValidJwtConfigured()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
-        var uri = GetNextHttpUri();
+        var url = GetNextHttpUri();
 
         await using var node = await StartNodeAsync(
-            uri,
+            url,
             "node-grpc-auth",
-            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            DefaultCancellationToken);
+            security: TestJwtHelper.ToSecurityOptions(credentials),
+            cancellationToken: DefaultCancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var missingAuth = await Assert.ThrowsAsync<RpcException>(() => client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
-        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+        var invalidAuth = await Assert.ThrowsAsync<RpcException>(() =>
             client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken)).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, invalidAuth.StatusCode);
 

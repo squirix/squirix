@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
+using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -15,12 +16,9 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
-    private static readonly string[] DualNodeIds = ["nodeA", "nodeB"];
-    private static readonly string[] SingleNodeIds = ["nodeA"];
-
-    private readonly TempDirectory? _dataDir;
     private readonly FrozenDictionary<string, TestNodeHost> _nodes;
-    private E2EBenchmarkClientLease? _client;
+    private readonly TempDirectory? _dataDir;
+    private BenchmarkClientLease? _client;
     private int _disposed;
 
     private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)

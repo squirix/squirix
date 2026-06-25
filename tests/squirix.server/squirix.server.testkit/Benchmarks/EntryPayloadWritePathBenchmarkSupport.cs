@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
-using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Limits;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 
@@ -11,21 +11,20 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <summary>Serializes the entry once using the binary journal entry codec.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length.</returns>
-    public static int BinarySerializeOnce(NodeCacheEntry<string> entry)
+    public static int BinarySerializeOnce(CacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        return JournalEntryPayload.MeasureSerializedBytes(entry);
+        return EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
     }
 
     /// <summary>Simulates validation guard plus journal path with two independent binary encodings.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The combined serialized byte length from both passes.</returns>
-    public static int BinarySerializeTwice(NodeCacheEntry<string> entry)
+    public static int BinarySerializeTwice(CacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
-        var guardBytes = prepared.EncodedLength;
-        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
+        var guardBytes = EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
+        var length = JournalEntryPayload.Encode(entry, out var buffer);
         try
         {
             return guardBytes + length;
@@ -36,15 +35,14 @@ public static class EntryPayloadWritePathBenchmarkSupport
         }
     }
 
-    /// <summary>Simulates the write path: prepare once, guard on prepared length, then pooled encode.</summary>
+    /// <summary>Simulates the write path: a length-only validation check followed by a single pooled journal encode.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length after validation.</returns>
-    public static int SerializeOnceThenLengthCheck(NodeCacheEntry<string> entry)
+    public static int SerializeOnceThenLengthCheck(CacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
-        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
-        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
+        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
+        var length = JournalEntryPayload.Encode(entry, out var buffer);
         try
         {
             return length;

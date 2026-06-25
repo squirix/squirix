@@ -22,7 +22,7 @@ internal sealed class InboundEndpointCacheOperations<T> : IInboundEndpointCacheO
 
     public ICacheApi<T> ForCache(string cacheName)
     {
-        var canonical = ServerCacheName.ParsePublic(cacheName).Canonical;
+        var canonical = CacheName.ParsePublic(cacheName).Canonical;
         return _apiByCache.GetOrAdd(canonical, static (name, adapter) => new RoutedCacheApi<T>(adapter, name), _adapter);
     }
 }

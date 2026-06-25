@@ -1,4 +1,4 @@
-namespace Squirix.Server.Storage.Journaling.Abstractions;
+namespace Squirix.Server.Storage.Journaling.Observability;
 
 /// <summary>Identifies a journal writer operation for distributed tracing.</summary>
 internal enum JournalOperationKind
@@ -29,7 +29,4 @@ internal enum JournalOperationKind
 
     /// <summary>Work executed under the snapshot barrier.</summary>
     UnderSnapshotBarrier = 8,
-
-    /// <summary>Idempotency outcome record (durable replay state for mutating RPCs).</summary>
-    IdempotencyOutcome = 9,
 }

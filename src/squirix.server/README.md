@@ -19,8 +19,8 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | Type                                                | Role                                                                                                              |
 |-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URL on the handle) |
-| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
-| `Configurator`                                      | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
+| `SquirixServerAspNetCoreExtensions`                 | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
+| `SquirixServerConfiguration`                        | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables journal/snapshot durability                                          |
 
 Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only; see

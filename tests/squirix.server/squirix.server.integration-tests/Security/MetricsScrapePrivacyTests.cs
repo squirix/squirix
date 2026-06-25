@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
@@ -24,10 +23,10 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         var mainPort = AllocateDedicatedPort();
-        var uri = InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", mainPort);
+        var url = $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
         await cache.SetEntryAsync(TestOperationIds.Default, secretCacheName, "k", new CacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);

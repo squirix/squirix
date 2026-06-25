@@ -73,12 +73,5 @@ nunit-*.xml
 #BenchmarkDotNet
 **/BenchmarkDotNet.Artifacts/*
 
-# NDepend
-NDependOut/
-*.ndar
-
-# SonarScanner for .NET local working directory
-.sonarqube/
-
 # C# DevKit
 *.lscache

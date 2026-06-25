@@ -32,28 +32,6 @@ public static class FileKit
         File.WriteAllText(full, contents);
     }
 
-    private static bool IsWindowsReservedName(string seg)
-    {
-        var name = seg;
-        var dot = seg.IndexOf('.', StringComparison.Ordinal);
-        if (dot > 0)
-            name = seg[..dot];
-
-        string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        foreach (var reserved in fixedNames)
-        {
-            if (string.Equals(name, reserved, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3].ToUpperInvariant();
-        return (string.Equals(prefix, "COM", StringComparison.Ordinal) || string.Equals(prefix, "LPT", StringComparison.Ordinal)) &&
-               int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
     private static string ValidateAndGetFullPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))

@@ -75,19 +75,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _slots.Dispose();
     }
 
-    internal void ReleaseLease(string clientId)
-    {
-        if (_clients.TryGetValue(clientId, out var client))
-        {
-            Release(clientId, client);
-            return;
-        }
+    internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
 
-        AdjustInFlight(-1);
-        _ = _slots.Release();
-    }
-
-    private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
+    private async ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
         string operation,
         string clientId,
@@ -102,7 +92,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     {
         AdjustInFlight(1);
         _ = Interlocked.Increment(ref client.InFlightRef);
-        return new Lease(this, clientId);
+        return new BackpressureLease(this, clientId, client);
     }
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
@@ -136,7 +126,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private (Decision Decision, Lease Lease)? RejectByClientRateLimitIfLimited(string transport, string operation, ClientState client)
     {
-        if (!_options.Enabled || client.TryAcquire())
+        if (!_options.Enabled || client.RateLimiter?.TryAcquire() is not false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "client");
@@ -253,7 +243,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
     }
 
-    private sealed class ClientState
+    internal sealed class ClientState
     {
         private readonly RateLimiter? _rateLimiter;
         private int _inFlight;
@@ -277,7 +267,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         internal bool TryAcquire() => _rateLimiter?.TryAcquire() is not false;
     }
 
-    private sealed class RateLimiter
+    internal sealed class RateLimiter
     {
         private readonly double _burst;
         private readonly Lock _gate = new();
@@ -305,7 +295,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
             }
         }
 
-        internal static RateLimiter? Create(int? ratePerSecond, int? burst) =>
+        public static RateLimiter? Create(int? ratePerSecond, int? burst) =>
             ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         internal bool TryAcquire()

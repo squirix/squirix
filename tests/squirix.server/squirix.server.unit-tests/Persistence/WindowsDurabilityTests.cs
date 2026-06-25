@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
@@ -24,13 +23,13 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = StoreTestSupport.CreateOptions(Dir);
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = NodePathKit.Combine(Dir, "man-current");
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal(1, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
+        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -63,21 +62,32 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+    }
+
+    /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
+    [Fact]
+    public async Task ManifestStoreThrowsWhenCurrentPointerTargetIsMissing()
+    {
+        var options = new PersistenceOptions { DataDir = Dir };
+        using var store = new ManifestStore(options);
+        WriteCurrentPointer(Dir, 123);
+
+        _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
     [Fact]
     public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = StoreTestSupport.CreateOptions(Dir);
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
+        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Cleans up the temporary directory after the test.</summary>
@@ -94,19 +104,10 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
         return ValueTask.CompletedTask;
     }
 
-    /// <inheritdoc />
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            _dir?.Dispose();
-
-        base.Dispose(disposing);
-    }
-
     private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)
     {
-        Span<byte> pointerBuffer = stackalloc byte[Pointer.Size];
-        Pointer.Write(pointerBuffer, manifestIndex);
-        File.WriteAllBytes(NodePathKit.Combine(dir, "man-current"), pointerBuffer);
+        Span<byte> pointerBuffer = stackalloc byte[ManifestPointer.Size];
+        ManifestPointer.Write(pointerBuffer, manifestIndex);
+        File.WriteAllBytes(PathKit.Combine(dir, "man-current"), pointerBuffer);
     }
 }

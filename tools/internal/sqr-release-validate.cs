@@ -149,9 +149,7 @@ try
         await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
     await StepAsync("Validate package artifacts").ConfigureAwait(false);
-    var packages = new List<string>();
-    foreach (var package in Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly))
-        packages.Add(package);
+    var packages = new List<string>(Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly));
 
     packages.Sort(StringComparer.OrdinalIgnoreCase);
     if (packages.Count < packageProjects.Length)
@@ -405,8 +403,10 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             names.Add(entry.FullName);
 
         string? nuspecName = null;
-        foreach (var name in names)
+        var nameSpan = CollectionsMarshal.AsSpan(names);
+        for (var i = 0; i < nameSpan.Length; i++)
         {
+            var name = nameSpan[i];
             if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -418,13 +418,12 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
 
         var hasReadme = false;
-        foreach (var name in names)
+        for (var i = 0; i < nameSpan.Length; i++)
         {
-            if (string.Equals(name, "README.md", StringComparison.Ordinal))
-            {
-                hasReadme = true;
-                break;
-            }
+            if (!string.Equals(nameSpan[i], "README.md", StringComparison.Ordinal))
+                continue;
+            hasReadme = true;
+            break;
         }
 
         if (!hasReadme)

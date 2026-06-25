@@ -1,4 +1,4 @@
-namespace Squirix.Server.Storage.Journaling;
+namespace Squirix.Server.Storage.Journaling.Observability;
 
 /// <summary>
 /// Optional tags for a <see cref="Abstractions.JournalOperationKind" /> trace scope.

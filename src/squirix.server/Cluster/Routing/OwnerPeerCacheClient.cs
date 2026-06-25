@@ -23,11 +23,9 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new GetEntryAsyncRequest { CacheName = cacheName, Key = key };
-                return await client.GetEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (CacheName: cacheName, Key: key),
+            static (client, s, ct) => new ValueTask<GetEntryAsyncResponse>(
+                client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = s.CacheName, Key = s.Key }, cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found ? await response.Entry.MapFromProtoAsync<T>().ConfigureAwait(false) : null;
@@ -37,11 +35,9 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new GetValueAsyncRequest { CacheName = cacheName, Key = key };
-                return await client.GetValueAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (CacheName: cacheName, Key: key),
+            static (client, s, ct) => new ValueTask<GetValueAsyncResponse>(
+                client.GetValueAsync(new GetValueAsyncRequest { CacheName = s.CacheName, Key = s.Key }, cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         if (response.Found)
@@ -53,16 +49,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new RemoveAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                };
-                return await client.RemoveAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key),
+            static (client, s, ct) => new ValueTask<RemoveAsyncResponse>(
+                client.RemoveAsync(
+                    new RemoveAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         if (response.Removed)
@@ -74,16 +65,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new RemoveExpirationAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                };
-                return await client.RemoveExpirationAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key),
+            static (client, s, ct) => new ValueTask<RemoveExpirationAsyncResponse>(
+                client.RemoveExpirationAsync(
+                    new RemoveExpirationAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -93,17 +79,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         _ = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new SetEntryAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                    Entry = entry.MapToProto(),
-                };
-                return await client.SetEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key, Entry: entry),
+            static (client, s, ct) => new ValueTask<SetAsyncResponse>(
+                client.SetEntryAsync(
+                    new SetEntryAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Entry = s.Entry.MapToProto() },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -111,17 +91,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new TouchAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                    Expiration = Duration.FromTimeSpan(expiration),
-                };
-                return await client.TouchAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key, Expiration: expiration),
+            static (client, s, ct) => new ValueTask<TouchAsyncResponse>(
+                client.TouchAsync(
+                    new TouchAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Expiration = Duration.FromTimeSpan(s.Expiration) },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         return response.Found;
@@ -131,17 +105,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new TryAddEntryAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                    Entry = entry.MapToProto(),
-                };
-                return await client.TryAddEntryAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key, Entry: entry),
+            static (client, s, ct) => new ValueTask<TryAddAsyncResponse>(
+                client.TryAddEntryAsync(
+                    new TryAddEntryAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Entry = s.Entry.MapToProto() },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         return response.Added;
@@ -151,17 +119,11 @@ internal sealed class OwnerPeerCacheClient<T>
     {
         var response = await ExecuteOwnerAsync(
             owner,
-            async (client, ct) =>
-            {
-                var request = new UpdateAsyncRequest
-                {
-                    OperationId = operationId,
-                    CacheName = cacheName,
-                    Key = key,
-                    Entry = new CacheEntry<T> { Value = value }.MapToProto(),
-                };
-                return await client.UpdateAsync(request, cancellationToken: ct).ResponseAsync.ConfigureAwait(false);
-            },
+            (OperationId: operationId, CacheName: cacheName, Key: key, Value: value),
+            static (client, s, ct) => new ValueTask<UpdateAsyncResponse>(
+                client.UpdateAsync(
+                    new UpdateAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Entry = new CacheEntry<T> { Value = s.Value }.MapToProto() },
+                    cancellationToken: ct).ResponseAsync),
             cancellationToken).ConfigureAwait(false);
 
         return response.Updated;
@@ -178,12 +140,16 @@ internal sealed class OwnerPeerCacheClient<T>
         return await ProtoEx.MapCacheValueAsync<T>(value).ConfigureAwait(false);
     }
 
-    private ValueTask<TResponse> ExecuteOwnerAsync<TResponse>(
+    private ValueTask<TResponse> ExecuteOwnerAsync<TState, TResponse>(
         string owner,
-        Func<SquirixCacheService.SquirixCacheServiceClient, CancellationToken, ValueTask<TResponse>> action,
+        TState state,
+        Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResponse>> action,
         CancellationToken cancellationToken)
     {
         var client = _clients.ForNode(owner);
-        return _clients.PolicyFor(owner).ExecuteAsync(ct => action(client, ct), cancellationToken);
+        return _clients.PolicyFor(owner).ExecuteAsync(
+            (Client: client, State: state, Action: action),
+            static (s, ct) => s.Action(s.Client, s.State, ct),
+            cancellationToken);
     }
 }

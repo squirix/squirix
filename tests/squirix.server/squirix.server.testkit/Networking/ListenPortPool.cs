@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -47,23 +49,13 @@ public sealed class ListenPortPool : IDisposable
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
 
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _allocator.Dispose();
-        _disposed = true;
-    }
-
-    private static string FormatLoopbackHttps(int port) => InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port);
-
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    private string NextHttpAddress()
+    public string NextHttpAddress()
     {
         var port = AllocatePort();
         return FormatLoopbackHttps(port);
     }
+
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 }

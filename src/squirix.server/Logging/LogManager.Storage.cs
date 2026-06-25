@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Logging;
 

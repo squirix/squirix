@@ -20,11 +20,6 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
-    {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
-    }
-
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
         string rawOperationId,
         string fingerprint,
@@ -36,67 +31,17 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         ArgumentNullException.ThrowIfNull(execute);
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
-        if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
+        if (_guard.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
-        if (_journal is not null)
-        {
-            using var scope = RpcMutationIdempotencyExecutionScope.Begin(_store, operationId, fingerprint, _journal);
-            var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-            await scope.CompleteBeforeDurabilityAsync(durableResponse, cancellationToken).ConfigureAwait(false);
-            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            return durableResponse;
-        }
-
-        var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
-        _store.RecordSuccess(operationId, fingerprint, RpcMutationIdempotencyStore.SerializeResponseBytes(memoryOnlyResponse));
-        return memoryOnlyResponse;
+        var response = await execute(state, cancellationToken).ConfigureAwait(false);
+        _guard.RecordSuccess(operationId, fingerprint, response);
+        return response;
     }
 
     private static class DefaultParser<T>
-        where T : class, IMessage<T>, new()
+        where T : IMessage<T>, new()
     {
-        internal static readonly MessageParser<T> Instance = new(static () => new T());
-    }
-
-    /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
-    private sealed class RpcMutationIdempotencyExecutionScope : IDisposable
-    {
-        private readonly string _fingerprint;
-        private readonly IJournalCoordinator _journal;
-        private readonly string _operationId;
-        private readonly RpcMutationIdempotencyStore _store;
-
-        private RpcMutationIdempotencyExecutionScope(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
-        {
-            _store = store;
-            _operationId = operationId;
-            _fingerprint = fingerprint;
-            _journal = journal;
-        }
-
-        void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
-
-        internal static RpcMutationIdempotencyExecutionScope Begin(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
-        {
-            ArgumentNullException.ThrowIfNull(store);
-            ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
-            ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
-            ArgumentNullException.ThrowIfNull(journal);
-
-            var scope = new RpcMutationIdempotencyExecutionScope(store, operationId, fingerprint, journal);
-            RpcMutationIdempotencyExecutionAmbient.Activate(scope);
-            return scope;
-        }
-
-        internal ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
-            where TResponse : class, IMessage<TResponse>
-        {
-            ArgumentNullException.ThrowIfNull(response);
-
-            var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(response);
-            _store.RecordSuccess(_operationId, _fingerprint, responseBytes);
-            return _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken);
-        }
+        public static readonly MessageParser<T> Instance = new(static () => new T());
     }
 }

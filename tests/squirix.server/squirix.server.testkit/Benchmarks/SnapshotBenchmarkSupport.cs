@@ -5,7 +5,7 @@ namespace Squirix.Server.TestKit.Benchmarks;
 /// <summary>Scaling helpers for snapshot write/read benchmarks.</summary>
 public static class SnapshotBenchmarkSupport
 {
-    private static bool IsQuickMode => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_BENCH_QUICK"), "1", StringComparison.Ordinal);
+    private static bool IsQuickMode => string.Equals(System.Environment.GetEnvironmentVariable("SQUIRIX_BENCH_QUICK"), "1", StringComparison.Ordinal);
 
     /// <summary>Returns snapshot entry count (default 10000; quick 1000).</summary>
     /// <param name="defaultCount">Entry count when quick mode is disabled.</param>

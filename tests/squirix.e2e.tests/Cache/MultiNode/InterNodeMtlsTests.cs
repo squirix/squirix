@@ -75,6 +75,18 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         Assert.Equal("jwt-forwarded", (await cacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
     }
 
+    /// <summary>Verifies node B rejects inter-node forwarding when node A does not present a client certificate.</summary>
+    [Fact]
+    public async Task ForwardFailsWhenCallerPresentsNoClientCertificate()
+    {
+        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = MtlsTestNodeProfile.NoOutboundClientCertificate });
+        var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+
+        AssertForwardRejected(ex);
+    }
+
     /// <summary>Verifies node B rejects inter-node forwarding when node A presents a certificate signed by an untrusted CA.</summary>
     [Fact]
     public async Task ForwardFailsCallerUntrustedClientCertificate()
@@ -82,7 +94,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }
@@ -94,19 +106,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
-
-        AssertForwardRejected(ex);
-    }
-
-    /// <summary>Verifies node B rejects inter-node forwarding when node A does not present a client certificate.</summary>
-    [Fact]
-    public async Task ForwardFailsWhenCallerPresentsNoClientCertificate()
-    {
-        await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.NoOutboundClientCertificate });
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-no-client-cert");
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }
@@ -118,7 +118,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.ExpiredPeerCertificate });
         var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-expired-peer");
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cluster.CacheA.SetAsync(key, "blocked", cancellationToken: DefaultCancellationToken));
 
         AssertForwardRejected(ex);
     }

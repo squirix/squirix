@@ -5,7 +5,6 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 
@@ -54,7 +53,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         catch (OperationCanceledException)
         {
-            LogManager.SnapshotTriggerCanceled(_log);
+            SnapshotTriggerLogs.LogCanceled(_log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {

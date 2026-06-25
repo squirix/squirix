@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -17,7 +18,7 @@ namespace Squirix.Benchmarks.Server;
 /// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class ReadPathBreakdownBenchmarks : IAsyncDisposable
+public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
 {
     private const string BenchmarkNodeId = "bench-client-pool-node";
     private const string CacheName = "bench-read-path-breakdown";
@@ -34,6 +35,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private BenchmarkRawGrpcCache? _rawGrpc;
     private GetValueAsyncRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
+    private Peer[]? _peers;
 
     /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
@@ -47,9 +49,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_node.Host, CacheName);
-        _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Uri, CacheName);
+        _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Endpoint, CacheName);
         _peers = new Peer[1];
-        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Uri = _node.Uri };
+        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Url = _node.Endpoint };
         _clientPool = new ClientPool(_peers, static nodeId => new CallPolicy(peer: nodeId));
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
@@ -149,13 +151,11 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
 
         _peers = null;
-
-        GC.SuppressFinalize(this);
     }
 
-    private static string FormatKey(int index) => InvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
+    private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";
 
-    private static string FormatValue(int index) => InvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
+    private static string FormatValue(int index) => $"value:{index.ToString("D5", CultureInfo.InvariantCulture)}";
 
     private void SeedKeys()
     {
@@ -170,12 +170,8 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             var client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
             await using (client.ConfigureAwait(false))
             {
-                var cache = await client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
-                for (var i = 0; i < KeyCount; i++)
-                {
-                    var key = _keys[i];
-                    await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
-                }
+                var key = _keys[i];
+                await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
         }
     }

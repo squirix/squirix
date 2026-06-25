@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -108,7 +109,8 @@ public sealed class PortAllocator : IDisposable
             _ = Reserved.TryRemove(candidate, out _);
         }
 
-        throw new InvalidOperationException("Failed to allocate a free listen port.");
+        throw new InvalidOperationException(
+            $"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
     }
 
     /// <inheritdoc />
@@ -117,9 +119,7 @@ public sealed class PortAllocator : IDisposable
         if (_disposed)
             return;
 
-        for (var i = 0; i < _allocatedPorts.Count; i++)
-            _ = Reserved.TryRemove(_allocatedPorts[i], out _);
-
+        ListEx.ForEach(_allocatedPorts, static port => _ = Reserved.TryRemove(port, out _));
         _allocatedPorts.Clear();
         _disposed = true;
     }

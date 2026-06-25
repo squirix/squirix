@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,24 +9,24 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
-public sealed class JournalSegmentRollTests : ServerUnitTestBase
+public sealed class JournalSegmentRollTests : UnitTestBase
 {
     private const int FillPayloadSize = 8_192;
     private const int LargePayloadSize = 16_000;
 
     /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]
-    public async Task BlockedNextManifestFileOverflowFrameAppended()
+    public async Task BlockedNextManifestFilePreventsOverflowFrameFromBeingAppended()
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
@@ -52,7 +53,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
             await BlockNextManifestWriteAsync(manifestStore, dir);
             var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
-            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+            await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
 
             var deadline = Environment.TickCount64 + 5_000;
             while (!journal.HasFlushLoopFailure && Environment.TickCount64 < deadline)
@@ -74,7 +75,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
-    public async Task OverflowingAppendLandsOnNextSegmentManifestRoll()
+    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);
@@ -96,10 +97,10 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
             var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
             await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
-            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
+            await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-            await StoreTestSupport.WaitUntilAsync(
+            await ManifestStoreTestSupport.WaitUntilAsync(
                 manifestStore,
                 static s => s.ReadCurrentOrDefaultBlocking().CurrentJournal is 2,
                 TimeSpan.FromSeconds(5),
@@ -118,7 +119,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     private static Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
     {
         manifestStore.PublishRollBlocking(1, 1);
-        return File.WriteAllTextAsync(NodePathKit.Combine(dataDir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
+        return File.WriteAllTextAsync(PathKit.Combine(dataDir, ManifestStoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
     }
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
@@ -127,14 +128,8 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         if (!File.Exists(path))
             return false;
 
-        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{InvariantIndexStrings.Format(segmentIndex)}");
-        _ = Directory.CreateDirectory(isolatedDataDir);
-        File.Copy(path, JournalReadPath.BuildSegmentPath(isolatedDataDir, segmentIndex), true);
-
-        using var enumerator = JournalReadPath.ReadAll(isolatedDataDir, segmentIndex, CancellationToken.None);
-        while (enumerator.MoveNext())
+        foreach (var record in new BinaryJournalSegmentReader(path, true, CancellationToken.None))
         {
-            var record = enumerator.Current;
             if (record.Operation is JournalOperationKind.Put && string.Equals(record.Key.Key, key, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
@@ -143,7 +138,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
     }
 
     private static int CountManifestDataFiles(string dataDir) =>
-        Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}").Length : 0;
+        Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}").Length : 0;
 
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
@@ -172,7 +167,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
                 if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                     break;
 
-                await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
+                await journal.AppendPutAsync(fillKey, fillPayload, null, cancellationToken);
                 await journal.AwaitDurabilityCommitAsync(cancellationToken);
             }
 
@@ -198,7 +193,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }
 
-    private static string SegmentPath(string dataDir, int segmentIndex) => NodePathKit.Combine(
+    private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
         dataDir,
-        $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
+        $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
 }

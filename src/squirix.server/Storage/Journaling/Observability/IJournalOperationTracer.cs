@@ -1,6 +1,4 @@
-using Squirix.Server.Storage.Journaling.Abstractions;
-
-namespace Squirix.Server.Storage.Journaling;
+namespace Squirix.Server.Storage.Journaling.Observability;
 
 /// <summary>Starts trace scopes for journal writer operations.</summary>
 internal interface IJournalOperationTracer

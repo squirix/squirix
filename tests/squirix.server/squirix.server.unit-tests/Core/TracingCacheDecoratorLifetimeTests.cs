@@ -11,5 +11,15 @@ public sealed class TracingCacheDecoratorLifetimeTests
     /// Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.
     /// </summary>
     [Fact]
-    public void TracingCacheDecoratorDoesNotDeclareDispose() => Assert.False(typeof(IAsyncDisposable).IsAssignableFrom(typeof(TracingCacheDecorator<int>)));
+    public void TracingCacheDecoratorDoesNotDeclareDispose()
+    {
+        var m = typeof(TracingCacheDecorator<>).GetMethod(
+            nameof(IAsyncDisposable.DisposeAsync),
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly,
+            null,
+            Type.EmptyTypes,
+            null);
+
+        Assert.Null(m);
+    }
 }

@@ -1,13 +1,14 @@
 using System;
 using System.Buffers;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -18,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// request after its frame is enqueued must not corrupt the durability waiter pool or double-decrement
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
-public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBase
+public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
 {
     /// <summary>
     /// Cancelling many durable group-commit mutations around their enqueue boundary leaves the
@@ -26,7 +27,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     /// without hanging.
     /// </summary>
     [Fact]
-    public async Task CancellingDurableGroupCommitsKeepsPipelineHealthy()
+    public async Task CancellingDurableGroupCommitsAroundEnqueueKeepsPipelineHealthy()
     {
         using var dir = new TempDirectory("squirix-journal-cancel-storm");
         var options = new PersistenceOptions
@@ -55,7 +56,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var opsBefore = journal.AppendedOps;
 
         // The pool/counter must still be intact: a clean durable mutation completes promptly.
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, DefaultCancellationToken).AsTask()
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, null, DefaultCancellationToken).AsTask()
                      .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(journal.AppendedOps > opsBefore);
@@ -97,12 +98,13 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
             var deadline = Environment.TickCount64 + 30_000;
             for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
             {
-                await journal.AppendPutAsync(CacheKey.Default($"k{InvariantIndexStrings.Format(i)}"), payload.AsMemory(0, payloadSize), DefaultCancellationToken);
+                await journal.AppendPutAsync(CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}"), payload.AsMemory(0, payloadSize), null, DefaultCancellationToken);
                 await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
                 i++;
             }
 
             Assert.Equal(2, pipelined.CurrentSegmentIndex);
+            Assert.False(pipelined.IsDurabilityFlushPending);
         }
         finally
         {
@@ -115,7 +117,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(cancelAfterMs));
         try
         {
-            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, cts.Token);
+            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, null, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -128,7 +130,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
         var tasks = new Task[iterations];
         for (var i = 0; i < iterations; i++)
         {
-            var key = CacheKey.Default($"k{InvariantIndexStrings.Format(i)}");
+            var key = CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}");
             tasks[i] = AppendIgnoringCancellationAsync(journal, key, payload, i % 4);
         }
 

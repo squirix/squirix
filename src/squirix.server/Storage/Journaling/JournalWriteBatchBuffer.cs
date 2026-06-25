@@ -7,10 +7,10 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalWriteBatchBuffer
 {
     /// <summary>Default coalescing buffer capacity when no explicit size is configured.</summary>
-    private const int DefaultCapacityBytes = 16 * 1024 * 1024;
+    internal const int DefaultCapacityBytes = 16 * 1024 * 1024;
 
     private readonly int _capacityBytes;
-    private readonly List<JournalWorkItem> _pending = [];
+    private readonly List<PendingAppend> _pending = [];
 
     /// <summary>
     /// Allocated lazily on first staging so idle coordinators (and the many created in tests) do not
@@ -18,7 +18,7 @@ internal sealed class JournalWriteBatchBuffer
     /// </summary>
     private byte[]? _buffer;
 
-    internal JournalWriteBatchBuffer(int capacityBytes = DefaultCapacityBytes)
+    public JournalWriteBatchBuffer(int capacityBytes = DefaultCapacityBytes)
     {
         if (capacityBytes <= 0)
             throw new ArgumentOutOfRangeException(nameof(capacityBytes), capacityBytes, "capacity must be greater than zero.");
@@ -26,21 +26,15 @@ internal sealed class JournalWriteBatchBuffer
         _capacityBytes = capacityBytes;
     }
 
-    internal ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
+    public bool IsEmpty => StagedByteLength is 0;
 
-    internal bool IsEmpty => StagedByteLength is 0;
+    public int StagedByteLength { get; private set; }
 
-    internal IReadOnlyList<JournalWorkItem> PendingAppends => _pending;
+    public ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
 
-    internal int StagedByteLength { get; private set; }
+    public IReadOnlyList<PendingAppend> PendingAppends => _pending;
 
-    internal void Clear()
-    {
-        StagedByteLength = 0;
-        _pending.Clear();
-    }
-
-    internal bool TryStageAppend(in JournalWorkItem item)
+    public bool TryStageAppend(in JournalWorkItem item)
     {
         var frameLength = item.FrameLength;
         if (frameLength <= 0 || StagedByteLength + frameLength > _capacityBytes)
@@ -49,8 +43,16 @@ internal sealed class JournalWriteBatchBuffer
         var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
         var buffer = _buffer ??= new byte[_capacityBytes];
         frameBytes.AsSpan(0, frameLength).CopyTo(buffer.AsSpan(StagedByteLength));
-        _pending.Add(item);
+        _pending.Add(new PendingAppend(item));
         StagedByteLength += frameLength;
         return true;
     }
+
+    public void Clear()
+    {
+        StagedByteLength = 0;
+        _pending.Clear();
+    }
+
+    internal readonly record struct PendingAppend(JournalWorkItem Item);
 }

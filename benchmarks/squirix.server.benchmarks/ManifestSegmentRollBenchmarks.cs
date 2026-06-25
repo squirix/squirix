@@ -8,14 +8,15 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
 
 /// <summary>End-to-end segment roll benchmarks including manifest publish on the journal I/O thread.</summary>
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public class ManifestSegmentRollBenchmarks
+public sealed class ManifestSegmentRollBenchmarks
 {
     private const int FillPayloadBytes = 8_192;
     private const int OverflowPayloadSize = 16_000;
@@ -75,7 +76,7 @@ public class ManifestSegmentRollBenchmarks
         for (var i = 0; i < _rollsPerInvoke; i++)
         {
             await FillActiveSegmentNearCapacityAsync(coordinator, overflowFrameLen, CancellationToken.None).ConfigureAwait(false);
-            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, null, CancellationToken.None).ConfigureAwait(false);
             await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -92,7 +93,7 @@ public class ManifestSegmentRollBenchmarks
             const long maxBytes = 1024L * 1024L;
 
             while (pipelined.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
-                await pipelined.AppendPutAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
+                await pipelined.AppendPutAsync(fillKey, fillPayload, null, cancellationToken).ConfigureAwait(false);
 
             await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         }

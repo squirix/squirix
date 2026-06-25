@@ -8,13 +8,14 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Verifies journal snapshot cut error paths release the mutation gate.</summary>
-public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
+public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
     [Fact]
@@ -99,16 +100,16 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         var payload = JournalEntryPayloadKit.EncodePut("v");
-        await journal.AppendPutAsync(CacheKey.Default("before"), payload, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("before"), payload, null, DefaultCancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<IOException, SnapshotRef>(
+        _ = await Assert.ThrowsAsync<IOException>(() =>
             journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
-                static (_, _, _, _) => ValueTask.FromException<SnapshotRef>(new IOException("simulated snapshot failure")),
-                DefaultCancellationToken));
+                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.ManifestState.SnapshotRef>(new IOException("simulated snapshot failure")),
+                DefaultCancellationToken).AsTask());
 
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
         Assert.Equal(2, journal.AppendedOps);

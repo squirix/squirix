@@ -1,36 +1,18 @@
 namespace Squirix.Server.Storage.Journaling;
 
-internal sealed record JournalWorkItem
+internal readonly struct JournalWorkItem
 {
-    internal JournalWorkItem(
-        JournalWorkKind kind,
-        JournalDurabilityWaiter? completion = null,
-        JournalDurabilityWaiter? durabilityWaiter = null,
-        byte[]? frameBytes = null,
-        int frameLength = 0,
-        int resetSegmentIndex = 0,
-        ulong resetSequence = 0)
-    {
-        Kind = kind;
-        Completion = completion;
-        DurabilityWaiter = durabilityWaiter;
-        FrameBytes = frameBytes;
-        FrameLength = frameLength;
-        ResetSegmentIndex = resetSegmentIndex;
-        ResetSequence = resetSequence;
-    }
+    public JournalWorkKind Kind { get; init; }
 
-    internal JournalDurabilityWaiter? Completion { get; }
+    public byte[]? FrameBytes { get; init; }
 
-    internal JournalDurabilityWaiter? DurabilityWaiter { get; }
+    public int FrameLength { get; init; }
 
-    internal byte[]? FrameBytes { get; }
+    public JournalDurabilityWaiter? DurabilityWaiter { get; init; }
 
-    internal int FrameLength { get; }
+    public JournalDurabilityWaiter? Completion { get; init; }
 
-    internal JournalWorkKind Kind { get; }
+    public int ResetSegmentIndex { get; init; }
 
-    internal int ResetSegmentIndex { get; }
-
-    internal ulong ResetSequence { get; }
+    public ulong ResetSequence { get; init; }
 }

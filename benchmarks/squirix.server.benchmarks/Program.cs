@@ -5,7 +5,7 @@ namespace Squirix.Server.Benchmarks;
 
 internal static class Program
 {
-    internal static void Main(string[] args)
+    public static void Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
         _ = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);

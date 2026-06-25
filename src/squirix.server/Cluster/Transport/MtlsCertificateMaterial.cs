@@ -54,7 +54,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is required but configuration or certificate material is invalid.</exception>
-    internal static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
+    public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate(primaryListenPort, requiresInterNodeMtls);

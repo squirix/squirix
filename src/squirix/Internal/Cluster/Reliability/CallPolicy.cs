@@ -106,20 +106,115 @@ internal sealed class CallPolicy : ICallPolicy
 
     private static async ValueTask ConfigureBudgetDeadlineAsync(CancellationTokenSource budgetCts, TimeSpan budgetRemaining)
     {
-        if (budgetRemaining <= TimeSpan.Zero)
-            await budgetCts.CancelAsync().ConfigureAwait(false);
-        else
-            budgetCts.CancelAfter(budgetRemaining);
+        RpcException rx => ClassifyRetryReason(rx.StatusCode),
+        HttpRequestException => "http_request",
+        TaskCanceledException => "task_canceled",
+        OperationCanceledException => "operation_canceled",
+        _ => "transient",
+    };
+
+    private static string ClassifyRetryReason(StatusCode statusCode) => statusCode switch
+    {
+        StatusCode.Cancelled => "Canceled",
+        StatusCode.DeadlineExceeded => "deadline_exceeded",
+        StatusCode.Unavailable => "unavailable",
+        StatusCode.Internal => "internal",
+        StatusCode.ResourceExhausted => "resource_exhausted",
+        StatusCode.Aborted => "aborted",
+        StatusCode.AlreadyExists => "already_exists",
+        StatusCode.NotFound => "not_found",
+        StatusCode.PermissionDenied => "permission_denied",
+        StatusCode.Unauthenticated => "unauthenticated",
+        StatusCode.OutOfRange => "out_of_range",
+        StatusCode.Unimplemented => "unimplemented",
+        StatusCode.DataLoss => "data_loss",
+        StatusCode.FailedPrecondition => "failed_precondition",
+        StatusCode.InvalidArgument => "invalid_argument",
+        StatusCode.Unknown => "unknown",
+        StatusCode.OK => "ok",
+        _ => "transient",
+    };
+
+    private static async ValueTask<(CancellationTokenSource? Cts, bool HasDeadlineBudget)> CreateBudgetTokenSourceAsync(CancellationToken cancellationToken)
+    {
+        var remaining = RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow);
+        if (remaining is null)
+            return (null, false);
+
+        if (remaining <= TimeSpan.Zero)
+        {
+            var expired = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            await expired.CancelAsync().ConfigureAwait(false);
+            return (expired, true);
+        }
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(remaining.Value);
+        return (cts, true);
     }
 
-    private void DisposeSemaphoreUnderLockIfIdle()
+    private Task BackoffAsync(TimeSpan span, CancellationToken cancellationToken)
     {
-        if (!_disposed || _semaphoreDisposed || !_activeOperations.IsIdle())
-            return;
+        CallPolicyMetrics.BackoffsTotal.WithLabels(_peer).Inc(1);
+        CallPolicyMetrics.BackoffSeconds.Observe(_peer, span);
+        return Task.Delay(span, _timeProvider, cancellationToken);
+    }
 
-        _semaphore.Dispose();
-        _semaphoreDisposed = true;
-        _ = _disposeTcs?.TrySetResult(true);
+    private async Task<Exception> BackoffOrCaptureCancellationAsync(TimeSpan delay, Exception last, CancellationToken outerCt)
+    {
+        try
+        {
+            await BackoffAsync(delay, outerCt).ConfigureAwait(false);
+            return last;
+        }
+        catch (OperationCanceledException oce) when (outerCt.IsCancellationRequested)
+        {
+            return oce;
+        }
+    }
+
+    private TimeSpan BackoffWithJitter(int attempt)
+    {
+        // Exponential backoff with capped growth
+        var pow = Math.Min(attempt - 1, 6);
+        var cappedMs = Math.Min(_maxBackoff.TotalMilliseconds, _baseBackoff.TotalMilliseconds * Math.Pow(2, pow));
+
+        // Use jitter factor in [0.5, 1.0) to avoid near-zero waits
+        var jitterFactor = 0.5 + (RandomNumberGenerator.GetInt32(0, 5000) / 10000.0);
+        var candidateMs = cappedMs * jitterFactor;
+
+        // Enforce a small floor (50ms) per backoff when cap permits, to avoid flaky sub-50ms totals
+        var floorMs = Math.Min(50.0, cappedMs);
+        var finalMs = Math.Max(candidateMs, floorMs);
+
+        return TimeSpan.FromMilliseconds(finalMs);
+    }
+
+    /// <summary>
+    /// When the per-attempt cap matches the remaining RPC deadline, scheduling a second per-attempt timeout on the
+    /// linked source races the budget token and can classify the same wall-clock timeout as a per-attempt cancel.
+    /// </summary>
+    /// <param name="attemptCts">Per-attempt cancellation source linked to the RPC budget.</param>
+    private void ConfigurePerAttemptTimeout(CancellationTokenSource attemptCts)
+    {
+        var now = DateTime.UtcNow;
+        var budgetRemaining = RpcDeadlineContext.GetRemainingBudget(now);
+        var perAttempt = GetAttemptTimeoutForRemaining(budgetRemaining);
+
+        // No separate timer when the attempt cap is not stricter than the ambient budget (linking is enough).
+        if (budgetRemaining is null || perAttempt < budgetRemaining.Value)
+            attemptCts.CancelAfter(perAttempt);
+    }
+
+    private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+    {
+        if (remaining is null)
+            return _timeoutPerAttempt;
+
+        if (remaining <= TimeSpan.Zero)
+            return TimeSpan.Zero;
+
+        return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
     }
 
     private void ReleaseActiveOperation()
@@ -128,7 +223,50 @@ internal sealed class CallPolicy : ICallPolicy
             return;
 
         lock (_disposeGate)
-            DisposeSemaphoreUnderLockIfIdle();
+            TryDisposeSemaphoreUnderLock();
+    }
+
+    private async ValueTask<T> RunRetryLoopAsync<TState, T>(
+        Func<TState, CancellationToken, ValueTask<T>> action,
+        TState state,
+        bool hasDeadlineBudget,
+        CancellationToken effectiveToken,
+        CancellationToken cancellationToken)
+    {
+        var attempt = 0;
+        Exception? last = null;
+
+        while (OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken) && attempt < _maxAttempts)
+        {
+            attempt++;
+            var outcome = await TryOneAttemptAsync(action, state, attempt, effectiveToken, cancellationToken).ConfigureAwait(false);
+            if (outcome.Succeeded)
+                return outcome.Value!;
+
+            last = outcome.LastException;
+            if (!outcome.ShouldRetry)
+                break;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowAfterFailedAttempts(last, hasDeadlineBudget, effectiveToken);
+        throw new InvalidOperationException("Unreachable retry loop exit.");
+    }
+
+    private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
+    {
+        if (!hasDeadlineBudget || OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+        {
+            throw last switch
+            {
+                TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
+                RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
+                _ => last!,
+            };
+        }
+
+        RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
+        throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
     }
 
     private void ThrowIfDisposed()
@@ -163,14 +301,8 @@ internal sealed class CallPolicy : ICallPolicy
 
     private sealed class CallPolicyExecutor
     {
-        private readonly TimeSpan _baseBackoff;
-        private readonly int _maxAttempts;
-        private readonly TimeSpan _maxBackoff;
-        private readonly CallPolicy _owner;
-        private readonly string _peer;
-        private readonly SemaphoreSlim _semaphore;
-        private readonly TimeProvider _timeProvider;
-        private readonly TimeSpan _timeoutPerAttempt;
+        using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(effectiveToken);
+        ConfigurePerAttemptTimeout(attemptCts);
 
         internal CallPolicyExecutor(CallPolicy owner, CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
         {
@@ -183,6 +315,27 @@ internal sealed class CallPolicy : ICallPolicy
             _timeProvider = timeProvider;
             _semaphore = semaphore;
         }
+        catch (OperationCanceledException oce)
+        {
+            var cancelKind = OperationCancellationClassifier.ClassifyPeerCallAttemptCancellation(cancellationToken, effectiveToken, attemptCts.Token);
+            if (cancelKind is not CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
+                return AttemptOutcome<T>.Stop(oce);
+            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
+            CallPolicyMetrics.RetriesTotal.WithLabels(_peer, "operation_canceled").Inc(1);
+            return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
+        }
+        catch (RpcException rx) when (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && attempt < _maxAttempts &&
+                                      OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+        {
+            RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc();
+            CallPolicyMetrics.RetriesTotal.WithLabels(_peer, rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc(1);
+            return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
+        }
+        catch (RpcException rx) when (rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
+                                      attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
+        {
+            if (rx.StatusCode is StatusCode.DeadlineExceeded)
+                RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "deadline_exceeded").Inc();
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
             Func<TState, CancellationToken, ValueTask<T>> action,

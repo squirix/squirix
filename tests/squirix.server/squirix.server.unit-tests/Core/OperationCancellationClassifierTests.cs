@@ -11,9 +11,95 @@ namespace Squirix.Server.UnitTests.Core;
 /// </summary>
 public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
+    private const int CallerCanceledOrdinal = 0;
+    private const int OperationDeadlineExceededOrdinal = 1;
+
+    /// <summary>Per-attempt timeout is classified only when caller and operation effective tokens are not canceled.</summary>
+    [Fact]
+    public void ClassifyFromLinkedTokenStatePerAttemptTimedOutWhenOnlyAttemptScopeCanceled()
+    {
+        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, true);
+        Assert.Equal(CancellationScenarioKind.PerAttemptTimedOut, kind);
+    }
+
+    /// <summary>When no structured token is canceled, classification is unknown cancellation.</summary>
+    [Fact]
+    public void ClassifyFromLinkedTokenStateUnknownWhenNoTokenCanceled()
+    {
+        var kind = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, false);
+        Assert.Equal(CancellationScenarioKind.UnknownCancellation, kind);
+    }
+
+    /// <summary>Structured cancellation classification follows caller, operation deadline, then per-attempt precedence.</summary>
+    /// <param name="caseName">Human-readable scenario name for failed theory output.</param>
+    /// <param name="callerCanceled">Simulated caller token canceled state.</param>
+    /// <param name="operationEffectiveCanceled">Simulated operation effective token canceled state.</param>
+    /// <param name="perAttemptScopeCanceled">Simulated per-attempt composite token canceled state.</param>
+    /// <param name="expectedOrdinal">Expected <see cref="CancellationScenarioKind" /> ordinal.</param>
+    [Theory]
+    [InlineData("caller-over-all", true, true, true, CallerCanceledOrdinal)]
+    [InlineData("caller-over-deadline", true, true, false, CallerCanceledOrdinal)]
+    [InlineData("caller-over-attempt", true, false, true, CallerCanceledOrdinal)]
+    [InlineData("caller-only", true, false, false, CallerCanceledOrdinal)]
+    [InlineData("deadline-over-attempt", false, true, true, OperationDeadlineExceededOrdinal)]
+    [InlineData("deadline-only", false, true, false, OperationDeadlineExceededOrdinal)]
+    public void ClassifyFromLinkedTokenStateUsesDocumentedPrecedence(
+        string caseName,
+        bool callerCanceled,
+        bool operationEffectiveCanceled,
+        bool perAttemptScopeCanceled,
+        int expectedOrdinal)
+    {
+        var expected = ToScenarioKind(expectedOrdinal);
+        var actual = OperationCancellationClassifier.ClassifyFromLinkedTokenState(callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled);
+        Assert.True(actual == expected, $"{caseName}: expected {expected}, got {actual}.");
+    }
+
+    /// <summary>Pipeline deadline helper matches the same precedence as the raw three-bool overload for the two-token layout.</summary>
+    [Fact]
+    public void ClassifyLogicalPipelineDeadlineCancellationMatchesRawClassification()
+    {
+        using var linkedCts = new CancellationTokenSource();
+        linkedCts.Cancel();
+        var raw = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, true, false);
+        var helper = OperationCancellationClassifier.ClassifyLogicalPipelineDeadlineCancellation(CancellationToken.None, linkedCts.Token);
+        Assert.Equal(raw, helper);
+    }
+
+    /// <summary>Peer call attempt helper matches the raw three-bool classification for the same token states.</summary>
+    [Fact]
+    public void ClassifyPeerCallAttemptCancellationMatchesRawClassification()
+    {
+        using var attemptCts = new CancellationTokenSource();
+        attemptCts.Cancel();
+        var raw = OperationCancellationClassifier.ClassifyFromLinkedTokenState(false, false, true);
+        using var outer = new CancellationTokenSource();
+        using var eff = new CancellationTokenSource();
+        var helper = OperationCancellationClassifier.ClassifyPeerCallAttemptCancellation(outer.Token, eff.Token, attemptCts.Token);
+        Assert.Equal(raw, helper);
+    }
+
+    /// <summary>Domain transport mapper still maps gRPC Canceled plus caller token to caller cancellation.</summary>
+    [Fact]
+    public async Task DomainTransportErrorMapperStillMapsGrpcCanceledWithCallerTokenToOperationCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var callerToken = cts.Token;
+        var ex = new RpcException(new Status(StatusCode.Cancelled, "call canceled"));
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await Task.Factory.StartNew(
+                () => DomainTransportErrorMapper.Map(ex, callerToken),
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+        });
+    }
+
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
     [Fact]
-    public void IsCallerInitiatedGrpcCanceledStatusCallerToken()
+    public void IsCallerInitiatedGrpcCancellationRequiresCanceledStatusAndCallerToken()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -21,7 +107,22 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
         Assert.True(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cts.Token));
         Assert.False(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, CancellationToken.None));
         var other = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
-        Assert.False(ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token));
+        Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcCancellation(other, cts.Token));
+    }
+
+    /// <summary>Cooperative watch shutdown treats Unavailable as well as Canceled when the caller token is canceled.</summary>
+    [Fact]
+    public void IsCallerInitiatedGrpcWatchStreamFaultIncludesUnavailableWhenCallerCanceled()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var unavailable = new RpcException(new Status(StatusCode.Unavailable, "Error reading next message. IOException: The request was aborted."));
+        var canceled = new RpcException(new Status(StatusCode.Cancelled, "x"));
+        Assert.True(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(unavailable, cts.Token));
+        Assert.True(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(canceled, cts.Token));
+        Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(unavailable, CancellationToken.None));
+        var deadline = new RpcException(new Status(StatusCode.DeadlineExceeded, "x"));
+        Assert.False(OperationCancellationClassifier.IsCallerInitiatedGrpcWatchStreamFault(deadline, cts.Token));
     }
 
     /// <summary>Operation effective token helper mirrors not canceled for retry gating.</summary>

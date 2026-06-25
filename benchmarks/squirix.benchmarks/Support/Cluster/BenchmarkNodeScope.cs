@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Support.Client;
+using Squirix.Benchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -15,10 +16,10 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
+    private BenchmarkNodeScope(TestNodeHost host, string endpoint, TempDirectory? dataDir)
     {
         Host = host;
-        Uri = uri;
+        Endpoint = endpoint;
         _dataDir = dataDir;
     }
 
@@ -53,26 +54,28 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         TempDirectory? dataDir = null;
 
+        TempDirectory? dataDir = null;
+
         TestNodeHost host;
         if (durabilityMode is BenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Uri, dataDir);
+                return new BenchmarkNodeScope(host, host.Address, dataDir);
 
             var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Uri, dataDir);
+            return new BenchmarkNodeScope(host, host.Address, dataDir);
         }
         catch (InvalidOperationException)
         {

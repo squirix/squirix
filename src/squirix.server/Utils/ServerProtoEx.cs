@@ -5,8 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Squirix.Server.Core;
-using Squirix.Server.Runtime;
+using Squirix.Server.Serialization;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -148,7 +147,7 @@ internal static class ServerProtoEx
         if (s.Fields.Count is 1 && s.Fields.TryGetValue("value", out var only))
             return Coerce<T>(ProtoValueToClrScalarOrJson(only));
 
-        var buffer = WriteValueToBuffer(Value.ForStruct(s));
+        var buffer = await WriteValueToBufferAsync(Value.ForStruct(s)).ConfigureAwait(false);
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return Coerce<T>(document.RootElement.Clone());
     }
@@ -193,6 +192,7 @@ internal static class ServerProtoEx
     ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
     ///     </para>
     /// </remarks>
+    /// <param name="value">Untyped cache scalar to normalize.</param>
     private static object? NormalizeUntypedScalarForUntypedCache(object? value)
     {
         CacheValue.KindOneofCase.StringValue => value.StringValue,
@@ -216,7 +216,9 @@ internal static class ServerProtoEx
                 return v.BoolValue;
 
             case Value.KindOneofCase.NumberValue:
-                return v.NumberValue;
+                var d = v.NumberValue;
+                var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? Convert.ToInt64(d) : d;
+                return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(d) : d2;
 
             case Value.KindOneofCase.NullValue:
                 return null;
@@ -224,7 +226,7 @@ internal static class ServerProtoEx
             case Value.KindOneofCase.StructValue:
             case Value.KindOneofCase.ListValue:
             {
-                var buffer = WriteValueToBuffer(v);
+                var buffer = await WriteValueToBufferAsync(v).ConfigureAwait(false);
                 using var document = JsonDocument.Parse(buffer.WrittenMemory);
                 return document.RootElement.Clone();
             }

@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Networking;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -31,12 +31,12 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
         var missing = CollectSetDifference(expected, actual, StringComparer.OrdinalIgnoreCase);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var unexpected = CollectSetDifference(actual, expected);
@@ -44,16 +44,13 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden gRPC endpoint surface mismatch. Update ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt if the change is intentional.");
-        for (var i = 0; i < unexpected.Count; i++)
-            _ = sb.Append("  + ").AppendLine(unexpected[i]);
-
-        for (var i = 0; i < missing.Count; i++)
-            _ = sb.Append("  - ").AppendLine(missing[i]);
+        ListKit.ForEach(unexpected, method => _ = sb.Append("  + ").AppendLine(method));
+        ListKit.ForEach(missing, method => _ = sb.Append("  - ").AppendLine(method));
 
         Assert.Fail(sb.ToString());
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -63,7 +60,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 
     private static bool SetContains(IReadOnlySet<string> set, string item, StringComparer comparer)

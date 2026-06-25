@@ -69,8 +69,7 @@ internal sealed class TriggerOptions
     /// Default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    [JsonInclude]
-    internal long JournalGrowthThrottleBytes
+    public long JournalGrowthThrottleBytes
     {
         get;
         private init
@@ -88,8 +87,7 @@ internal sealed class TriggerOptions
     /// snapshot attempts are throttled for <see cref="LatencyThrottleDuration" />. Default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative, NaN, or infinite.</exception>
-    [JsonInclude]
-    internal double LatencySloMilliseconds
+    public double LatencySloMilliseconds
     {
         get;
         private init
@@ -106,8 +104,7 @@ internal sealed class TriggerOptions
     /// Default is 10 seconds.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    [JsonInclude]
-    internal TimeSpan LatencyThrottleDuration
+    public TimeSpan LatencyThrottleDuration
     {
         get;
         private init
@@ -124,8 +121,7 @@ internal sealed class TriggerOptions
     /// Default is 1 minute.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    [JsonInclude]
-    internal TimeSpan MinGapBetweenSnapshots
+    public TimeSpan MinGapBetweenSnapshots
     {
         get;
         private init
@@ -142,8 +138,7 @@ internal sealed class TriggerOptions
     /// since the previous snapshot. Default is 128 MiB.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    [JsonInclude]
-    internal long SnapshotEveryNBytes
+    public long SnapshotEveryNBytes
     {
         get;
         private init
@@ -160,8 +155,7 @@ internal sealed class TriggerOptions
     /// have been applied since the previous snapshot. Default is 250,000.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    [JsonInclude]
-    internal long SnapshotEveryNOps
+    public long SnapshotEveryNOps
     {
         get;
         private init
@@ -178,8 +172,7 @@ internal sealed class TriggerOptions
     /// Default is 5 minutes.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
-    [JsonInclude]
-    internal TimeSpan SnapshotInterval
+    public TimeSpan SnapshotInterval
     {
         get;
         private init

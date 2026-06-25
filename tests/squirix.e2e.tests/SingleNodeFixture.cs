@@ -7,7 +7,7 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Shared single-node cluster and SDK client for one public API test class.</summary>
-[UsedImplicitly]
+[SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Instantiated by xUnit via IClassFixture<T>.")]
 public sealed class SingleNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private ISquirixClient? _client;

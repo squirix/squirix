@@ -10,6 +10,8 @@ using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -37,17 +39,41 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
+    public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
+        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
-        _options = options ?? throw new ArgumentNullException(nameof(options));
-        _log = log ?? throw new ArgumentNullException(nameof(log));
-        ArgumentNullException.ThrowIfNull(deps);
-        _opt = deps.Persistence;
-        _manifestStore = deps.ManifestStore;
-        _localCache = deps.LocalCache;
-        _journalStartupGate = deps.JournalStartupGate;
-        _idempotency = deps.Idempotency;
-        _snapshotReader = deps.SnapshotReader;
+    }
+
+    public RecoveryService(
+        PersistenceOptions opt,
+        ManifestStore manifestStore,
+        ILocalCacheRecovery<T> localCache,
+        RecoveryOptions options,
+        JournalStartupGate journalStartupGate,
+        ILogger<RecoveryService<T>> log)
+        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
+    {
+    }
+
+    public RecoveryService(
+        PersistenceOptions opt,
+        ManifestStore manifestStore,
+        ILocalCacheRecovery<T> localCache,
+        RecoveryOptions options,
+        JournalStartupGate journalStartupGate,
+        IdempotencyStore idempotency,
+        ISnapshotReader snapshotReader,
+        ILogger<RecoveryService<T>> log,
+        IHostApplicationLifetime? applicationLifetime = null)
+    {
+        _opt = opt;
+        _manifestStore = manifestStore;
+        _localCache = localCache;
+        _options = options;
+        _journalStartupGate = journalStartupGate;
+        _idempotency = idempotency;
+        _snapshotReader = snapshotReader;
+        _log = log;
         _applicationLifetime = applicationLifetime;
     }
 
@@ -61,10 +87,11 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
         }
 
-        // Do not pass the StartAsync token into background replay: Host.StartAsync links it to a
-        // CTS that is disposed (and cancelled) when startup completes, which would abort recovery.
-        var stopping = _applicationLifetime?.ApplicationStopping ?? CancellationToken.None;
-        _replayTask = ReplayInBackgroundAsync(stopping);
+        _replayTask = Task.Factory.StartNew(
+            () => ReplayInBackgroundAsync(cancellationToken),
+            cancellationToken,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).Unwrap();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -76,9 +103,8 @@ internal sealed class RecoveryService<T> : IHostedService
         {
 #pragma warning disable VSTHRD003
 
-            // The replay task is owned by this hosted service and is awaited during shutdown.
-            // ApplicationStopping is signalled before hosted-service StopAsync, which cancels replay.
-            await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // The replay task is owned by this hosted service and is awaited during shutdown.
+        await _replayTask.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
         }
         catch (OperationCanceledException)
@@ -91,7 +117,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static InvalidDataException CreateJournalReplayBoundaryFailure() => new("journal recovery cannot determine a valid replay start.");
 
-    private static int DetermineJournalOnlyReplayStart(State manifest, int firstAvailableSegment, int lastAvailableSegment)
+    private static int DetermineJournalOnlyReplayStart(ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
@@ -103,22 +129,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
 
-    private static bool IsExpiredForRecovery(CacheEntry<T>? entry)
-    {
-        if (entry is null)
-        {
-            return false;
-        }
-
-        var isUtcExpired = entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
-        var isRelativeExpired = entry.Expiration is { } expiration && expiration <= TimeSpan.Zero;
-        return isUtcExpired || isRelativeExpired;
-    }
-
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
-
-    private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
-        record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
@@ -129,13 +140,15 @@ internal sealed class RecoveryService<T> : IHostedService
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var putEntryBytes = record.PutEntryBytes;
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
-                    throw CreateJournalDecodeFailure();
+                    throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
+                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), putEntryBytes.Span);
                 await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, insertFingerprint);
                 break;
             }
 
@@ -160,10 +173,6 @@ internal sealed class RecoveryService<T> : IHostedService
                 _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
-
-            case JournalOperationKind.IdempotencyOutcome:
-                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, ResolveIdempotencyCreatedUtc(record));
-                break;
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
@@ -295,10 +304,8 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private async Task ReplayJournalSegmentsAsync(int fromSegment, ulong lastAppliedSeq, CancellationToken cancellationToken)
     {
-        using var records = JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken);
-        while (records.MoveNext())
+        foreach (var record in JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
         {
-            var record = records.Current;
             if (record.Sequence <= lastAppliedSeq)
                 continue;
 
@@ -364,7 +371,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        SnapshotRef? SnapshotReference,
+        ManifestState.SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

@@ -14,15 +14,6 @@ internal static class Program
 
     private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
     {
-        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
-        using var document = JsonDocument.Parse(json);
-        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
-                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
-        return new Uri(uri, UriKind.Absolute);
-    }
-
-    private static async Task<int> Main()
-    {
         var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
         try
         {
@@ -41,6 +32,14 @@ internal static class Program
         {
             testRoot.Delete(true);
         }
+    }
+
+    private static async Task<string> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
+    {
+        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString()
+            ?? throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Url.");
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
@@ -63,5 +62,6 @@ internal static class Program
         var v2 = (await b.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
             throw new InvalidOperationException("Named cache isolation failed.");
+        }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -12,7 +13,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class PublicSdkOperationsBenchmarks
+public sealed class PublicSdkOperationsBenchmarks
 {
     private const string CacheName = "bench-public-sdk-operations";
     private const int KeyCount = 8_192;

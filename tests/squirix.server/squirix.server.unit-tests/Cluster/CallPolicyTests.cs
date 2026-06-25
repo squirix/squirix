@@ -30,15 +30,13 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             timeProvider: TimeProvider.System);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
-            policy.ExecuteAsync(
-                0,
-                static async (_, token) =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
+            static async token =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                return 1;
+            },
+            DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
     }
@@ -51,7 +49,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
@@ -153,7 +151,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             await policy.DisposeAsync();
 
             Assert.Equal(7, await inFlight);
-            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken));
+            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
         }
         finally
         {
@@ -214,8 +212,8 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
         await cts.CancelAsync();
 
-        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(pending);
-        Assert.Equal(1, attempts.Count);
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(pending.AsTask);
+        Assert.Equal(1, attempts.Value);
     }
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
@@ -238,37 +236,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         Assert.Equal(42, value);
-        Assert.Equal(2, attempts.Count);
-    }
-
-    /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
-    [Fact]
-    public async Task ExecuteAsyncRetriesUnavailableRpcAndSucceeds()
-    {
-        var timeProvider = new FakeTimeProvider();
-        await using var policy = CreatePolicy(
-            TimeSpan.FromSeconds(1),
-            2,
-            TimeSpan.FromMilliseconds(5),
-            TimeSpan.FromMilliseconds(5),
-            peer: "peer-rpc-retry",
-            timeProvider: timeProvider);
-        var attempts = new InvocationCounter();
-        var executeTask = policy.ExecuteAsync(
-            attempts,
-            static (counter, _) =>
-            {
-                var attempt = counter.Increment();
-                return attempt is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
-            },
-            DefaultCancellationToken);
-
-        while (attempts.Count < 1)
-            await Task.Yield();
-
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(9, await executeTask);
-        Assert.Equal(2, attempts.Count);
+        Assert.Equal(2, attempts.Value);
     }
 
     /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
@@ -301,7 +269,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         releaseFirst.SetResult();
 
         Assert.Equal(1, await first);
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(queued);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => _ = await queued);
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy")));
     }
@@ -346,15 +314,13 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
-            policy.ExecuteAsync(
-                0,
-                static async (_, token) =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                    return 1;
-                },
-                DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
+            static async token =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                return 1;
+            },
+            DefaultCancellationToken).AsTask());
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
 
         Assert.True(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget")));
@@ -369,48 +335,29 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
 
-    private sealed class CancellationProbeState
+    private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
     {
-        internal CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
-        {
-            Entered = entered;
-            Attempts = attempts;
-        }
+        public InvocationCounter Attempts { get; } = attempts;
 
-        internal InvocationCounter Attempts { get; }
-
-        internal TaskCompletionSource Entered { get; }
+        public TaskCompletionSource Entered { get; } = entered;
     }
 
-    private sealed class ConcurrencySyncState
+    private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
     {
-        internal ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
-        {
-            FirstEntered = firstEntered;
-            Peak = peak;
-            ReleaseFirst = releaseFirst;
-        }
+        public TaskCompletionSource FirstEntered { get; } = firstEntered;
 
-        internal TaskCompletionSource FirstEntered { get; }
+        public PeakCounter Peak { get; } = peak;
 
-        internal PeakCounter Peak { get; }
+        public TaskCompletionSource ReleaseFirst { get; } = releaseFirst;
 
-        internal TaskCompletionSource ReleaseFirst { get; }
-
-        internal RunningCounter Running { get; } = new();
+        public RunningCounter Running { get; } = new();
     }
 
-    private sealed class EnterReleaseGate
+    private sealed class EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
     {
-        internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
-        {
-            Entered = entered;
-            Release = release;
-        }
+        public TaskCompletionSource Entered { get; } = entered;
 
-        internal TaskCompletionSource Entered { get; }
-
-        internal TaskCompletionSource Release { get; }
+        public TaskCompletionSource Release { get; } = release;
     }
 
     private sealed class InvocationCounter

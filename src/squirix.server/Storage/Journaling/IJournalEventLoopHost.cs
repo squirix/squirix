@@ -9,17 +9,17 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal interface IJournalEventLoopHost
 {
-    void CompleteDurabilityCheckpoint();
-
-    void DecrementQueuedAppends();
+    void ThrowIfJournalThreadFailed();
 
     void FailPipeline(Exception reason);
+
+    void CompleteDurabilityCheckpoint();
 
     void PublishRoll(int targetSegmentIndex);
 
     int ReadQueuedAppends();
 
-    void SetNextSequence(ulong value);
+    void DecrementQueuedAppends();
 
-    void ThrowIfJournalThreadFailed();
+    void SetNextSequence(ulong value);
 }

@@ -19,7 +19,6 @@ internal static class CacheOperationClassifier
         TimeoutException => CacheOperationResults.DeadlineExceeded,
         OperationCanceledException => CacheOperationResults.Canceled,
         ResourceExhaustedException => CacheOperationResults.ResourceExhausted,
-        JournalCapacityExceededException => CacheOperationResults.ResourceExhausted,
         RpcException { StatusCode: StatusCode.Cancelled } => CacheOperationResults.Canceled,
         RpcException { StatusCode: StatusCode.DeadlineExceeded } => CacheOperationResults.DeadlineExceeded,
         RpcException { StatusCode: StatusCode.ResourceExhausted } => CacheOperationResults.ResourceExhausted,

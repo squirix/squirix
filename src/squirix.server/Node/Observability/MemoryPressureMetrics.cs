@@ -17,12 +17,36 @@ internal static class MemoryPressureMetrics
     private static readonly RegistrationCatalog Catalog = new();
     private static readonly Lock InitLock = new();
 
-    internal static void Register(MetricRegistration registration)
+    private static readonly Counter<long> RejectionsTotal = MeterRegistry.Meter.CreateCounter<long>(
+        "squirix_memory_rejections_total",
+        "{rejection}",
+        "Memory admission rejections by operation and reason");
+
+    private static MemoryPressureMetricRegistration[] _registrations = [];
+
+    private static int _instrumentsCreated;
+
+    public static void RecordRejection(string nodeId, string operation, string reason)
+    {
+        var tags = new TagList
+        {
+            { "node", nodeId },
+            { "operation", operation },
+            { "reason", reason },
+        };
+        RejectionsTotal.Add(1, tags);
+    }
+
+    internal static void Register(MemoryPressureMetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
         lock (InitLock)
         {
-            Catalog.Add(registration);
+            var previous = _registrations;
+            var next = new MemoryPressureMetricRegistration[previous.Length + 1];
+            previous.CopyTo(next, 0);
+            next[previous.Length] = registration;
+            _registrations = next;
             EnsureInstrumentsLocked();
         }
     }
@@ -31,16 +55,32 @@ internal static class MemoryPressureMetrics
     {
         ArgumentNullException.ThrowIfNull(registration);
         lock (InitLock)
-            Catalog.Remove(registration);
+        {
+            var previous = _registrations;
+            var index = Array.IndexOf(previous, registration);
+            if (index < 0)
+                return;
+
+            if (previous.Length is 1)
+            {
+                _registrations = [];
+                return;
+            }
+
+            var next = new MemoryPressureMetricRegistration[previous.Length - 1];
+            previous.AsSpan(0, index).CopyTo(next);
+            previous.AsSpan(index + 1).CopyTo(next.AsSpan(index));
+            _registrations = next;
+        }
     }
 
     private static (int Value, string Name) DescribePressureState(PressureLevel state)
     {
         return state switch
         {
-            PressureLevel.Normal => (0, "normal"),
-            PressureLevel.High => (1, "high"),
-            PressureLevel.Critical => (2, "critical"),
+            MemoryPressureState.Normal => (0, "normal"),
+            MemoryPressureState.High => (1, "high"),
+            MemoryPressureState.Critical => (2, "critical"),
             _ => throw new ArgumentOutOfRangeException(nameof(state), "Unsupported memory pressure state."),
         };
     }
@@ -79,61 +119,30 @@ internal static class MemoryPressureMetrics
 
     private static IEnumerable<Measurement<long>> ObserveEntryCount()
     {
-        var snapshot = Catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
-        {
-            var registration = snapshot[i];
-            yield return MeasureNode(registration.Accounting.ReadEntryCount(), registration.NodeId);
-        }
+        foreach (var registration in Volatile.Read(ref _registrations))
+            yield return new Measurement<long>(registration.Accounting.EntryCount, TagsNode(registration.NodeId));
     }
 
     private static IEnumerable<Measurement<long>> ObserveEstimatedBytes()
     {
-        var snapshot = Catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
-        {
-            var registration = snapshot[i];
-            yield return MeasureNode(registration.Accounting.ReadEstimatedBytes(), registration.NodeId);
-        }
+        foreach (var registration in Volatile.Read(ref _registrations))
+            yield return new Measurement<long>(registration.Accounting.EstimatedBytes, TagsNode(registration.NodeId));
     }
 
     private static IEnumerable<Measurement<int>> ObservePressureState()
     {
-        var snapshot = Catalog.SnapshotItems();
-        for (var i = 0; i < snapshot.Length; i++)
+        foreach (var registration in Volatile.Read(ref _registrations))
         {
-            var registration = snapshot[i];
-            var (value, name) = DescribePressureState(registration.Evaluator.Evaluate(registration.Accounting.ReadEstimatedBytes()));
+            var (value, name) = DescribePressureState(registration.Evaluator.Evaluate(registration.Accounting.EstimatedBytes));
 
             var tags = new TagList
             {
-                { "node", registration.NodeId },
-                { "state", name },
+                new("node", registration.NodeId),
+                new("state", name),
             };
             yield return new Measurement<int>(value, in tags);
         }
     }
 
-    private sealed class RegistrationCatalog
-    {
-        private int _instrumentsCreated;
-
-        private ImmutableArray<MetricRegistration> _items = [];
-
-        internal void Add(MetricRegistration registration) => _items = _items.Add(registration);
-
-        internal void Remove(MetricRegistration registration)
-        {
-            var previous = _items;
-            var index = previous.IndexOf(registration);
-            if (index < 0)
-                return;
-
-            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
-        }
-
-        internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;
-
-        internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is 0;
-    }
+    private static KeyValuePair<string, object?>[] TagsNode(string nodeId) => [new("node", nodeId)];
 }

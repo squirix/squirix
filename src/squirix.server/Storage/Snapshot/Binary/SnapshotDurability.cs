@@ -7,12 +7,6 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 /// <summary>Durable temp-file options and flush helpers for binary snapshot writes.</summary>
 internal static class SnapshotDurability
 {
-    internal static void FlushIfNeeded(SafeFileHandle handle)
-    {
-        if (!OperatingSystem.IsWindows())
-            RandomAccess.FlushToDisk(handle);
-    }
-
     internal static FileOptions GetTempFileOptions()
     {
         var options = FileOptions.SequentialScan | FileOptions.Asynchronous;
@@ -20,5 +14,11 @@ internal static class SnapshotDurability
             options |= FileOptions.WriteThrough;
 
         return options;
+    }
+
+    internal static void FlushIfNeeded(SafeFileHandle handle)
+    {
+        if (!OperatingSystem.IsWindows())
+            RandomAccess.FlushToDisk(handle);
     }
 }

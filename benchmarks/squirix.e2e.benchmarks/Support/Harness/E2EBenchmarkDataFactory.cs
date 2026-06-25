@@ -13,8 +13,8 @@ internal static class E2EBenchmarkDataFactory
     internal static long CreateLong(int index) => index;
 
     internal static BenchmarkOrder CreateOrder(int index) => new(
-        $"order-{InvariantIndexStrings.FormatD8(index)}",
-        $"customer-{InvariantIndexStrings.FormatD4(index % 128)}",
+        $"order-{index.ToString("D8", CultureInfo.InvariantCulture)}",
+        $"customer-{(index % 128).ToString("D4", CultureInfo.InvariantCulture)}",
         BaseInstant.AddSeconds(index),
         [
             new BenchmarkOrderLine { Sku = "SKU-001", Quantity = 1 + (index % 5), Price = 9.95m },
@@ -26,13 +26,13 @@ internal static class E2EBenchmarkDataFactory
             ["bucket"] = InvariantIndexStrings.Format(index % 16),
         });
 
-    internal static string CreateSmallString(int index) => $"value-{InvariantIndexStrings.FormatD8(index)}";
+    internal static string CreateSmallString(int index) => $"value-{index.ToString("D8", CultureInfo.InvariantCulture)}";
 
     internal static BenchmarkUserProfile CreateUserProfile(int index) => new(
         index,
-        $"User {InvariantIndexStrings.FormatD8(index)}",
-        $"user{InvariantIndexStrings.FormatD8(index)}@example.test",
-        new BenchmarkAddress("Seattle", "Pine Street", InvariantIndexStrings.Format(98000 + (index % 100))),
+        $"User {index.ToString("D8", CultureInfo.InvariantCulture)}",
+        $"user{index.ToString("D8", CultureInfo.InvariantCulture)}@example.test",
+        new BenchmarkAddress("Seattle", "Pine Street", (98000 + (index % 100)).ToString(CultureInfo.InvariantCulture)),
         ["reader", "writer"],
         BaseInstant.AddMinutes(index),
         index % 17 is 0 ? BenchmarkUserStatus.Blocked : BenchmarkUserStatus.Active);

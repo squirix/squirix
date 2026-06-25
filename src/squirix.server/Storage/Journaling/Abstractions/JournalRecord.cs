@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
@@ -9,42 +10,34 @@ internal sealed class JournalRecord
 {
     private static readonly ConcurrentBag<JournalRecord> AppendPool = [];
 
-    /// <summary>Gets or sets idempotency fingerprint; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
-    internal string? IdempotencyFingerprint { get; set; }
-
-    /// <summary>Gets or sets idempotency operation id; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
-    internal string? IdempotencyOperationId { get; set; }
-
-    /// <summary>Gets or sets idempotency response bytes; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
-    internal ReadOnlyMemory<byte> IdempotencyResponseBytes { get; set; }
-
-    /// <summary>Gets or sets the cache key for the operation.</summary>
-    internal CacheKey Key { get; set; } = CacheKey.Default(string.Empty);
-
-    /// <summary>Gets or sets the journal operation kind.</summary>
-    internal JournalOperationKind Operation { get; set; }
-
-    /// <summary>Gets or sets put entry bytes; only set for <see cref="JournalOperationKind.Put" />.</summary>
-    internal ReadOnlyMemory<byte> PutEntryBytes { get; set; }
-
     /// <summary>Gets or sets the monotonic journal sequence number.</summary>
-    internal ulong Sequence { get; set; }
-
-    /// <summary>Gets or sets touch expiration UTC; only set for <see cref="JournalOperationKind.TouchExpiration" />.</summary>
-    internal DateTime? TouchExpirationUtc { get; set; }
+    public ulong Sequence { get; set; }
 
     /// <summary>Gets or sets the operation timestamp in Unix milliseconds.</summary>
-    internal long UnixMs { get; set; }
+    public long UnixMs { get; set; }
+
+    /// <summary>Gets or sets the journal operation kind.</summary>
+    public JournalOperationKind Operation { get; set; }
+
+    /// <summary>Gets or sets the cache key for the operation.</summary>
+    public CacheKey Key { get; set; }
+
+    /// <summary>Gets or sets put entry bytes; only set for <see cref="JournalOperationKind.Put"/>.</summary>
+    public ReadOnlyMemory<byte> PutEntryBytes { get; set; }
+
+    /// <summary>Gets or sets put idempotency operation id; only set for <see cref="JournalOperationKind.Put"/>.</summary>
+    public string? PutOperationId { get; set; }
+
+    /// <summary>Gets or sets touch expiration UTC; only set for <see cref="JournalOperationKind.TouchExpiration"/>.</summary>
+    public DateTime? TouchExpirationUtc { get; set; }
 
     internal static JournalRecord RentForAppend() => AppendPool.TryTake(out var record) ? record : new JournalRecord();
 
     internal void ReturnToAppendPool()
     {
         PutEntryBytes = default;
+        PutOperationId = null;
         TouchExpirationUtc = null;
-        IdempotencyOperationId = null;
-        IdempotencyFingerprint = null;
-        IdempotencyResponseBytes = default;
         AppendPool.Add(this);
     }
 }

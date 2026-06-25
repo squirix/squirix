@@ -1,12 +1,11 @@
 using System;
-using Squirix.Server.Core;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Normalizes cache entry expiration for durable journal write and recovery replay.</summary>
 internal static class JournalEntryExpirationMaterializer
 {
-    internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
+    public static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
     {
         if (expiresUtc is not null || expiration is null)
             return (expiresUtc, expiration);
@@ -14,16 +13,7 @@ internal static class JournalEntryExpirationMaterializer
         return (DateTime.UtcNow.Add(expiration.Value), null);
     }
 
-    internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
-    {
-        if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
-            return entry;
-
-        var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return new NodeCacheEntry<T>(entry.Value, entry.Version, time.Add(entry.Expiration.Value), tags: entry.Tags);
-    }
-
-    internal static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
+    public static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
     {
         if (expiresUtc is { } utc && utc <= DateTime.UtcNow)
             return true;
@@ -39,5 +29,20 @@ internal static class JournalEntryExpirationMaterializer
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
         return writtenAt.Add(relative) <= DateTime.UtcNow;
+    }
+
+    public static CacheEntry<T> ForRecoveryInsert<T>(CacheEntry<T> entry, long writtenUnixMs)
+    {
+        if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
+            return entry;
+
+        var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
+        return new CacheEntry<T>
+        {
+            Value = entry.Value,
+            ExpiresUtc = time.Add(entry.Expiration.Value),
+            Version = entry.Version,
+            Tags = entry.Tags,
+        };
     }
 }

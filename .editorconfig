@@ -169,7 +169,8 @@ dotnet_diagnostic.CA2201.severity = warning
 dotnet_diagnostic.CA2208.severity = warning
 
 # Banned API symbols (BannedSymbols.txt)
-dotnet_banned_api_analyzer.exclude_generated_code = true
+# ECMA documentation IDs with full parameter lists are required; partial names are ignored silently.
+# exclude_generated_code is in .globalconfig (EditorConfig does not apply to in-memory source generators).
 # Symbol has been banned
 dotnet_diagnostic.RS0030.severity = error
 # Symbol has been banned for use in declarations
@@ -233,8 +234,6 @@ resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
 resharper_convert_if_statement_to_return_statement_highlighting = none
 resharper_convert_if_statement_to_switch_statement_highlighting = none
-# Keep explicit byte[] fixtures; do not nudge collection expressions toward "..."u8.
-resharper_use_utf8_string_literal_highlighting = none
 # Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
 # Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
 resharper_lambda_expression_can_be_made_static_highlighting = error
@@ -258,10 +257,6 @@ dotnet_analyzer_diagnostic.category-roslynator.severity = warning
 dotnet_diagnostic.RCS1069.severity = none
 # Convert interpolated string to concatenation
 dotnet_diagnostic.RCS1217.severity = none
-# Remove redundant statement — conflicts with explicit control-flow in some methods.
-dotnet_diagnostic.RCS1134.severity = none
-# RCS1021: Use expression-bodied lambda, it makes XUnit box the value inside an assert
-dotnet_diagnostic.RCS1021.severity = none
 
 
 # ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).
@@ -280,54 +275,6 @@ dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.DataLayout.severity = warning
-dotnet_analyzer_diagnostic.category-Performance.Aot.severity = warning
-
-# ErrorProne.NET (EPC/ERP/EPS): all rules at warning for dotnet build (TreatWarningsAsErrors => error).
-# Docs: https://github.com/SergeyTeplyakov/ErrorProne.NET/tree/master/docs/Rules
-# Per-rule IDs avoid category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc Performance.*).
-dotnet_diagnostic.EPC11.severity = warning
-dotnet_diagnostic.EPC12.severity = warning
-dotnet_diagnostic.EPC13.severity = warning
-dotnet_diagnostic.EPC14.severity = warning
-dotnet_diagnostic.EPC15.severity = warning
-dotnet_diagnostic.EPC16.severity = warning
-dotnet_diagnostic.EPC17.severity = warning
-dotnet_diagnostic.EPC18.severity = warning
-dotnet_diagnostic.EPC19.severity = warning
-dotnet_diagnostic.EPC20.severity = warning
-dotnet_diagnostic.EPC23.severity = warning
-dotnet_diagnostic.EPC24.severity = warning
-dotnet_diagnostic.EPC25.severity = warning
-dotnet_diagnostic.EPC26.severity = warning
-dotnet_diagnostic.EPC27.severity = warning
-dotnet_diagnostic.EPC28.severity = warning
-dotnet_diagnostic.EPC29.severity = warning
-dotnet_diagnostic.EPC30.severity = warning
-dotnet_diagnostic.EPC31.severity = warning
-dotnet_diagnostic.EPC32.severity = warning
-dotnet_diagnostic.EPC33.severity = warning
-dotnet_diagnostic.EPC34.severity = warning
-dotnet_diagnostic.EPC35.severity = warning
-dotnet_diagnostic.EPC36.severity = warning
-dotnet_diagnostic.EPC37.severity = warning
-dotnet_diagnostic.EPC38.severity = warning
-dotnet_diagnostic.EPC39.severity = warning
-dotnet_diagnostic.EPC40.severity = warning
-dotnet_diagnostic.EPC41.severity = warning
-dotnet_diagnostic.ERP021.severity = warning
-dotnet_diagnostic.ERP022.severity = warning
-dotnet_diagnostic.ERP031.severity = warning
-dotnet_diagnostic.ERP041.severity = warning
-dotnet_diagnostic.ERP042.severity = warning
-dotnet_diagnostic.EPS01.severity = warning
-dotnet_diagnostic.EPS05.severity = warning
-dotnet_diagnostic.EPS06.severity = warning
-dotnet_diagnostic.EPS09.severity = warning
-dotnet_diagnostic.EPS10.severity = warning
-dotnet_diagnostic.EPS11.severity = warning
-dotnet_diagnostic.EPS12.severity = warning
-dotnet_diagnostic.EPS13.severity = warning
 
 # General line break behavior
 resharper_csharp_keep_existing_linebreaks = false
@@ -454,14 +401,20 @@ dotnet_diagnostic.xUnit2021.severity = error
 dotnet_diagnostic.BDN1400.severity = error
 dotnet_diagnostic.BDN1500.severity = error
 
-[**/{AsyncAssert,NodeAsyncAssert}.cs]
-# VSTHRD003: The closure-free exception assertions exist to observe an operation the caller already started.
-dotnet_diagnostic.VSTHRD003.severity = none
-
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none
 
 [**/XunitAutoGeneratedEntryPoint.cs]
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none
+
+[**/*.g.cs]
+# Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format.
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none
+
+[**/obj/**]
+# MSBuild intermediate output (source generators, gRPC, JSON context, etc.).
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.RS0031.severity = none
 

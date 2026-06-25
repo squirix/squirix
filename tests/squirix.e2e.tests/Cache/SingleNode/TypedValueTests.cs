@@ -9,7 +9,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node typed custom values through the public cache API.</summary>
 /// <param name="fixture">Shared single-node cluster fixture.</param>
-public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixture)
+public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
     /// <summary>Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.</summary>
     [Fact]
@@ -20,7 +20,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
 
         await cache.AddAsync("k", original, cancellationToken: DefaultCancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() =>
             cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: DefaultCancellationToken));
 
         var result = await cache.GetValueAsync("k", DefaultCancellationToken);

@@ -36,18 +36,6 @@ public enum SquirixErrorCode
     /// <summary>Operation identifier exceeds the maximum allowed length.</summary>
     OperationIdTooLong = 10,
 
-    /// <summary>Operation identifier is not 32 lowercase hex characters.</summary>
-    OperationIdInvalidFormat,
-
-    /// <summary>Operation identifier exceeds the maximum allowed length.</summary>
-    OperationIdTooLong,
-
     /// <summary>An operation identifier was reused with a different mutation fingerprint.</summary>
     OperationIdReuseMismatch = 11,
-
-    /// <summary>Cache entry tags exceed configured count or UTF-8 size limits.</summary>
-    InvalidEntryTags = 12,
-
-    /// <summary>On-disk journal size reached the configured hard limit; durable writes are rejected.</summary>
-    JournalDiskQuota = 13,
 }

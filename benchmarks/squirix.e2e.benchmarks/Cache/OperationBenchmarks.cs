@@ -6,7 +6,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for basic cache operations.</summary>
 [BenchmarkCategory("e2e", "read", "write", "mutation")]
-public class OperationBenchmarks : BenchmarkBase
+public sealed class CacheOperationBenchmarks : CacheBenchmarkBase
 {
     /// <summary>Measures AddAsync for missing keys.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>

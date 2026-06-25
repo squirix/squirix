@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
@@ -9,7 +8,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for multi-node public CRUD and cross-node visibility.</summary>
 /// <param name="fixture">Shared two-node cluster fixture.</param>
-public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
+public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>
     [Fact]
@@ -19,7 +18,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() => Cluster.CacheB.AddAsync(key, "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies only one concurrent AddAsync succeeds for the same key across nodes.</summary>
@@ -63,8 +62,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
         {
-            tasks[i] = i % 2 is 0
-                ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
+            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken)
                 : Cluster.CacheB.SetAsync(key, $"b-{i.ToString(CultureInfo.InvariantCulture)}", cancellationToken: DefaultCancellationToken);
         }
 

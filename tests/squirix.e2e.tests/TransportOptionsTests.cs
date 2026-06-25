@@ -34,8 +34,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(ClientAuthenticatesWithBearerTokenProvider),
             security,
             cancellationToken: DefaultCancellationToken);
-        var uri = cluster.GetUri("nodeA");
-        var provider = CreateBearerTokenProvider(bearerToken);
+        var url = cluster.GetAddress("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(uri, provider, DefaultCancellationToken);
 
@@ -61,12 +60,12 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(ClientFailsWhenJwtRequiredButNotConfigured),
             security,
             cancellationToken: DefaultCancellationToken);
-        var uri = cluster.GetUri("nodeA");
+        var url = cluster.GetAddress("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(uri, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<RpcException>(() => cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 

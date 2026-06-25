@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for typed custom values routed through a two-node public cache API cluster.</summary>
 /// <param name="fixture">Shared two-node cluster fixture.</param>
-public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
+public sealed class TypedValueTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
 {
     /// <summary>Verifies GetOrAddStoreCustomRecordForRemoteOwnerTwoNodes.</summary>
     [Fact]
