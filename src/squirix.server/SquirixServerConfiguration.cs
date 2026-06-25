@@ -225,7 +225,7 @@ public static class SquirixServerConfiguration
     /// Validates cluster and, when <paramref name="strict" /> is <see langword="true" />, optional settings sections.
     /// </summary>
     /// <param name="settingsFilePath">Path to the settings JSON file.</param>
-    /// <param name="strict">When <see langword="true" />, also validates <c>MemoryPressure</c> and <c>PrometheusMetrics</c> sections.</param>
+    /// <param name="strict">When <see langword="true" />, also validates <c>MemoryPressure</c>, <c>Snapshot</c>, and <c>PrometheusMetrics</c> sections.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// A tuple where <c>Success</c> is <see langword="true" /> when validation succeeds and <c>Error</c> holds failure text when applicable.

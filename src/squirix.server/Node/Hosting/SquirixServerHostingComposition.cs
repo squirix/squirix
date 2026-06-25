@@ -156,7 +156,6 @@ internal static class SquirixServerHostingComposition
         {
             JournalMaxSegmentMb = 64,
             FlushIntervalMs = 10,
-            SnapshotIntervalSec = 60,
         };
         return string.IsNullOrWhiteSpace(options.DataDirectory) ? resolvePersistenceOptions : new PersistenceOptions { DataDir = options.DataDirectory };
     }

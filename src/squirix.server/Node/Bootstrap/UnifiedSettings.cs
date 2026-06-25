@@ -10,6 +10,7 @@ using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Serialization;
+using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Bootstrap;
 
@@ -53,6 +54,23 @@ internal static class UnifiedSettings
     {
         var path = ResolveSettingsPath();
         return path is null ? (false, baseline) : await TryMergePrometheusMetricsFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Merges the <c>Snapshot</c> JSON section onto <paramref name="baseline" /> when the settings file exists and contains that section.
+    /// </summary>
+    /// <param name="baseline">Baseline options when the section is absent.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>
+    /// A tuple where <c>Found</c> is <see langword="true" /> when the settings file exists and defines a <c>Snapshot</c> object,
+    /// and <c>Merged</c> is the merged result.
+    /// </returns>
+    public static async Task<(bool Found, SnapshotTriggerOptions Merged)> TryMergeSnapshotFromFileAsync(
+        SnapshotTriggerOptions baseline,
+        CancellationToken cancellationToken = default)
+    {
+        var path = ResolveSettingsPath();
+        return path is null ? (false, baseline) : await TryMergeSnapshotFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -105,7 +123,7 @@ internal static class UnifiedSettings
     }
 
     /// <summary>
-    /// Validates optional <c>MemoryPressure</c> and <c>PrometheusMetrics</c> sections when present.
+    /// Validates optional <c>MemoryPressure</c>, <c>Snapshot</c>, and <c>PrometheusMetrics</c> sections when present.
     /// </summary>
     /// <param name="settingsFilePath">Settings JSON path.</param>
     /// <param name="failures">Collected validation failures.</param>
@@ -129,6 +147,15 @@ internal static class UnifiedSettings
             }
         }
 
+        var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFilePathAsync(settingsFilePath, new SnapshotTriggerOptions(), cancellationToken).ConfigureAwait(false);
+        if (snapshotFound)
+        {
+            var snapshotValidator = new SquirixOptionsValidators.SnapshotTriggerOptionsValidator();
+            var snapshotResult = snapshotValidator.Validate(Options.DefaultName, snapshot);
+            if (snapshotResult.Failed)
+                failures.AddRange(snapshotResult.Failures);
+        }
+
         var (prometheusFound, prometheus) = await TryMergePrometheusMetricsFromSettingsFilePathAsync(settingsFilePath, new PrometheusMetricsEndpointOptions(), cancellationToken)
            .ConfigureAwait(false);
         if (!prometheusFound)
@@ -138,6 +165,27 @@ internal static class UnifiedSettings
         var result = validator.Validate(Options.DefaultName, prometheus);
         if (result.Failed)
             failures.AddRange(result.Failures);
+    }
+
+    internal static async Task<(bool Found, SnapshotTriggerOptions Merged)> TryMergeSnapshotFromSettingsFilePathAsync(
+        string settingsFilePath,
+        SnapshotTriggerOptions baseline,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(settingsFilePath))
+            return (false, baseline);
+
+        return await WithSquirixRootAsync(
+            settingsFilePath,
+            root =>
+            {
+                if (!root.TryGetProperty("Snapshot", out var snapshot))
+                    return (false, baseline);
+
+                var section = SerializationProvider.Instance.Deserialize<SnapshotTriggerOptions>(snapshot.GetRawText());
+                return (true, section ?? baseline);
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static string? ResolveSettingsPath() => SquirixServerConfiguration.ResolveSettingsPath();

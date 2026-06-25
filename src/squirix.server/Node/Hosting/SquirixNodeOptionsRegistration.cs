@@ -46,14 +46,7 @@ internal static class SquirixNodeOptionsRegistration
         if (persistence is not null)
         {
             AddValidatedInstance<PersistenceOptions, SquirixOptionsValidators.PersistenceOptionsValidator>(services, persistence);
-            var snapshot = snapshotOptions ?? new SnapshotTriggerOptions
-            {
-                Enabled = true,
-                SnapshotInterval = TimeSpan.FromMinutes(5),
-                SnapshotEveryNOps = 250_000,
-                SnapshotEveryNBytes = 128 * 1024 * 1024,
-                MinGapBetweenSnapshots = TimeSpan.FromMinutes(1),
-            };
+            var snapshot = snapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
             AddValidatedInstance<SnapshotTriggerOptions, SquirixOptionsValidators.SnapshotTriggerOptionsValidator>(services, snapshot);
             var compactionOptions = new JournalCompactionOptions
             {
