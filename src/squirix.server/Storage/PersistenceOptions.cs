@@ -11,7 +11,6 @@ internal sealed record PersistenceOptions
     {
         FlushIntervalMs = 10;
         ManifestRetentionCount = 3;
-        SnapshotIntervalSec = 60;
         SnapshotRetentionCount = 3;
         JournalMaxSegmentMb = JournalSegmentLimits.DefaultMaxSegmentMb;
         JournalMaxSegmentCount = JournalSegmentLimits.DefaultMaxSegmentCount;
@@ -153,18 +152,6 @@ internal sealed record PersistenceOptions
 
     /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
     public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
-
-    public int SnapshotIntervalSec
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotIntervalSec must be greater than zero.");
-
-            field = value;
-        }
-    }
 
     public int SnapshotRetentionCount
     {

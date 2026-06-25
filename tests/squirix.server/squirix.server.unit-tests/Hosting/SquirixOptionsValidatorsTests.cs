@@ -231,7 +231,6 @@ public sealed class SquirixOptionsValidatorsTests : UnitTestBase
             DataDir = " ",
             JournalMaxSegmentMb = 1,
             FlushIntervalMs = 5,
-            SnapshotIntervalSec = 5,
             ManifestRetentionCount = 1,
             SnapshotRetentionCount = 1,
         };

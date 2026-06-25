@@ -389,7 +389,6 @@ public abstract class SmokeTestBase : IDisposable
             DataDir = dataDir,
             JournalMaxSegmentMb = 64,
             FlushIntervalMs = 10,
-            SnapshotIntervalSec = 60,
         };
     }
 

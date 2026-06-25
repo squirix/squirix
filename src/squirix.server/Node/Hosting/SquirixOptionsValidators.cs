@@ -123,8 +123,6 @@ internal static class SquirixOptionsValidators
                 failures.Add("Persistence JournalMaxSegmentMb must be greater than zero.");
             if (options.FlushIntervalMs <= 0)
                 failures.Add("Persistence FlushIntervalMs must be greater than zero.");
-            if (options.SnapshotIntervalSec <= 0)
-                failures.Add("Persistence SnapshotIntervalSec must be greater than zero.");
             if (options.ManifestRetentionCount <= 0)
                 failures.Add("Persistence ManifestRetentionCount must be greater than zero.");
             if (options.SnapshotRetentionCount <= 0)
