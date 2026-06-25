@@ -1,7 +1,5 @@
-using System;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
@@ -20,27 +18,23 @@ public sealed class GrpcAuthSmokeTests : SmokeTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node-grpc-auth", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(
             url,
-            peers,
+            "node-grpc-auth",
             security: TestJwtHelper.ToSecurityOptions(credentials),
-            extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(async () => { _ = await client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken); });
+        var missingAuth = await Assert.ThrowsAsync<RpcException>(() => client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
-        var invalidAuth = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken));
-        });
+        var invalidAuth = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken)).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, invalidAuth.StatusCode);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };

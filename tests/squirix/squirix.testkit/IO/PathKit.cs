@@ -1,8 +1,10 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Squirix.TestKit.IO;
@@ -18,14 +20,18 @@ namespace Squirix.TestKit.IO;
 /// </remarks>
 public static class PathKit
 {
+    private const int MaxSegmentBufferLength = 16;
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
     private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
+    /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
+    /// <param name="path2">Second path segment. Null, empty, or whitespace-only segments are ignored.</param>
     /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    public static string Combine(params string[] paths) => Combine(true, paths);
+    public static string Combine(string path1, string path2) => CombineCore(true, path1, path2);
+
+    /// <inheritdoc cref="Combine(string,string)" />
+    public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
     /// <summary>
     /// Builds a process-scoped temporary root path under <see cref="Path.GetTempPath" />.
@@ -42,6 +48,64 @@ public static class PathKit
         var root = Combine(Path.GetTempPath(), subdirectory);
         var tfmSegment = SanitizePath(AppContext.TargetFrameworkName ?? "unknown");
         return Combine(root, tfmSegment, ProcessSessionSegment);
+    }
+
+    private static void AddSegment(string segment, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    {
+        if (heapBuffer is not null)
+        {
+            heapBuffer.Add(segment);
+            return;
+        }
+
+        if (count >= buffer.Length)
+        {
+            heapBuffer = new List<string>(buffer.Length + 4);
+            for (var i = 0; i < count; i++)
+                heapBuffer.Add(buffer[i]);
+            heapBuffer.Add(segment);
+            return;
+        }
+
+        buffer[count++] = segment;
+    }
+
+    private static void AppendIfNotWhiteSpace(string? path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        AppendPathSegments(path, sanitize, buffer, ref count, ref heapBuffer);
+    }
+
+    private static void AppendPathSegments(string path, bool sanitize, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    {
+        if (!sanitize)
+        {
+            AddSegment(path, buffer, ref count, ref heapBuffer);
+            return;
+        }
+
+        // Preserve rooted prefixes verbatim so callers can safely combine onto absolute paths.
+        var root = Path.GetPathRoot(path);
+        if (!string.IsNullOrEmpty(root) && string.Equals(path, root, StringComparison.Ordinal))
+        {
+            AddSegment(path, buffer, ref count, ref heapBuffer);
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(root) && path.StartsWith(root, StringComparison.Ordinal))
+        {
+            var parts = path[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+            AddSegment(root, buffer, ref count, ref heapBuffer);
+            for (var i = 0; i < parts.Length; i++)
+                AddSegment(SanitizePath(parts[i]), buffer, ref count, ref heapBuffer);
+            return;
+        }
+
+        var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < sanitizedParts.Length; i++)
+            AddSegment(SanitizePath(sanitizedParts[i]), buffer, ref count, ref heapBuffer);
     }
 
     private static string BuildProcessSessionSegment()
@@ -67,81 +131,73 @@ public static class PathKit
         return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
-    /// <param name="sanitize">
-    /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
-    /// before combining.
-    /// </param>
-    /// <param name="paths">Path segments to combine. Null, empty, or whitespace-only segments are ignored.</param>
-    /// <returns>The combined path, or an empty string when no usable segments are supplied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="paths" /> is <see langword="null" />.</exception>
-    private static string Combine(bool sanitize = true, params string[] paths)
+    private static string CombineCore(bool sanitize, string path1, string path2) => CombineCore(sanitize, path1, path2, null, 2);
+
+    private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, 3);
+
+    private static string CombineCore(bool sanitize, string? path1, string? path2, string? path3, int pathCount)
     {
-        ArgumentNullException.ThrowIfNull(paths);
+        var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
+        var count = 0;
+        List<string>? heapBuffer = null;
 
-        if (paths.Length is 0)
-            return string.Empty;
-
-        var segments = new List<string>(paths.Length);
-        foreach (var path in paths)
+        try
         {
-            if (string.IsNullOrWhiteSpace(path))
-                continue;
+            if (pathCount >= 1)
+                AppendIfNotWhiteSpace(path1, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 2)
+                AppendIfNotWhiteSpace(path2, sanitize, buffer, ref count, ref heapBuffer);
+            if (pathCount >= 3)
+                AppendIfNotWhiteSpace(path3, sanitize, buffer, ref count, ref heapBuffer);
 
-            if (!sanitize)
-            {
-                segments.Add(path);
-                continue;
-            }
-
-            // Preserve rooted prefixes verbatim so callers can safely combine onto absolute paths.
-            var root = Path.GetPathRoot(path);
-            if (!string.IsNullOrEmpty(root) && string.Equals(path, root, StringComparison.Ordinal))
-            {
-                segments.Add(path);
-                continue;
-            }
-
-            if (!string.IsNullOrEmpty(root) && path.StartsWith(root, StringComparison.Ordinal))
-            {
-                var parts = path[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-                var remainder = new string[parts.Length];
-                for (var i = 0; i < parts.Length; i++)
-                    remainder[i] = SanitizePath(parts[i]);
-
-                segments.Add(root);
-                segments.AddRange(remainder);
-                continue;
-            }
-
-            var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 0; i < sanitizedParts.Length; i++)
-                segments.Add(SanitizePath(sanitizedParts[i]));
+            return FinishCombine(buffer, count, heapBuffer);
         }
-
-        return JoinSegments(segments);
+        finally
+        {
+            ArrayPool<string>.Shared.Return(buffer, true);
+        }
     }
 
-    private static string JoinSegments(List<string> segments)
+    private static string FinishCombine(string[] buffer, int count, List<string>? heapBuffer)
     {
-        if (segments.Count is 0)
+        if (count is 0)
             return string.Empty;
 
-        var sb = new StringBuilder(segments[0]);
-        for (var i = 1; i < segments.Count; i++)
+        if (heapBuffer is not null)
+            return JoinSegments(CollectionsMarshal.AsSpan(heapBuffer));
+
+        return JoinSegments(buffer.AsSpan(0, count));
+    }
+
+    private static string JoinSegments(ReadOnlySpan<string> segments)
+    {
+        if (segments.Length is 0)
+            return string.Empty;
+
+        if (segments.Length is 1)
+            return segments[0];
+
+        var result = segments[0];
+        for (var i = 1; i < segments.Length; i++)
         {
             var segment = segments[i];
             if (Path.IsPathRooted(segment))
                 throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
 
-            var current = sb.ToString().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            _ = sb.Clear();
-            _ = sb.Append(current);
-            _ = sb.Append(Path.DirectorySeparatorChar);
-            _ = sb.Append(segment);
+            var prefixLen = TrimTrailingSeparatorsLength(result.AsSpan());
+            var nextLength = prefixLen + 1 + segment.Length;
+            result = string.Create(
+                nextLength,
+                (Prefix: result, PrefixLen: prefixLen, Segment: segment),
+                static (dest, state) =>
+                {
+                    state.Prefix.AsSpan(0, state.PrefixLen).CopyTo(dest);
+                    dest[state.PrefixLen] = Path.DirectorySeparatorChar;
+                    state.Segment.CopyTo(dest[(state.PrefixLen + 1)..]);
+                });
         }
 
-        return sb.ToString();
+        return result;
     }
 
     /// <summary>
@@ -169,9 +225,30 @@ public static class PathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
-        var sb = new StringBuilder(s.Length);
         foreach (var ch in s)
-            _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) >= 0 ? '_' : ch);
-        return sb.ToString();
+        {
+            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) < 0)
+                continue;
+            var sb = new StringBuilder(s.Length);
+            foreach (var current in s)
+                _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, current) >= 0 ? '_' : current);
+            return sb.ToString();
+        }
+
+        return s;
+    }
+
+    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
+    {
+        var length = span.Length;
+        while (length > 0)
+        {
+            var last = span[length - 1];
+            if (last != Path.DirectorySeparatorChar && last != Path.AltDirectorySeparatorChar)
+                break;
+            length--;
+        }
+
+        return length;
     }
 }

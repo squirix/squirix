@@ -25,7 +25,7 @@ internal static class RemoteClientSessionFactory
         {
             peers[i] = new Peer
             {
-                NodeId = string.Concat("endpoint-", i.ToString(CultureInfo.InvariantCulture)),
+                NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
                 Url = endpoints[i],
             };
         }

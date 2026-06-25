@@ -20,9 +20,9 @@ internal sealed class IdempotencyStore : IDisposable
         _retention = retention ?? TimeSpan.FromMinutes(15);
     }
 
-    public static string BuildInsertFingerprint(string key, ReadOnlySpan<byte> payload) => string.Concat("insert|", key, "|", HashPayload(payload));
+    public static string BuildInsertFingerprint(string key, ReadOnlySpan<byte> payload) => $"insert|{key}|{HashPayload(payload)}";
 
-    public IReadOnlyCollection<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
+    public IReadOnlyList<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
     {
         SweepExpired(utcNow);
 

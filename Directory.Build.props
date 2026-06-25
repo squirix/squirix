@@ -3,29 +3,74 @@
         <SquirixPackageVersion>0.1.0-preview.5</SquirixPackageVersion>
     </PropertyGroup>
 
-    <PropertyGroup>
+    <PropertyGroup Label="Build">
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <DebugType>portable</DebugType>
         <LangVersion>14.0</LangVersion>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <PropertyGroup Label="Analyzers">
         <EnableNETAnalyzers>true</EnableNETAnalyzers>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+        <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+        <RunAnalyzersDuringLiveAnalysis>true</RunAnalyzersDuringLiveAnalysis>
         <AnalysisLevel>latest</AnalysisLevel>
         <AnalysisMode>All</AnalysisMode>
-        <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <MeziantouAnalysisMode>all-errors</MeziantouAnalysisMode>
     </PropertyGroup>
 
-    <ItemGroup>
+    <!-- Classify projects once; reuse in conditions below. -->
+    <PropertyGroup Label="ProjectKind">
+        <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
+        <IsSquirixTestProject>false</IsSquirixTestProject>
+        <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
+        <IsSquirixTestProject>true</IsSquirixTestProject>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/benchmarks/'))">
+        <IsSquirixBenchmarkProject>true</IsSquirixBenchmarkProject>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
+        <!-- BenchmarkDotNet: public types, instance benchmark methods, discarded setup expressions. -->
+        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058</NoWarn>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(IsSquirixTestProject)' == 'true'">
+        <!-- xUnit / FsCheck / TestKit: public test, fixture, and helper types. -->
+        <NoWarn>$(NoWarn);CA1515</NoWarn>
+    </PropertyGroup>
+
+    <!-- Solution-wide Roslyn analyzers (all projects). -->
+    <ItemGroup Label="GlobalAnalyzers">
+        <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
+        <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
+        <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>
+        <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" PrivateAssets="all"/>
-        <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all"/>
         <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all"/>
+        <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all"/>
         <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all"/>
+        <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
     </ItemGroup>
 
-    <ItemGroup>
+    <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->
+    <ItemGroup Label="TestAnalyzers" Condition="'$(IsSquirixTestProject)' == 'true'">
+        <PackageReference Include="FakeItEasy.Analyzer.CSharp" PrivateAssets="all"/>
+        <PackageReference Include="xunit.analyzers" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <!-- BDN Roslyn rules ship inside BenchmarkDotNet.Annotations (BenchmarkDotNet excludes analyzer assets). -->
+    <ItemGroup Label="BenchmarkAnalyzers" Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
+        <PackageReference Include="BenchmarkDotNet.Annotations" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <ItemGroup Label="AnalyzerConfig">
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>

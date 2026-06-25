@@ -116,22 +116,24 @@ public static class ExportedTypeReflection
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
-        var lines = new List<string>();
         var types = GetExportedTypesSorted(assembly);
-        foreach (var type in types)
-        {
-            lines.Add(FormatTypeLine(type));
-            if (type.IsEnum)
+        var lines = new List<string>(types.Count);
+        ListKit.ForEach(
+            types,
+            type =>
             {
-                AddEnumFieldLines(type, lines);
-                continue;
-            }
+                lines.Add(FormatTypeLine(type));
+                if (type.IsEnum)
+                {
+                    AddEnumFieldLines(type, lines);
+                    return;
+                }
 
-            var memberLines = new List<string>();
-            AddMemberLines(type, memberLines);
-            memberLines.Sort(StringComparer.Ordinal);
-            lines.AddRange(memberLines);
-        }
+                var memberLines = new List<string>();
+                AddMemberLines(type, memberLines);
+                memberLines.Sort(StringComparer.Ordinal);
+                lines.AddRange(memberLines);
+            });
 
         return lines;
     }
@@ -146,8 +148,7 @@ public static class ExportedTypeReflection
         }
 
         enumFields.Sort(static (left, right) => StringComparer.Ordinal.Compare(FormatFieldLine(left), FormatFieldLine(right)));
-        foreach (var field in enumFields)
-            lines.Add(FormatFieldLine(field));
+        ListKit.ForEach(enumFields, field => lines.Add(FormatFieldLine(field)));
     }
 
     private static void AddMemberLines(Type type, List<string> memberLines)
@@ -163,8 +164,7 @@ public static class ExportedTypeReflection
 
         foreach (var property in type.GetProperties(DeclaredMemberFlags))
         {
-            foreach (var line in FormatPropertyLines(property))
-                memberLines.Add(line);
+            memberLines.AddRange(FormatPropertyLines(property));
         }
 
         foreach (var evt in type.GetEvents(DeclaredMemberFlags))

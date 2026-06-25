@@ -12,7 +12,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Hosting;
@@ -129,8 +129,8 @@ internal static class SquirixOptionsValidators
                 failures.Add("Persistence ManifestRetentionCount must be greater than zero.");
             if (options.SnapshotRetentionCount <= 0)
                 failures.Add("Persistence SnapshotRetentionCount must be greater than zero.");
-            if (options.JournalGroupCommitMaxWaitMs < 0)
-                failures.Add("Persistence JournalGroupCommitMaxWaitMs cannot be negative.");
+            if (options.JournalGroupCommitMaxWait < TimeSpan.Zero)
+                failures.Add("Persistence JournalGroupCommitMaxWait cannot be negative.");
             if (options.JournalGroupCommitMaxBatch <= 0)
                 failures.Add("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
 
@@ -190,7 +190,7 @@ internal static class SquirixOptionsValidators
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            var failures = new List<string>();
+            var failures = new List<string>(_validators is IReadOnlyCollection<IValidateOptions<TOptions>> validators ? validators.Count : 0);
             foreach (var validator in _validators)
             {
                 var result = validator.Validate(Options.DefaultName, _options.Value);

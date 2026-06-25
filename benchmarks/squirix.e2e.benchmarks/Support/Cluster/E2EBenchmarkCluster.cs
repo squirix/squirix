@@ -1,13 +1,14 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
-using Squirix.E2EBenchmarks.Support.IO;
 using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
@@ -15,13 +16,15 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
-    private readonly Dictionary<string, TestNodeHost> _nodes;
+    private readonly FrozenDictionary<string, TestNodeHost> _nodes;
+    private readonly TempDirectory? _dataDir;
     private BenchmarkClientLease? _client;
     private int _disposed;
 
-    private E2EBenchmarkCluster(Dictionary<string, TestNodeHost> nodes)
+    private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
     {
         _nodes = nodes;
+        _dataDir = dataDir;
     }
 
     public async ValueTask DisposeAsync()
@@ -34,6 +37,8 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
         foreach (var node in _nodes.Values)
             await node.DisposeAsync().ConfigureAwait(false);
+
+        _dataDir?.Dispose();
     }
 
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
@@ -49,7 +54,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
         var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
-        var root = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-e2e-benchmarks") : null;
+        var dataDir = usePersistence ? new TempDirectory("squirix-e2e-benchmarks") : null;
 
         var nodes = new Dictionary<string, TestNodeHost>(StringComparer.Ordinal);
 
@@ -58,24 +63,24 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
             foreach (var nodeId in nodeIds)
             {
                 nodes[nodeId] = usePersistence
-                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, PathKit.Combine(root!, nodeId), cancellationToken).ConfigureAwait(false)
+                    ? await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, Path.Join(dataDir!.Path, nodeId), cancellationToken).ConfigureAwait(false)
                     : await TestNodeHostFactory.StartNodeAsync(nodeId, addresses[nodeId], peers, cancellationToken).ConfigureAwait(false);
             }
 
-            return new E2EBenchmarkCluster(nodes);
+            return new E2EBenchmarkCluster(nodes.ToFrozenDictionary(StringComparer.Ordinal), dataDir);
         }
         catch (InvalidOperationException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(root);
+            dataDir?.Dispose();
             throw;
         }
         catch (IOException)
         {
             foreach (var node in nodes.Values)
                 await node.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(root);
+            dataDir?.Dispose();
             throw;
         }
     }

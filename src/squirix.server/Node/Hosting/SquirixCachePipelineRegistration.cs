@@ -11,7 +11,7 @@ using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Hosting;
 

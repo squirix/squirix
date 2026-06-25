@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Membership;
@@ -10,7 +9,9 @@ using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -123,20 +124,40 @@ internal sealed class SnapshotCoordinator<T>
 
     private async ValueTask<CapturedSnapshotView> CaptureSnapshotViewAsync(Activity? currentActivity, CancellationToken cancellationToken)
     {
-        var items = new List<(CacheKey Key, CacheEntry<T> Entry)>();
+        var capacity = _cache is ILocalCacheStats stats ? stats.EntryCount : 0;
+        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(capacity);
         await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
             if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
                 continue;
 
-            items.Add((key, entry));
+            items.Add((key, ToSnapshotEntry(entry)));
         }
 
         _ = currentActivity?.SetTag("snapshot.items_count", items.Count);
         return new CapturedSnapshotView(items);
+
+        static CacheEntry<object?> ToSnapshotEntry(CacheEntry<T> source)
+        {
+            // Serialize an arbitrary object to its JsonElement form once here, so the snapshot encoder's
+            // repeated length/write passes never re-serialize it. Directly-encodable values pass through
+            // unchanged, preserving the zero-copy fast path for the object pipeline.
+            var normalized = CacheEntryCodec.NormalizeValue(source.Value);
+            if (source is CacheEntry<object?> objectEntry && ReferenceEquals(normalized, source.Value))
+                return objectEntry;
+
+            return new CacheEntry<object?>
+            {
+                Value = normalized,
+                ExpiresUtc = source.ExpiresUtc,
+                Expiration = source.Expiration,
+                Version = source.Version,
+                Tags = source.Tags,
+            };
+        }
     }
 
-    private async ValueTask<Manifest.SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<ManifestState.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotView captured,
         Activity? currentActivity,
@@ -145,29 +166,21 @@ internal sealed class SnapshotCoordinator<T>
     {
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
 
-        var items = new List<(CacheKey Key, object Json)>(captured.Items.Count);
-        foreach (var (key, entry) in captured.Items)
-        {
-            var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(payload);
-            items.Add((key, doc.RootElement.Clone()));
-        }
-
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         _ = currentActivity?.SetTag("snapshot.index", nextIndex);
 
         var idempotencyRecords = _idempotency.ExportSnapshot(DateTime.UtcNow);
-        var path = await _snapWriter.WriteAsync(nextIndex, items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
+        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
-        var updated = new Manifest
+        var updated = new ManifestState
         {
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
             NextSequence = currentJournal.NextSequence,
-            LastSnapshot = new Manifest.SnapshotRef
+            LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,
@@ -222,5 +235,5 @@ internal sealed class SnapshotCoordinator<T>
         return timeOk || opsOk || bytesOk;
     }
 
-    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<T> Entry)> Items);
+    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<object?> Entry)> Items);
 }

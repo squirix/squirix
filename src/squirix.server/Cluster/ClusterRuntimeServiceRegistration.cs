@@ -28,7 +28,6 @@ internal static class ClusterRuntimeServiceRegistration
     /// <summary>
     /// Extension methods that register cluster runtime services on <see cref="IServiceCollection" />.
     /// </summary>
-    /// <param name="services">The service collection.</param>
     extension(IServiceCollection services)
     {
         /// <summary>
@@ -72,10 +71,10 @@ internal static class ClusterRuntimeServiceRegistration
                     callPolicyFactory ?? (static _ => new CallPolicy(TimeSpan.FromSeconds(3), 3, TimeSpan.FromMilliseconds(60), TimeSpan.FromMilliseconds(600))),
                     peerHandlerFactory,
                     sp.GetRequiredService<Correlation.ClientInterceptor>(),
-                    internalOwnerInterceptor: interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null,
                     mtlsOptions: mtlsOptions,
                     mtlsMaterial: material,
-                    interNodeMtlsEnabled: interNodeMtlsEnabled);
+                    interNodeMtlsEnabled: interNodeMtlsEnabled,
+                    internalOwnerInterceptor: interNodeMtlsEnabled ? sp.GetRequiredService<ClusterInternalOwnerClientInterceptor>() : null);
             });
 
             return services;

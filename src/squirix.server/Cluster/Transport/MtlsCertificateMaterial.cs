@@ -36,6 +36,8 @@ internal sealed class MtlsCertificateMaterial : IDisposable
     /// <param name="requiresInterNodeMtls">Whether inter-node mTLS is required for the configured cluster topology.</param>
     /// <param name="localNodeId">Configured cluster node identifier; required when inter-node mTLS is enabled.</param>
     /// <returns>Loaded certificate material, or <see cref="Disabled" /> when inter-node mTLS is not required.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="options" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is required but configuration or certificate material is invalid.</exception>
     public static MtlsCertificateMaterial Load(MtlsOptions options, int? primaryListenPort, bool requiresInterNodeMtls, string? localNodeId = null)
     {
         ArgumentNullException.ThrowIfNull(options);

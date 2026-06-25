@@ -36,5 +36,5 @@ public sealed class CacheConflictException : Exception
     }
 
     /// <summary>Gets the conflicting cache key.</summary>
-    public string Key { get; private set; } = string.Empty;
+    public string Key { get; } = string.Empty;
 }

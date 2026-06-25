@@ -14,6 +14,8 @@ internal static class ArchitectureNetArchRules
     /// <param name="matchingTypes">The NetArchTest predicate chain (for example <c>Types.InAssembly(...).That().HaveNameEndingWith("Options")</c>).</param>
     /// <param name="exactNamespaces">Exact namespace names; a type passes if its namespace equals any entry.</param>
     /// <returns>The NetArchTest result for the composed OR-of-namespace rule.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="matchingTypes"/> or <paramref name="exactNamespaces"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="exactNamespaces"/> is empty.</exception>
     public static TestResult EvaluateShouldResideInOneOfNamespaces(PredicateList matchingTypes, IReadOnlyList<string> exactNamespaces)
     {
         ArgumentNullException.ThrowIfNull(matchingTypes);

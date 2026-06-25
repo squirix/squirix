@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Squirix.Server.Storage;
@@ -21,7 +19,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
 
-        var segments = Materialize(JournalReader.EnumerateSegments(dir, 9));
+        var segments = JournalReader.EnumerateSegments(dir, 9);
         Assert.Equal(2, segments.Length);
         Assert.Equal(9, segments[0].Index);
         Assert.Equal(15, segments[1].Index);
@@ -31,8 +29,8 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     [Fact]
     public void EnumerateSegmentsReturnsEmptyWhenDirectoryMissing()
     {
-        var dir = PathKit.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var segments = Materialize(JournalReader.EnumerateSegments(dir, 1));
+        var dir = PathKit.Combine(PathKit.GetProcTempPath("squirix-journal-enum"), "missing-directory");
+        var segments = JournalReader.EnumerateSegments(dir, 1);
         Assert.Empty(segments);
     }
 
@@ -43,9 +41,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         using var dir = new TempDirectory("squirix-journal-enum-filter");
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
         File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
-
-        var segments = Materialize(JournalReader.EnumerateSegments(dir, 1));
-
+        var segments = JournalReader.EnumerateSegments(dir, 1);
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
     }
@@ -62,17 +58,13 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         }
 
         var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
-        Assert.Equal(16, selected.Length);
-        Assert.Equal(40, selected[0].Index);
-        Assert.Equal(25, selected[15].Index);
-    }
+        Assert.Equal(16, selected.Count);
 
-    private static T[] Materialize<T>(IEnumerable<T> source)
-    {
-        var items = new List<T>();
-        foreach (var item in source)
-            items.Add(item);
+        var indices = new int[selected.Count];
+        for (var i = 0; i < indices.Length; i++)
+            indices[i] = selected.Dequeue().Index;
 
-        return items.ToArray();
+        Assert.Equal(25, indices[0]);
+        Assert.Equal(40, indices[^1]);
     }
 }

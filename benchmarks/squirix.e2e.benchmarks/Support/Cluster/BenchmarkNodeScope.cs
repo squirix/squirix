@@ -4,9 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
-using Squirix.E2EBenchmarks.Support.IO;
 using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
@@ -15,12 +15,14 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 internal sealed class BenchmarkNodeScope : IAsyncDisposable
 {
     private readonly TestNodeHost _host;
+    private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, string endpoint)
+    private BenchmarkNodeScope(TestNodeHost host, string endpoint, TempDirectory? dataDir)
     {
         _host = host;
         Endpoint = endpoint;
+        _dataDir = dataDir;
     }
 
     private string Endpoint { get; }
@@ -31,6 +33,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
             return;
 
         await _host.DisposeAsync().ConfigureAwait(false);
+        _dataDir?.Dispose();
     }
 
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, E2EBenchmarkDurabilityMode durabilityMode = E2EBenchmarkDurabilityMode.Ephemeral) =>
@@ -55,32 +58,39 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         BenchmarkRuntime.EnsureInitialized();
 
-        var usePersistence = durabilityMode is E2EBenchmarkDurabilityMode.Persistence;
-        var dataDir = usePersistence ? DirectoryKit.CreateTempDirectory("squirix-e2e-bench") : null;
+        TempDirectory? dataDir = null;
 
-        var host = usePersistence ? await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir!, cancellationToken).ConfigureAwait(false)
-            : await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+        TestNodeHost host;
+        if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
+        {
+            dataDir = new TempDirectory("squirix-e2e-bench");
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+        }
 
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Address);
+                return new BenchmarkNodeScope(host, host.Address, dataDir);
 
             var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Address);
+            return new BenchmarkNodeScope(host, host.Address, dataDir);
         }
         catch (InvalidOperationException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            dataDir?.Dispose();
             throw;
         }
         catch (IOException)
         {
             await host.DisposeAsync().ConfigureAwait(false);
-            DirectoryKit.TryDeleteDirectory(dataDir);
+            dataDir?.Dispose();
             throw;
         }
     }

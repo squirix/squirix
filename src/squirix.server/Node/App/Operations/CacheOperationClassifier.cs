@@ -16,9 +16,9 @@ internal static class CacheOperationClassifier
     internal static string ClassifyException(Exception exception) => exception switch
     {
         TimeoutException => CacheOperationResults.DeadlineExceeded,
-        OperationCanceledException => CacheOperationResults.Cancelled,
+        OperationCanceledException => CacheOperationResults.Canceled,
         ResourceExhaustedException => CacheOperationResults.ResourceExhausted,
-        RpcException { StatusCode: StatusCode.Cancelled } => CacheOperationResults.Cancelled,
+        RpcException { StatusCode: StatusCode.Cancelled } => CacheOperationResults.Canceled,
         RpcException { StatusCode: StatusCode.DeadlineExceeded } => CacheOperationResults.DeadlineExceeded,
         RpcException { StatusCode: StatusCode.ResourceExhausted } => CacheOperationResults.ResourceExhausted,
         ArgumentException => CacheOperationResults.InvalidArgument,

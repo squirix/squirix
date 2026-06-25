@@ -16,9 +16,9 @@ internal sealed class CapturingHeadersInterceptor : Interceptor
     public Metadata? LastRequestHeaders => _last;
 
     /// <inheritdoc />
-    public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+    public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
     {
         _last = context.RequestHeaders;
-        return await base.UnaryServerHandler(request, context, continuation);
+        return base.UnaryServerHandler(request, context, continuation);
     }
 }

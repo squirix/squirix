@@ -31,9 +31,7 @@ public sealed class MemoryPressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsConfiguredMaxAboveRamCap()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => MemoryPressureOptionsResolver.Resolve(
-            new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 900_000 },
-            new FixedMemoryBudgetProvider(1_000_000)));
+        var ex = Assert.Throws<InvalidOperationException>(static () => _ = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 900_000 }, new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("exceeds the 80% RAM cap", ex.Message, StringComparison.Ordinal);
     }
@@ -42,9 +40,7 @@ public sealed class MemoryPressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsNonPositiveConfiguredMax()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => MemoryPressureOptionsResolver.Resolve(
-            new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 0 },
-            new FixedMemoryBudgetProvider(1_000_000)));
+        var ex = Assert.Throws<InvalidOperationException>(static () => _ = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 0 }, new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("must be positive", ex.Message, StringComparison.Ordinal);
     }
@@ -53,9 +49,7 @@ public sealed class MemoryPressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsZeroAvailableMemory()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => MemoryPressureOptionsResolver.Resolve(
-            new UnresolvedMemoryPressureOptions(),
-            new FixedMemoryBudgetProvider(0)));
+        var ex = Assert.Throws<InvalidOperationException>(static () => _ = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(0)));
 
         Assert.Contains("available process memory is zero", ex.Message, StringComparison.Ordinal);
     }

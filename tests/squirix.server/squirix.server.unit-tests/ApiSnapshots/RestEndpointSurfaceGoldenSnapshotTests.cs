@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -27,25 +28,23 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected);
         var missing = CollectSetDifference(expected, actual);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
-        foreach (var route in unexpected)
-            _ = sb.Append("  + ").AppendLine(route);
-        foreach (var route in missing)
-            _ = sb.Append("  - ").AppendLine(route);
+        ListKit.ForEach(unexpected, route => _ = sb.Append("  + ").AppendLine(route));
+        ListKit.ForEach(missing, route => _ = sb.Append("  - ").AppendLine(route));
 
         Assert.Fail(sb.ToString());
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -55,6 +54,6 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 }

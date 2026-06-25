@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -11,9 +10,7 @@ namespace Squirix.Benchmarks.Payload;
 /// <summary>End-to-end insert benchmarks comparing small vs near-limit payloads through the full client write path.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
-public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
+public sealed class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
 {
     private const int BatchSize = 32;
 
@@ -55,6 +52,6 @@ public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
         await StartNodeAsync().ConfigureAwait(false);
         await StartSharedCacheAsync("bench-entry-payload").ConfigureAwait(false);
         _smallValue = new string('x', 256);
-        _largeValue = await EntryLimitKit.CreateNearLimitDiscriminatedStringValueAsync().ConfigureAwait(false);
+        _largeValue = await EntryLimitKit.CreateNearLimitStringValueAsync().ConfigureAwait(false);
     }
 }

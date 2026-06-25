@@ -13,6 +13,8 @@ internal static class MtlsInternalPortPool
     /// <summary>Allocates a dedicated internal listener port that differs from all excluded primary ports.</summary>
     /// <param name="excludedPorts">Primary listener ports that must not be reused for internal mTLS.</param>
     /// <returns>An internal listener port for cluster mTLS.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="excludedPorts" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
     public static int AllocateInternalPort(IReadOnlyCollection<int> excludedPorts)
     {
         ArgumentNullException.ThrowIfNull(excludedPorts);

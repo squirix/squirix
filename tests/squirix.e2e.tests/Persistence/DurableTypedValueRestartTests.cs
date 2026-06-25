@@ -29,13 +29,13 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         Assert.False((await restartedCache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>Verifies RestartShouldRestoreCustomRecordFromWal.</summary>
+    /// <summary>Verifies RestartShouldRestoreCustomRecordFromJournal.</summary>
     [Fact]
-    public async Task RestartShouldRestoreCustomRecordFromWal()
+    public async Task RestartShouldRestoreCustomRecordFromJournal()
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreCustomRecordFromWal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreCustomRecordFromJournal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedCustomerProfile>("typed-durable-record", DefaultCancellationToken);
-        var expected = TypedValueFactory.CreateProfile("wal-record");
+        var expected = TypedValueFactory.CreateProfile("journal-record");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
 
@@ -47,13 +47,13 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies RestartShouldRestoreMutableClassFromWal.</summary>
+    /// <summary>Verifies RestartShouldRestoreMutableClassFromJournal.</summary>
     [Fact]
-    public async Task RestartShouldRestoreMutableClassFromWal()
+    public async Task RestartShouldRestoreMutableClassFromJournal()
     {
-        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreMutableClassFromWal), DefaultCancellationToken);
+        await using var node = await RestartableSingleNode.StartAsync(nameof(RestartShouldRestoreMutableClassFromJournal), DefaultCancellationToken);
         var cache = await node.GetCacheAsync<TypedMutableCart>("typed-durable-cart", DefaultCancellationToken);
-        var expected = TypedValueFactory.CreateCart("wal-cart");
+        var expected = TypedValueFactory.CreateCart("journal-cart");
 
         await cache.SetAsync("k", expected, cancellationToken: DefaultCancellationToken);
 

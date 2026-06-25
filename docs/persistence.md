@@ -1,6 +1,6 @@
 # Persistence
 
-By default, squirix server nodes run as an in-memory cache without writing WAL, manifest, or snapshot files. Enable
+By default, squirix server nodes run as an in-memory cache without writing journal, manifest, or snapshot files. Enable
 persistence explicitly when a node should survive restarts with local durability.
 
 Durability is **per node** — there is no replication or automatic failover in v0.1.
@@ -28,7 +28,7 @@ squirix-server run --persist --data-dir ./data
 
 ## Write-ahead journal
 
-When persistence is enabled, mutations append to a per-node write-ahead log (WAL) before they are considered durable. On
+When persistence is enabled, mutations append to a per-node journal before they are considered durable. On
 startup, the node replays the journal (and latest snapshot watermark) to rebuild in-memory state.
 
 Readiness stays unhealthy until journal recovery completes (`journal_recovery` gate). Fatal maintenance failures also
@@ -52,9 +52,9 @@ Compaction state is visible on `/health/ready/details` (`compaction.*`).
 
 When persistence is enabled, a node data directory typically contains:
 
-- journal segment files
-- snapshot files
-- manifest files and a `CURRENT` pointer
+- journal segment files ([binary journal format](journal-binary-format.md))
+- snapshot files ([binary snapshot format](snapshot-format.md), `.bsqx`)
+- manifest files and a `man-current` pointer ([manifest format](manifest-format.md))
 
 Backups must include journal, snapshots, and manifest from the same point in time. Copying snapshots without matching
 journal/manifest metadata can break recovery.

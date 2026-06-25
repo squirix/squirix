@@ -4,38 +4,38 @@ namespace Squirix.Server.Errors;
 public enum SquirixErrorCode
 {
     /// <summary>Cache name validation failed.</summary>
-    InvalidCacheName,
+    InvalidCacheName = 0,
 
     /// <summary>Cache key validation failed.</summary>
-    InvalidCacheKey,
+    InvalidCacheKey = 1,
 
     /// <summary>Request validation failed.</summary>
-    BadRequest,
+    BadRequest = 2,
 
     /// <summary>Requested resource was not found.</summary>
-    NotFound,
+    NotFound = 3,
 
     /// <summary>Request conflicts with current resource state.</summary>
-    Conflict,
+    Conflict = 4,
 
     /// <summary>Request payload exceeds the configured limit.</summary>
-    PayloadTooLarge,
+    PayloadTooLarge = 5,
 
     /// <summary>Request was rejected by admission control.</summary>
-    TooManyRequests,
+    TooManyRequests = 6,
 
     /// <summary>Estimated cache memory usage is critical; memory-growing writes are rejected (admission control).</summary>
-    MemoryPressure,
+    MemoryPressure = 7,
 
     /// <summary>Mutating RPC is missing a required operation identifier.</summary>
-    OperationIdRequired,
+    OperationIdRequired = 8,
 
     /// <summary>Operation identifier is not 32 lowercase hex characters.</summary>
-    OperationIdInvalidFormat,
+    OperationIdInvalidFormat = 9,
 
     /// <summary>Operation identifier exceeds the maximum allowed length.</summary>
-    OperationIdTooLong,
+    OperationIdTooLong = 10,
 
     /// <summary>An operation identifier was reused with a different mutation fingerprint.</summary>
-    OperationIdReuseMismatch,
+    OperationIdReuseMismatch = 11,
 }

@@ -67,7 +67,7 @@ Value shapes:
 Durability:
 
 - `Ephemeral` — in-memory server (default)
-- `Persistence` — WAL/snapshot stack enabled
+- `Persistence` — journal/snapshot stack enabled
 
 The full scenario matrix uses `Ephemeral` only. Compare both modes with:
 

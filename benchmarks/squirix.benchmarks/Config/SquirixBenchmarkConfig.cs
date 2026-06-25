@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
@@ -16,10 +15,6 @@ namespace Squirix.Benchmarks.Config;
 /// and provides a stable summary format. Artifacts path can be set by passing --artifacts in args (handled by BDN)
 /// or via the BDN_ARTIFACTS environment variable.
 /// </summary>
-[SuppressMessage(
-    "Maintainability",
-    "CA1515:Consider making public types internal",
-    Justification = "Shared benchmark configuration is consumed by the public benchmark entry point.")]
 public static class SquirixBenchmarkConfig
 {
     /// <summary>

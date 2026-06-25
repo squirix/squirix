@@ -11,9 +11,39 @@ namespace Squirix.Server.Cluster;
 /// </summary>
 internal sealed class Sha256Hasher : IHash
 {
-    private const byte RouteKeySeparator = 58; // ASCII ':'
+    /// <summary>
+    /// ASCII &#39;:&#39;.
+    /// </summary>
+    private const byte RouteKeySeparator = 58;
+
+    /// <summary>
+    /// ASCII &#39;#&#39;.
+    /// </summary>
+    private const byte VNodeSeparator = 35;
 
     private static ReadOnlySpan<byte> DecimalDigitUtf8 => "0123456789"u8;
+
+    public ulong HashVNode(string node, int index)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+        var byteCount = checked(Encoding.UTF8.GetByteCount(node) + 1 + CountDigits(index));
+        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+
+        try
+        {
+            var buffer = rented.AsSpan(0, byteCount);
+            var written = Encoding.UTF8.GetBytes(node.AsSpan(), buffer);
+            buffer[written++] = VNodeSeparator;
+            written += WriteNonNegativeIntUtf8(index, buffer[written..]);
+            return Hash(buffer[..written]);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
 
     public ulong HashCacheRouteKey(string cacheName, string key)
     {

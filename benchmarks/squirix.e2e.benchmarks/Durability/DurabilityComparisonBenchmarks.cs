@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -10,9 +9,7 @@ namespace Squirix.E2EBenchmarks.Durability;
 
 /// <summary>Focused durability comparison benchmarks on a fixed single-node scenario.</summary>
 [BenchmarkCategory("e2e", "durability")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
-public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
+public sealed class DurabilityComparisonBenchmarks : CacheBenchmarkBase
 {
     /// <inheritdoc />
     public override IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDurabilityComparisonMatrix();

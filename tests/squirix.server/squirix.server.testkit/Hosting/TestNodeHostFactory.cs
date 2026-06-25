@@ -27,7 +27,7 @@ public static class TestNodeHostFactory
         CancellationToken cancellationToken = default) => StartNodeAsync(
         nodeId,
         address,
-        topology.ToArray(),
+        CopyTopology(topology),
         options?.DataDir,
         options?.DataDir is not null,
         options?.Security,
@@ -111,5 +111,12 @@ public static class TestNodeHostFactory
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new TestNodeHost(app, address, persistenceOptions?.DataDir ?? string.Empty, persistence);
+    }
+
+    private static (string NodeId, string Address)[] CopyTopology(ReadOnlySpan<(string NodeId, string Address)> topology)
+    {
+        var copy = new (string NodeId, string Address)[topology.Length];
+        topology.CopyTo(copy);
+        return copy;
     }
 }

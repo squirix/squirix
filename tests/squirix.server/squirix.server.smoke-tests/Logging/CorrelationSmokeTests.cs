@@ -31,7 +31,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var urlA = GetNextHttpUri();
         var urlB = GetNextHttpUri();
 
-        var peers = BuildClusterPeers(("A", urlA), ("B", urlB));
+        var peers = BuildClusterPeers([("A", urlA), ("B", urlB)]);
 
         var capture = new CapturingHeadersInterceptor();
 

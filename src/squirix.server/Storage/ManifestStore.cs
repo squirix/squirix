@@ -1,31 +1,45 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
-using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Node.Observability;
-using Squirix.Server.Serialization;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage;
 
+/// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
+[SuppressMessage(
+    "AsyncUsage",
+    "MA0045:Use await instead of GetResult()",
+    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
+[SuppressMessage(
+    "Usage",
+    "VSTHRD002:Avoid problematic synchronous waits",
+    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class ManifestStore : IDisposable
 {
-    private readonly string _currentPath;
+    private const int DefaultEncodeBufferCapacity = 256;
+    private readonly ManifestCache _cache = new();
+    private readonly Lock _cacheSync = new();
 
+    private readonly string _currentPath;
+    private readonly byte[] _currentPointerBuffer = new byte[ManifestPointer.Size];
+    private readonly ManifestPersistentPointerWriter _currentPointerWriter;
     private readonly string _dataDir;
-    private readonly IStorageFileOperations _fileOperations;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly ILogger<ManifestStore>? _logger;
-    private readonly int _retention;
+    private readonly string _manifestFileNamePrefix;
+    private readonly Lock _nextIndexInitLock = new();
+    private readonly ManifestRetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
-    private readonly int _snapshotRetention;
+    private bool _dataDirEnsured;
+    private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
+    private volatile bool _nextIndexInitialized;
+    private int _nextManifestIndex;
+    private volatile ManifestState? _pendingRetentionManifest;
+    private int _retentionWorkerScheduled;
 
     public ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger = null, IRetentionCleanupReadinessStatus? retentionReadiness = null)
         : this(options, logger, retentionReadiness, new StorageFileOperations())
@@ -35,52 +49,29 @@ internal sealed class ManifestStore : IDisposable
     internal ManifestStore(PersistenceOptions options, ILogger<ManifestStore>? logger, IRetentionCleanupReadinessStatus? retentionReadiness, IStorageFileOperations fileOperations)
     {
         _dataDir = options.DataDir;
-        _logger = logger;
         _currentPath = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Manifest}current");
-        _retention = options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3;
-        _snapshotRetention = options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3;
-        _fileOperations = fileOperations;
+        _currentPointerWriter = new ManifestPersistentPointerWriter(_currentPath);
+        _manifestFileNamePrefix = PathEx.Combine(_dataDir, StorageFilePrefixes.Manifest);
         _retentionReadiness = retentionReadiness;
+        _retentionContext = new ManifestRetentionContext(
+            _dataDir,
+            options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
+            options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
+            fileOperations,
+            logger,
+            $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}",
+            TryParseManifestIndex);
     }
 
-    /// <summary>
-    /// Reads the manifest referenced by the <c>CURRENT</c> file in the data directory.
-    /// Returns a new default manifest only when the current pointer does not exist.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>
-    /// The deserialized <see cref="Manifest" /> when available; otherwise a new default manifest on first boot.
-    /// </returns>
-    /// <remarks>
-    ///     <para>
-    ///     The method is tolerant only to first boot. Empty pointers, missing target files,
-    ///     unreadable manifests, and invalid manifest contents are treated as storage
-    ///     corruption and are surfaced to the caller.
-    ///     </para>
-    ///     <para>Thread-safe: the entire operation is performed under an internal gate.</para>
-    /// </remarks>
-    [SuppressMessage("Security", "CA3003:Review code for file path injection vulnerabilities", Justification = "Manifest path is resolved from a validated CURRENT pointer filename under the configured data directory.")]
-    public async Task<Manifest> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
+    public async Task<ManifestState> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _ = await DirectoryEx.CreateDirectoryAsync(_dataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (TryGetCachedCurrent(out var cached))
+                return cached;
 
-            if (!File.Exists(_currentPath))
-                return new Manifest();
-
-            var name = (await File.ReadAllTextAsync(_currentPath, cancellationToken).ConfigureAwait(false)).Trim();
-            if (string.IsNullOrWhiteSpace(name))
-                throw new InvalidDataException($"Manifest current pointer is empty: {_currentPath}");
-
-            if (TryParseIndex(name) <= 0)
-                throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
-
-            var path = PathEx.Combine(_dataDir, name);
-            var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<Manifest>(bytes, DurabilityJson.StrictSerializerOptions) ??
-                   throw new InvalidDataException($"Manifest file did not contain a valid manifest: {path}");
+            return await LoadCurrentFromDiskAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -88,73 +79,15 @@ internal sealed class ManifestStore : IDisposable
         }
     }
 
-    /// <summary>
-    /// Persists the given <paramref name="manifest" /> as the next monotonically numbered
-    /// manifest file in the data directory and atomically updates the <c>CURRENT</c> pointer
-    /// to reference it. Old manifest files are then trimmed according to retention settings.
-    /// </summary>
-    /// <param name="manifest">The in-memory manifest snapshot to write to disk.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <remarks>
-    ///     <para>The operation performs three steps under an internal gate (thread-safe):</para>
-    ///     <list type="number">
-    ///         <item>
-    ///             <description>Write a new manifest file (next sequential index) and flush it to disk.</description>
-    ///         </item>
-    ///         <item>
-    ///             <description>Atomically replace/update the <c>CURRENT</c> file so readers observe an all-or-nothing switch.</description>
-    ///         </item>
-    ///         <item>
-    ///             <description>Delete older manifest files, keeping only the most recent ones per retention policy.</description>
-    ///         </item>
-    ///     </list>
-    ///     <para>
-    ///     Although the method minimizes torn writes (fsync + atomic replace), callers should treat the
-    ///     returned state as durable only after the method completes without exceptions.
-    ///     </para>
-    /// </remarks>
-    /// <returns>A <see cref="Task" /> that completes when the manifest is durable on disk.</returns>
-    /// <exception cref="IOException">
-    /// An I/O error occurred while writing the manifest or updating <c>CURRENT</c>.
-    /// </exception>
-    /// <exception cref="UnauthorizedAccessException">The process lacks filesystem permissions for the data directory or files.</exception>
-    /// <exception cref="JsonException">
-    /// The <paramref name="manifest" /> could not be serialized.
-    /// </exception>
-    /// <exception cref="NotSupportedException">The manifest contains a value that cannot be serialized by the configured JSON options.</exception>
-    public async Task WriteAsync(Manifest manifest, CancellationToken cancellationToken = default)
+    public async Task WriteAsync(ManifestState manifest, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _ = await DirectoryEx.CreateDirectoryAsync(_dataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            var baselineIndex = await ResolveBaselineManifestIndexAsync(cancellationToken).ConfigureAwait(false);
-            var nextIndex = baselineIndex + 1;
-            var fileName = $"{StorageFilePrefixes.Manifest}{nextIndex.ToString("D6", CultureInfo.InvariantCulture)}{StorageFileExtensions.Manifest}";
-            var targetPath = PathEx.Combine(_dataDir, fileName);
-
-            // 1) Write a new manifest file
-            var manifestStream = new FileStream(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            try
-            {
-                await JsonSerializer.SerializeAsync(manifestStream, manifest, SquirixJsonSerializerContext.Default.Manifest, cancellationToken).ConfigureAwait(false);
-                await manifestStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                await manifestStream.DisposeAsync().ConfigureAwait(false);
-            }
-
-            // 2) Atomically update CURRENT to point to the new manifest file
-            await UpdateCurrentAtomicallyAsync(fileName, cancellationToken).ConfigureAwait(false);
-
-            // 3) Retention: keep only the last N manifest files
-            var manifestCleanupFailed = TryCleanupOldManifests();
-            var snapshotCleanupFailed = TryCleanupOldSnapshots(manifest.LastSnapshot);
-            var journalCleanupFailed = TryCleanupObsoleteJournalSegments(manifest);
-            var cleanupFailed = manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
-            _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
+            await EnsureNextManifestIndexInitializedAsync(cancellationToken).ConfigureAwait(false);
+            var nextIndex = IncrementNextManifestIndex();
+            await PublishCoreAsync(manifest, nextIndex, cancellationToken).ConfigureAwait(false);
+            ScheduleRetentionCleanup(manifest);
         }
         finally
         {
@@ -162,101 +95,273 @@ internal sealed class ManifestStore : IDisposable
         }
     }
 
-    public void Dispose() => _gate.Dispose();
-
-    private static FileOptions GetCurrentFileWriteOptions()
+    public void Dispose()
     {
-        var opts = FileOptions.SequentialScan;
-        if (OperatingSystem.IsWindows())
-            opts |= FileOptions.WriteThrough;
-        return opts;
+        _currentPointerWriter.Dispose();
+        _gate.Dispose();
     }
 
-    private static IndexedStorageFile[] GetIndexedFiles(string[] files, Func<string, int> parseIndex)
+    internal void PublishRollBlocking(int currentJournal, ulong nextSequence)
     {
-        var result = new List<IndexedStorageFile>();
-        foreach (var path in files)
+        var nextIndex = AllocateNextManifestIndex();
+        var manifest = PublishRollCoreBlocking(currentJournal, nextSequence, nextIndex);
+        ScheduleRetentionCleanup(manifest);
+    }
+
+    internal ManifestState ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+    private static int ResolveNextIndexFromPointer(ReadOnlySpan<byte> pointerBytes, int maxOnDisk, string currentPath)
+    {
+        if (!ManifestPointer.IsValidPointer(pointerBytes))
+            throw new InvalidDataException($"Manifest current pointer is invalid: {currentPath}");
+
+        var fromCurrent = ManifestPointer.Read(pointerBytes);
+        var baseline = fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
+        return baseline + 1;
+    }
+
+    private static int TryParseManifestIndex(string name) => TryParseManifestIndex(name.AsSpan());
+
+    private static int TryParseManifestIndex(ReadOnlySpan<char> name)
+    {
+        if (name.IsEmpty)
+            return 0;
+
+        var prefix = StorageFilePrefixes.Manifest.AsSpan();
+        var extension = StorageFileExtensions.Manifest.AsSpan();
+        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            return 0;
+
+        var numberPart = name.Slice(prefix.Length, name.Length - prefix.Length - extension.Length);
+        return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
+    }
+
+    private int AllocateNextManifestIndex()
+    {
+        EnsureNextManifestIndexInitialized();
+        return IncrementNextManifestIndex();
+    }
+
+    private string BuildManifestFilePath(int index) => string.Create(
+        _manifestFileNamePrefix.Length + 6 + StorageFileExtensions.Manifest.Length,
+        (Prefix: _manifestFileNamePrefix, Index: index),
+        static (span, state) =>
         {
-            var index = parseIndex(Path.GetFileName(path));
-            if (index > 0)
-                result.Add(new IndexedStorageFile(path, index));
+            state.Prefix.CopyTo(span);
+            var suffix = span[state.Prefix.Length..];
+            if (!state.Index.TryFormat(suffix, out var charsWritten, "D6", CultureInfo.InvariantCulture))
+                throw new InvalidOperationException("Manifest index did not fit fixed-width field.");
+
+            StorageFileExtensions.Manifest.CopyTo(suffix[charsWritten..]);
+        });
+
+    private void EnsureDataDirectoryExists()
+    {
+        if (_dataDirEnsured)
+            return;
+
+        _ = Directory.CreateDirectory(_dataDir);
+        _dataDirEnsured = true;
+    }
+
+    private async Task EnsureDataDirectoryExistsAsync(CancellationToken cancellationToken)
+    {
+        if (_dataDirEnsured)
+            return;
+
+        _ = await DirectoryEx.CreateDirectoryAsync(_dataDir, cancellationToken: cancellationToken).ConfigureAwait(false);
+        _dataDirEnsured = true;
+    }
+
+    private void EnsureEncodeBufferCapacity(int encodedLength)
+    {
+        if (_encodeBuffer.Length >= encodedLength)
+            return;
+
+        _encodeBuffer = new byte[Math.Max(encodedLength, _encodeBuffer.Length * 2)];
+    }
+
+    private void EnsureNextManifestIndexInitialized()
+    {
+        if (_nextIndexInitialized)
+            return;
+
+        lock (_nextIndexInitLock)
+        {
+            if (_nextIndexInitialized)
+                return;
+
+            _nextManifestIndex = TryReadCurrentIndexForInit() ?? ResolveNextIndexFromDiskLocked() - 1;
+            _nextIndexInitialized = true;
+        }
+    }
+
+    private async Task EnsureNextManifestIndexInitializedAsync(CancellationToken cancellationToken)
+    {
+        if (_nextIndexInitialized)
+            return;
+
+        lock (_nextIndexInitLock)
+        {
+            if (_nextIndexInitialized)
+                return;
+
+            var fromCache = TryReadCurrentIndexForInit();
+            if (fromCache is not null)
+            {
+                _nextManifestIndex = fromCache.Value;
+                _nextIndexInitialized = true;
+                return;
+            }
         }
 
-        result.Sort(static (left, right) => right.Index.CompareTo(left.Index));
-        return [.. result];
+        var nextFromDisk = await ResolveNextIndexFromDiskAsync(cancellationToken).ConfigureAwait(false);
+
+        lock (_nextIndexInitLock)
+        {
+            if (_nextIndexInitialized)
+                return;
+
+            _nextManifestIndex = nextFromDisk - 1;
+            _nextIndexInitialized = true;
+        }
     }
 
-    private static int TryParseIndex(string name)
+    private int IncrementNextManifestIndex()
     {
-        if (string.IsNullOrEmpty(name))
-            return 0;
-        if (!name.StartsWith(StorageFilePrefixes.Manifest, StringComparison.OrdinalIgnoreCase))
-            return 0;
-        if (!name.EndsWith(StorageFileExtensions.Manifest, StringComparison.OrdinalIgnoreCase))
-            return 0;
-
-        var numberPart = name.Substring(StorageFilePrefixes.Manifest.Length, name.Length - StorageFilePrefixes.Manifest.Length - StorageFileExtensions.Manifest.Length);
-        return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
+        lock (_nextIndexInitLock)
+            return ++_nextManifestIndex;
     }
 
-    private static int TryParseSnapshotIndex(string name)
+    private async Task<ManifestState> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(name))
-            return 0;
-        if (!name.StartsWith(StorageFilePrefixes.Snapshot, StringComparison.OrdinalIgnoreCase))
-            return 0;
-        if (!name.EndsWith(StorageFileExtensions.Snapshot, StringComparison.OrdinalIgnoreCase))
-            return 0;
-
-        var numberPart = name.Substring(StorageFilePrefixes.Snapshot.Length, name.Length - StorageFilePrefixes.Snapshot.Length - StorageFileExtensions.Snapshot.Length);
-        return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
-    }
-
-    private void ReportRetentionCleanupException(string artifactKind, Exception exception)
-    {
-        StorageRetentionMetrics.DeleteFailuresTotal.WithLabels(artifactKind, ManifestRetentionFailureOutcome.CleanupException).Inc(1);
-
-        if (_logger is not null)
-            LogManager.ManifestRetentionCleanupFailed(_logger, exception, artifactKind);
-    }
-
-    private void ReportRetentionDeleteFailure(string artifactKind, string path)
-    {
-        StorageRetentionMetrics.DeleteFailuresTotal.WithLabels(artifactKind, ManifestRetentionFailureOutcome.DeleteFailed).Inc(1);
-
-        if (_logger is not null)
-            LogManager.ManifestRetentionDeleteFailed(_logger, artifactKind, path);
-    }
-
-    private async Task<int> ResolveBaselineManifestIndexAsync(CancellationToken cancellationToken)
-    {
-        var maxOnDisk = ScanMaxManifestIndexOnDisk();
+        await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
 
         if (!File.Exists(_currentPath))
-            return maxOnDisk;
+            return new ManifestState();
 
-        string name;
-        try
-        {
-            name = (await File.ReadAllTextAsync(_currentPath, cancellationToken).ConfigureAwait(false)).Trim();
-        }
-        catch (IOException ex)
-        {
-            throw new InvalidDataException($"Manifest current pointer is unreadable: {_currentPath}", ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw new InvalidDataException($"Manifest current pointer is unreadable: {_currentPath}", ex);
-        }
-
-        if (string.IsNullOrWhiteSpace(name))
-            throw new InvalidDataException($"Manifest current pointer is empty: {_currentPath}");
-
-        var fromCurrent = TryParseIndex(name);
-        if (fromCurrent <= 0)
+        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
+        if (!ManifestPointer.IsValidPointer(pointerBytes))
             throw new InvalidDataException($"Manifest current pointer is invalid: {_currentPath}");
 
-        return fromCurrent > maxOnDisk ? fromCurrent : maxOnDisk;
+        var index = ManifestPointer.Read(pointerBytes);
+        var path = BuildManifestFilePath(index);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        var manifest = ManifestCodec.Decode(bytes);
+        SetCache(manifest, index);
+        SeedNextManifestIndex(index);
+        return manifest;
+    }
+
+    private async Task PublishCoreAsync(ManifestState manifest, int nextIndex, CancellationToken cancellationToken)
+    {
+        await EnsureDataDirectoryExistsAsync(cancellationToken).ConfigureAwait(false);
+
+        var targetPath = BuildManifestFilePath(nextIndex);
+        var encodedLength = ManifestCodec.ComputeEncodedLength(manifest);
+        EnsureEncodeBufferCapacity(encodedLength);
+
+        ManifestCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
+
+        await Task.Factory.StartNew(
+            () =>
+            {
+                ManifestDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
+                UpdateCurrentPointerBlocking(nextIndex);
+            },
+            cancellationToken,
+            TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).ConfigureAwait(false);
+
+        SetCache(manifest, nextIndex);
+    }
+
+    private ManifestState PublishRollCoreBlocking(int currentJournal, ulong nextSequence, int nextIndex)
+    {
+        EnsureDataDirectoryExists();
+
+        var (previous, snapshotPathUtf8) = ReadRollBaselineLocked();
+        var format = previous.Format is 0 ? 1 : previous.Format;
+        var snapshot = previous.LastSnapshot;
+
+        var encodedLength = ManifestCodec.ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
+        EnsureEncodeBufferCapacity(encodedLength);
+
+        _ = ManifestCodec.WriteRollEncoded(format, currentJournal, nextSequence, snapshot, snapshotPathUtf8.Span, _encodeBuffer.AsSpan(0, encodedLength));
+
+        var targetPath = BuildManifestFilePath(nextIndex);
+        ManifestPointer.Write(_currentPointerBuffer, nextIndex);
+        ManifestDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
+
+        var manifest = new ManifestState
+        {
+            Format = format,
+            CurrentJournal = currentJournal,
+            NextSequence = nextSequence,
+            LastSnapshot = snapshot,
+        };
+        SetCache(manifest, nextIndex);
+        return manifest;
+    }
+
+    private byte[] ReadCurrentPointerBytes() => File.ReadAllBytes(_currentPath);
+
+    private (ManifestState Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
+    {
+        lock (_cacheSync)
+        {
+            if (!_cache.IsInitialized)
+                return (new ManifestState(), ReadOnlyMemory<byte>.Empty);
+
+            return (_cache.Current, _cache.SnapshotPathUtf8);
+        }
+    }
+
+    private async Task<int> ResolveNextIndexFromDiskAsync(CancellationToken cancellationToken)
+    {
+        var maxOnDisk = ScanMaxManifestIndexOnDisk();
+        if (!File.Exists(_currentPath))
+            return maxOnDisk + 1;
+
+        var pointerBytes = await File.ReadAllBytesAsync(_currentPath, cancellationToken).ConfigureAwait(false);
+        return ResolveNextIndexFromPointer(pointerBytes, maxOnDisk, _currentPath);
+    }
+
+    private int ResolveNextIndexFromDiskLocked()
+    {
+        var maxOnDisk = ScanMaxManifestIndexOnDisk();
+        if (!File.Exists(_currentPath))
+            return maxOnDisk + 1;
+
+        return ResolveNextIndexFromPointer(ReadCurrentPointerBytes(), maxOnDisk, _currentPath);
+    }
+
+    private void RunRetentionWorkerLoop()
+    {
+        try
+        {
+            while (_pendingRetentionManifest is { } manifest)
+            {
+                _pendingRetentionManifest = null;
+                var cleanupFailed = ManifestRetentionCleanup.Run(_retentionContext, manifest);
+                _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
+            }
+        }
+        finally
+        {
+            _ = Interlocked.Exchange(ref _retentionWorkerScheduled, 0);
+            if (_pendingRetentionManifest is not null && Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is 0)
+            {
+                _ = Task.Factory.StartNew(
+                    RunRetentionWorkerLoop,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                    TaskScheduler.Default);
+            }
+        }
     }
 
     private int ScanMaxManifestIndexOnDisk()
@@ -265,9 +370,9 @@ internal sealed class ManifestStore : IDisposable
             return 0;
 
         var max = 0;
-        foreach (var path in Directory.GetFiles(_dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}"))
+        foreach (var path in Directory.GetFiles(_dataDir, _retentionContext.ManifestFileGlob))
         {
-            var index = TryParseIndex(Path.GetFileName(path));
+            var index = TryParseManifestIndex(Path.GetFileName(path));
             if (index > max)
                 max = index;
         }
@@ -275,161 +380,54 @@ internal sealed class ManifestStore : IDisposable
         return max;
     }
 
-    private bool TryCleanupObsoleteJournalSegments(Manifest manifest)
+    private void ScheduleRetentionCleanup(ManifestState manifest)
     {
-        try
+        _pendingRetentionManifest = manifest;
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
+            return;
+
+        _ = Task.Factory.StartNew(RunRetentionWorkerLoop, CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+    }
+
+    private void SeedNextManifestIndex(int publishedIndex)
+    {
+        lock (_nextIndexInitLock)
         {
-            var replayFromSegment = manifest.LastSnapshot?.ReplayFromJournalSegment ?? 0;
-            if (replayFromSegment <= 1)
-                return false;
+            _nextManifestIndex = publishedIndex;
+            _nextIndexInitialized = true;
+        }
+    }
 
-            if (manifest.CurrentJournal < replayFromSegment)
-                return false;
+    private void SetCache(ManifestState manifest, int index)
+    {
+        lock (_cacheSync)
+            _cache.Set(manifest, index);
+    }
 
-            var failed = false;
-            foreach (var segment in JournalReader.EnumerateSegments(_dataDir, 1))
+    private bool TryGetCachedCurrent(out ManifestState manifest)
+    {
+        lock (_cacheSync)
+        {
+            if (!_cache.IsInitialized)
             {
-                if (segment.Index >= replayFromSegment)
-                    continue;
-
-                if (segment.Index >= manifest.CurrentJournal)
-                    continue;
-
-                failed |= TryDeleteRetentionArtifact(segment.Path, ManifestRetentionArtifactKind.JournalSegment);
+                manifest = new ManifestState();
+                return false;
             }
 
-            return failed;
-        }
-        catch (IOException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
-            return true;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.JournalSegment, ex);
+            manifest = _cache.Current;
             return true;
         }
     }
 
-    private bool TryCleanupOldManifests()
+    private int? TryReadCurrentIndexForInit()
     {
-        try
-        {
-            var files = Directory.GetFiles(_dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}");
-            if (files.Length <= _retention)
-                return false;
-
-            var ordered = GetIndexedFiles(files, TryParseIndex);
-
-            if (ordered.Length <= _retention)
-                return false;
-
-            var failed = false;
-            for (var i = _retention; i < ordered.Length; i++)
-                failed |= TryDeleteRetentionArtifact(ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
-
-            return failed;
-        }
-        catch (IOException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
-            return true;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Manifest, ex);
-            return true;
-        }
+        lock (_cacheSync)
+            return _cache.IsInitialized ? _cache.CurrentIndex : null;
     }
 
-    private bool TryCleanupOldSnapshots(Manifest.SnapshotRef? currentSnapshot)
+    private void UpdateCurrentPointerBlocking(int manifestIndex)
     {
-        try
-        {
-            var files = Directory.GetFiles(_dataDir, $"{StorageFilePrefixes.Snapshot}*{StorageFileExtensions.Snapshot}");
-            if (files.Length <= _snapshotRetention)
-                return false;
-
-            var ordered = GetIndexedFiles(files, TryParseSnapshotIndex);
-
-            if (ordered.Length <= _snapshotRetention)
-                return false;
-
-            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < _snapshotRetention && i < ordered.Length; i++)
-                _ = keep.Add(ordered[i].Path);
-
-            if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
-                _ = keep.Add(currentSnapshot.Path);
-
-            var failed = false;
-            for (var i = _snapshotRetention; i < ordered.Length; i++)
-            {
-                var stale = ordered[i];
-                if (keep.Contains(stale.Path))
-                    continue;
-
-                failed |= TryDeleteRetentionArtifact(stale.Path, ManifestRetentionArtifactKind.Snapshot);
-            }
-
-            return failed;
-        }
-        catch (IOException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
-            return true;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            ReportRetentionCleanupException(ManifestRetentionArtifactKind.Snapshot, ex);
-            return true;
-        }
-    }
-
-    private bool TryDeleteRetentionArtifact(string path, string artifactKind)
-    {
-        if (_fileOperations.TryDelete(path))
-            return false;
-
-        ReportRetentionDeleteFailure(artifactKind, path);
-        return true;
-    }
-
-    private async Task UpdateCurrentAtomicallyAsync(string newFileName, CancellationToken cancellationToken)
-    {
-        var tmp = PathEx.Combine(_dataDir, $"{StorageFilePrefixes.Manifest}current.tmp");
-        var payload = Encoding.UTF8.GetBytes(newFileName + Environment.NewLine);
-
-        // Write tmp with explicit fsync semantics
-        var currentStream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, GetCurrentFileWriteOptions());
-        try
-        {
-            await currentStream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-            await currentStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            await currentStream.DisposeAsync().ConfigureAwait(false);
-        }
-
-        // Atomically replace it when the destination exists (maps to Win32 ReplaceFile on Windows)
-        if (File.Exists(_currentPath))
-            File.Replace(tmp, _currentPath, null);
-        else // First time: move/rename
-            File.Move(tmp, _currentPath, true);
-    }
-
-    private readonly struct IndexedStorageFile
-    {
-        public IndexedStorageFile(string path, int index)
-        {
-            Path = path;
-            Index = index;
-        }
-
-        public int Index { get; }
-
-        public string Path { get; }
+        ManifestPointer.Write(_currentPointerBuffer, manifestIndex);
+        ManifestDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
     }
 }

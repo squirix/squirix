@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -7,7 +6,6 @@ namespace Squirix.E2ETests.Support.Cluster;
 
 /// <summary>Connected two-node named caches for multi-node public API tests.</summary>
 /// <typeparam name="T">Cached value type.</typeparam>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Test fixture surface must be public for xUnit class fixtures.")]
 public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
 {
     private readonly bool _ownsLifetime;

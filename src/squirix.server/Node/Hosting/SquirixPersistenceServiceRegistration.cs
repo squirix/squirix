@@ -6,7 +6,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Hosting;
@@ -26,30 +28,6 @@ internal static class SquirixPersistenceServiceRegistration
         return services;
     }
 
-    private static void RegisterPersistenceRuntime(IServiceCollection services, PersistenceRuntime runtime)
-    {
-        _ = services.AddSingleton(runtime);
-        _ = services.AddSingleton(runtime.Retention);
-        _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
-        _ = services.AddSingleton(runtime.ManifestStore);
-        _ = services.AddSingleton(runtime.Gate);
-        _ = services.AddSingleton(runtime.JournalWriter);
-        _ = services.AddSingleton(static sp => sp.GetRequiredService<JournalWriterSingleton>().Writer);
-        _ = services.AddHealthChecks().AddCheck<JournalRecoveryReadinessHealthCheck>("journal_recovery", HealthStatus.Unhealthy, ["ready"])
-                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"])
-                    .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
-        _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
-        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalWriterDecorator(
-            sp.GetRequiredService<JournalWriter>(),
-            sp.GetRequiredService<IJournalOperationTracer>()));
-        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalWriter>());
-        _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
-
-        _ = services.AddSingleton<ISnapshotWriter>(static sp => new SnapshotWriter(sp.GetRequiredService<PersistenceOptions>().DataDir));
-        _ = services.AddSingleton<SnapshotReader>();
-        _ = services.AddSingleton<SnapshotCoordinator<object?>>();
-    }
-
     private static void RegisterPersistenceHostedServices(IServiceCollection services, bool waitForRecovery)
     {
         _ = services.AddSingleton(new RecoveryOptions { BlockOnStart = waitForRecovery });
@@ -62,5 +40,32 @@ internal static class SquirixPersistenceServiceRegistration
         _ = services.AddHostedService(static sp => sp.GetRequiredService<JournalCompactionService<object?>>());
         _ = services.AddSingleton<JournalCompactionController>();
         _ = services.AddHostedService<JournalMetricsExporterService>();
+    }
+
+    private static void RegisterPersistenceRuntime(IServiceCollection services, PersistenceRuntime runtime)
+    {
+        _ = services.AddSingleton(runtime);
+        _ = services.AddSingleton(runtime.Retention);
+        _ = services.AddSingleton<IRetentionCleanupReadinessStatus>(runtime.Retention);
+        _ = services.AddSingleton(runtime.ManifestStore);
+        _ = services.AddSingleton(runtime.Gate);
+        _ = services.AddSingleton(runtime.JournalCoordinator);
+        _ = services.AddSingleton<IJournalCoordinator>(static sp => new TracingJournalCoordinatorDecorator(
+            sp.GetRequiredService<JournalCoordinatorHost>().Coordinator,
+            sp.GetRequiredService<IJournalOperationTracer>()));
+        _ = services.AddSingleton<IJournalMetrics>(static sp => sp.GetRequiredService<JournalCoordinatorHost>().Coordinator);
+        _ = services.AddSingleton<IExclusiveMaintenanceExecutor>(static sp => sp.GetRequiredService<IJournalCoordinator>());
+        _ = services.AddHealthChecks().AddCheck<JournalRecoveryReadinessHealthCheck>("journal_recovery", HealthStatus.Unhealthy, ["ready"])
+                    .AddCheck<JournalMaintenanceReadinessHealthCheck>("journal_maintenance", HealthStatus.Unhealthy, ["ready"])
+                    .AddCheck<StorageRetentionCleanupReadinessHealthCheck>("storage_retention_cleanup", HealthStatus.Unhealthy, ["ready"]);
+        _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
+
+        _ = services.AddSingleton<ISnapshotWriter>(static sp =>
+        {
+            var options = sp.GetRequiredService<PersistenceOptions>();
+            return SnapshotStoreFactory.CreateWriter(options);
+        });
+        _ = services.AddSingleton<ISnapshotReader>(static sp => SnapshotStoreFactory.CreateReader(sp.GetRequiredService<PersistenceOptions>()));
+        _ = services.AddSingleton<SnapshotCoordinator<object?>>();
     }
 }

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,9 +18,7 @@ namespace Squirix.Benchmarks.Server;
 /// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
-public class ReadPathBreakdownBenchmarks : IAsyncDisposable
+public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
 {
     private const string BenchmarkNodeId = "bench-client-pool-node";
     private const string CacheName = "bench-read-path-breakdown";
@@ -37,10 +34,11 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private BenchmarkRawGrpcCache? _rawGrpc;
     private GetValueAsyncRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
+    private Peer[]? _peers;
 
     /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
-    public async Task CleanupAsync() => await DisposeAsync().ConfigureAwait(false);
+    public ValueTask CleanupAsync() => DisposeAsync();
 
     /// <summary>Starts an in-process node and seeds keys for breakdown reads.</summary>
     [GlobalSetup]
@@ -52,7 +50,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_node.Host, CacheName);
         _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Endpoint, CacheName);
-        _clientPool = new ClientPool([new Peer { NodeId = BenchmarkNodeId, Url = _node.Endpoint }], static nodeId => new CallPolicy(peer: nodeId));
+        _peers = new Peer[1];
+        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Url = _node.Endpoint };
+        _clientPool = new ClientPool(_peers, static nodeId => new CallPolicy(peer: nodeId));
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _publicSdk = await _publicClient.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
@@ -163,13 +163,17 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _node = null;
         }
 
-        GC.SuppressFinalize(this);
+        _peers = null;
     }
+
+    private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";
+
+    private static string FormatValue(int index) => $"value:{index.ToString("D5", CultureInfo.InvariantCulture)}";
 
     private void SeedKeys()
     {
         for (var i = 0; i < KeyCount; i++)
-            _keys[i] = $"key:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _keys[i] = FormatKey(i);
     }
 
     private async Task SeedNodeAsync()
@@ -181,7 +185,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             for (var i = 0; i < KeyCount; i++)
             {
                 var key = _keys[i];
-                await cache.SetAsync(key, $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
         }
     }

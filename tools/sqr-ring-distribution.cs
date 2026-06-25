@@ -73,37 +73,22 @@ if (string.IsNullOrWhiteSpace(nodesCsv))
 try
 {
     var splitNodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-    var nodes = new List<string>();
+    var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
     foreach (var node in splitNodes)
-    {
-        var found = false;
-        foreach (var existing in nodes)
-        {
-            if (StringComparer.Ordinal.Equals(existing, node))
-            {
-                found = true;
-                break;
-            }
-        }
+        uniqueNodes.Add(node);
 
-        if (!found)
-            nodes.Add(node);
-    }
+    var nodes = new List<string>(uniqueNodes);
 
     if (nodes.Count is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
-    var ring = new ConsistentHashRing(nodes.ToArray(), virtualNodes);
+    var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
-    foreach (var node in nodes)
-        distribution[node] = 0;
+    for (var n = 0; n < nodes.Count; n++)
+        distribution[nodes[n]] = 0;
 
     for (var i = 0; i < sampleSize; i++)
-    {
-        var key = $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}";
-        var owner = ring.GetOwner(cacheName, key);
-        distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
-    }
+        distribution[ring.GetOwner(cacheName, $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
     await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
     await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
@@ -111,10 +96,11 @@ try
     await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     var sortedKeys = new List<string>(distribution.Keys);
     sortedKeys.Sort(StringComparer.Ordinal);
-    foreach (var key in sortedKeys)
+    for (var k = 0; k < sortedKeys.Count; k++)
     {
+        var key = sortedKeys[k];
         var count = distribution[key];
-        var share = Math.Round(Convert.ToDouble(count, CultureInfo.InvariantCulture) / sampleSize, 6, MidpointRounding.ToEven);
+        var share = Math.Round(1.0 * count / sampleSize, 6, MidpointRounding.ToEven);
         await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
         await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     }

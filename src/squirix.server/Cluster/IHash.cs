@@ -9,6 +9,12 @@ internal interface IHash
     /// <returns>The 64-bit hash value.</returns>
     ulong HashCacheRouteKey(string cacheName, string key);
 
+    /// <summary>Computes a 64-bit hash for a virtual node key without materializing the vnode string.</summary>
+    /// <param name="node">The physical node identifier.</param>
+    /// <param name="index">The virtual node index.</param>
+    /// <returns>The 64-bit hash value.</returns>
+    ulong HashVNode(string node, int index);
+
     /// <summary>
     /// Computes a 64-bit hash for the specified text encoded as UTF-8.
     /// Hot path: implementations must avoid allocations.

@@ -29,20 +29,18 @@ public sealed class PublicApiGoldenSnapshotTests
         {
             var trimmed = line.Trim();
             if (trimmed.Length > 0)
-                expected.Add(trimmed);
+                _ = expected.Add(trimmed);
         }
 
         var unexpected = CollectSetDifference(actual, expected, StringComparer.OrdinalIgnoreCase);
         var missing = CollectSetDifference(expected, actual, StringComparer.OrdinalIgnoreCase);
-        if (unexpected.Length is 0 && missing.Length is 0)
+        if (unexpected.Count is 0 && missing.Count is 0)
             return;
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden public API snapshot mismatch. Update ApiSnapshots/SquirixServerPublicTypes.golden.txt if the change is intentional.");
-        foreach (var export in unexpected)
-            _ = sb.Append("  + ").AppendLine(export);
-        foreach (var export in missing)
-            _ = sb.Append("  - ").AppendLine(export);
+        ListKit.ForEach(unexpected, export => _ = sb.Append("  + ").AppendLine(export));
+        ListKit.ForEach(missing, export => _ = sb.Append("  - ").AppendLine(export));
 
         Assert.Fail(sb.ToString());
     }
@@ -57,7 +55,7 @@ public sealed class PublicApiGoldenSnapshotTests
             if (method.IsSpecialName)
                 continue;
 
-            methodNames.Add(method.Name);
+            _ = methodNames.Add(method.Name);
         }
 
         var methods = new List<string>(methodNames);
@@ -66,7 +64,7 @@ public sealed class PublicApiGoldenSnapshotTests
         Assert.Equal(["DisposeAsync", "StartAsync"], methods);
     }
 
-    private static string[] CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
+    private static List<string> CollectSetDifference(IEnumerable<string> left, IReadOnlySet<string> right, StringComparer comparer)
     {
         var result = new List<string>();
         foreach (var item in left)
@@ -76,7 +74,7 @@ public sealed class PublicApiGoldenSnapshotTests
         }
 
         result.Sort(StringComparer.Ordinal);
-        return result.ToArray();
+        return result;
     }
 
     private static bool SetContains(IReadOnlySet<string> set, string item, StringComparer comparer)

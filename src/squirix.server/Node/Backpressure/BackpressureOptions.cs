@@ -85,10 +85,9 @@ internal sealed record BackpressureOptions
             if (configuredBurst < rate.Value)
                 throw new InvalidOperationException($"Backpressure {burstName} must be greater than or equal to {rateName}.");
         }
-        else
+        else if (burst is not null)
         {
-            if (burst is not null)
-                throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
+            throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
         }
     }
 }

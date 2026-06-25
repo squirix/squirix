@@ -23,7 +23,7 @@ public static class SquirixServerConfiguration
     /// <param name="options">Server options to update.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
-    /// <param name="persist">When <see langword="true" />, enables WAL/snapshot persistence.</param>
+    /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
     public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -84,9 +84,7 @@ public static class SquirixServerConfiguration
         if (loadDiscoveredSettings)
         {
             var path = ResolveSettingsPath(settingsPath);
-            options = path is not null
-                ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false)
-                : new SquirixServerOptions();
+            options = path is not null ? await LoadFromFileAsync(path, cancellationToken).ConfigureAwait(false) : new SquirixServerOptions();
         }
         else
         {
@@ -232,10 +230,7 @@ public static class SquirixServerConfiguration
     /// <returns>
     /// A tuple where <c>Success</c> is <see langword="true" /> when validation succeeds and <c>Error</c> holds failure text when applicable.
     /// </returns>
-    public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(
-        string settingsFilePath,
-        bool strict,
-        CancellationToken cancellationToken = default)
+    public static async Task<(bool Success, string? Error)> TryValidateSettingsFileAsync(string settingsFilePath, bool strict, CancellationToken cancellationToken = default)
     {
         var (success, _, error) = await TryLoadFromFileAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
         if (!success)
@@ -255,9 +250,8 @@ public static class SquirixServerConfiguration
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static ClusterConfig ToClusterConfig(SquirixServerOptions? options)
+    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
         ClusterTopologyValidator.Validate(options);
 
         var peers = new Peer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
@@ -307,7 +301,7 @@ public static class SquirixServerConfiguration
     /// <param name="options">Server options to update.</param>
     /// <param name="url">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
-    /// <param name="persist">When <see langword="true" />, enables WAL/snapshot persistence.</param>
+    /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
     private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? url, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);

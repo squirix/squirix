@@ -35,9 +35,7 @@ internal static class UnifiedSettings
         CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
-        return path is null
-            ? (false, baseline)
-            : await TryMergeMemoryPressureFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path is null ? (false, baseline) : await TryMergeMemoryPressureFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -54,9 +52,7 @@ internal static class UnifiedSettings
         CancellationToken cancellationToken = default)
     {
         var path = ResolveSettingsPath();
-        return path is null
-            ? (false, baseline)
-            : await TryMergePrometheusMetricsFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
+        return path is null ? (false, baseline) : await TryMergePrometheusMetricsFromSettingsFilePathAsync(path, baseline, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -82,20 +78,20 @@ internal static class UnifiedSettings
     /// <summary>
     /// Merges <c>MemoryPressure</c> from a specific settings file path (used by tests and file resolution).
     /// </summary>
-    /// <param name="settingsFilePath">Full path to a JSON file with optional <c>Squirix.MemoryPressure</c> section.</param>
+    /// <param name="path">Full path to a JSON file with optional <c>Squirix.MemoryPressure</c> section.</param>
     /// <param name="baseline">Baseline options when the section is absent.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true" /> in <c>Found</c> when the file exists and defines a <c>MemoryPressure</c> object.</returns>
     internal static async Task<(bool Found, UnresolvedMemoryPressureOptions Merged)> TryMergeMemoryPressureFromSettingsFilePathAsync(
-        string settingsFilePath,
+        string path,
         UnresolvedMemoryPressureOptions baseline,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(settingsFilePath))
+        if (!File.Exists(path))
             return (false, baseline);
 
         return await WithSquirixRootAsync(
-            settingsFilePath,
+            path,
             root =>
             {
                 if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
@@ -115,10 +111,7 @@ internal static class UnifiedSettings
     /// <param name="failures">Collected validation failures.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes after optional sections are validated.</returns>
-    internal static async Task ValidateOptionalSectionsAsync(
-        string settingsFilePath,
-        List<string> failures,
-        CancellationToken cancellationToken = default)
+    internal static async Task ValidateOptionalSectionsAsync(string settingsFilePath, List<string> failures, CancellationToken cancellationToken = default)
     {
         var (memoryPressureFound, memoryPressure) = await TryMergeMemoryPressureFromSettingsFilePathAsync(
             settingsFilePath,
@@ -136,10 +129,8 @@ internal static class UnifiedSettings
             }
         }
 
-        var (prometheusFound, prometheus) = await TryMergePrometheusMetricsFromSettingsFilePathAsync(
-            settingsFilePath,
-            new PrometheusMetricsEndpointOptions(),
-            cancellationToken).ConfigureAwait(false);
+        var (prometheusFound, prometheus) = await TryMergePrometheusMetricsFromSettingsFilePathAsync(settingsFilePath, new PrometheusMetricsEndpointOptions(), cancellationToken)
+           .ConfigureAwait(false);
         if (!prometheusFound)
             return;
 

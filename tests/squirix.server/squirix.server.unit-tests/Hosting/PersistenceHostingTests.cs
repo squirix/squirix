@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,7 +50,7 @@ public sealed class PersistenceHostingTests : UnitTestBase
     [Fact]
     public async Task UsePersistenceRegistersPersistenceOptions()
     {
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
+        using var dir = new TempDirectory("squirix-persistence-tests");
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -63,16 +62,13 @@ public sealed class PersistenceHostingTests : UnitTestBase
             options =>
             {
                 options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dataDir);
+                options.UsePersistence(dir);
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
-        Assert.Equal(dataDir, persistence.DataDir);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
+        Assert.Equal(dir.Path, persistence.DataDir);
     }
 }

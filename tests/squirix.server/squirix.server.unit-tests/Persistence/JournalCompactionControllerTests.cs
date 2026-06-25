@@ -7,7 +7,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -25,10 +29,15 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task DisposeIsIdempotent()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-double");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new ManifestState(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        using var controller = new JournalCompactionController(
+            opt,
+            manifestStore,
+            SnapshotStoreFactory.CreateReader(opt),
+            journal,
+            NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
 
@@ -47,11 +56,16 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("gate"), [.. """{"v":{"$t":"s","v":"x"},"ver":1}"""u8], null, DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new ManifestState(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), null, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
+        using var controller = new JournalCompactionController(
+            opt,
+            manifestStore,
+            SnapshotStoreFactory.CreateReader(opt),
+            journal,
+            NullLogger<JournalCompactionController>.Instance);
         var mutexField = typeof(JournalCompactionController).GetField("_mutex", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(mutexField);
         var mutex = Assert.IsType<SemaphoreSlim>(mutexField.GetValue(controller));
@@ -73,12 +87,12 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-dispose");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new ManifestState(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        var controller = new JournalCompactionController(opt, manifestStore, SnapshotStoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
-        _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => { _ = await controller.TryTriggerNowAsync(DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 }

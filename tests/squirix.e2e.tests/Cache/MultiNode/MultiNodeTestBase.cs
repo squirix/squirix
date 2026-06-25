@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Cluster;
@@ -11,7 +10,6 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// <summary>
 /// Shared two-node cluster fixture for multi-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class MultiNodeTestBase : EndToEndTestBase, IClassFixture<TwoNodeFixture>
 {
     private readonly TwoNodeFixture _fixture;

@@ -1,6 +1,7 @@
 using System;
-using System.Text.Json;
+using Squirix.Server.Serialization;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -11,11 +12,6 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// </summary>
 public sealed class PersistenceOptionsTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>
     /// Ensures the default-constructed <see cref="PersistenceOptions" /> exposes the expected
     /// initial values for all properties.
@@ -26,10 +22,16 @@ public sealed class PersistenceOptionsTests
         var o = new PersistenceOptions();
 
         Assert.Equal(string.Empty, o.DataDir);
-        Assert.Equal(128, o.JournalMaxSegmentMb);
+        Assert.Equal(64, o.JournalMaxSegmentMb);
+        Assert.Equal(32, o.JournalMaxSegmentCount);
+        Assert.Equal(2048, o.JournalMaxTotalBytesMb);
+        Assert.Equal(JournalPlatformBackend.Auto, o.JournalPlatformBackend);
         Assert.Equal(10, o.FlushIntervalMs);
         Assert.Equal(60, o.SnapshotIntervalSec);
         Assert.Equal(3, o.ManifestRetentionCount);
+        Assert.Equal(TimeSpan.Zero, o.JournalGroupCommitMaxWait);
+        Assert.Equal(32, o.JournalGroupCommitMaxBatch);
+        Assert.False(o.IsJournalGroupCommitEnabled);
     }
 
     /// <summary>
@@ -76,7 +78,7 @@ public sealed class PersistenceOptionsTests
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
     public void FieldBackedValidationRejectsNonPositiveScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => CreateWithInvalidScalar(propertyName));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => _ = CreateWithInvalidScalar(propertyName));
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
@@ -87,8 +89,9 @@ public sealed class PersistenceOptionsTests
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
-        var options = JsonSerializer.Deserialize<PersistenceOptions>(json, JsonOptions);
+        const string json =
+            """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"snapshotIntervalSec":30,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        var options = new SystemTextJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
         Assert.Equal(64, options.JournalMaxSegmentMb);

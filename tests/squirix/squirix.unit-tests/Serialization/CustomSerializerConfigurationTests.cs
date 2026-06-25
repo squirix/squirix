@@ -1,7 +1,8 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Text.Json;
+using FakeItEasy;
+using FakeItEasy.Core;
 using Squirix.Serialization;
 using Xunit;
 
@@ -17,7 +18,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void ConnectAsyncConfigurePatternAssignsSerializerAfterConstruction()
     {
-        var custom = new CallTrackingSerializer();
+        var custom = A.Fake<ISquirixSerializer>();
         var options = new SquirixOptions();
         ConfigureLikeConnect(options, custom);
 
@@ -36,18 +37,17 @@ public sealed class CustomSerializerConfigurationTests
         Assert.Same(before, SerializationProvider.Instance);
     }
 
-    /// <summary>
-    /// Verifies round-trip fidelity when a custom serializer delegates to <see cref="JsonSerializer" />.
-    /// </summary>
+    /// <summary>Verifies round-trip fidelity when a custom serializer delegates to the default JSON implementation.</summary>
     [Fact]
     public void CustomSerializerRoundTripsComplexPayload()
     {
-        var custom = new CallTrackingSerializer();
+        var custom = CreateDelegatingFake(new SystemTextJsonSerializer());
         var scoped = SerializationProvider.Create(custom);
 
         var payload = new[] { 1, 2, 3 };
         var bytes = scoped.SerializeToUtf8Bytes(payload);
-        var result = scoped.Deserialize<int[]>(bytes);
+        using var stream = new MemoryStream(bytes);
+        var result = scoped.Deserialize<int[]>(stream);
 
         Assert.NotNull(result);
         Assert.Equal(payload, result);
@@ -61,7 +61,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void PostConstructionSerializerAssignmentCreatesScopedSerializer()
     {
-        var custom = new CallTrackingSerializer();
+        var custom = CreateDelegatingFake(new SystemTextJsonSerializer());
         var opts = new SquirixOptions
         {
             Serializer = custom,
@@ -71,11 +71,12 @@ public sealed class CustomSerializerConfigurationTests
         var scoped = SerializationProvider.Create(opts.Serializer);
 
         var serialized = scoped.SerializeToUtf8Bytes("hello");
-        var deserialized = scoped.Deserialize<string>(serialized);
+        using var stream = new MemoryStream(serialized);
+        var deserialized = scoped.Deserialize<string>(stream);
 
         Assert.Equal("hello", deserialized);
-        Assert.True(custom.SerializeCalled);
-        Assert.True(custom.DeserializeCalled);
+        _ = A.CallTo(custom).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).MustHaveHappenedOnceExactly();
+        _ = A.CallTo(custom).Where(static call => call.Method.Name == nameof(ISquirixSerializer.Deserialize) && call.Method.IsGenericMethod).MustHaveHappenedOnceExactly();
         Assert.Same(before, SerializationProvider.Instance);
     }
 
@@ -83,8 +84,8 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void ScopedSerializersDoNotCrossAffect()
     {
-        var first = new CallTrackingSerializer();
-        var second = new CallTrackingSerializer();
+        var first = CreateDelegatingFake(new SystemTextJsonSerializer());
+        var second = CreateDelegatingFake(new SystemTextJsonSerializer());
         var before = SerializationProvider.Instance;
 
         var firstScoped = SerializationProvider.Create(first);
@@ -93,14 +94,12 @@ public sealed class CustomSerializerConfigurationTests
         _ = firstScoped.SerializeToUtf8Bytes("first");
         _ = secondScoped.SerializeToUtf8Bytes("second");
 
-        Assert.Equal(1, first.SerializeCallCount);
-        Assert.Equal(1, second.SerializeCallCount);
+        _ = A.CallTo(first).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).MustHaveHappenedOnceExactly();
+        _ = A.CallTo(second).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).MustHaveHappenedOnceExactly();
         Assert.Same(before, SerializationProvider.Instance);
     }
 
-    /// <summary>
-    /// Verifies <see cref="SquirixOptions.Serializer" /> keeps a public setter for configure-delegate assignment.
-    /// </summary>
+    /// <summary>Verifies <see cref="SquirixOptions.Serializer" /> keeps a public setter for configure-delegate assignment.</summary>
     [Fact]
     public void SerializerPropertyHasPublicSetterForConfigureDelegates()
     {
@@ -114,57 +113,56 @@ public sealed class CustomSerializerConfigurationTests
 
     private static void ConfigureLikeConnect(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
 
-    private sealed class CallTrackingSerializer : ISquirixSerializer
+    private static ISquirixSerializer CreateDelegatingFake(SystemTextJsonSerializer inner)
     {
-        public bool DeserializeCalled { get; private set; }
+        var fake = A.Fake<ISquirixSerializer>();
 
-        public int SerializeCallCount { get; private set; }
+        _ = A.CallTo(fake).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).WithReturnType<byte[]>()
+             .ReturnsLazily(call => InvokeSerializeToUtf8Bytes(inner, call));
 
-        public bool SerializeCalled { get; private set; }
+        _ = A.CallTo(fake).Where(static call => IsStreamDeserialize<string>(call)).WithReturnType<string>()
+             .ReturnsLazily(call => DeserializeFromStream(inner, call, static (serializer, stream) => serializer.Deserialize<string>(stream)));
 
-        public T? Deserialize<T>(string payload)
+        _ = A.CallTo(fake).Where(static call => IsStreamDeserialize<int[]>(call)).WithReturnType<int[]>()
+             .ReturnsLazily(call => DeserializeFromStream(inner, call, static (serializer, stream) => serializer.Deserialize<int[]>(stream)));
+
+        return fake;
+    }
+
+    private static T DeserializeFromStream<T>(SystemTextJsonSerializer inner, IFakeObjectCall call, Func<SystemTextJsonSerializer, Stream, T?> deserialize)
+    {
+        if (call.Arguments[0] is not Stream stream)
+            throw new InvalidOperationException("Expected Stream argument.");
+
+        return deserialize(inner, stream) ?? throw new InvalidOperationException($"Deserialization returned null for {typeof(T).Name}.");
+    }
+
+    private static bool IsStreamDeserialize<T>(IFakeObjectCall call) => string.Equals(call.Method.Name, nameof(ISquirixSerializer.Deserialize), StringComparison.Ordinal) &&
+                                                                        call.Method.IsGenericMethod && call.Method.GetGenericArguments()[0] == typeof(T) &&
+                                                                        call.Method.GetParameters()[0].ParameterType == typeof(Stream);
+
+    private static byte[] InvokeSerializeToUtf8Bytes(SystemTextJsonSerializer inner, IFakeObjectCall call)
+    {
+        var valueType = call.Method.GetGenericArguments()[0];
+        var method = FindGenericMethod(nameof(SystemTextJsonSerializer.SerializeToUtf8Bytes), 1);
+        var result = method.MakeGenericMethod(valueType).Invoke(inner, [call.Arguments[0]]);
+        return result as byte[] ?? throw new InvalidOperationException($"Expected byte[], got {result?.GetType().Name ?? "null"}.");
+    }
+
+    private static MethodInfo FindGenericMethod(string methodName, int parameterCount)
+    {
+        foreach (var method in typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance))
         {
-            DeserializeCalled = true;
-            return JsonSerializer.Deserialize<T>(payload);
+            if (!string.Equals(method.Name, methodName, StringComparison.Ordinal) || !method.IsGenericMethodDefinition)
+                continue;
+
+            var parameters = method.GetParameters();
+            if (parameters.Length != parameterCount)
+                continue;
+
+            return method;
         }
 
-        public T? Deserialize<T>(JsonElement payload)
-        {
-            DeserializeCalled = true;
-            return payload.Deserialize<T>();
-        }
-
-        public T? Deserialize<T>(ReadOnlySpan<byte> payload)
-        {
-            DeserializeCalled = true;
-            return JsonSerializer.Deserialize<T>(payload);
-        }
-
-        public T? Deserialize<T>(Stream payload)
-        {
-            DeserializeCalled = true;
-            return JsonSerializer.Deserialize<T>(payload);
-        }
-
-        public void Serialize<T>(Stream destination, T? value)
-        {
-            SerializeCalled = true;
-            SerializeCallCount++;
-            JsonSerializer.Serialize(destination, value);
-        }
-
-        public JsonElement SerializeToElement<T>(T? value)
-        {
-            SerializeCalled = true;
-            SerializeCallCount++;
-            return JsonSerializer.SerializeToElement(value);
-        }
-
-        public byte[] SerializeToUtf8Bytes<T>(T? value)
-        {
-            SerializeCalled = true;
-            SerializeCallCount++;
-            return JsonSerializer.SerializeToUtf8Bytes(value);
-        }
+        throw new InvalidOperationException($"Generic method '{methodName}' not found.");
     }
 }

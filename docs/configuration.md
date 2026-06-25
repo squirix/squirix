@@ -145,7 +145,7 @@ section in settings (mapped into the same options model).
 | `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
 | `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
 
-Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable WAL/snapshot persistence. The standalone
+Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
 
 Example:
@@ -193,10 +193,14 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `StrictFsync`                 | bool   | `true`                                                     | Any boolean                                                                                                                                |
-| `JournalGroupCommitMaxWaitMs` | int    | `0`                                                        | `>= 0` (`0` disables group commit)                                                                                                         |
-| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`                                                                                                                                      |
+| `JournalGroupCommitMaxWait`   | string | `0` (disabled)                                             | `>= 0`; JSON key `groupCommitMaxWait`, value in ms                                                                                         |
+| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`; used only when group commit is enabled                                                                                              |
+| `JournalBackend`              | string | `Pipelined`                                                | Pipelined binary journal (only supported backend)                                                                                          |
+| `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
+| `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
 
-See [journal group commit](journal-group-commit.md) for latency vs throughput tradeoffs.
+See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
 
 ### Snapshot
 

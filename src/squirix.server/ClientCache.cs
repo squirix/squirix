@@ -64,11 +64,10 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         return _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
     }
 
-    public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
         _ = operationId;
-        var cacheKey = Key(cacheName, key);
-        return await _mutation.UpdateAsync(cacheKey, value, cancellationToken).ConfigureAwait(false);
+        return _mutation.UpdateAsync(Key(cacheName, key), value, cancellationToken);
     }
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);

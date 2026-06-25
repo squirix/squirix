@@ -7,6 +7,7 @@ using Xunit;
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node expiration, Touch, and RemoveExpiration semantics.</summary>
+/// <param name="fixture">Shared single-node cluster fixture.</param>
 public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync with immediate expiration reports success but does not leave a live key.</summary>
@@ -424,7 +425,9 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         var touched = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.True(touched.Found);
         Assert.Equal("v", touched.Value);
-        Assert.True(touched.ExpiresUtc > originalExpiresUtc, $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
+        Assert.True(
+            touched.ExpiresUtc > originalExpiresUtc,
+            $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
@@ -484,7 +487,7 @@ public sealed class ExpirationTests(SingleNodeFixture fixture) : SingleNodeTestB
         Assert.True(before.Found);
         Assert.True(before.HasExpiration);
 
-        _ = await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(async () => await cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken));
+        _ = await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(async () => _ = await cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken));
 
         var after = await cache.GetExpirationAsync("k", DefaultCancellationToken);
         Assert.True(after.Found);

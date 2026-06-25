@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -49,9 +50,15 @@ public sealed class ListenPortPool
 
     /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public Uri NextHttpUri() => new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", AllocatePort()).Uri;
+    public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
 
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public string NextHttpAddress() => ListenUrls.CanonicalAuthority(NextHttpUri());
+    public string NextHttpAddress()
+    {
+        var port = AllocatePort();
+        return FormatLoopbackHttps(port);
+    }
+
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 }

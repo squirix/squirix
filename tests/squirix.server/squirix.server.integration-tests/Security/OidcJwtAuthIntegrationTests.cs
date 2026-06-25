@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Transport.Grpc.Cache;
@@ -13,6 +12,7 @@ namespace Squirix.Server.IntegrationTests.Security;
 public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
 {
     private const string Audience = "squirix-oidc-integration";
+    private const string NodeId = "node-oidc-auth";
 
     /// <summary>Verifies startup fails when an OIDC authority is configured without an audience.</summary>
     [Fact]
@@ -20,8 +20,8 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await StartNodeAsync(url, peers, security: authority.ToSecurityOptionsWithoutAudience()));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            StartNodeAsync(url, NodeId, security: authority.ToSecurityOptionsWithoutAudience()).AsTask());
         Assert.Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", ex.Message, StringComparison.Ordinal);
     }
 
@@ -31,20 +31,17 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(url, NodeId, security: authority.ToSecurityOptions(Audience));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var token = authority.CreateBearerToken(Audience, TimeSpan.FromMinutes(-10));
         var headers = new Metadata { { "authorization", $"Bearer {token}" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "oidc-expired" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -55,19 +52,16 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(url, NodeId, security: authority.ToSecurityOptions(Audience));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "oidc-invalid" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -78,16 +72,13 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(url, NodeId, security: authority.ToSecurityOptions(Audience));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "oidc-missing" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -98,8 +89,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(url, NodeId, security: authority.ToSecurityOptions(Audience));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -118,19 +108,16 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(url, NodeId, security: authority.ToSecurityOptions(Audience));
 
         using var channel = CreateGrpcChannel(url);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken("wrong-audience")}" } };
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetValueAsync(
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetValueAsync(
                 new GetValueAsyncRequest { CacheName = "default", Key = "oidc-audience" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }

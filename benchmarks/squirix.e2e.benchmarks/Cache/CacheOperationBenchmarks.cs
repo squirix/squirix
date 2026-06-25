@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -7,9 +6,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for basic cache operations.</summary>
 [BenchmarkCategory("e2e", "read", "write", "mutation")]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet requires instance benchmark members.")]
-public class CacheOperationBenchmarks : CacheBenchmarkBase
+public sealed class CacheOperationBenchmarks : CacheBenchmarkBase
 {
     /// <summary>Measures AddAsync for missing keys.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>

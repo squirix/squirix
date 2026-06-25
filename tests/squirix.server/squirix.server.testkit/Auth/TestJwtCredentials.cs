@@ -22,7 +22,8 @@ public sealed class TestJwtCredentials
     /// <param name="audience">JWT audience claim value.</param>
     private TestJwtCredentials(ReadOnlySpan<byte> signingKey, string issuer, string audience)
     {
-        _signingKey = signingKey.ToArray();
+        _signingKey = new byte[signingKey.Length];
+        signingKey.CopyTo(_signingKey);
         Base64SigningKey = Convert.ToBase64String(_signingKey);
         Issuer = issuer;
         Audience = audience;
@@ -41,8 +42,11 @@ public sealed class TestJwtCredentials
     /// <returns>Raw symmetric signing key bytes.</returns>
     public byte[] GetSigningKey()
     {
+        // ZA0302: callers take ownership of an independent key copy; it cannot be pool-backed.
+#pragma warning disable ZA0302
         var copy = new byte[_signingKey.Length];
-        Array.Copy(_signingKey, copy, _signingKey.Length);
+#pragma warning restore ZA0302
+        _signingKey.CopyTo(copy);
         return copy;
     }
 }

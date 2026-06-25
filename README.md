@@ -15,11 +15,11 @@ cache state, routing, durability, and ops endpoints.
 
 All packages are published under the [squirix NuGet profile](https://www.nuget.org/profiles/squirix):
 
-| Package | Role |
-| --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool |
+| Package                                                                      | Role                                                     |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| [`squirix`](https://www.nuget.org/packages/squirix/)                         | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)           | Server runtime — routing, durability, gRPC host          |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool                  |
 
 ## Quick start
 
@@ -32,7 +32,7 @@ squirix-server run
 - **NuGet package** for the CLI: `squirix.server.tool`
 - **Command after install**: `squirix-server` (`run`, `init`, `doctor`, `validate-config`, …)
 
-Durable mode (WAL + snapshots):
+Durable mode (journal + snapshots):
 
 ```bash
 squirix-server run --persist --data-dir ./data

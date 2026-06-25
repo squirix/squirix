@@ -11,6 +11,8 @@ internal static class ClusterPeerChannelAddress
     /// <param name="mtlsOptions">Cluster mTLS options for the local node.</param>
     /// <param name="interNodeMtlsEnabled">Whether inter-node mTLS transport is active.</param>
     /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="mtlsOptions" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is enabled but the internal listen port or peer URL is invalid.</exception>
     public static string Resolve(Peer peer, MtlsOptions mtlsOptions, bool interNodeMtlsEnabled)
     {
         ArgumentNullException.ThrowIfNull(peer);

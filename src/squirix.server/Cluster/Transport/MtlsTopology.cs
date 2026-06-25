@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Squirix.Server.Cluster.Membership;
 
 namespace Squirix.Server.Cluster.Transport;
@@ -15,15 +14,22 @@ internal static class MtlsTopology
         ArgumentNullException.ThrowIfNull(cluster);
 
         var peers = cluster.Peers;
-        var remotePeerNodeIds = new List<string>(peers.Length);
+        var remotePeerNodeIds = new string[peers.Length];
+        var writeIndex = 0;
 
         for (var i = 0; i < peers.Length; i++)
         {
             if (!string.Equals(peers[i].NodeId, cluster.NodeId, StringComparison.Ordinal))
-                remotePeerNodeIds.Add(peers[i].NodeId);
+                remotePeerNodeIds[writeIndex++] = peers[i].NodeId;
         }
 
-        return [.. remotePeerNodeIds];
+        if (writeIndex is 0)
+            return [];
+
+        if (writeIndex != remotePeerNodeIds.Length)
+            Array.Resize(ref remotePeerNodeIds, writeIndex);
+
+        return remotePeerNodeIds;
     }
 
     /// <summary>Returns whether the configured topology performs inter-node traffic that requires mTLS.</summary>

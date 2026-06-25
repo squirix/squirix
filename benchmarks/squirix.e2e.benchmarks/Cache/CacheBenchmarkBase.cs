@@ -14,7 +14,6 @@ using Squirix.E2EBenchmarks.Support.Runtime;
 namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>Shared setup and cleanup for parameterized E2E benchmark classes.</summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class CacheBenchmarkBase
 {
     /// <summary>
@@ -88,7 +87,7 @@ public abstract class CacheBenchmarkBase
 
     /// <summary>Gets the next globally unique add key for benchmark paths that require missing keys across all BenchmarkDotNet iterations.</summary>
     /// <returns>A key that has not been returned by this benchmark instance before.</returns>
-    protected string NextUniqueAddKey() => string.Concat("unique:add:", Interlocked.Increment(ref _uniqueAddOffset).ToString("D10", CultureInfo.InvariantCulture));
+    protected string NextUniqueAddKey() => $"unique:add:{Interlocked.Increment(ref _uniqueAddOffset).ToString("D10", CultureInfo.InvariantCulture)}";
 
     /// <summary>Allows derived benchmark classes to seed state that is specific to their pure-operation benchmark methods.</summary>
     /// <param name="cancellationToken">A cancellation token.</param>

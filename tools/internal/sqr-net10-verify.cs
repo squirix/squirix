@@ -149,8 +149,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
             continue;
         }
 
-        var frameworks = element.Value.Split(';');
-        foreach (var framework in frameworks)
+        foreach (var framework in element.Value.Split(';'))
         {
             var value = framework.Trim();
             if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))

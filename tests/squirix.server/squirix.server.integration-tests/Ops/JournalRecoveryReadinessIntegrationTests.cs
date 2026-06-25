@@ -1,7 +1,6 @@
 using System;
 using System.Net;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
@@ -25,26 +24,24 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
     public async Task NonBlockingRecoveryKeepsReadyUnhealthyUntilGateOpensAndGatesCacheWrites()
     {
         var seedUrl = GetNextHttpUri();
-        var seedPeers = new[] { new Peer { NodeId = NodeId, Url = seedUrl.AbsoluteUri } };
 
-        await using (var seedNode = await StartNodeAsync(seedUrl, seedPeers, usePersistence: true, extraScope: Scope))
+        await using (var seedNode = await StartNodeAsync(seedUrl, NodeId, usePersistence: true, extraScope: Scope))
         {
             var seedCache = GetCache(seedNode);
             await seedCache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
         }
 
         var restartUrl = GetNextHttpUri();
-        var restartPeers = new[] { new Peer { NodeId = NodeId, Url = restartUrl.AbsoluteUri } };
         var replayDelay = new RecoveryReplayDelaySignal();
 
         await using var node = await StartNodeAsync(
             restartUrl,
-            restartPeers,
+            NodeId,
+            servicesConfigure: services => RecoveryReplayTestRegistration.AddDelayedReplay(services, replayDelay),
             usePersistence: true,
             cleanTestDir: false,
             extraScope: Scope,
-            waitForRecovery: false,
-            servicesConfigure: services => RecoveryReplayTestRegistration.AddDelayedReplay(services, replayDelay));
+            waitForRecovery: false);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Address));
         Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Address));

@@ -14,6 +14,17 @@ namespace Squirix.Utils;
 /// </summary>
 internal static class ProtoEx
 {
+    public static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(serializer);
+        return new CacheEntry<T>
+        {
+            Value = await FromStructAsync<T>(entry.Value, serializer).ConfigureAwait(false),
+            ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
+            Expiration = entry.Expiration?.ToTimeSpan(),
+        };
+    }
+
     internal static async ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -54,21 +65,10 @@ internal static class ProtoEx
                 return await FromStructAsync<T>(structValue, serializer).ConfigureAwait(false);
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
         }
 
         return await FromStructAsync<T>(ToStructValueWrapper(value), serializer).ConfigureAwait(false);
-    }
-
-    internal static async ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        ArgumentNullException.ThrowIfNull(serializer);
-
-        if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
-            return await FromValueAsync<T>(wrapped, serializer).ConfigureAwait(false);
-
-        return await DeserializeAsync<T>(Value.ForStruct(value), serializer).ConfigureAwait(false);
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -109,8 +109,19 @@ internal static class ProtoEx
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
-            _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
         };
+    }
+
+    private static ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
+            return FromValueAsync<T>(wrapped, serializer);
+
+        return DeserializeAsync<T>(Value.ForStruct(value), serializer);
     }
 
     private static async ValueTask<T?> FromValueAsync<T>(Value value, ISquirixSerializer serializer)
@@ -180,7 +191,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
         CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
     private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer)
@@ -210,6 +221,8 @@ internal static class ProtoEx
     /// <remarks>
     /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
     /// </remarks>
+    /// <param name="el">JSON subtree to convert.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
     private static Value ValueFromJson(JsonElement el)
     {
         return el.ValueKind switch
@@ -222,20 +235,19 @@ internal static class ProtoEx
             JsonValueKind.False => Value.ForBool(false),
             JsonValueKind.Null => Value.ForNull(),
             JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), el.ValueKind, "Unsupported JSON value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
         };
     }
 
     private static Struct WrapAsStruct(string fieldName, Value v)
     {
-        var s = new Struct
+        return new Struct
         {
             Fields =
             {
                 [fieldName] = v,
             },
         };
-        return s;
     }
 
     private static void WriteValue(Utf8JsonWriter writer, Value value)
@@ -273,7 +285,7 @@ internal static class ProtoEx
                 writer.WriteEndArray();
                 return;
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported protobuf value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported protobuf value kind.");
         }
     }
 }

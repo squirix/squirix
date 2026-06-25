@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Globalization;
+using System.Runtime.InteropServices;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Cluster;
@@ -23,19 +23,17 @@ internal sealed class ConsistentHashRing : INodeLocator
         if (distinct.Length is 0)
             throw new ArgumentException("At least one node must be provided.", nameof(nodes));
 
-        var list = new List<(ulong Hash, string Node)>(checked(distinct.Length * virtualNodes));
+        var ringSize = checked(distinct.Length * virtualNodes);
+        var ring = new (ulong Hash, string Node)[ringSize];
+        var index = 0;
         foreach (var node in distinct)
         {
             for (var i = 0; i < virtualNodes; i++)
-            {
-                var key = $"{node}#{i.ToString(CultureInfo.InvariantCulture)}";
-                var h = _hash.HashString(key);
-                list.Add((h, node));
-            }
+                ring[index++] = (_hash.HashVNode(node, i), node);
         }
 
-        list.Sort(static (a, b) => a.Hash.CompareTo(b.Hash));
-        _ring = [.. list];
+        Array.Sort(ring, static (a, b) => a.Hash.CompareTo(b.Hash));
+        _ring = ImmutableCollectionsMarshal.AsImmutableArray(ring);
     }
 
     public string GetOwner(string routeKey)

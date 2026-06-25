@@ -23,35 +23,62 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
     }
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.GetEntryAsync(cacheName, key, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.GetEntryAsync(args.CacheName, args.Key, ct),
+            new ReadKeyArgs(cacheName, key),
+            cancellationToken);
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.RemoveExpirationAsync(operationId, cacheName, key, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.RemoveExpirationAsync(args.OperationId, args.CacheName, args.Key, ct),
+            new MutationKeyArgs(operationId, cacheName, key),
+            cancellationToken);
 
     public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.SetEntryAsync(operationId, cacheName, key, entry, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs(operationId, cacheName, key, entry),
+            cancellationToken);
 
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.TouchAsync(operationId, cacheName, key, expiration, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.TouchAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct),
+            new TouchArgs(operationId, cacheName, key, expiration),
+            cancellationToken);
 
     public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.TryAddEntryAsync(operationId, cacheName, key, entry, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs(operationId, cacheName, key, entry),
+            cancellationToken);
 
     public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.GetValueAsync(cacheName, key, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.GetValueAsync(args.CacheName, args.Key, ct),
+            new ReadKeyArgs(cacheName, key),
+            cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.RemoveAsync(operationId, cacheName, key, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
+            new MutationKeyArgs(operationId, cacheName, key),
+            cancellationToken);
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
-        WithDeadlineAsync(ct => _inner.UpdateAsync(operationId, cacheName, key, value, ct), cancellationToken);
+        WithDeadlineAsync(
+            static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
+            new UpdateArgs(operationId, cacheName, key, value),
+            cancellationToken);
 
-    private async ValueTask WithDeadlineAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
+    private async ValueTask WithDeadlineAsync<TState>(
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken)
     {
         var budget = _options.Value.DefaultOperationTimeout;
         if (budget is null || budget.Value <= TimeSpan.Zero)
         {
-            await action(cancellationToken).ConfigureAwait(false);
+            await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -59,7 +86,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         linked.CancelAfter(budget.Value);
         try
         {
-            await action(linked.Token).ConfigureAwait(false);
+            await invoke(_inner, state, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException ex)
         {
@@ -72,17 +99,20 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private async ValueTask<TResult> WithDeadlineAsync<TResult>(Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken)
+    private async ValueTask<TResult> WithDeadlineAsync<TState, TResult>(
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        CancellationToken cancellationToken)
     {
         var budget = _options.Value.DefaultOperationTimeout;
         if (budget is null || budget.Value <= TimeSpan.Zero)
-            return await action(cancellationToken).ConfigureAwait(false);
+            return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(budget.Value);
         try
         {
-            return await action(linked.Token).ConfigureAwait(false);
+            return await invoke(_inner, state, linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException ex)
         {
@@ -94,4 +124,14 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw;
         }
     }
+
+    private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
+
+    private readonly record struct ReadKeyArgs(string CacheName, string Key);
+
+    private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, CacheEntry<T> Entry);
+
+    private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
+
+    private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 }

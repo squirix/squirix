@@ -35,6 +35,7 @@ P:Squirix.CacheEntry`1::Value:!!0.set
 T:Squirix.CacheExpirationResult
 M:Squirix.CacheExpirationResult::.ctor(System.Boolean,System.Boolean,System.Nullable<System.TimeSpan>)
 M:Squirix.CacheExpirationResult::CompareTo(System.TimeSpan)
+M:Squirix.CacheExpirationResult::CompareTo(System.Object)
 M:Squirix.CacheExpirationResult::Deconstruct(System.Boolean&,System.Boolean&,System.Nullable<System.TimeSpan>&)
 M:Squirix.CacheExpirationResult::Equals(Squirix.CacheExpirationResult)
 M:Squirix.CacheExpirationResult::Equals(System.Object)

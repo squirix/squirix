@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Xunit;
@@ -16,13 +15,11 @@ public sealed class HealthProbeSmokeTests : SmokeTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "node-health", Url = url.AbsoluteUri } };
 
         await using var node = await StartNodeAsync(
             url,
-            peers,
+            "node-health",
             security: TestJwtHelper.ToSecurityOptions(credentials),
-            extraScope: Guid.NewGuid().ToString("N"),
             cancellationToken: DefaultCancellationToken);
 
         var live = await HttpClient.GetAsync(new Uri(url, "/health/live"), DefaultCancellationToken);

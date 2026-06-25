@@ -1,13 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -24,9 +23,10 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         using var dir = new TempDirectory("squirix-snap-writer-create");
         var writer = new SnapshotWriter(dir);
 
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), await BuildEntryJsonElementAsync("first"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntry("first"))], [], DefaultCancellationToken);
 
         Assert.True(File.Exists(path));
+        Assert.EndsWith(".bsqx", path, StringComparison.Ordinal);
         Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
@@ -37,14 +37,10 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-snap-writer-finalize-fail");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), await BuildEntryJsonElementAsync("old"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntry("old"))], [], DefaultCancellationToken);
 
-        var replacement = await BuildEntryJsonElementAsync("new");
         var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
-        _ = await Assert.ThrowsAnyAsync<IOException>(() => failingWriter.WriteAsync(
-            1,
-            [(CacheKey.Default("replacement"), replacement)],
-            DefaultCancellationToken));
+        _ = await Assert.ThrowsAnyAsync<IOException>(async () => _ = await failingWriter.WriteAsync(1, [(CacheKey.Default("replacement"), BuildEntry("new"))], [], DefaultCancellationToken));
 
         Assert.True(File.Exists(path));
         Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));
@@ -69,9 +65,9 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-snap-writer-replace");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), await BuildEntryJsonElementAsync("old"))], DefaultCancellationToken);
+        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), BuildEntry("old"))], [], DefaultCancellationToken);
 
-        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), await BuildEntryJsonElementAsync("new"))], DefaultCancellationToken);
+        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), BuildEntry("new"))], [], DefaultCancellationToken);
 
         Assert.Equal(path, rewrittenPath);
         Assert.True(File.Exists(path));
@@ -79,30 +75,39 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    private static async Task<JsonElement> BuildEntryJsonElementAsync(object? value)
-    {
-        var bytes = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(value, null, null, 1, null);
-        using var doc = JsonDocument.Parse(bytes);
-        return doc.RootElement.Clone();
-    }
+    private static CacheEntry<object?> BuildEntry(object? value) => new() { Value = value, Version = 1 };
 
-    /// <summary>Produces one valid entry and then fails during deferred enumeration to simulate a mid-stream serialization failure.</summary>
-    private static IEnumerable<(CacheKey Key, object Entry)> FailingItems() => EnumerateThenFail();
-
-    private static IEnumerable<(CacheKey Key, object Entry)> EnumerateThenFail()
-    {
-        yield return (new CacheKey("default", "a"), 1);
-        throw new InvalidOperationException("simulated serialization failure");
-    }
+    private static FailingAfterFirstItemList FailingItems() => new();
 
     private static async Task<string[]> ReadSnapshotKeysAsync(string path)
     {
-        var keys = new List<string>();
-        await foreach (var (key, _) in SnapshotReader.ReadEntriesAsync<object?>(path, cancellationToken: CancellationToken.None))
+        var reader = new SnapshotReader();
+        var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
+        var keys = new List<string>(loaded.Entries.Count);
+        foreach (var (key, _) in loaded.Entries)
             keys.Add(key.Key);
 
         keys.Sort(StringComparer.Ordinal);
-        return keys.ToArray();
+        return [.. keys];
+    }
+
+    private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)>
+    {
+        public int Count => 2;
+
+        public (CacheKey Key, CacheEntry<object?> Entry) this[int index] => index switch
+        {
+            0 => (new CacheKey("default", "a"), BuildEntry(1)),
+            _ => throw new InvalidOperationException("simulated serialization failure"),
+        };
+
+        public IEnumerator<(CacheKey Key, CacheEntry<object?> Entry)> GetEnumerator()
+        {
+            yield return this[0];
+            _ = this[1];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations

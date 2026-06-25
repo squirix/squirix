@@ -9,39 +9,37 @@ using ServerCacheEntry = Squirix.Server.CacheEntry<string>;
 namespace Squirix.Benchmarks.Payload;
 
 /// <summary>
-/// Measures discriminated entry JSON serialization cost for the write path:
+/// Measures binary entry payload serialization cost for the write path:
 /// one pass (journal only) vs two passes (validation guard + journal) vs reuse (serialize once, length-check only).
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
-public class EntryPayloadWritePathBenchmarks
+public sealed class EntryPayloadWritePathBenchmarks
 {
     private ServerCacheEntry _entry = new() { Value = string.Empty, Version = 1 };
 
     /// <summary>Gets or sets the payload profile measured by the current BenchmarkDotNet case.</summary>
-    [Params(EntryPayloadProfile.Small256B, EntryPayloadProfile.Medium64KiB, EntryPayloadProfile.Large1MiB, EntryPayloadProfile.NearLimitDiscriminated)]
+    [Params(EntryPayloadProfile.Small256B, EntryPayloadProfile.Medium64KiB, EntryPayloadProfile.Large1MiB, EntryPayloadProfile.NearLimitEntry)]
     [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "Property annotated with [Params] must have a public setter")]
     public EntryPayloadProfile Profile { get; set; }
 
-    /// <summary>Baseline: journal path serializes discriminated entry JSON once before append.</summary>
+    /// <summary>Baseline: journal path encodes entry bytes once before append.</summary>
     /// <returns>Serialized byte length to prevent dead-code elimination.</returns>
-    [Benchmark(Baseline = true, Description = "journal only (1x discriminated serialize)")]
-    public Task<int> DiscriminatedSerializeOnceAsync() => EntryPayloadWritePathBenchmarkSupport.DiscriminatedSerializeOnceAsync(_entry);
+    [Benchmark(Baseline = true, Description = "journal only (1x binary encode)")]
+    public int BinarySerializeOnce() => EntryPayloadWritePathBenchmarkSupport.BinarySerializeOnce(_entry);
 
-    /// <summary>Current write path: validation guard and journal each build discriminated JSON independently.</summary>
+    /// <summary>Current write path: validation guard and journal each encode independently.</summary>
     /// <returns>Combined serialized byte length from both passes.</returns>
-    [Benchmark(Description = "guard + journal (2x discriminated serialize)")]
-    public Task<int> DiscriminatedSerializeTwiceAsync() => EntryPayloadWritePathBenchmarkSupport.DiscriminatedSerializeTwiceAsync(_entry);
+    [Benchmark(Description = "guard + journal (2x binary encode)")]
+    public int BinarySerializeTwice() => EntryPayloadWritePathBenchmarkSupport.BinarySerializeTwice(_entry);
 
-    /// <summary>Reuse candidate: serialize once, validate by length, pass the same bytes to journal append.</summary>
+    /// <summary>Reuse candidate: encode once, validate by length, pass the same bytes to journal append.</summary>
     /// <returns>Serialized byte length after validation.</returns>
-    [Benchmark(Description = "reuse payload (1x serialize + length check)")]
-    public Task<int> SerializeOnceThenLengthCheckAsync() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheckAsync(_entry);
+    [Benchmark(Description = "reuse payload (1x encode + length check)")]
+    public int SerializeOnceThenLengthCheck() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheck(_entry);
 
     /// <summary>Builds the entry under test for the selected payload profile.</summary>
-    /// <returns>A task that completes after the benchmark entry is prepared.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile"/> is not a supported value.</exception>
     [GlobalSetup]
     public async Task SetupEntryAsync()
     {
@@ -50,7 +48,7 @@ public class EntryPayloadWritePathBenchmarks
             EntryPayloadProfile.Small256B => new string('x', 256),
             EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
             EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
-            EntryPayloadProfile.NearLimitDiscriminated => await EntryLimitKit.CreateNearLimitDiscriminatedStringValueAsync().ConfigureAwait(false),
+            EntryPayloadProfile.NearLimitEntry => await EntryLimitKit.CreateNearLimitStringValueAsync().ConfigureAwait(false),
             _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
         };
 

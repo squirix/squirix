@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support.Client;
@@ -12,24 +10,24 @@ namespace Squirix.E2ETests.Support.Restart;
 
 internal sealed class RestartableSingleNode : IAsyncDisposable
 {
+    private readonly TempDirectory _dataDir;
     private ISquirixClient? _client;
     private TestNodeHost? _host;
 
-    private RestartableSingleNode(string dataDir, string address)
+    private RestartableSingleNode(TempDirectory dataDir, string address)
     {
-        DataDir = dataDir;
+        _dataDir = dataDir;
         Address = address;
     }
 
     private string Address { get; }
 
-    private string DataDir { get; }
+    private string DataDir => _dataDir.Path;
 
     public static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
-        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e", $"{testName}__{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}", "restartable", Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(root);
-        var node = new RestartableSingleNode(root, ListenPortPool.EndToEndTests.NextHttpAddress());
+        var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
+        var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpAddress());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
@@ -46,7 +44,11 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
         await StartNodeAsync(cancellationToken);
     }
 
-    public async ValueTask DisposeAsync() => await StopNodeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await StopNodeAsync().ConfigureAwait(false);
+        _dataDir.Dispose();
+    }
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {

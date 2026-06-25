@@ -37,12 +37,12 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var peerList = peers as Peer[] ?? [.. peers];
-        var nodeIds = new string[peerList.Length];
+        var list = peers as Peer[] ?? [.. peers];
+        var ids = new string[list.Length];
 
-        for (var i = 0; i < peerList.Length; i++)
+        for (var i = 0; i < list.Length; i++)
         {
-            var p = peerList[i];
+            var p = list[i];
             GrpcTransportEndpoints.RequireHttps(p.Url);
             var opts = new GrpcChannelOptions
             {
@@ -58,10 +58,10 @@ internal sealed class ClientPool : IClientPool
             _channels[p.NodeId] = channel;
             _cacheClients[p.NodeId] = new SquirixCacheService.SquirixCacheServiceClient(invoker);
             _policies[p.NodeId] = policyFactory.Invoke(p.NodeId);
-            nodeIds[i] = p.NodeId;
+            ids[i] = p.NodeId;
         }
 
-        BootstrapNodeIds = [.. nodeIds];
+        BootstrapNodeIds = [.. ids];
     }
 
     public IReadOnlyList<string> BootstrapNodeIds { get; }

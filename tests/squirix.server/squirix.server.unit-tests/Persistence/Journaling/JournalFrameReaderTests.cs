@@ -2,11 +2,13 @@ using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
-using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Json;
-using Squirix.Server.Storage.JournalProto;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.TestKit.Journaling;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -42,8 +44,8 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         try
         {
             Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
-            Assert.Equal(first.Length + JournalFraming.FrameHeaderSize + JournalFraming.FrameFooterSize, firstRead.NextFrameOffset);
-            Assert.Equal("first", RecordCodec.Deserialize(firstBuffer.AsSpan(0, firstLength)).Put.Item.Key);
+            Assert.Equal(JournalFraming.FrameTotalLength(first.Length), firstRead.NextFrameOffset);
+            Assert.Equal("first", BinaryJournalCodec.Decode(firstBuffer!, firstLength).Key.Key);
         }
         finally
         {
@@ -56,7 +58,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         {
             Assert.Equal(JournalFrameReadStatus.Success, secondRead.Status);
             Assert.Equal(bytes.Length, secondRead.NextFrameOffset);
-            Assert.Equal("second", RecordCodec.Deserialize(secondBuffer.AsSpan(0, secondLength)).Put.Item.Key);
+            Assert.Equal("second", BinaryJournalCodec.Decode(secondBuffer!, secondLength).Key.Key);
         }
         finally
         {
@@ -76,6 +78,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
 
     /// <summary>Verifies verifier-facing and mapped-reader-facing frame parsing classify the same corrupted byte streams the same way.</summary>
     /// <param name="kind">The corruption variant to classify through both parsing paths.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="kind" /> is not a supported corruption variant.</exception>
     [Theory]
     [InlineData("truncated-header")]
     [InlineData("truncated-payload")]
@@ -106,28 +109,36 @@ public sealed class JournalFrameReaderTests : UnitTestBase
     public void TrailingBytesAfterLastFrameAreHandledConsistently()
     {
         var frame = BuildFrameBytes(BuildPayload(1, "tail"));
-        var bytes = new byte[frame.Length + 2];
-        Buffer.BlockCopy(frame, 0, bytes, 0, frame.Length);
-        bytes[^2] = 0xAA;
-        bytes[^1] = 0xBB;
-
-        using var stream = new MemoryStream(bytes, false);
-        var firstRead = JournalFrameReader.ReadNext(stream, 0, out var rentedBuffer, out _);
+        var totalLen = frame.Length + 2;
+        var rented = ArrayPool<byte>.Shared.Rent(totalLen);
         try
         {
-            Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
+            frame.CopyTo(rented.AsSpan(0, totalLen));
+            rented[frame.Length] = 0xAA;
+            rented[frame.Length + 1] = 0xBB;
+
+            using var stream = new MemoryStream(rented, 0, totalLen, false, true);
+            var firstRead = JournalFrameReader.ReadNext(stream, 0, out var rentedBuffer, out _);
+            try
+            {
+                Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
+            }
+            finally
+            {
+                if (rentedBuffer is not null)
+                    ArrayPool<byte>.Shared.Return(rentedBuffer);
+            }
+
+            var secondRead = JournalFrameReader.ReadNext(stream, firstRead.NextFrameOffset, out _, out _);
+            var spanRead = JournalFrameReader.ReadNext(rented.AsSpan(0, totalLen)[int.CreateTruncating(firstRead.NextFrameOffset)..], firstRead.NextFrameOffset);
+
+            Assert.Equal(JournalFrameReadStatus.TruncatedHeader, secondRead.Status);
+            Assert.Equal(secondRead.Status, spanRead.Status);
         }
         finally
         {
-            if (rentedBuffer is not null)
-                ArrayPool<byte>.Shared.Return(rentedBuffer);
+            ArrayPool<byte>.Shared.Return(rented);
         }
-
-        var secondRead = JournalFrameReader.ReadNext(stream, firstRead.NextFrameOffset, out _, out _);
-        var spanRead = JournalFrameReader.ReadNext(bytes.AsSpan(int.CreateTruncating(firstRead.NextFrameOffset)), firstRead.NextFrameOffset);
-
-        Assert.Equal(JournalFrameReadStatus.TruncatedHeader, secondRead.Status);
-        Assert.Equal(secondRead.Status, spanRead.Status);
     }
 
     /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>
@@ -149,7 +160,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        AssertConsistentStatus([.. length.ToArray(), .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
+        AssertConsistentStatus([.. length, .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
     }
 
     /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
@@ -167,7 +178,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
             Assert.Equal(JournalFrameReadStatus.Success, read.Status);
             Assert.Equal(bytes.Length, read.NextFrameOffset);
             Assert.Equal(payload.Length, payloadLength);
-            Assert.Equal(payload, rentedBuffer.AsSpan(0, payloadLength).ToArray());
+            Assert.True(payload.AsSpan().SequenceEqual(rentedBuffer.AsSpan(0, payloadLength)));
         }
         finally
         {
@@ -193,13 +204,23 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         return frame;
     }
 
-    private static byte[] BuildFrameBytes(params byte[][] payloads)
-    {
-        using var stream = new MemoryStream();
-        foreach (var payload in payloads)
-            JournalFraming.WriteFrame(stream, payload);
+    private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
+        JournalFraming.FrameTotalLength(payload.Length),
+        payload,
+        static (p, frame) => JournalFraming.WriteFrame(frame, p));
 
-        return stream.ToArray();
+    private static byte[] BuildFrameBytes(byte[] first, byte[] second)
+    {
+        var firstFrameLength = JournalFraming.FrameTotalLength(first.Length);
+        var secondFrameLength = JournalFraming.FrameTotalLength(second.Length);
+        return BufferKit.ToOwnedBytes(
+            firstFrameLength + secondFrameLength,
+            (first, second, firstFrameLength),
+            static (state, bytes) =>
+            {
+                JournalFraming.WriteFrame(bytes[..state.firstFrameLength], state.first);
+                JournalFraming.WriteFrame(bytes[state.firstFrameLength..], state.second);
+            });
     }
 
     private static byte[] BuildOversizedFrame()
@@ -211,28 +232,22 @@ public sealed class JournalFrameReaderTests : UnitTestBase
 
     private static byte[] BuildPayload(ulong sequence, string key)
     {
-        var envelope = new JournalEnvelope
+        var record = new JournalRecord
         {
-            Seq = sequence,
+            Sequence = sequence,
             UnixMs = 123,
-            Put = new Put
-            {
-                Item = new EntryPair
-                {
-                    Key = key,
-                    Namespace = CacheNames.DefaultNamespace,
-                    EntryJson = ByteString.CopyFrom("{\"v\":{\"$t\":\"s\",\"v\":\"value\"},\"ver\":1}"u8.ToArray()),
-                },
-            },
+            Operation = JournalOperationKind.Put,
+            Key = CacheKey.Default(key),
+            PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
         };
-
-        return RecordCodec.Serialize(envelope);
+        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        return BufferKit.ToOwnedBytes(bodyLength, record, static (r, body) => _ = BinaryJournalCodec.Encode(r, body));
     }
 
     private static byte[] BuildTruncatedPayload()
     {
         Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
         BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        return [.. length.ToArray(), .. "ab"u8];
+        return [.. length, .. "ab"u8];
     }
 }

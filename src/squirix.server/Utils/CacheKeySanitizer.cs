@@ -26,7 +26,7 @@ internal static class CacheKeySanitizer
         var digitCount = CountDecimalDigits(len);
         Span<char> dest = stackalloc char[MaxPrefixLength + 8 + digitCount + 1];
         key.AsSpan(0, MaxPrefixLength).CopyTo(dest);
-        "***[len=".AsSpan().CopyTo(dest[MaxPrefixLength..]);
+        "***[len=".CopyTo(dest[MaxPrefixLength..]);
         const int writtenStart = MaxPrefixLength + 8;
         _ = len.TryFormat(dest.Slice(writtenStart, digitCount), out _, provider: CultureInfo.InvariantCulture);
         dest[writtenStart + digitCount] = ']';

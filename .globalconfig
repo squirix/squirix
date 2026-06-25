@@ -1,0 +1,9 @@
+is_global = true
+
+# Roslynator: enable analyzers that ship disabled-by-default (RCS0001–RCS00xx formatting, etc.).
+roslynator_analyzers.enabled_by_default = true
+
+# Source-generated files (System.Text.Json, gRPC, etc.) are not on disk; EditorConfig does not apply (dotnet/roslyn#47384).
+# On-disk sources re-enable RS0030/RS0031 via the root .editorconfig.
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none

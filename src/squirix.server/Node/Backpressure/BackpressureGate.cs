@@ -79,6 +79,8 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         _slots.Dispose();
     }
 
+    internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
+
     private async ValueTask<(BackpressureDecision Decision, BackpressureLease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
         string operation,
@@ -94,7 +96,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
     {
         _ = Interlocked.Increment(ref _inFlight);
         _ = Interlocked.Increment(ref client.InFlightRef);
-        return new BackpressureLease(() => Release(clientId, client));
+        return new BackpressureLease(this, clientId, client);
     }
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
@@ -130,7 +132,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private (BackpressureDecision Decision, BackpressureLease Lease)? TryRejectByClientRateLimit(string transport, string operation, ClientState client)
     {
-        if (!_options.Enabled || client.RateLimiter is null || client.RateLimiter.TryAcquire())
+        if (!_options.Enabled || client.RateLimiter?.TryAcquire() is not false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "client");
@@ -149,7 +151,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
 
     private (BackpressureDecision Decision, BackpressureLease Lease)? TryRejectByNodeRateLimit(string transport, string operation)
     {
-        if (_nodeRateLimiter is null || _nodeRateLimiter.TryAcquire())
+        if (_nodeRateLimiter?.TryAcquire() is not false)
             return null;
 
         BackpressureMetrics.AddRateLimitReject(transport, operation, "node");
@@ -237,7 +239,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         }
     }
 
-    private sealed class ClientState
+    internal sealed class ClientState
     {
         private int _inFlight;
         private int _queueDepth;
@@ -258,7 +260,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
         public RateLimiter? RateLimiter { get; }
     }
 
-    private sealed class RateLimiter
+    internal sealed class RateLimiter
     {
         private readonly double _burst;
         private readonly Lock _gate = new();
@@ -286,7 +288,8 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
             }
         }
 
-        public static RateLimiter? Create(int? ratePerSecond, int? burst) => ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
+        public static RateLimiter? Create(int? ratePerSecond, int? burst) =>
+            ratePerSecond is not null && burst is not null ? new RateLimiter(ratePerSecond.Value, burst.Value) : null;
 
         public bool TryAcquire()
         {
@@ -296,7 +299,7 @@ internal sealed class BackpressureGate : IBackpressureGate, IDisposable
                 if (_tokens < 1d)
                     return false;
 
-                _tokens -= 1d;
+                _tokens--;
                 return true;
             }
         }

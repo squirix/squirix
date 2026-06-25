@@ -12,7 +12,7 @@ public sealed class TracingCacheDecoratorLifetimeTests
     /// Logical decorators must not declare <see cref="IAsyncDisposable.DisposeAsync" />.
     /// </summary>
     [Fact]
-    public void TracingCacheDecoratorDoesNotDeclareDisposeAsync()
+    public void TracingCacheDecoratorDoesNotDeclareDispose()
     {
         var m = typeof(TracingCacheDecorator<>).GetMethod(
             nameof(IAsyncDisposable.DisposeAsync),

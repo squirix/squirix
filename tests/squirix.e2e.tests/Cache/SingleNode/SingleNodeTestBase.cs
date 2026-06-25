@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Cluster.Fixtures;
 using Xunit;
@@ -9,7 +8,6 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// <summary>
 /// Shared fixtures for single-node v0.1 public <see cref="ICache{T}" /> integration tests.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class SingleNodeTestBase : EndToEndTestBase, IClassFixture<SingleNodeFixture>
 {
     internal static readonly TimeSpan Delay60 = TimeSpan.FromMilliseconds(60);

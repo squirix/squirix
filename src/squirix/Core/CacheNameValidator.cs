@@ -14,7 +14,7 @@ internal static class CacheNameValidator
         CacheNameValidationError.TooLong => $"Cache name exceeds the maximum length of {MaxLength} characters.",
         CacheNameValidationError.InvalidCharacters => "Cache name contains invalid characters. Allowed characters are A-Z, a-z, 0-9, '.', '_', and '-'.",
         CacheNameValidationError.Reserved => "Cache name is reserved.",
-        _ => throw new ArgumentOutOfRangeException(nameof(error), error, null),
+        _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
     };
 
     private static bool IsAllowed(char ch) => ch <= sbyte.MaxValue && (char.IsAsciiLetterOrDigit(ch) || ch is '.' or '_' or '-');

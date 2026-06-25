@@ -15,12 +15,10 @@ internal sealed class KeyedSingleFlight<TResult>
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        var result = _concurrent.GetOrAdd(
+        return _concurrent.GetOrAdd(
             key,
             static (inFlightKey, state) => state.Flight.ExecuteAndCleanupAsync(inFlightKey, state.Action, state.CancellationToken),
             new RunAsyncState(this, action, cancellationToken));
-
-        return result;
     }
 
     private async Task<TResult> ExecuteAndCleanupAsync(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)

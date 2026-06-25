@@ -19,9 +19,35 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
         _impl = _inner.GetType().Name;
     }
 
-    public T? Deserialize<T>(string payload) => Measure("deserialize", () => _inner.Deserialize<T>(payload));
+    public T? Deserialize<T>(string payload)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = _inner.Deserialize<T>(payload);
+            Record("deserialize", true, start);
+            return result;
+        }
+        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        {
+            throw;
+        }
+    }
 
-    public T? Deserialize<T>(JsonElement payload) => Measure("deserialize", () => _inner.Deserialize<T>(payload));
+    public T? Deserialize<T>(JsonElement payload)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = _inner.Deserialize<T>(payload);
+            Record("deserialize", true, start);
+            return result;
+        }
+        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        {
+            throw;
+        }
+    }
 
     public T? Deserialize<T>(ReadOnlySpan<byte> payload)
     {
@@ -32,29 +58,26 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
             Record("deserialize", true, start);
             return result;
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
         {
-            RecordFailure("deserialize", ex, start);
-            throw;
-        }
-        catch (NotSupportedException ex)
-        {
-            RecordFailure("deserialize", ex, start);
-            throw;
-        }
-        catch (InvalidOperationException ex)
-        {
-            RecordFailure("deserialize", ex, start);
-            throw;
-        }
-        catch (IOException ex)
-        {
-            RecordFailure("deserialize", ex, start);
             throw;
         }
     }
 
-    public T? Deserialize<T>(Stream payload) => Measure("deserialize", () => _inner.Deserialize<T>(payload));
+    public T? Deserialize<T>(Stream payload)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = _inner.Deserialize<T>(payload);
+            Record("deserialize", true, start);
+            return result;
+        }
+        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        {
+            throw;
+        }
+    }
 
     public void Serialize<T>(Stream destination, T? value)
     {
@@ -64,60 +87,54 @@ internal sealed class MetricsDecoratedSerializer : ISquirixSerializer
             _inner.Serialize(destination, value);
             Record("serialize", true, start);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
         {
-            RecordFailure("serialize", ex, start);
-            throw;
-        }
-        catch (NotSupportedException ex)
-        {
-            RecordFailure("serialize", ex, start);
-            throw;
-        }
-        catch (InvalidOperationException ex)
-        {
-            RecordFailure("serialize", ex, start);
-            throw;
-        }
-        catch (IOException ex)
-        {
-            RecordFailure("serialize", ex, start);
             throw;
         }
     }
 
-    public JsonElement SerializeToElement<T>(T? value) => Measure("serialize", () => _inner.SerializeToElement(value));
-
-    public byte[] SerializeToUtf8Bytes<T>(T? value) => Measure("serialize", () => _inner.SerializeToUtf8Bytes(value));
-
-    private TResult Measure<TResult>(string op, Func<TResult> func)
+    public JsonElement SerializeToElement<T>(T? value)
     {
-        var sw = Stopwatch.GetTimestamp();
+        var start = Stopwatch.GetTimestamp();
         try
         {
-            var result = func();
-            Record(op, true, sw);
+            var result = _inner.SerializeToElement(value);
+            Record("serialize", true, start);
             return result;
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
         {
-            RecordFailure(op, ex, sw);
             throw;
         }
-        catch (NotSupportedException ex)
+    }
+
+    public byte[] SerializeToUtf8Bytes<T>(T? value)
+    {
+        var start = Stopwatch.GetTimestamp();
+        try
         {
-            RecordFailure(op, ex, sw);
+            var result = _inner.SerializeToUtf8Bytes(value);
+            Record("serialize", true, start);
+            return result;
+        }
+        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+        {
             throw;
         }
-        catch (InvalidOperationException ex)
+    }
+
+    private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
+    {
+        switch (ex)
         {
-            RecordFailure(op, ex, sw);
-            throw;
-        }
-        catch (IOException ex)
-        {
-            RecordFailure(op, ex, sw);
-            throw;
+            case JsonException:
+            case NotSupportedException:
+            case InvalidOperationException:
+            case IOException:
+                RecordFailure(op, ex, startTimestamp);
+                return true;
+            default:
+                return false;
         }
     }
 

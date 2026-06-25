@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -21,13 +22,13 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         var currentPath = PathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000001.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
+        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -49,7 +50,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), string.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -60,7 +61,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), "man-000123.msqx", DefaultCancellationToken);
+        WriteCurrentPointer(Dir, 123);
 
         _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -69,15 +70,12 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = ManifestStoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = PathKit.Combine(Dir, "man-current");
-
-        await store.WriteAsync(new Manifest { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000002.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
+        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new ManifestState { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
+        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Cleans up the temporary directory after the test.</summary>
@@ -92,5 +90,12 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)
+    {
+        Span<byte> pointerBuffer = stackalloc byte[ManifestPointer.Size];
+        ManifestPointer.Write(pointerBuffer, manifestIndex);
+        File.WriteAllBytes(PathKit.Combine(dir, "man-current"), pointerBuffer);
     }
 }

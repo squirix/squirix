@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -13,9 +12,7 @@ namespace Squirix.Benchmarks.Client;
 /// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
-public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
+public sealed class ClientPolicyOverheadBenchmarks : IAsyncDisposable
 {
     private const int Batch = 16_384;
     private readonly Consumer _consumer = new();
@@ -25,19 +22,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapAndCallPolicyCompletedValueTaskBatchedAsync()
-    {
-        var failover = _failover!;
-        var policy = _policy!;
-        for (var i = 0; i < Batch; i++)
-        {
-            var result = await failover.ExecuteAsync((_, ct) => policy.ExecuteAsync(static token => CompletedValueTaskAsync(token), ct), CancellationToken.None).ConfigureAwait(false);
-            _consumer.Consume(result);
-        }
-    }
-
-    /// <summary>Runs through bootstrap failover and call policy using state overloads, matching the optimized wrapper shape.</summary>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyStateOverloadCompletedValueTaskBatchedAsync()
     {
         var failover = _failover!;
         var policy = _policy!;
@@ -111,8 +95,6 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             await _policy.DisposeAsync().ConfigureAwait(false);
             _policy = null;
         }
-
-        GC.SuppressFinalize(this);
     }
 
     private static ValueTask<int> CompletedValueTaskAsync(CancellationToken cancellationToken)

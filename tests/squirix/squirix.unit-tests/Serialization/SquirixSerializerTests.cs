@@ -54,11 +54,10 @@ public sealed class SquirixSerializerTests
                 continue;
 
             var parameters = method.GetParameters();
-            if (parameters.Length is 1 && parameters[0].ParameterType == typeof(ReadOnlySpan<byte>))
-            {
-                called = true;
-                break;
-            }
+            if (parameters.Length is not 1 || parameters[0].ParameterType != typeof(ReadOnlySpan<byte>))
+                continue;
+            called = true;
+            break;
         }
 
         Assert.False(called);

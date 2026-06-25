@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -10,7 +9,11 @@ using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.JournalProto;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -18,7 +21,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>
 /// Replays the journal into the local in-memory cache on startup.
 /// Skips expired entries so they are not resurrected after restart.
-/// Restores exact CLR value types using the discriminated JSON format.
+/// Restores exact CLR value types using the binary cache-entry codec.
 /// </summary>
 /// <typeparam name="T">
 /// The value type stored in the cache (e.g., <c>object?</c> for untyped payloads or a concrete DTO type).
@@ -33,10 +36,11 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ManifestStore _manifestStore;
     private readonly PersistenceOptions _opt;
     private readonly RecoveryOptions _options;
+    private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
     public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), log)
+        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -47,7 +51,7 @@ internal sealed class RecoveryService<T> : IHostedService
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
         ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), log)
+        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -58,6 +62,7 @@ internal sealed class RecoveryService<T> : IHostedService
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
         IdempotencyStore idempotency,
+        ISnapshotReader snapshotReader,
         ILogger<RecoveryService<T>> log,
         IHostApplicationLifetime? applicationLifetime = null)
     {
@@ -67,6 +72,7 @@ internal sealed class RecoveryService<T> : IHostedService
         _options = options;
         _journalStartupGate = journalStartupGate;
         _idempotency = idempotency;
+        _snapshotReader = snapshotReader;
         _log = log;
         _applicationLifetime = applicationLifetime;
     }
@@ -81,7 +87,11 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
         }
 
-        _replayTask = Task.Run(() => ReplayInBackgroundAsync(cancellationToken), cancellationToken);
+        _replayTask = Task.Factory.StartNew(
+            () => ReplayInBackgroundAsync(cancellationToken),
+            cancellationToken,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default).Unwrap();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -90,6 +100,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
 
 #pragma warning disable VSTHRD003
+
         // The replay task is owned by this hosted service and is awaited during shutdown.
         await _replayTask.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
@@ -102,7 +113,7 @@ internal sealed class RecoveryService<T> : IHostedService
         new(
             $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent.ToString(CultureInfo.InvariantCulture)}.");
 
-    private static int DetermineJournalOnlyReplayStart(Manifest manifest, int firstAvailableSegment, int lastAvailableSegment)
+    private static int DetermineJournalOnlyReplayStart(ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
@@ -114,72 +125,58 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static string FingerprintKey(CacheKey key) => key.ToString();
 
-    private static bool IsExpiredForRecovery(CacheEntry<T>? entry)
-    {
-        if (entry is null)
-        {
-            return false;
-        }
-
-        var isUtcExpired = entry.ExpiresUtc is { } utc && utc <= DateTime.UtcNow;
-        var isRelativeExpired = entry.Expiration is { } expiration && expiration <= TimeSpan.Zero;
-        return isUtcExpired || isRelativeExpired;
-    }
-
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
-    private async Task ApplyJournalEnvelopeAsync(JournalEnvelope env, CancellationToken cancellationToken)
+    private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
-        switch (env.OpCase)
+        switch (record.Operation)
         {
-            case JournalEnvelope.OpOneofCase.Put:
+            case JournalOperationKind.Put:
             {
-                var put = env.Put ?? throw new InvalidOperationException("journal envelope op case is Put but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(put.Item.Namespace);
-                var key = new CacheKey(cacheNamespace, put.Item.Key);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var putEntryBytes = record.PutEntryBytes;
+                if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
+                    throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
 
-                if (!DiscriminatedEntryJsonReader.TryUtf8ToEntry<T>(put.Item.EntryJson.Memory, out var entry))
-                    throw CreateJournalDecodeFailure(env.Seq, "put", key.Key);
-
-                if (IsExpiredForRecovery(entry))
+                if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;
 
-                await _localCache.InsertForDurableRecoveryAsync(key, entry!, cancellationToken).ConfigureAwait(false);
-                _idempotency.RestoreInsert(put.OperationId, IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), put.Item.EntryJson.Span));
+                entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
+                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), putEntryBytes.Span);
+                await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
+                _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, insertFingerprint);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.Remove:
+            case JournalOperationKind.Remove:
             {
-                var remove = env.Remove ?? throw new InvalidOperationException("journal envelope op case is Remove but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(remove.Namespace);
-                _ = await _localCache.RemoveForDurableRecoveryAsync(new CacheKey(cacheNamespace, remove.Key), cancellationToken).ConfigureAwait(false);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                _ = await _localCache.RemoveForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.RemoveExpiration:
+            case JournalOperationKind.RemoveExpiration:
             {
-                var removeExpiration = env.RemoveExpiration ?? throw new InvalidOperationException("journal envelope op case is RemoveExpiration but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(removeExpiration.Namespace);
-                _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, removeExpiration.Key), cancellationToken).ConfigureAwait(false);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                _ = await _localCache.RemoveExpirationForDurableRecoveryAsync(key, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.TouchExpiration:
+            case JournalOperationKind.TouchExpiration:
             {
-                var touchExpiration = env.TouchExpiration ?? throw new InvalidOperationException("journal envelope op case is TouchExpiration but payload is missing.");
-                var cacheNamespace = PersistedCacheNamespace.Normalize(touchExpiration.Namespace);
-                var expiresUtc = DateTimeOffset.FromUnixTimeMilliseconds(touchExpiration.ExpiresUnixMs).UtcDateTime;
-                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(new CacheKey(cacheNamespace, touchExpiration.Key), expiresUtc, cancellationToken)
-                                     .ConfigureAwait(false);
+                var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
+                var expiresUtc = record.TouchExpirationUtc ?? DateTime.UtcNow;
+                _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
 
-            case JournalEnvelope.OpOneofCase.None:
-                break;
-
+            case JournalOperationKind.AwaitDurabilityCommit:
+            case JournalOperationKind.WaitForStartup:
+            case JournalOperationKind.MaintenanceExclusive:
+            case JournalOperationKind.SnapshotCut:
+            case JournalOperationKind.UnderSnapshotBarrier:
             default:
-                throw new ArgumentOutOfRangeException(nameof(env), env.OpCase, "Unsupported journal op.");
+                throw new ArgumentOutOfRangeException(nameof(record), "Unsupported journal op.");
         }
     }
 
@@ -193,7 +190,7 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         var firstAvailableSegment = 0;
         var lastAvailableSegment = 0;
-        foreach (var segment in JournalReader.EnumerateSegments(_opt.DataDir, 1))
+        foreach (var segment in JournalReadPath.EnumerateSegments(_opt.DataDir, 1))
         {
             if (firstAvailableSegment is 0)
                 firstAvailableSegment = segment.Index;
@@ -264,11 +261,6 @@ internal sealed class RecoveryService<T> : IHostedService
             LogManager.JournalRecoveryFailed(_log);
             throw;
         }
-        catch (JsonException)
-        {
-            LogManager.JournalRecoveryFailed(_log);
-            throw;
-        }
     }
 
     private async Task ReplayInBackgroundAsync(CancellationToken cancellationToken)
@@ -301,21 +293,16 @@ internal sealed class RecoveryService<T> : IHostedService
             // Non-blocking mode must not silently continue after failed recovery.
             _applicationLifetime?.StopApplication();
         }
-        catch (JsonException)
-        {
-            // Non-blocking mode must not silently continue after failed recovery.
-            _applicationLifetime?.StopApplication();
-        }
     }
 
     private async Task ReplayJournalSegmentsAsync(int fromSegment, ulong lastAppliedSeq, CancellationToken cancellationToken)
     {
-        foreach (var env in JournalReader.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
+        foreach (var record in JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
         {
-            if (env.Seq <= lastAppliedSeq)
+            if (record.Sequence <= lastAppliedSeq)
                 continue;
 
-            await ApplyJournalEnvelopeAsync(env, cancellationToken).ConfigureAwait(false);
+            await ApplyJournalRecordAsync(record, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -337,13 +324,9 @@ internal sealed class RecoveryService<T> : IHostedService
             SnapshotLoadResult<T>? snapshot = null;
             try
             {
-                snapshot = await SnapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
+                snapshot = await _snapshotReader.LoadStrictAsync<T>(snapshotReference.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (IOException)
-            {
-                HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
-            }
-            catch (JsonException)
             {
                 HandleSnapshotLoadFailure(context, snapshotReference.Path, out fromSegment, out lastAppliedSeq);
             }
@@ -381,7 +364,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        Manifest.SnapshotRef? SnapshotReference,
+        ManifestState.SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

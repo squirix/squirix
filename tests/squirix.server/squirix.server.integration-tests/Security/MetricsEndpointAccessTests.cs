@@ -7,7 +7,6 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit.Auth;
 using Squirix.Server.TestKit.Networking;
@@ -18,6 +17,7 @@ namespace Squirix.Server.IntegrationTests.Security;
 /// <summary>Verifies Prometheus metrics access rules for loopback and remote clients.</summary>
 public sealed class MetricsEndpointAccessTests : IntegrationTestBase
 {
+    private const string NodeId = "node-metrics-access";
     private static readonly SocketsHttpHandler NonLoopbackIpHandler = LoopbackHttp.CreateHandlerAllowingCertificateNameMismatch();
     private static readonly HttpClient NonLoopbackIpHttpClient = new(NonLoopbackIpHandler, false);
 
@@ -28,9 +28,8 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/metrics");
         req.Version = HttpVersion.Version20;
@@ -48,9 +47,8 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var response = await HttpClient.GetAsync(new Uri($"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/metrics"), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -66,9 +64,8 @@ public sealed class MetricsEndpointAccessTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var url = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url } };
 
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var response = await GetMetricsViaLocalIpAsync(localIp, mainPort, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);

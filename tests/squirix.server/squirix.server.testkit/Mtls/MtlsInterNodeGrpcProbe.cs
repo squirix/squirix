@@ -19,10 +19,10 @@ public static class MtlsInterNodeGrpcProbe
     /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resulting gRPC status code.</returns>
-    public static async Task<StatusCode> TryGetValueAsync(string primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
+    public static Task<StatusCode> TryGetValueAsync(string primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(primaryUrl);
-        return await TryGetValueAsync(new Uri(primaryUrl, UriKind.Absolute), bearerToken, includeInternalOwnerHeader, cancellationToken).ConfigureAwait(false);
+        return TryGetValueAsync(new Uri(primaryUrl, UriKind.Absolute), bearerToken, includeInternalOwnerHeader, cancellationToken);
     }
 
     /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>

@@ -107,7 +107,7 @@ remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss cla
 
 Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `MemoryPressureGate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,
-manifest, and storage health metrics remain owned by the storage layer (`JournalWriter`, `JournalReader`,
+manifest, and storage health metrics remain owned by the storage layer (`JournalCoordinator`, `JournalReader`,
 `SnapshotCoordinator`, `JournalMetricsExporterService`, and related storage services).
 
 Backpressure metrics are owned by `BackpressureGate` and exposed through the `Squirix` meter as runtime cache-operation

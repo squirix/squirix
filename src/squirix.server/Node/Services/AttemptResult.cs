@@ -4,11 +4,11 @@ namespace Squirix.Server.Node.Services;
 internal enum AttemptResult
 {
     /// <summary>The attempt was skipped and no compaction was performed.</summary>
-    Skipped,
+    Skipped = 0,
 
     /// <summary>The compaction completed successfully.</summary>
-    Succeeded,
+    Succeeded = 1,
 
     /// <summary>The compaction attempt failed.</summary>
-    Failed,
+    Failed = 2,
 }

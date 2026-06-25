@@ -40,7 +40,7 @@ public sealed class MetricsDecoratedSerializerTests
         var inner = new SystemTextJsonSerializer();
         var decorated = new MetricsDecoratedSerializer(inner);
 
-        _ = Assert.Throws<JsonException>(() => decorated.Deserialize<int>("not-json"));
+        _ = Assert.Throws<JsonException>(() => _ = decorated.Deserialize<int>("not-json"));
 
         const string impl = nameof(SystemTextJsonSerializer);
         Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", impl)));

@@ -13,18 +13,24 @@ internal sealed class E2EBenchmarkKeyOwner
 
     internal E2EBenchmarkKeyOwner(IEnumerable<string> nodeIds, int virtualNodes = 128)
     {
-        var nodes = new List<string>();
+        var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
         {
-            if (!string.IsNullOrWhiteSpace(nodeId) && !nodes.Exists(existing => string.Equals(existing, nodeId, StringComparison.Ordinal)))
-                nodes.Add(nodeId);
+            if (!string.IsNullOrWhiteSpace(nodeId))
+                _ = uniqueNodes.Add(nodeId);
         }
 
+        if (uniqueNodes.Count is 0)
+            throw new ArgumentException("At least one node is required.", nameof(nodeIds));
+
+        var nodes = new List<string>(uniqueNodes);
+
         var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
-        foreach (var node in nodes)
+        for (var nodeIndex = 0; nodeIndex < nodes.Count; nodeIndex++)
         {
+            var node = nodes[nodeIndex];
             for (var vnode = 0; vnode < virtualNodes; vnode++)
-                ring.Add((HashString(string.Concat(node, "#", vnode.ToString(CultureInfo.InvariantCulture))), node));
+                ring.Add((HashString($"{node}#{vnode.ToString(CultureInfo.InvariantCulture)}"), node));
         }
 
         ring.Sort(static (a, b) => a.Hash.CompareTo(b.Hash));
@@ -36,7 +42,7 @@ internal sealed class E2EBenchmarkKeyOwner
         var keys = new List<string>(count);
         for (var i = 0; i < 200_000 && keys.Count < count; i++)
         {
-            var candidate = string.Concat(prefix, ":", i.ToString(CultureInfo.InvariantCulture));
+            var candidate = $"{prefix}:{i.ToString(CultureInfo.InvariantCulture)}";
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                 keys.Add(candidate);
         }
@@ -47,7 +53,7 @@ internal sealed class E2EBenchmarkKeyOwner
     private static ulong HashCacheRouteKey(string cacheName, string key)
     {
         var canonical = string.IsNullOrWhiteSpace(cacheName) ? "default" : cacheName;
-        return HashString(string.Concat(canonical.Length.ToString(CultureInfo.InvariantCulture), ":", canonical, "\x1F", key));
+        return HashString($"{canonical.Length.ToString(CultureInfo.InvariantCulture)}:{canonical}\x1F{key}");
     }
 
     private static ulong HashString(string text)

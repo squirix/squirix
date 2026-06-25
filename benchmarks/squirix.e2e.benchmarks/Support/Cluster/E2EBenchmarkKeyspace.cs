@@ -58,7 +58,7 @@ internal sealed class E2EBenchmarkKeyspace
     {
         var keys = new string[count];
         for (var i = 0; i < keys.Length; i++)
-            keys[i] = string.Concat(prefix, ":", i.ToString("D6", CultureInfo.InvariantCulture));
+            keys[i] = $"{prefix}:{i.ToString("D6", CultureInfo.InvariantCulture)}";
         return keys;
     }
 

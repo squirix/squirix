@@ -22,60 +22,95 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.GetEntry,
-        () => _inner.GetEntryAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyNullableReferenceResult);
+    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.GetEntry,
+            static (inner, args, ct) => inner.GetEntryAsync(args.CacheName, args.Key, ct),
+            new ReadKeyArgs(cacheName, key),
+            CacheOperationClassifier.ClassifyNullableReferenceResult,
+            cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.RemoveExpiration,
-        () => _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.RemoveExpiration,
+            static (inner, args, ct) => inner.RemoveExpirationAsync(args.OperationId, args.CacheName, args.Key, ct),
+            new MutationKeyArgs(operationId, cacheName, key),
+            CacheOperationClassifier.ClassifyFoundBool,
+            cancellationToken);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.Set,
-        () => _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken));
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.Set,
+            static (inner, args, ct) => inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs(operationId, cacheName, key, entry),
+            cancellationToken);
 
-    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.Touch,
-        () => _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.Touch,
+            static (inner, args, ct) => inner.TouchAsync(args.OperationId, args.CacheName, args.Key, args.Expiration, ct),
+            new TouchArgs(operationId, cacheName, key, expiration),
+            CacheOperationClassifier.ClassifyFoundBool,
+            cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.TryAdd,
-        () => _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.TryAdd,
+            static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs(operationId, cacheName, key, entry),
+            CacheOperationClassifier.ClassifyFoundBool,
+            cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.Get,
-        () => _inner.GetValueAsync(cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyCacheValueResult);
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.Get,
+            static (inner, args, ct) => inner.GetValueAsync(args.CacheName, args.Key, ct),
+            new ReadKeyArgs(cacheName, key),
+            CacheOperationClassifier.ClassifyCacheValueResult,
+            cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.Remove,
-        () => _inner.RemoveAsync(operationId, cacheName, key, cancellationToken),
-        CacheOperationClassifier.ClassifyCacheRemoveResult);
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.Remove,
+            static (inner, args, ct) => inner.RemoveAsync(args.OperationId, args.CacheName, args.Key, ct),
+            new MutationKeyArgs(operationId, cacheName, key),
+            CacheOperationClassifier.ClassifyCacheRemoveResult,
+            cancellationToken);
 
-    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => ObserveAsync(
-        cacheName,
-        CacheOperationNames.Update,
-        () => _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken),
-        CacheOperationClassifier.ClassifyFoundBool);
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        ObserveAsync(
+            cacheName,
+            CacheOperationNames.Update,
+            static (inner, args, ct) => inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
+            new UpdateArgs(operationId, cacheName, key, value),
+            CacheOperationClassifier.ClassifyFoundBool,
+            cancellationToken);
 
-    private static async ValueTask ObserveAsync(string cacheName, string operation, Func<ValueTask> action)
+    private static void Record(string cacheName, string operation, string result, long startTimestamp) => CacheMetrics.RecordOperation(
+        CacheName.NormalizeUnvalidated(cacheName),
+        operation,
+        result,
+        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
+
+    private async ValueTask ObserveAsync<TState>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask> invoke,
+        TState state,
+        CancellationToken cancellationToken)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var result = CacheOperationResults.Ok;
         try
         {
-            await action().ConfigureAwait(false);
+            await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException ex)
         {
@@ -108,12 +143,18 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private static async ValueTask<TResult> ObserveAsync<TResult>(string cacheName, string operation, Func<ValueTask<TResult>> action, Func<TResult, string> classifyResult)
+    private async ValueTask<TResult> ObserveAsync<TState, TResult>(
+        string cacheName,
+        string operation,
+        Func<ILogicalNamespacedCache<T>, TState, CancellationToken, ValueTask<TResult>> invoke,
+        TState state,
+        Func<TResult, string> classifyResult,
+        CancellationToken cancellationToken)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         try
         {
-            var value = await action().ConfigureAwait(false);
+            var value = await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
             Record(cacheName, operation, classifyResult(value), startTimestamp);
             return value;
         }
@@ -144,9 +185,13 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
         }
     }
 
-    private static void Record(string cacheName, string operation, string result, long startTimestamp) => CacheMetrics.RecordOperation(
-        CacheName.NormalizeUnvalidated(cacheName),
-        operation,
-        result,
-        Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds);
+    private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);
+
+    private readonly record struct ReadKeyArgs(string CacheName, string Key);
+
+    private readonly record struct SetEntryArgs(string OperationId, string CacheName, string Key, CacheEntry<T> Entry);
+
+    private readonly record struct TouchArgs(string OperationId, string CacheName, string Key, TimeSpan Expiration);
+
+    private readonly record struct UpdateArgs(string OperationId, string CacheName, string Key, T? Value);
 }

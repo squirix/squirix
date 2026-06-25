@@ -36,14 +36,14 @@ public sealed class SquirixClient : ISquirixClient
     /// <param name="configure">Configures remote client endpoints and transport settings.</param>
     /// <param name="cancellationToken">Cancellation token for client warm-up.</param>
     /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
-    public static async ValueTask<ISquirixClient> ConnectAsync(Action<SquirixOptions> configure, CancellationToken cancellationToken = default)
+    public static ValueTask<ISquirixClient> ConnectAsync(Action<SquirixOptions> configure, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configure);
 
         var options = new SquirixOptions();
         configure(options);
 
-        return await ConnectAsync(options, null, cancellationToken).ConfigureAwait(false);
+        return ConnectAsync(options, null, cancellationToken);
     }
 
     /// <summary>

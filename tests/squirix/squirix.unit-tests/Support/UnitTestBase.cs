@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using JetBrains.Annotations;
 using Squirix.TestKit.IO;
@@ -11,7 +10,6 @@ namespace Squirix.UnitTests.Support;
 /// Provides a common base for unit tests, offering a default
 /// <see cref="CancellationToken" /> with a 30s timeout and safe disposal.
 /// </summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Unit test base class must be public")]
 public abstract class UnitTestBase : IDisposable
 {
     static UnitTestBase()

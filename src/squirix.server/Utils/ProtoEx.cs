@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Server.Serialization;
-using Squirix.Server.Storage;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -107,7 +106,7 @@ internal static class ProtoEx
                 return await FromStructAsync<T>(structValue).ConfigureAwait(false);
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
         }
 
         return await FromStructAsync<T>(CacheValueToStruct(value)).ConfigureAwait(false);
@@ -121,7 +120,7 @@ internal static class ProtoEx
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
         CacheValue.KindOneofCase.StructValue => value.StructValue,
-        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported cache value kind."),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
@@ -146,7 +145,8 @@ internal static class ProtoEx
             return Coerce<T>(await ProtoValueToClrScalarOrJsonAsync(only).ConfigureAwait(false));
 
         var buffer = await WriteValueToBufferAsync(Value.ForStruct(s)).ConfigureAwait(false);
-        return ReinterpretReference<T, StoredJsonPayload>(new StoredJsonPayload(buffer.WrittenSpan));
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return Coerce<T>(document.RootElement.Clone());
     }
 
     private static ListValue ListFromJson(JsonElement el)
@@ -186,6 +186,7 @@ internal static class ProtoEx
     ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
     ///     </para>
     /// </remarks>
+    /// <param name="value">Untyped cache scalar to normalize.</param>
     private static object? NormalizeUntypedScalarForUntypedCache(object? value)
     {
         return value switch
@@ -208,11 +209,9 @@ internal static class ProtoEx
                 return v.BoolValue;
 
             case Value.KindOneofCase.NumberValue:
-            {
                 var d = v.NumberValue;
                 var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? Convert.ToInt64(d) : d;
                 return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(d) : d2;
-            }
 
             case Value.KindOneofCase.NullValue:
                 return null;
@@ -221,7 +220,8 @@ internal static class ProtoEx
             case Value.KindOneofCase.ListValue:
             {
                 var buffer = await WriteValueToBufferAsync(v).ConfigureAwait(false);
-                return new StoredJsonPayload(buffer.WrittenSpan);
+                using var document = JsonDocument.Parse(buffer.WrittenMemory);
+                return document.RootElement.Clone();
             }
 
             case Value.KindOneofCase.None:
@@ -254,13 +254,6 @@ internal static class ProtoEx
         {
             case null:
                 return WrapAsStruct("value", Value.ForNull());
-
-            case StoredJsonPayload sjp:
-            {
-                using var doc = JsonDocument.Parse(sjp.Utf8Memory);
-                var je = doc.RootElement;
-                return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));
-            }
 
             case JsonElement je:
                 return je.ValueKind is JsonValueKind.Object ? StructFromJson(je) : WrapAsStruct("value", ValueFromJson(je));
@@ -334,6 +327,8 @@ internal static class ProtoEx
     /// <remarks>
     /// JSON strings use <see cref="JsonElement.GetString" /> because protobuf <see cref="Value.ForString" /> only accepts a CLR <see cref="string" /> (decoded UTF-16), not UTF-8 spans.
     /// </remarks>
+    /// <param name="el">JSON subtree to convert.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="el" /> has an unsupported <see cref="JsonValueKind" />.</exception>
     private static Value ValueFromJson(JsonElement el)
     {
         return el.ValueKind switch
@@ -346,20 +341,19 @@ internal static class ProtoEx
             JsonValueKind.False => Value.ForBool(false),
             JsonValueKind.Null => Value.ForNull(),
             JsonValueKind.Undefined => Value.ForNull(),
-            _ => throw new ArgumentOutOfRangeException(nameof(el), el.ValueKind, "Unsupported JSON value kind."),
+            _ => throw new ArgumentOutOfRangeException(nameof(el), "Unsupported JSON value kind."),
         };
     }
 
     private static Struct WrapAsStruct(string fieldName, Value v)
     {
-        var s = new Struct
+        return new Struct
         {
             Fields =
             {
                 [fieldName] = v,
             },
         };
-        return s;
     }
 
     private static void WriteValue(Utf8JsonWriter w, Value v)

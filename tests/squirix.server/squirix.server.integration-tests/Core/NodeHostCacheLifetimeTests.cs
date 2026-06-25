@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Xunit;
@@ -16,8 +15,7 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     public async Task AfterHostDisposedResolvingCacheThrows()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
-        var host = await StartNodeAsync(url, peers);
+        var host = await StartNodeAsync(url, "nodeA");
         await host.DisposeAsync();
         var ex = Record.Exception(() => GetCache(host));
         _ = Assert.IsType<ObjectDisposedException>(ex);
@@ -28,8 +26,7 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
     {
         var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = "nodeA", Url = url.AbsoluteUri } };
-        var host = await StartNodeAsync(url, peers);
+        var host = await StartNodeAsync(url, "nodeA");
         await host.DisposeAsync();
         var ex = Record.Exception(ResolveRuntime);
         _ = Assert.IsType<ObjectDisposedException>(ex);

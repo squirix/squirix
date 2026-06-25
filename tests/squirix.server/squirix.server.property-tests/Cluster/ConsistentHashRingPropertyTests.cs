@@ -112,8 +112,11 @@ public sealed class ConsistentHashRingPropertyTests
                 maxDev = deviation;
         }
 
-        var userMessage = $"n={n.ToString(CultureInfo.InvariantCulture)}, vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}, perNode≈{k.ToString("F1", CultureInfo.InvariantCulture)}, sample={sample.ToString(CultureInfo.InvariantCulture)}, " + $"maxDev={maxDev.ToString("P2", CultureInfo.InvariantCulture)}, threshold={threshold.ToString("P2", CultureInfo.InvariantCulture)}, " +
-                          $"sampling={samplingTerm.ToString("P2", CultureInfo.InvariantCulture)}, discrete={discretenessTerm.ToString("P2", CultureInfo.InvariantCulture)}, " + $"counts=[{string.Join(", ", counts.Values)}]";
+        var userMessage =
+            $"n={n.ToString(CultureInfo.InvariantCulture)}, vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}, perNode≈{k.ToString("F1", CultureInfo.InvariantCulture)}, sample={sample.ToString(CultureInfo.InvariantCulture)}, " +
+            $"maxDev={maxDev.ToString("P2", CultureInfo.InvariantCulture)}, threshold={threshold.ToString("P2", CultureInfo.InvariantCulture)}, " +
+            $"sampling={samplingTerm.ToString("P2", CultureInfo.InvariantCulture)}, discrete={discretenessTerm.ToString("P2", CultureInfo.InvariantCulture)}, " +
+            $"counts=[{FormatCounts(counts.Values)}]";
         Assert.True(maxDev <= threshold, userMessage);
     }
 
@@ -151,7 +154,9 @@ public sealed class ConsistentHashRingPropertyTests
         var expected = 1.0 / (n + 1);
         var upper = expected + 0.12;
 
-        Assert.True(ratio <= upper, $"n={n.ToString(CultureInfo.InvariantCulture)}, expected~={expected.ToString("P1", CultureInfo.InvariantCulture)}, moved={ratio.ToString("P2", CultureInfo.InvariantCulture)} (<= {upper.ToString("P2", CultureInfo.InvariantCulture)}), vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}");
+        Assert.True(
+            ratio <= upper,
+            $"n={n.ToString(CultureInfo.InvariantCulture)}, expected~={expected.ToString("P1", CultureInfo.InvariantCulture)}, moved={ratio.ToString("P2", CultureInfo.InvariantCulture)} (<= {upper.ToString("P2", CultureInfo.InvariantCulture)}), vnodes={vnodes.ToString(CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>
@@ -177,8 +182,7 @@ public sealed class ConsistentHashRingPropertyTests
                 remainingList.Add(node);
         }
 
-        var remaining = remainingList.ToArray();
-        var ringAfter = new ConsistentHashRing(remaining, vnodes);
+        var ringAfter = new ConsistentHashRing(remainingList, vnodes);
 
         var altSeed = seed ^ int.CreateTruncating(0x9E3779B9u);
 
@@ -191,6 +195,16 @@ public sealed class ConsistentHashRingPropertyTests
             if (!string.Equals(before, after, StringComparison.Ordinal))
                 Assert.Equal(victim, before);
         }
+    }
+
+    private static string FormatCounts(Dictionary<string, int>.ValueCollection values)
+    {
+        var parts = new string[values.Count];
+        var index = 0;
+        foreach (var count in values)
+            parts[index++] = count.ToString(CultureInfo.InvariantCulture);
+
+        return string.Join(", ", parts.AsSpan());
     }
 
     private static void RunProperty(int maxTest, Action<string[], int, int> property)

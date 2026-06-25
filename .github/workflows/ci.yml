@@ -48,6 +48,8 @@ jobs:
                           - 'global.json'
                           - 'stylecop.json'
                           - 'BannedSymbols.txt'
+                          - 'BannedSymbols.Storage.txt'
+                          - '.globalconfig'
                           - '.editorconfig'
                           - 'squirix.slnx'
                           - 'squirix.slnx.DotSettings'
@@ -74,6 +76,8 @@ jobs:
                           - 'global.json'
                           - 'stylecop.json'
                           - 'BannedSymbols.txt'
+                          - 'BannedSymbols.Storage.txt'
+                          - '.globalconfig'
                           - '.editorconfig'
                           - 'squirix.slnx'
 

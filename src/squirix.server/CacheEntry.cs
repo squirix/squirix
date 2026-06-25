@@ -36,7 +36,7 @@ public sealed class CacheEntry<T>
     public FrozenDictionary<string, string>? Tags { get; init; }
 
     /// <summary>
-    /// Gets the value to store. May be <see langword="null"/>.
+    /// Gets the value to store. May be <see langword="null" />.
     /// </summary>
     public required T? Value { get; init; }
 
@@ -44,6 +44,7 @@ public sealed class CacheEntry<T>
     /// Gets the monotonic entry version used by extension packages for optimistic concurrency.
     /// Not part of the v0.1 basic <c>Squirix</c> client contract.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is less than 1.</exception>
     public long Version
     {
         get;

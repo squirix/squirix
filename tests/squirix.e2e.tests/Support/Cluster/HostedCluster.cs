@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,12 +17,14 @@ internal sealed class HostedCluster : IAsyncDisposable
     private readonly List<ISquirixClient> _clients = [];
     private readonly MtlsTestContext? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
+    private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private HostedCluster(Dictionary<string, TestNode> nodes, MtlsTestContext? mtls)
+    private HostedCluster(Dictionary<string, TestNode> nodes, MtlsTestContext? mtls, TempDirectory? dataDir)
     {
         _nodes = nodes;
         _mtls = mtls;
+        _dataDir = dataDir;
     }
 
     public static ValueTask<HostedCluster> StartSingleNodeAsync(
@@ -56,12 +57,13 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="nodeId">Node identifier to stop.</param>
-    public async ValueTask StopNodeAsync(string nodeId)
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId"/> is not a running node.</exception>
+    public ValueTask StopNodeAsync(string nodeId)
     {
         if (!_nodes.Remove(nodeId, out var node))
             throw new InvalidOperationException($"Node '{nodeId}' is not running.");
 
-        await node.DisposeAsync();
+        return node.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -76,15 +78,14 @@ internal sealed class HostedCluster : IAsyncDisposable
             await node.DisposeAsync();
 
         _mtls?.Dispose();
+        _dataDir?.Dispose();
     }
 
-    private static string BuildDataDir(string nodeId, string? testName)
+    private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
     {
-        var scope = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
-        var root = PathKit.Combine(Path.GetTempPath(), "squirix-e2e");
-        var target = PathKit.Combine(root, $"{scope}__{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}", nodeId, Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(target);
-        return target;
+        var path = PathKit.Combine(clusterRoot.Path, nodeId);
+        DirectoryKit.CreateDirectory(path);
+        return path;
     }
 
     private static async ValueTask<HostedCluster> StartAsync(
@@ -105,6 +106,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
         var mtls = nodeIds.Length > 1 ? new MtlsTestContext() : null;
+        var dataDir = usePersistence ? new TempDirectory("squirix-e2e", testName ?? "unknown") : null;
         try
         {
             for (var i = 0; i < nodeIds.Length; i++)
@@ -112,7 +114,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                 var nodeId = nodeIds[i];
                 var hostOptions = new TestNodeHostStartOptions
                 {
-                    DataDir = usePersistence ? BuildDataDir(nodeId, testName) : null,
+                    DataDir = usePersistence ? BuildDataDir(dataDir!, nodeId) : null,
                     Security = startOptions.Security,
                     Mtls = mtls,
                     MtlsProfile = startOptions.GetProfile(nodeId),
@@ -120,7 +122,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                 nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken));
             }
 
-            return new HostedCluster(nodes, mtls);
+            return new HostedCluster(nodes, mtls, dataDir);
         }
         catch (InvalidOperationException)
         {
@@ -128,6 +130,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                 await node.DisposeAsync();
 
             mtls?.Dispose();
+            dataDir?.Dispose();
             throw;
         }
         catch (IOException)
@@ -136,6 +139,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                 await node.DisposeAsync();
 
             mtls?.Dispose();
+            dataDir?.Dispose();
             throw;
         }
     }

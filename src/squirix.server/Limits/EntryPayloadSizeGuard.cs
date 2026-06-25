@@ -1,27 +1,25 @@
 using System;
-using System.Threading.Tasks;
 using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Limits;
 
 /// <summary>
-/// Validates discriminated journal entry JSON size against <see cref="SquirixEntryLimits.MaxEntrySizeBytes" />.
+/// Validates journal entry payload size against <see cref="SquirixEntryLimits.MaxEntrySizeBytes" />.
 /// </summary>
 internal static class EntryPayloadSizeGuard
 {
-    public static void EnsureDiscriminatedJsonWithinLimit(ReadOnlySpan<byte> discriminatedEntryJson)
+    public static void EnsureEncodedLengthWithinLimit<T>(CacheEntry<T> entry)
     {
-        if (discriminatedEntryJson.Length > SquirixEntryLimits.MaxEntrySizeBytes)
+        if (JournalEntryPayload.ComputeEncodedLength(entry) > SquirixEntryLimits.MaxEntrySizeBytes)
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
-    public static async Task EnsureWithinLimitAsync<T>(CacheEntry<T> entry)
+    public static void EnsureEntryBytesWithinLimit(ReadOnlySpan<byte> entryBytes)
     {
-        if (await MeasureSerializedBytesAsync(entry).ConfigureAwait(false) > SquirixEntryLimits.MaxEntrySizeBytes)
+        if (entryBytes.Length > SquirixEntryLimits.MaxEntrySizeBytes)
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 
-    public static async Task<int> MeasureSerializedBytesAsync<T>(CacheEntry<T> entry) =>
-        (await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(entry.Value, entry.ExpiresUtc, entry.Expiration, entry.Version, entry.Tags).ConfigureAwait(false)).Length;
+    public static int MeasureSerializedBytes<T>(CacheEntry<T> entry) => JournalEntryPayload.ComputeEncodedLength(entry);
 }

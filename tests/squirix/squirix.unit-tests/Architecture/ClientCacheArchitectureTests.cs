@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -85,10 +86,9 @@ public sealed class ClientCacheArchitectureTests
             break;
         }
 
-        Assert.NotNull(protobuf);
-        Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
+        Assert.Equal("Client", protobuf?.Attribute("GrpcServices")?.Value);
+        Assert.Equal(@"..\shared\transport\grpc\Protos", protobuf?.Attribute("ProtoRoot")?.Value);
+        Assert.Equal("Internal", protobuf?.Attribute("Access")?.Value);
         Assert.NotNull(ClientArchitecture.MainAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService+SquirixCacheServiceClient", false));
     }
 
@@ -98,8 +98,11 @@ public sealed class ClientCacheArchitectureTests
     {
         var project = LoadProject("src/squirix/Squirix.csproj");
         var serverPackageReferences = new List<string>();
-        foreach (var include in ReadIncludes(project, "PackageReference"))
+        var packageIncludes = ReadIncludes(project, "PackageReference");
+        var packageIncludesSpan = CollectionsMarshal.AsSpan(packageIncludes);
+        for (var i = 0; i < packageIncludesSpan.Length; i++)
         {
+            var include = packageIncludesSpan[i];
             if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
                 serverPackageReferences.Add(include);
         }
@@ -107,8 +110,11 @@ public sealed class ClientCacheArchitectureTests
         Assert.Empty(serverPackageReferences);
 
         var serverFrameworkReferences = new List<string>();
-        foreach (var include in ReadIncludes(project, "FrameworkReference"))
+        var frameworkIncludes = ReadIncludes(project, "FrameworkReference");
+        var frameworkIncludesSpan = CollectionsMarshal.AsSpan(frameworkIncludes);
+        for (var i = 0; i < frameworkIncludesSpan.Length; i++)
         {
+            var include = frameworkIncludesSpan[i];
             if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
                 serverFrameworkReferences.Add(include);
         }
@@ -133,7 +139,7 @@ public sealed class ClientCacheArchitectureTests
         var offenders = new List<string>();
         foreach (var type in ClientArchitecture.MainAssembly.ExportedTypes)
         {
-            if (type.FullName is null || !type.FullName.Contains("Shard", StringComparison.Ordinal))
+            if (type.FullName?.Contains("Shard", StringComparison.Ordinal) is not true)
                 continue;
 
             offenders.Add(type.FullName);
@@ -188,7 +194,7 @@ public sealed class ClientCacheArchitectureTests
         return XDocument.Load(path);
     }
 
-    private static string[] ReadIncludes(XDocument project, string itemName)
+    private static List<string> ReadIncludes(XDocument project, string itemName)
     {
         var includes = new List<string>();
         foreach (var element in project.Descendants())
@@ -203,8 +209,8 @@ public sealed class ClientCacheArchitectureTests
             includes.Add(value);
         }
 
-        return includes.ToArray();
+        return includes;
     }
 
-    private static string[] ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
+    private static List<string> ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
 }

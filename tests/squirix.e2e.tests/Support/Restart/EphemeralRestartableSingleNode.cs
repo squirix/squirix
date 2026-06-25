@@ -38,7 +38,7 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
         await StartNodeAsync(cancellationToken);
     }
 
-    public async ValueTask DisposeAsync() => await StopNodeAsync();
+    public ValueTask DisposeAsync() => StopNodeAsync();
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {

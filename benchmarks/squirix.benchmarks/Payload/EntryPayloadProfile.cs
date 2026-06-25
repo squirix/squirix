@@ -1,23 +1,17 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Squirix.Benchmarks.Payload;
 
 /// <summary>Payload sizes used to compare serialization overhead across typical and near-limit entries.</summary>
-[SuppressMessage(
-    "Maintainability",
-    "CA1515:Consider making public types internal",
-    Justification = "Benchmark parameter enum is consumed by the benchmark class and BenchmarkDotNet.")]
 public enum EntryPayloadProfile
 {
     /// <summary>A 256-byte string payload.</summary>
-    Small256B,
+    Small256B = 0,
 
     /// <summary>A 64 KiB string payload.</summary>
-    Medium64KiB,
+    Medium64KiB = 1,
 
     /// <summary>A 1 MiB string payload.</summary>
-    Large1MiB,
+    Large1MiB = 2,
 
-    /// <summary>A string payload at the discriminated entry size limit.</summary>
-    NearLimitDiscriminated,
+    /// <summary>A string payload at the fixed entry size limit.</summary>
+    NearLimitEntry = 3,
 }

@@ -180,7 +180,7 @@ static int NextFreePort()
     return port;
 }
 
-static async Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
+static Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
 {
     var settings = new
     {
@@ -202,6 +202,8 @@ static async Task WriteSettingsFileAsync(string directory, string endpoint, Canc
         },
     };
 
+#pragma warning disable ZA1001 // Ad-hoc demo settings DTO; source generation is not worth the ceremony here.
     var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-    await File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken).ConfigureAwait(false);
+#pragma warning restore ZA1001
+    return File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken);
 }

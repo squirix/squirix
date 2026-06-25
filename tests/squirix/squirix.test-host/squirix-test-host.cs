@@ -12,7 +12,11 @@ if (!string.IsNullOrWhiteSpace(requestedWorkingDirectory))
     Directory.SetCurrentDirectory(requestedWorkingDirectory);
 
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-await RunCommandAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
+var allArgs = Environment.GetCommandLineArgs();
+var commandArgs = new string[allArgs.Length - 1];
+if (commandArgs.Length > 0)
+    Array.Copy(allArgs, 1, commandArgs, 0, commandArgs.Length);
+await RunCommandAsync(commandArgs, cts.Token);
 return;
 
 static async ValueTask RunCommandAsync(string[] args, CancellationToken cancellationToken)
