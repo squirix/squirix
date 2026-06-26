@@ -117,7 +117,7 @@ public sealed class CorrelationServerInterceptorTests
             ClusterId = "c",
             NodeId = "n1",
             Peers = [],
-            Url = "https://localhost",
+            Url = new Uri("https://localhost"),
         };
 
         return new Correlation.ServerInterceptor(NullLogger<Correlation.ServerInterceptor>.Instance, cluster);

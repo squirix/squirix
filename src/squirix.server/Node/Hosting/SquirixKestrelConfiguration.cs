@@ -61,7 +61,7 @@ internal static class SquirixKestrelConfiguration
     {
         ArgumentNullException.ThrowIfNull(cluster);
 
-        if (!Uri.TryCreate(cluster.Url, UriKind.Absolute, out var uri) || !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (!cluster.Url.IsAbsoluteUri || !cluster.Url.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
         }

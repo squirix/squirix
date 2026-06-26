@@ -13,7 +13,7 @@ internal static class ClusterPeerChannelAddress
     /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="mtlsOptions" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is enabled but the internal listen port or peer URL is invalid.</exception>
-    public static string Resolve(Peer peer, MtlsOptions mtlsOptions, bool interNodeMtlsEnabled)
+    public static Uri Resolve(Peer peer, MtlsOptions mtlsOptions, bool interNodeMtlsEnabled)
     {
         ArgumentNullException.ThrowIfNull(peer);
         ArgumentNullException.ThrowIfNull(mtlsOptions);
@@ -21,13 +21,16 @@ internal static class ClusterPeerChannelAddress
         if (!interNodeMtlsEnabled)
             return peer.Url;
 
-        if (!string.IsNullOrWhiteSpace(peer.InterNodeUrl))
-            return peer.InterNodeUrl;
+        if (peer.InterNodeUrl is { } interNodeUrl)
+            return interNodeUrl;
 
         if (mtlsOptions.InternalListenPort <= 0)
             throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for inter-node transport.");
 
-        return !Uri.TryCreate(peer.Url, UriKind.Absolute, out var primaryUri) ? throw new InvalidOperationException($"Cluster peer URL is invalid: '{peer.Url}'.")
-            : new UriBuilder(primaryUri.Scheme, primaryUri.Host, mtlsOptions.InternalListenPort).Uri.AbsoluteUri;
+        var primaryUri = peer.Url;
+        if (!primaryUri.IsAbsoluteUri)
+            throw new InvalidOperationException($"Cluster peer URL is invalid: '{primaryUri}'.");
+
+        return new UriBuilder(primaryUri.Scheme, primaryUri.Host, mtlsOptions.InternalListenPort).Uri;
     }
 }

@@ -194,7 +194,7 @@ internal static class SquirixServerProcess
         await Console.Out.WriteLineAsync($"  Settings: {ResolveSettingsPath(command) ?? "<defaults>"}").ConfigureAwait(false);
         await Console.Out.WriteLineAsync().ConfigureAwait(false);
         await Console.Out.WriteLineAsync("Client:").ConfigureAwait(false);
-        await Console.Out.WriteLineAsync($"await using var client = await SquirixClient.ConnectAsync(\"{options.Url}\");").ConfigureAwait(false);
+        await Console.Out.WriteLineAsync($"await using var client = await SquirixClient.ConnectAsync(new Uri(\"{options.Url}\"));").ConfigureAwait(false);
         await Console.Out.WriteLineAsync().ConfigureAwait(false);
         await Console.Out.WriteLineAsync("Waiting for shutdown (Ctrl+C)...").ConfigureAwait(false);
     }

@@ -201,7 +201,7 @@ public abstract class SmokeTestBase : IDisposable
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = urlString,
+            Url = new Uri(urlString, UriKind.Absolute),
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -215,7 +215,7 @@ public abstract class SmokeTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, urlString, cancellationToken).ConfigureAwait(false);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, new Uri(urlString, UriKind.Absolute), cancellationToken).ConfigureAwait(false);
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>

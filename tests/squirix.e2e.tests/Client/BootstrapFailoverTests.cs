@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Client;
@@ -23,8 +24,8 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(urlA);
-                options.Endpoints.Add(urlB);
+                options.Endpoints.Add(new Uri(urlA, UriKind.Absolute));
+                options.Endpoints.Add(new Uri(urlB, UriKind.Absolute));
             },
             DefaultCancellationToken);
 

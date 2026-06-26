@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Client;
@@ -19,8 +20,8 @@ public sealed class BootstrapConnectTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(liveUrl);
-                options.Endpoints.Add("https://127.0.0.1:1");
+                options.Endpoints.Add(new Uri(liveUrl, UriKind.Absolute));
+                options.Endpoints.Add(new Uri("https://127.0.0.1:1"));
             },
             DefaultCancellationToken);
 

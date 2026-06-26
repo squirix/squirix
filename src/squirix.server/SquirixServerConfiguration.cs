@@ -257,14 +257,14 @@ public static class SquirixServerConfiguration
         var peers = new Peer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
         {
-            peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url.AbsoluteUri };
+            peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url };
         }
         else
         {
             for (var i = 0; i < options.Peers.Count; i++)
             {
                 var peer = options.Peers[i];
-                peers[i] = new Peer { NodeId = peer.NodeId, Url = peer.Url.AbsoluteUri };
+                peers[i] = new Peer { NodeId = peer.NodeId, Url = peer.Url };
             }
         }
 
@@ -272,7 +272,7 @@ public static class SquirixServerConfiguration
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,
-            Url = options.Url.AbsoluteUri,
+            Url = options.Url,
             VirtualNodes = options.VirtualNodes,
             Peers = peers,
         };

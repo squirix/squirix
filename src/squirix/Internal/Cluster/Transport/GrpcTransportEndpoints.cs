@@ -13,10 +13,10 @@ internal static class GrpcTransportEndpoints
     /// <summary>Ensures the endpoint uses HTTPS gRPC transport.</summary>
     /// <param name="url">The configured endpoint URL.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="url" /> uses plaintext HTTP.</exception>
-    public static void RequireHttps(string url)
+    public static void RequireHttps(Uri url)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
-        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        ArgumentNullException.ThrowIfNull(url);
+        if (!string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException($"Squirix transport requires HTTPS endpoints. Plaintext 'http://' is not supported: '{url}'.", nameof(url));
         }

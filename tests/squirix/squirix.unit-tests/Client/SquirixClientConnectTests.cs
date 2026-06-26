@@ -23,17 +23,17 @@ public sealed class SquirixClientConnectTests : UnitTestBase
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
         var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Verifies the string overload rejects plaintext HTTP endpoints.</summary>
+    /// <summary>Verifies the Uri overload rejects plaintext HTTP endpoints.</summary>
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
         var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync("http://127.0.0.1:1", DefaultCancellationToken).AsTask());
+            SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

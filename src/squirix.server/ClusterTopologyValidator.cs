@@ -43,21 +43,15 @@ internal static class ClusterTopologyValidator
         ArgumentNullException.ThrowIfNull(options);
 
         var failures = new List<string>();
-        _ = Uri.TryCreate(options.Url, UriKind.Absolute, out var nodeUri);
-
         ValidateTopology(
             failures,
             options.ClusterId,
             options.NodeId,
-            nodeUri,
+            options.Url,
             options.VirtualNodes,
             true,
             null,
-            static peer =>
-            {
-                _ = Uri.TryCreate(peer.Url, UriKind.Absolute, out var peerUri);
-                return (peer.NodeId, peerUri);
-            },
+            static peer => (peer.NodeId, peer.Url),
             options.Peers);
 
         if (failures.Count is 0)

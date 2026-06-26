@@ -33,12 +33,13 @@ internal static class Program
         }
     }
 
-    private static async Task<string> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
+    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
     {
         var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
-        return document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString()
+        var url = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString()
             ?? throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Url.");
+        return new Uri(url, UriKind.Absolute);
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)

@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Support;
@@ -38,7 +39,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(url);
+                options.Endpoints.Add(new Uri(url, UriKind.Absolute));
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);

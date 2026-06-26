@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Cluster.Membership;
@@ -15,7 +16,7 @@ internal sealed class ClusterConfig
 
     public required Peer[] Peers { get; init; } = [];
 
-    public required string Url { get; init; } = "https://localhost:6001";
+    public required Uri Url { get; init; } = new("https://localhost:6001");
 
     public int VirtualNodes { get; init; } = 128;
 }

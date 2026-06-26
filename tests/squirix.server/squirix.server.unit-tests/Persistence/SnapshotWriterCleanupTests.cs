@@ -79,7 +79,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
     private static FailingAfterFirstItemList FailingItems() => new();
 
-    private static async Task<string[]> ReadSnapshotKeysAsync(string path)
+    private static async Task<List<string>> ReadSnapshotKeysAsync(string path)
     {
         var reader = new SnapshotReader();
         var loaded = await reader.LoadStrictAsync<object?>(path, cancellationToken: CancellationToken.None);
@@ -88,7 +88,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
             keys.Add(key.Key);
 
         keys.Sort(StringComparer.Ordinal);
-        return [.. keys];
+        return keys;
     }
 
     private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)>

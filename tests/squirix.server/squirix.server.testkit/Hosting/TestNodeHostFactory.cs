@@ -85,13 +85,14 @@ public static class TestNodeHostFactory
         var clusterConfig = new ClusterConfig
         {
             NodeId = nodeId,
-            Url = address,
+            Url = new Uri(address, UriKind.Absolute),
             VirtualNodes = 128,
             Peers = peers,
         };
 
+        var primaryUrl = clusterConfig.Url;
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
-            : await mtls.ResolveNodeStartupAsync(clusterConfig, address, mtlsProfile, cancellationToken).ConfigureAwait(false);
+            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUrl, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,

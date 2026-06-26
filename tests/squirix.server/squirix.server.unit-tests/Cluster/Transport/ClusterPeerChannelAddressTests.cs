@@ -1,3 +1,4 @@
+using System;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Xunit;
@@ -13,11 +14,11 @@ public sealed class ClusterPeerChannelAddressTests
     [Fact]
     public void ResolveUsesConfiguredInternalListenPortWhenInterNodeUrlMissing()
     {
-        var peer = new Peer { NodeId = "node-b", Url = "https://127.0.0.1:6001" };
+        var peer = new Peer { NodeId = "node-b", Url = new Uri("https://127.0.0.1:6001") };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
 
-        Assert.Equal("https://127.0.0.1:6101/", address);
+        Assert.Equal(new Uri("https://127.0.0.1:6101/"), address);
     }
 
     /// <summary>Ensures pooled cluster clients prefer the configured inter-node URL when mTLS is enabled.</summary>
@@ -27,20 +28,20 @@ public sealed class ClusterPeerChannelAddressTests
         var peer = new Peer
         {
             NodeId = "node-b",
-            Url = "https://localhost:6001",
-            InterNodeUrl = "https://localhost:6202",
+            Url = new Uri("https://localhost:6001"),
+            InterNodeUrl = new Uri("https://localhost:6202"),
         };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
 
-        Assert.Equal("https://localhost:6202", address);
+        Assert.Equal(new Uri("https://localhost:6202"), address);
     }
 
     /// <summary>Ensures pooled cluster clients use the primary peer URL when inter-node mTLS is disabled.</summary>
     [Fact]
     public void ResolveUsesPrimaryUrlWhenInterNodeMtlsDisabled()
     {
-        var peer = new Peer { NodeId = "node-a", Url = "https://localhost:6001" };
+        var peer = new Peer { NodeId = "node-a", Url = new Uri("https://localhost:6001") };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, false);
 

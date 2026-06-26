@@ -170,24 +170,6 @@ internal sealed class JournalDurabilityGroupCommit
 
     private void CompleteBatchOnJournalThread(List<JournalDurabilityWaiter> batch)
     {
-        void FailBatch(Exception ex)
-        {
-            for (var i = 0; i < batch.Count; i++)
-            {
-                var waiter = batch[i];
-                if (!waiter.IsAbandonedByCaller())
-                    waiter.SetException(ex);
-            }
-
-            for (var i = 0; i < batch.Count; i++)
-            {
-                if (batch[i].IsAbandonedByCaller())
-                    batch[i].ReturnToPool();
-            }
-
-            batch.Clear();
-        }
-
         try
         {
             _journalThreadFlush();
@@ -222,5 +204,24 @@ internal sealed class JournalDurabilityGroupCommit
         }
 
         batch.Clear();
+        return;
+
+        void FailBatch(Exception ex)
+        {
+            for (var i = 0; i < batch.Count; i++)
+            {
+                var waiter = batch[i];
+                if (!waiter.IsAbandonedByCaller())
+                    waiter.SetException(ex);
+            }
+
+            for (var i = 0; i < batch.Count; i++)
+            {
+                if (batch[i].IsAbandonedByCaller())
+                    batch[i].ReturnToPool();
+            }
+
+            batch.Clear();
+        }
     }
 }

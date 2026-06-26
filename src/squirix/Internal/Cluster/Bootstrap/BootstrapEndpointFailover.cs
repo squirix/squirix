@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
@@ -11,13 +12,13 @@ namespace Squirix.Internal.Cluster.Bootstrap;
 internal sealed class BootstrapEndpointFailover
 {
     private readonly Lock _activeIndexGate = new();
-    private readonly string[] _bootstrapNodeIds;
+    private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private int _activeIndex;
 
-    public BootstrapEndpointFailover(string[] bootstrapNodeIds, string primaryNodeId)
+    public BootstrapEndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
-        if (bootstrapNodeIds.Length is 0)
+        if (bootstrapNodeIds.Count is 0)
             throw new ArgumentException("At least one bootstrap node id is required.", nameof(bootstrapNodeIds));
 
         _bootstrapNodeIds = bootstrapNodeIds;
@@ -39,9 +40,9 @@ internal sealed class BootstrapEndpointFailover
         var startIndex = ActiveIndexSnapshot();
         Exception? lastFailure = null;
 
-        for (var attempt = 0; attempt < _bootstrapNodeIds.Length; attempt++)
+        for (var attempt = 0; attempt < _bootstrapNodeIds.Count; attempt++)
         {
-            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Length;
+            var nodeIndex = (startIndex + attempt) % _bootstrapNodeIds.Count;
             var nodeId = _bootstrapNodeIds[nodeIndex];
 
             try
@@ -53,15 +54,15 @@ internal sealed class BootstrapEndpointFailover
                 return result;
             }
             catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
-                                          attempt < _bootstrapNodeIds.Length - 1)
+                                          attempt < _bootstrapNodeIds.Count - 1)
             {
                 lastFailure = ex;
             }
-            catch (HttpRequestException ex) when (attempt < _bootstrapNodeIds.Length - 1)
+            catch (HttpRequestException ex) when (attempt < _bootstrapNodeIds.Count - 1)
             {
                 lastFailure = ex;
             }
-            catch (IOException ex) when (attempt < _bootstrapNodeIds.Length - 1)
+            catch (IOException ex) when (attempt < _bootstrapNodeIds.Count - 1)
             {
                 lastFailure = ex;
             }
@@ -70,9 +71,9 @@ internal sealed class BootstrapEndpointFailover
         throw lastFailure ?? new InvalidOperationException("Bootstrap endpoint failover failed without a captured exception.");
     }
 
-    private static int ResolveActiveIndex(string[] bootstrapNodeIds, string primaryNodeId)
+    private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
-        for (var i = 0; i < bootstrapNodeIds.Length; i++)
+        for (var i = 0; i < bootstrapNodeIds.Count; i++)
         {
             if (string.Equals(bootstrapNodeIds[i], primaryNodeId, StringComparison.Ordinal))
                 return i;
