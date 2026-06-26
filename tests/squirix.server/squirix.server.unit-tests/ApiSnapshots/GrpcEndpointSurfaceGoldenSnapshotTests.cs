@@ -4,7 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -36,8 +35,11 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : UnitTestBase
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden gRPC endpoint surface mismatch. Update ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt if the change is intentional.");
-        ListKit.ForEach(unexpected, method => _ = sb.Append("  + ").AppendLine(method));
-        ListKit.ForEach(missing, method => _ = sb.Append("  - ").AppendLine(method));
+        for (var i = 0; i < unexpected.Count; i++)
+            _ = sb.Append("  + ").AppendLine(unexpected[i]);
+
+        for (var i = 0; i < missing.Count; i++)
+            _ = sb.Append("  - ").AppendLine(missing[i]);
 
         Assert.Fail(sb.ToString());
     }

@@ -334,12 +334,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
 
         try
         {
-            var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
-            var frameLen = JournalFraming.FrameTotalLength(bodyLen);
+            var encode = BinaryJournalCodec.PrepareEncode(record);
+            var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
             var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
             const int bodyOffset = JournalFraming.FrameHeaderSize;
-            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, bodyLen), keyUtf8);
-            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, bodyLen));
+            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
+            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
 
             var startedMs = Environment.TickCount64;
             await EnqueueAppendAsync(frameBytes, frameLen, cancellationToken).ConfigureAwait(false);
@@ -365,12 +365,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
 
         try
         {
-            var (bodyLen, keyUtf8) = BinaryJournalCodec.PrepareEncode(record);
-            var frameLen = JournalFraming.FrameTotalLength(bodyLen);
+            var encode = BinaryJournalCodec.PrepareEncode(record);
+            var frameLen = JournalFraming.FrameTotalLength(encode.BodyLength);
             var frameBytes = ArrayPool<byte>.Shared.Rent(frameLen);
             const int bodyOffset = JournalFraming.FrameHeaderSize;
-            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, bodyLen), keyUtf8);
-            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, bodyLen));
+            _ = BinaryJournalCodec.Encode(record, frameBytes.AsSpan(bodyOffset, encode.BodyLength), in encode);
+            JournalFraming.WriteFrame(frameBytes.AsSpan(0, frameLen), frameBytes.AsSpan(bodyOffset, encode.BodyLength));
 
             var startedMs = Environment.TickCount64;
             var waiter = JournalDurabilityWaiter.Rent();
@@ -442,7 +442,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
 
         _eventLoop.FsyncOnJournalThread();
 
-        ListEx.ForEach(waiters, static waiter => _ = waiter.TrySetResult());
+        for (var i = 0; i < waiters.Count; i++)
+            _ = waiters[i].TrySetResult();
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }
@@ -612,7 +613,8 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         if (waiters is null)
             return;
 
-        ListEx.ForEach(waiters, waiter => _ = waiter.TrySetException(reason));
+        for (var i = 0; i < waiters.Count; i++)
+            _ = waiters[i].TrySetException(reason);
 
         _ = Interlocked.Exchange(ref _durabilityFlushScheduled, 0);
     }

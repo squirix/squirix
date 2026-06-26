@@ -203,7 +203,8 @@ internal static class JournalCompactor
                 if (IsExpired(e))
                     continue;
 
-                var payloadLength = JournalEntryPayload.Encode(e, out var payloadBuffer);
+                var encode = JournalEntryPayload.PrepareEncode(e);
+                var payloadLength = JournalEntryPayload.Encode(in encode, out var payloadBuffer);
                 try
                 {
                     seq = await WriteCompactedPutEntryAsync(fs, k, payloadBuffer.AsMemory(0, payloadLength), seq, cancellationToken).ConfigureAwait(false);
@@ -237,13 +238,14 @@ internal static class JournalCompactor
             PutOperationId = string.Empty,
         };
 
-        var bodyLen = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var encode = BinaryJournalCodec.PrepareEncode(record);
+        var bodyLen = encode.BodyLength;
         var frameLen = JournalFraming.FrameTotalLength(bodyLen);
         var frame = ArrayPool<byte>.Shared.Rent(frameLen);
         try
         {
             const int bodyOffset = JournalFraming.FrameHeaderSize;
-            var encodedLength = BinaryJournalCodec.Encode(record, frame.AsSpan(bodyOffset, bodyLen));
+            var encodedLength = BinaryJournalCodec.Encode(record, frame.AsSpan(bodyOffset, bodyLen), in encode);
             if (encodedLength != bodyLen)
                 throw new InvalidOperationException("unexpected journal frame length after encode.");
 

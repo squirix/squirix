@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -120,7 +119,9 @@ public sealed class PortAllocator : IDisposable
         if (_disposed)
             return;
 
-        ListEx.ForEach(_allocatedPorts, static port => _ = Reserved.TryRemove(port, out _));
+        for (var i = 0; i < _allocatedPorts.Count; i++)
+            _ = Reserved.TryRemove(_allocatedPorts[i], out _);
+
         _allocatedPorts.Clear();
         _disposed = true;
     }

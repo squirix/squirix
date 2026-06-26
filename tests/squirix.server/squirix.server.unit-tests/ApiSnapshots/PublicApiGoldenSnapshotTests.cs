@@ -39,8 +39,11 @@ public sealed class PublicApiGoldenSnapshotTests
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden public API snapshot mismatch. Update ApiSnapshots/SquirixServerPublicTypes.golden.txt if the change is intentional.");
-        ListKit.ForEach(unexpected, export => _ = sb.Append("  + ").AppendLine(export));
-        ListKit.ForEach(missing, export => _ = sb.Append("  - ").AppendLine(export));
+        for (var i = 0; i < unexpected.Count; i++)
+            _ = sb.Append("  + ").AppendLine(unexpected[i]);
+
+        for (var i = 0; i < missing.Count; i++)
+            _ = sb.Append("  - ").AppendLine(missing[i]);
 
         Assert.Fail(sb.ToString());
     }

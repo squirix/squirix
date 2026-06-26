@@ -17,7 +17,7 @@ public static class SquirixServerAspNetCoreExtensions
     /// <param name="configureExtensions">Optional package extension configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The supplied application builder.</returns>
-    public static async Task<WebApplicationBuilder> AddSquirixServerAsync(
+    public static Task<WebApplicationBuilder> AddSquirixServerAsync(
         this WebApplicationBuilder builder,
         Action<SquirixServerOptions>? configure = null,
         string? settingsPath = null,
@@ -26,12 +26,7 @@ public static class SquirixServerAspNetCoreExtensions
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(builder);
-
-        var options = await SquirixServerConfiguration.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
-        var extensions = new SquirixServerExtensionOptions();
-        configureExtensions?.Invoke(extensions);
-        await SquirixServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
-        return builder;
+        return ConfigureSquirixServerBuilderAsync(builder, configure, settingsPath, loadDiscoveredSettings, configureExtensions, cancellationToken);
     }
 
     /// <summary>Maps Squirix gRPC, health, and metrics endpoints.</summary>
@@ -41,5 +36,20 @@ public static class SquirixServerAspNetCoreExtensions
     {
         ArgumentNullException.ThrowIfNull(app);
         return SquirixServerHostingComposition.MapServer(app);
+    }
+
+    private static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(
+        WebApplicationBuilder builder,
+        Action<SquirixServerOptions>? configure,
+        string? settingsPath,
+        bool loadDiscoveredSettings,
+        Action<SquirixServerExtensionOptions>? configureExtensions,
+        CancellationToken cancellationToken)
+    {
+        var options = await SquirixServerConfiguration.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
+        var extensions = new SquirixServerExtensionOptions();
+        configureExtensions?.Invoke(extensions);
+        await SquirixServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
+        return builder;
     }
 }

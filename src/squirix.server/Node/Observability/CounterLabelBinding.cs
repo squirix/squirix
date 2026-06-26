@@ -27,6 +27,6 @@ internal readonly struct CounterLabelBinding
             { _k1, _v1 },
             { _k2, _v2 },
         };
-        _c.Add(value, tags);
+        _c.Add(value, in tags);
     }
 }

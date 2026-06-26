@@ -34,6 +34,6 @@ internal readonly struct LabelBinding
             { _k2, _v2 },
             { _k3, _v3 },
         };
-        _c.Add(value, tags);
+        _c.Add(value, in tags);
     }
 }

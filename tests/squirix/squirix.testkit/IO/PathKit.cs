@@ -225,13 +225,18 @@ public static class PathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
-        foreach (var ch in s)
+        for (var i = 0; i < s.Length; i++)
         {
-            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, ch) < 0)
+            if (Array.IndexOf(CrossPlatformInvalidFileNameChars, s[i]) < 0)
                 continue;
+
             var sb = new StringBuilder(s.Length);
-            foreach (var current in s)
+            for (var j = 0; j < s.Length; j++)
+            {
+                var current = s[j];
                 _ = sb.Append(Array.IndexOf(CrossPlatformInvalidFileNameChars, current) >= 0 ? '_' : current);
+            }
+
             return sb.ToString();
         }
 

@@ -118,22 +118,21 @@ public static class ExportedTypeReflection
 
         var types = GetExportedTypesSorted(assembly);
         var lines = new List<string>(types.Count);
-        ListKit.ForEach(
-            types,
-            type =>
+        for (var i = 0; i < types.Count; i++)
+        {
+            var type = types[i];
+            lines.Add(FormatTypeLine(type));
+            if (type.IsEnum)
             {
-                lines.Add(FormatTypeLine(type));
-                if (type.IsEnum)
-                {
-                    AddEnumFieldLines(type, lines);
-                    return;
-                }
+                AddEnumFieldLines(type, lines);
+                continue;
+            }
 
-                var memberLines = new List<string>();
-                AddMemberLines(type, memberLines);
-                memberLines.Sort(StringComparer.Ordinal);
-                lines.AddRange(memberLines);
-            });
+            var memberLines = new List<string>();
+            AddMemberLines(type, memberLines);
+            memberLines.Sort(StringComparer.Ordinal);
+            lines.AddRange(memberLines);
+        }
 
         return lines;
     }
@@ -148,7 +147,8 @@ public static class ExportedTypeReflection
         }
 
         enumFields.Sort(static (left, right) => StringComparer.Ordinal.Compare(FormatFieldLine(left), FormatFieldLine(right)));
-        ListKit.ForEach(enumFields, field => lines.Add(FormatFieldLine(field)));
+        for (var i = 0; i < enumFields.Count; i++)
+            lines.Add(FormatFieldLine(enumFields[i]));
     }
 
     private static void AddMemberLines(Type type, List<string> memberLines)

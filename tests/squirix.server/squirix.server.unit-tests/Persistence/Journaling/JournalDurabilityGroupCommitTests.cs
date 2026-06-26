@@ -108,6 +108,62 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         Assert.Equal(1, flushCounter.Value);
     }
 
+    /// <summary>
+    /// Ensures canceling a waiter after its batch was taken but before flush completion does not
+    /// return the pooled waiter early and poison later durability waits.
+    /// </summary>
+    [Fact]
+    public async Task GroupCommitCancelDuringInFlightBatchDoesNotPoisonPool()
+    {
+        var options = new PersistenceOptions
+        {
+            JournalGroupCommitMaxWait = TimeSpan.FromSeconds(30),
+            JournalGroupCommitMaxBatch = 4,
+        };
+
+        using var flushEntered = new ManualResetEventSlim(false);
+        using var releaseFlush = new ManualResetEventSlim(false);
+        var time = new FakeTimeProvider();
+        var groupCommit = CreateGroupCommit(
+            () =>
+            {
+                flushEntered.Set();
+                releaseFlush.Wait(DefaultCancellationToken);
+            },
+            options,
+            time);
+
+        using var firstCts = new CancellationTokenSource();
+        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
+        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+
+        var drainTask = Task.Factory.StartNew(
+            groupCommit.DrainDueBatchesOnJournalThread,
+            DefaultCancellationToken,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(5), DefaultCancellationToken));
+
+        await firstCts.CancelAsync();
+        releaseFlush.Set();
+
+        await WaitUntilCompletedAsync(first);
+        await WaitUntilCompletedAsync(second);
+        await WaitUntilCompletedAsync(third);
+        await WaitUntilCompletedAsync(fourth);
+        await drainTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+
+        Assert.True(first.IsCanceled);
+
+        var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+        time.Advance(options.JournalGroupCommitMaxWait);
+        groupCommit.DrainDueBatchesOnJournalThread();
+        await WaitUntilCompletedAsync(followUp);
+        Assert.True(followUp.IsCompletedSuccessfully);
+    }
+
     /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
     [Fact]
     public async Task GroupCommitFsyncCompletesBeforeMemoryApply()

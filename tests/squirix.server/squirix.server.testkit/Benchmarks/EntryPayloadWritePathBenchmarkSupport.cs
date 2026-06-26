@@ -35,14 +35,15 @@ public static class EntryPayloadWritePathBenchmarkSupport
         }
     }
 
-    /// <summary>Simulates the write path: a length-only validation check followed by a single pooled journal encode.</summary>
+    /// <summary>Simulates the write path: prepare once, guard on prepared length, then pooled encode.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length after validation.</returns>
     public static int SerializeOnceThenLengthCheck(CacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
-        var length = JournalEntryPayload.Encode(entry, out var buffer);
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
         try
         {
             return length;

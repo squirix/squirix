@@ -258,13 +258,18 @@ public static class PathKit
         ArgumentNullException.ThrowIfNull(s);
 
         var invalid = Path.GetInvalidFileNameChars();
-        foreach (var ch in s)
+        for (var i = 0; i < s.Length; i++)
         {
-            if (Array.IndexOf(invalid, ch) < 0)
+            if (Array.IndexOf(invalid, s[i]) < 0)
                 continue;
+
             var sb = new StringBuilder(s.Length);
-            foreach (var current in s)
+            for (var j = 0; j < s.Length; j++)
+            {
+                var current = s[j];
                 _ = sb.Append(Array.IndexOf(invalid, current) >= 0 ? '_' : current);
+            }
+
             return sb.ToString();
         }
 

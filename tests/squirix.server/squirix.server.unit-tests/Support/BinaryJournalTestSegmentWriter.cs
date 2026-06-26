@@ -50,13 +50,13 @@ internal static class BinaryJournalTestSegmentWriter
 
     private static void WriteRecordFrame(Stream stream, JournalRecord record)
     {
-        var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
+        var encode = BinaryJournalCodec.PrepareEncode(record);
         BufferKit.WithBuffer(
-            bodyLength,
-            (stream, record),
+            encode.BodyLength,
+            (stream, record, encode),
             static (ctx, body) =>
             {
-                _ = BinaryJournalCodec.Encode(ctx.record, body);
+                _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.encode);
                 JournalFraming.WriteFrame(ctx.stream, body);
             });
     }

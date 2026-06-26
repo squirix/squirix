@@ -27,6 +27,6 @@ internal readonly struct HistogramLabelBinding
             { _k1, _v1 },
             { _k2, _v2 },
         };
-        _h.Record(value, tags);
+        _h.Record(value, in tags);
     }
 }
