@@ -17,10 +17,14 @@ public static class JournalSegmentLeaseWait
     /// <param name="dataDir">Node data directory containing journal segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
-    public static async Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    public static Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
+        return PollUntilJournalSegmentsReleasedAsync(dataDir, cancellationToken);
+    }
 
+    private static async Task PollUntilJournalSegmentsReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {

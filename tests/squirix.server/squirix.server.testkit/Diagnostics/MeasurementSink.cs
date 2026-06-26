@@ -80,8 +80,7 @@ public sealed class MeasurementSink : IDisposable
     {
         foreach (var measurement in events)
         {
-            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase)
-                && MeasurementHasTag(measurement, tag1.Key, tag1.Value))
+            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
             {
                 return true;
             }
@@ -97,7 +96,7 @@ public sealed class MeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(measurement, tag1.Key, tag1.Value) && MeasurementHasTag(measurement, tag2.Key, tag2.Value))
+            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value))
                 return true;
         }
 
@@ -116,9 +115,8 @@ public sealed class MeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(measurement, tag1.Key, tag1.Value)
-                && MeasurementHasTag(measurement, tag2.Key, tag2.Value)
-                && MeasurementHasTag(measurement, tag3.Key, tag3.Value))
+            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value) &&
+                MeasurementHasTag(in measurement, tag3.Key, tag3.Value))
             {
                 return true;
             }

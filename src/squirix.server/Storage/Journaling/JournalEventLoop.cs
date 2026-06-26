@@ -436,11 +436,11 @@ internal sealed class JournalEventLoop
             return false;
         }
 
-        if (_writeBatch.TryStageAppend(item))
+        if (_writeBatch.TryStageAppend(in item))
             return true;
 
         FlushWriteBatch();
-        return _writeBatch.TryStageAppend(item);
+        return _writeBatch.TryStageAppend(in item);
     }
 
     private void TryCompleteGroupCommitCheckpoint() => DrainDueGroupCommitBatches();

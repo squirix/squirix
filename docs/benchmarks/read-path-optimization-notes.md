@@ -127,11 +127,11 @@ Short e2e result after this step:
 
 ### Step 3 — Server decorator / pipeline micro-opts (partial)
 
-| Item                                                                                                                           | Status                                |
-| :----------------------------------------------------------------------------------------------------------------------------- | :------------------------------------ |
-| `BackpressureCacheDecorator`: `GetValueAsync` fast-path (lease dispose without await)                                         | Done                                  |
-| `CallPolicy.ConfigurePerAttemptTimeout`: skip redundant per-attempt timer when ambient RPC budget is the binding constraint    | Done                                  |
-| `TracingCacheDecorator` / `MetricsCacheDecorator` / `DomainErrorMappingCacheDecorator`: extra read fast-paths                  | **Won't do** — async pipeline by design |
+| Item | Status |
+| :--- | :--- |
+| `BackpressureCacheDecorator` `GetValueAsync` fast-path | Done |
+| `CallPolicy` skip per-attempt timer when ambient RPC budget binds | Done |
+| `TracingCacheDecorator` / `MetricsCacheDecorator` / `DomainErrorMappingCacheDecorator` read fast-paths | **Won't do** — async pipeline by design |
 
 Use `SquirixServerPipelineReadBatched` before/after further decorator work.
 

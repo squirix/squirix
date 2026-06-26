@@ -25,7 +25,7 @@ internal static class CacheMetrics
             { "result", result },
         };
 
-        OperationsTotal.Add(1, tags);
-        OperationDurationSeconds.Record(durationSeconds, tags);
+        OperationsTotal.Add(1, in tags);
+        OperationDurationSeconds.Record(durationSeconds, in tags);
     }
 }

@@ -61,7 +61,7 @@ public sealed class MeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (HasTag(measurement, tag1.Key, tag1.Value) && HasTag(measurement, tag2.Key, tag2.Value))
+            if (HasTag(in measurement, tag1.Key, tag1.Value) && HasTag(in measurement, tag2.Key, tag2.Value))
                 return true;
         }
 
@@ -80,7 +80,7 @@ public sealed class MeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (HasTag(measurement, tag1.Key, tag1.Value) && HasTag(measurement, tag2.Key, tag2.Value) && HasTag(measurement, tag3.Key, tag3.Value))
+            if (HasTag(in measurement, tag1.Key, tag1.Value) && HasTag(in measurement, tag2.Key, tag2.Value) && HasTag(in measurement, tag3.Key, tag3.Value))
                 return true;
         }
 

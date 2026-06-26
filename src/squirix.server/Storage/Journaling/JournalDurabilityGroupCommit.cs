@@ -66,12 +66,15 @@ internal sealed class JournalDurabilityGroupCommit
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await CancelWaiterAsync(waiter, cancellationToken).ConfigureAwait(false);
+            if (!CancelWaiter(waiter, cancellationToken))
+                waiter.MarkAbandonedByCaller();
+
             throw;
         }
         finally
         {
-            waiter.ReturnToPool();
+            if (!waiter.IsAbandonedByCaller())
+                waiter.ReturnToPool();
         }
     }
 
@@ -149,7 +152,7 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    private ValueTask CancelWaiterAsync(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
+    private bool CancelWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
         lock (_sync)
@@ -162,42 +165,61 @@ internal sealed class JournalDurabilityGroupCommit
         if (removed)
             waiter.SetCanceled(cancellationToken);
 
-        return ValueTask.CompletedTask;
+        return removed;
     }
 
     private void CompleteBatchOnJournalThread(List<JournalDurabilityWaiter> batch)
     {
+        void FailBatch(Exception ex)
+        {
+            for (var i = 0; i < batch.Count; i++)
+            {
+                var waiter = batch[i];
+                if (!waiter.IsAbandonedByCaller())
+                    waiter.SetException(ex);
+            }
+
+            for (var i = 0; i < batch.Count; i++)
+            {
+                if (batch[i].IsAbandonedByCaller())
+                    batch[i].ReturnToPool();
+            }
+
+            batch.Clear();
+        }
+
         try
         {
             _journalThreadFlush();
         }
         catch (IOException ex)
         {
-            for (var i = 0; i < batch.Count; i++)
-                batch[i].SetException(ex);
-
-            batch.Clear();
+            FailBatch(ex);
             return;
         }
         catch (ObjectDisposedException ex)
         {
-            for (var i = 0; i < batch.Count; i++)
-                batch[i].SetException(ex);
-
-            batch.Clear();
+            FailBatch(ex);
             return;
         }
         catch (InvalidOperationException ex)
         {
-            for (var i = 0; i < batch.Count; i++)
-                batch[i].SetException(ex);
-
-            batch.Clear();
+            FailBatch(ex);
             return;
         }
 
         for (var i = 0; i < batch.Count; i++)
-            batch[i].SetResult();
+        {
+            var waiter = batch[i];
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetResult();
+        }
+
+        for (var i = 0; i < batch.Count; i++)
+        {
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+        }
 
         batch.Clear();
     }

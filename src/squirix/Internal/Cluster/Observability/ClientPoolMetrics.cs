@@ -20,7 +20,7 @@ internal static class ClientPoolMetrics
             { "node_id", nodeId },
             { "reason", reason },
         };
-        BootstrapWarmupSkippedTotalCtr.Add(1, tags);
+        BootstrapWarmupSkippedTotalCtr.Add(1, in tags);
     }
 
     public static void AddDisposal() => DisposalsTotalCtr.Add(1);

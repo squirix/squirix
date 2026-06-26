@@ -191,6 +191,52 @@ dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
 
+# ErrorProne.NET (EPC/ERP/EPS): all rules at warning for dotnet build (TreatWarningsAsErrors => error).
+# Docs: https://github.com/SergeyTeplyakov/ErrorProne.NET/tree/master/docs/Rules
+# Per-rule IDs avoid category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc Performance.*).
+dotnet_diagnostic.EPC11.severity = warning
+dotnet_diagnostic.EPC12.severity = warning
+dotnet_diagnostic.EPC13.severity = warning
+dotnet_diagnostic.EPC14.severity = warning
+dotnet_diagnostic.EPC15.severity = warning
+dotnet_diagnostic.EPC16.severity = warning
+dotnet_diagnostic.EPC17.severity = warning
+dotnet_diagnostic.EPC18.severity = warning
+dotnet_diagnostic.EPC19.severity = warning
+dotnet_diagnostic.EPC20.severity = warning
+dotnet_diagnostic.EPC23.severity = warning
+dotnet_diagnostic.EPC24.severity = warning
+dotnet_diagnostic.EPC25.severity = warning
+dotnet_diagnostic.EPC26.severity = warning
+dotnet_diagnostic.EPC27.severity = warning
+dotnet_diagnostic.EPC28.severity = warning
+dotnet_diagnostic.EPC29.severity = warning
+dotnet_diagnostic.EPC30.severity = warning
+dotnet_diagnostic.EPC31.severity = warning
+dotnet_diagnostic.EPC32.severity = warning
+dotnet_diagnostic.EPC33.severity = warning
+dotnet_diagnostic.EPC34.severity = warning
+dotnet_diagnostic.EPC35.severity = warning
+dotnet_diagnostic.EPC36.severity = warning
+dotnet_diagnostic.EPC37.severity = warning
+dotnet_diagnostic.EPC38.severity = warning
+dotnet_diagnostic.EPC39.severity = warning
+dotnet_diagnostic.EPC40.severity = warning
+dotnet_diagnostic.EPC41.severity = warning
+dotnet_diagnostic.ERP021.severity = warning
+dotnet_diagnostic.ERP022.severity = warning
+dotnet_diagnostic.ERP031.severity = warning
+dotnet_diagnostic.ERP041.severity = warning
+dotnet_diagnostic.ERP042.severity = warning
+dotnet_diagnostic.EPS01.severity = warning
+dotnet_diagnostic.EPS05.severity = warning
+dotnet_diagnostic.EPS06.severity = warning
+dotnet_diagnostic.EPS09.severity = warning
+dotnet_diagnostic.EPS10.severity = warning
+dotnet_diagnostic.EPS11.severity = warning
+dotnet_diagnostic.EPS12.severity = warning
+dotnet_diagnostic.EPS13.severity = warning
+
 # General line break behavior
 resharper_csharp_keep_existing_linebreaks = false
 resharper_keep_existing_linebreaks = false
@@ -317,11 +363,14 @@ dotnet_diagnostic.RS0031.severity = none
 # Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format.
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.RS0031.severity = none
+# Generated sources often use bare [ExcludeFromCodeCoverage] without justification.
+dotnet_diagnostic.EPC29.severity = none
 
 [**/obj/**]
 # MSBuild intermediate output (source generators, gRPC, JSON context, etc.).
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.RS0031.severity = none
+dotnet_diagnostic.EPC29.severity = none
 
 # Analyzer execution settings
 # Enable concurrent execution and generated code handling are set via MSBuild props
