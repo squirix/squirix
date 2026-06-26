@@ -282,16 +282,17 @@ public static class NodePathKit
     {
         ArgumentNullException.ThrowIfNull(s);
 
+        var invalid = Path.GetInvalidFileNameChars();
         for (var i = 0; i < s.Length; i++)
         {
-            if (Array.IndexOf(InvalidFileNameChars, s[i]) < 0)
+            if (Array.IndexOf(invalid, s[i]) < 0)
                 continue;
 
             var sb = new StringBuilder(s.Length);
             for (var j = 0; j < s.Length; j++)
             {
                 var current = s[j];
-                _ = sb.Append(Array.IndexOf(InvalidFileNameChars, current) >= 0 ? '_' : current);
+                _ = sb.Append(Array.IndexOf(invalid, current) >= 0 ? '_' : current);
             }
 
             return sb.ToString();

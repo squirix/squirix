@@ -34,7 +34,7 @@ public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
 
         var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
         Assert.Equal("trace-key", context.Key);
-        Assert.Equal(payload.Length, Assert.Single(tracer.FramePayloadBytes));
+        Assert.Equal(payload.Length, context.PayloadBytes);
     }
 
     /// <summary>Ensures traced journal puts reflect strict fsync and group-commit settings from persistence options.</summary>

@@ -12,6 +12,6 @@ internal sealed record HistogramLabelBinding(Histogram<double> Histogram, string
             { Key1, Value1 },
             { Key2, Value2 },
         };
-        Histogram.Record(value, in tags);
+        _h.Record(value, in tags);
     }
 }

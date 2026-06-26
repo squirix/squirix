@@ -32,11 +32,11 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
             _ = activity.SetTag("journal.namespace", context.Namespace);
         if (context.PayloadBytes is { } payloadBytes)
         {
-            _ = activity.SetTag("journal.bytes_payload", ActivityTagValues.Int32(payloadBytes));
-            _ = activity.SetTag("journal.frame.total_bytes", ActivityTagValues.Int32(JournalFrameEnvelope.TotalLength(payloadBytes)));
+            _ = activity.SetTag("journal.bytes_payload", payloadBytes);
+            _ = activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
         }
 
-        _ = activity.SetTag("journal.strict_fsync", ActivityTagValues.True);
+        _ = activity.SetTag("journal.strict_fsync", true);
         if (context.GroupCommitEnabled is { } groupCommitEnabled)
             _ = activity.SetTag("journal.group_commit", ActivityTagValues.Bool(groupCommitEnabled));
     }
@@ -66,14 +66,5 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         }
 
         public void Dispose() => _activity.Dispose();
-
-        public void SetFrameBytes(int payloadBytes)
-        {
-            if (!_activity.IsAllDataRequested)
-                return;
-
-            _ = _activity.SetTag("journal.frame.payload_bytes", payloadBytes);
-            _ = _activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
-        }
     }
 }

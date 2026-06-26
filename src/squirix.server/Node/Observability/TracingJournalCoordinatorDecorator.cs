@@ -45,7 +45,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
         await _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
-        JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
     public async ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
@@ -54,7 +53,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
         await _inner.AppendPutAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
-        JournalCoordinatorTracing.TraceFrameBytes(scope, payloadBytes);
     }
 
     public async ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken)

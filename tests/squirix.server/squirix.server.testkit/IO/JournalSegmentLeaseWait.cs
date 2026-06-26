@@ -23,6 +23,21 @@ public static class JournalSegmentLeaseWait
         return PollUntilJournalSegmentsReleasedAsync(dataDir, cancellationToken);
     }
 
+    private static async Task PollUntilJournalSegmentsReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await CanAcquireRepairLeaseAsync(dataDir, cancellationToken).ConfigureAwait(false))
+                return;
+
+            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new TimeoutException($"journal segments in '{dataDir}' remained locked after shutdown.");
+    }
+
     private static async Task<bool> CanAcquireRepairLeaseAsync(string dataDir, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(dataDir))

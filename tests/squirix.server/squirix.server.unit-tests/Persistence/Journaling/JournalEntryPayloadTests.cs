@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using Squirix.Server.Storage.Journaling.Entries;
@@ -10,6 +11,28 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>Unit tests for <see cref="JournalEntryPayload" />.</summary>
 public sealed class JournalEntryPayloadTests : UnitTestBase
 {
+    /// <summary>PrepareEncode exposes the same encoded length as ComputeEncodedLength without a second materialize pass.</summary>
+    [Fact]
+    public void PrepareEncodeMatchesComputeEncodedLength()
+    {
+        var entry = new CacheEntry<string> { Value = "journal-value", Version = 4 };
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+
+        Assert.Equal(JournalEntryPayload.ComputeEncodedLength(entry), prepared.EncodedLength);
+
+        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
+        try
+        {
+            Assert.Equal(prepared.EncodedLength, length);
+            Assert.True(JournalEntryPayload.TryDecode<string>(buffer.AsSpan(0, length), out var roundTrip));
+            Assert.Equal("journal-value", roundTrip!.Value);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
     /// <summary>Put payloads round-trip through the binary cache-entry codec.</summary>
     [Fact]
     public void PutPayloadRoundTripsStringValue()

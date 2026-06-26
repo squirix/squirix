@@ -1,6 +1,6 @@
 namespace Squirix.Server.Storage.Journaling.Limits;
 
-/// <summary>Hard and default segment capacity limits for <see cref="JournalBackend.Pipelined"/>.</summary>
+/// <summary>Hard and default segment capacity limits.</summary>
 internal static class JournalSegmentLimits
 {
     public const int DefaultMaxSegmentMb = 64;

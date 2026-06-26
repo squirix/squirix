@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
-using Squirix.Server.Limits;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
@@ -160,7 +159,6 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
             Expiration = existing.Expiration,
             Version = existing.Version,
         };
-        EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(replacement);
         AdmitReplaceOrInsert(keyValue, existing, replacement, MemoryPressureAdmissionOperations.Set);
         var updated = await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
         if (!updated || EqualityComparer<T?>.Default.Equals(existing.Value, value))

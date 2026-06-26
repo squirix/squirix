@@ -13,6 +13,7 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
 
     private ManualResetValueTaskSourceCore<bool> _core;
     private int _leased;
+    private int _abandonedByCaller;
 
     private JournalDurabilityWaiter() => _core = default;
 
@@ -79,11 +80,16 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
         }
     }
 
+    public void MarkAbandonedByCaller() => Volatile.Write(ref _abandonedByCaller, 1);
+
+    public bool IsAbandonedByCaller() => Volatile.Read(ref _abandonedByCaller) is not 0;
+
     public void ReturnToPool()
     {
         if (Interlocked.CompareExchange(ref _leased, 0, 1) is not 1)
             return;
 
+        Volatile.Write(ref _abandonedByCaller, 0);
         _core.Reset();
         Pool.Add(this);
     }

@@ -1,6 +1,6 @@
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Selects the platform segment writer used by <see cref="JournalBackend.Pipelined"/>.</summary>
+/// <summary>Selects the platform segment writer.</summary>
 public enum JournalPlatformBackend
 {
     /// <summary>Resolves to <c>RandomAccess</c>.</summary>

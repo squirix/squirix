@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Entries;
@@ -76,7 +77,20 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             return;
         }
 
-        var payloadLength = JournalEntryPayload.Encode(entry, out var payloadBuffer);
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        await SetEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask SetEntryWithPreparedPayloadAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        CacheEntry<T> entry,
+        PreparedJournalEntry prepared,
+        CancellationToken cancellationToken)
+    {
+        var payloadLength = EncodePreparedPutPayload(in prepared, out var payloadBuffer);
         try
         {
             var cacheKey = new CacheKey(cacheName, key);
@@ -114,8 +128,43 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
             cancellationToken);
     }
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        TryAddCoreAsync(operationId, cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    {
+        if (!IsLocalOwner(cacheName, key))
+            return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
+
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        return TryAddEntryWithPreparedPayloadAsync(operationId, cacheName, key, entry, prepared, cancellationToken);
+    }
+
+    public async ValueTask<bool> TryAddEntryWithPreparedPayloadAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        CacheEntry<T> entry,
+        PreparedJournalEntry prepared,
+        CancellationToken cancellationToken)
+    {
+        var payloadLength = EncodePreparedPutPayload(in prepared, out var payloadBuffer);
+        try
+        {
+            var cacheKey = new CacheKey(cacheName, key);
+            var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payloadBuffer.AsMemory(0, payloadLength), cacheKey);
+            return await _durableMutations.ExecuteAsync(
+                cacheKey,
+                this,
+                args,
+                static (self, state, ct) => EvaluateTryAddPreconditionAsync(self, state, ct),
+                static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, null, ct),
+                static (self, state, ct) => self._inner.TryAddEntryAsync(state.OperationId, state.CacheName, state.Key, state.Entry, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(payloadBuffer);
+        }
+    }
 
     public async ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
     {
@@ -126,15 +175,20 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         if (existing is null)
             return false;
 
-        var payloadLength = JournalEntryPayload.Encode(
-            new CacheEntry<T>
-            {
-                Value = value,
-                ExpiresUtc = existing.ExpiresUtc,
-                Expiration = existing.Expiration,
-                Version = existing.Version,
-            },
-            out var payloadBuffer);
+        var prepared = JournalEntryPayload.PrepareEncode(CreateUpdateReplacement(existing, value));
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        return await UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> UpdateWithPreparedPayloadAsync(
+        string operationId,
+        string cacheName,
+        string key,
+        T? value,
+        PreparedJournalEntry prepared,
+        CancellationToken cancellationToken)
+    {
+        var payloadLength = EncodePreparedPutPayload(in prepared, out var payloadBuffer);
         try
         {
             var cacheKey = new CacheKey(cacheName, key);
@@ -154,6 +208,14 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         }
     }
 
+    private static CacheEntry<T> CreateUpdateReplacement(CacheEntry<T> existing, T? value) => new()
+    {
+        Value = value,
+        ExpiresUtc = existing.ExpiresUtc,
+        Expiration = existing.Expiration,
+        Version = existing.Version,
+    };
+
     private static async ValueTask<DurableMutationCondition<bool>> EvaluateTryAddPreconditionAsync(
         JournalLoggingCacheDecorator<T> self,
         TryAddMutationArgs args,
@@ -163,6 +225,9 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
         return existing.Found ? DurableMutationCondition<bool>.Skip(false) : DurableMutationCondition<bool>.Apply();
     }
 
+    private static int EncodePreparedPutPayload(in PreparedJournalEntry prepared, out byte[] payloadBuffer) =>
+        JournalEntryPayload.Encode(in prepared, out payloadBuffer);
+
     private async ValueTask<bool> ApplySetEntryAsync(SetMemoryArgs args, CancellationToken cancellationToken)
     {
         await _inner.SetEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, cancellationToken).ConfigureAwait(false);
@@ -170,31 +235,6 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
     }
 
     private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
-
-    private async ValueTask<bool> TryAddCoreAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
-    {
-        if (!IsLocalOwner(cacheName, key))
-            return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
-
-        var payloadLength = JournalEntryPayload.Encode(entry, out var payloadBuffer);
-        try
-        {
-            var cacheKey = new CacheKey(cacheName, key);
-            var args = new TryAddMutationArgs(operationId, cacheName, key, entry, payloadBuffer.AsMemory(0, payloadLength), cacheKey);
-            return await _durableMutations.ExecuteAsync(
-                cacheKey,
-                this,
-                args,
-                static (self, state, ct) => EvaluateTryAddPreconditionAsync(self, state, ct),
-                static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, null, ct),
-                static (self, state, ct) => self._inner.TryAddEntryAsync(state.OperationId, state.CacheName, state.Key, state.Entry, ct),
-                cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(payloadBuffer);
-        }
-    }
 
     private readonly record struct PutJournalArgs(CacheKey CacheKey, ReadOnlyMemory<byte> Payload);
 

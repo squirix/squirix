@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -20,7 +19,8 @@ internal sealed class JournalDurabilityGroupCommit
     private readonly TimeProvider _timeProvider;
     private long _batchDeadlineTicks;
 
-    private List<JournalDurabilityWaiter> _waiters = [];
+    private List<JournalDurabilityWaiter> _waiters;
+    private List<JournalDurabilityWaiter> _waitersSpare;
 
     public JournalDurabilityGroupCommit(Action journalThreadFlush, Action notifyJournalThread, PersistenceOptions opt, TimeProvider? timeProvider = null)
     {
@@ -73,7 +73,8 @@ internal sealed class JournalDurabilityGroupCommit
         }
         finally
         {
-            waiter.ReturnToPool();
+            if (!waiter.IsAbandonedByCaller())
+                waiter.ReturnToPool();
         }
     }
 
@@ -113,15 +114,14 @@ internal sealed class JournalDurabilityGroupCommit
     internal void CancelPendingCore(Exception reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        List<JournalDurabilityWaiter> pending;
         lock (_sync)
         {
-            pending = _waiters;
-            _waiters = [];
             _batchDeadlineTicks = 0;
-        }
+            for (var i = 0; i < _waiters.Count; i++)
+                _waiters[i].SetException(reason);
 
-        ListEx.ForEach(pending, waiter => waiter.SetException(reason));
+            _waiters.Clear();
+        }
 
         // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
     }
@@ -132,7 +132,7 @@ internal sealed class JournalDurabilityGroupCommit
         {
             if (_waiters.Count is 0)
             {
-                batch = [];
+                batch = _waiters;
                 return false;
             }
 
@@ -140,18 +140,19 @@ internal sealed class JournalDurabilityGroupCommit
             var due = _waiters.Count >= _opt.JournalGroupCommitMaxBatch || now >= _batchDeadlineTicks;
             if (!due)
             {
-                batch = [];
+                batch = _waiters;
                 return false;
             }
 
             batch = _waiters;
-            _waiters = [];
+            _waiters = _waitersSpare;
+            _waitersSpare = batch;
             _batchDeadlineTicks = 0;
             return true;
         }
     }
 
-    private ValueTask CancelWaiterAsync(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
+    private bool CancelWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
         lock (_sync)
@@ -164,32 +165,63 @@ internal sealed class JournalDurabilityGroupCommit
         if (removed)
             waiter.SetCanceled(cancellationToken);
 
-        return ValueTask.CompletedTask;
+        return removed;
     }
 
     private void CompleteBatchOnJournalThread(List<JournalDurabilityWaiter> batch)
     {
+        void FailBatch(Exception ex)
+        {
+            for (var i = 0; i < batch.Count; i++)
+            {
+                var waiter = batch[i];
+                if (!waiter.IsAbandonedByCaller())
+                    waiter.SetException(ex);
+            }
+
+            for (var i = 0; i < batch.Count; i++)
+            {
+                if (batch[i].IsAbandonedByCaller())
+                    batch[i].ReturnToPool();
+            }
+
+            batch.Clear();
+        }
+
         try
         {
             _journalThreadFlush();
         }
         catch (IOException ex)
         {
-            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
+            FailBatch(ex);
             return;
         }
         catch (ObjectDisposedException ex)
         {
-            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
+            FailBatch(ex);
             return;
         }
         catch (InvalidOperationException ex)
         {
-            ListEx.ForEach(batch, waiter => waiter.SetException(ex));
+            FailBatch(ex);
             return;
         }
 
-        ListEx.ForEach(batch, static waiter => waiter.SetResult());
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var waiter = batch[i];
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetResult();
+        }
+
+        for (var i = 0; i < batch.Count; i++)
+        {
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+        }
+
+        batch.Clear();
     }
 
     /// <summary>Mutable group-commit batch deadline; keeps assignments off <see cref="JournalDurabilityGroupCommit" /> for ND1906.</summary>

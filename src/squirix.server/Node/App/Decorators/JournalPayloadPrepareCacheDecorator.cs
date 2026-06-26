@@ -2,9 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Server.Core;
+using Squirix.Server.Limits;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -16,17 +16,17 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     private readonly INodeLocator _ring;
     private readonly string _self;
 
-    internal JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
+    public JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
     {
         _self = self ?? throw new ArgumentNullException(nameof(self));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.GetValueAsync(cacheName, key, cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
@@ -35,7 +35,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return _journal.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
@@ -48,7 +48,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _journal.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return _journal.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
@@ -73,7 +73,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         return await _journal.UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
     }
 
-    private static NodeCacheEntry<T> CreateUpdateReplacement(NodeCacheEntry<T> existing, T? value) => new()
+    private static CacheEntry<T> CreateUpdateReplacement(CacheEntry<T> existing, T? value) => new()
     {
         Value = value,
         ExpiresUtc = existing.ExpiresUtc,

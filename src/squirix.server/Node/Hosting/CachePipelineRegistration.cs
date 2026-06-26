@@ -43,13 +43,12 @@ internal static class CachePipelineRegistration
         _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
         _ = services.AddSingleton(static sp => new BackpressureCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
-            sp.GetRequiredService<IBackpressureGate>(),
-            sp.GetRequiredService<IBackpressureClientIdResolver>()));
-        _ = services.AddSingleton(static sp => new ValidationCacheDecorator<object?>(
+            sp.GetRequiredService<IBackpressureGate>()));
+        _ = services.AddSingleton<ValidationCacheDecorator<object?>>(static sp => new ValidationCacheDecorator<object?>(
             sp.GetRequiredService<BackpressureCacheDecorator<object?>>(),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddSingleton(static sp => new DeadlineCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId));
+        _ = services.AddSingleton<DeadlineCacheDecorator<object?>>(static sp => new DeadlineCacheDecorator<object?>(
             sp.GetRequiredService<ValidationCacheDecorator<object?>>(),
             sp.GetRequiredService<IOptions<CachePipelineDeadlineOptions>>()));
         _ = services.AddSingleton(static sp => new DomainErrorMappingCacheDecorator<object?>(sp.GetRequiredService<DeadlineCacheDecorator<object?>>()));
@@ -92,24 +91,24 @@ internal static class CachePipelineRegistration
                 sp.GetRequiredService<ClientCache<object?>>(),
                 sp.GetRequiredService<IJournalCoordinator>(),
                 sp.GetRequiredService<DurableMutationExecutor>()));
-            _ = services.AddSingleton(static sp => new JournalPayloadPrepareCacheDecorator<object?>(
-                sp.GetRequiredService<TopologyOptions>().NodeId,
+            _ = services.AddSingleton<JournalPayloadPrepareCacheDecorator<object?>>(static sp => new JournalPayloadPrepareCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
-            _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-                sp.GetRequiredService<TopologyOptions>().NodeId,
+            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<JournalPayloadPrepareCacheDecorator<object?>>()));
             return;
         }
 
-        _ = services.AddSingleton(static sp => new OwnerPutPayloadGuardDecorator<object?>(
-            sp.GetRequiredService<TopologyOptions>().NodeId,
+        _ = services.AddSingleton<LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>>(static sp => new LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<ClientCache<object?>>()));
-        _ = services.AddSingleton(static sp => new OwnershipGuardCacheDecorator<object?>(
-            sp.GetRequiredService<TopologyOptions>().NodeId,
+        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<OwnerPutPayloadGuardDecorator<object?>>()));
+            sp.GetRequiredService<LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>>()));
     }
 }

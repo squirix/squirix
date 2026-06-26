@@ -63,6 +63,25 @@ public sealed class MeasurementSink : IDisposable
         return false;
     }
 
+    private static bool HasEventCore(
+        ConcurrentQueue<CapturedMeasurement> events,
+        string instrumentName,
+        (string Key, string Value) tag1,
+        (string Key, string Value) tag2,
+        (string Key, string Value) tag3)
+    {
+        foreach (var measurement in events)
+        {
+            if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (HasTag(in measurement, tag1.Key, tag1.Value) && HasTag(in measurement, tag2.Key, tag2.Value) && HasTag(in measurement, tag3.Key, tag3.Value))
+                return true;
+        }
+
+        return false;
+    }
+
     private static bool HasTag(in CapturedMeasurement measurement, string key, string expectedValue)
     {
         if (measurement.OverflowTags is not null)

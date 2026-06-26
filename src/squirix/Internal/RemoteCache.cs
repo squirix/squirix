@@ -235,6 +235,19 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Updated;
     }
 
+    private static async ValueTask<TResult> AwaitRpcGuardedAsync<TResult>(ValueTask<TResult> task)
+    {
+        try
+        {
+            return await task.ConfigureAwait(false);
+        }
+        catch (RpcException ex)
+        {
+            RemoteRpcErrorMapper.Map(ex);
+            throw;
+        }
+    }
+
     private static CacheEntry<T> ToEntry(T? value, CacheEntryOptions? options)
     {
         if (options?.Expiration is not null && options.ExpiresAt is not null)
@@ -263,16 +276,7 @@ internal sealed class RemoteCache<T> : ICache<T>
     private ValueTask<TResult> ExecuteAsync<TState, TResult>(
         Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
         TState state,
-        CancellationToken cancellationToken) => ExecuteMappedAsync(
-        static async (cache, execution, ct) =>
-        {
-            try
-            {
-                var responseAsync = client.GetOrAddAsync(requestState, cancellationToken: token).ResponseAsync;
-                return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
-            },
-            request,
-            cancellationToken).ConfigureAwait(false);
+        CancellationToken cancellationToken) => AwaitRpcGuardedAsync(ExecuteCoreAsync(action, state, cancellationToken));
 
     private ValueTask<TResult> ExecuteCoreAsync<TState, TResult>(
         Func<SquirixCacheService.SquirixCacheServiceClient, TState, CancellationToken, ValueTask<TResult>> action,
@@ -287,14 +291,6 @@ internal sealed class RemoteCache<T> : ICache<T>
                 ct);
         },
         (Cache: this, Action: action, State: state),
-        cancellationToken);
-
-    private ValueTask<TResult> ExecuteMappedAsync<TState, TResult>(
-        Func<RemoteCache<T>, TState, CancellationToken, ValueTask<TResult>> action,
-        TState state,
-        CancellationToken cancellationToken) => _failover.ExecuteAsync(
-        (_, execution, ct) => action(execution.Cache, execution.State, ct),
-        (Cache: this, State: state),
         cancellationToken);
 
     private async Task<CacheEntry<T>?> GetEntryOrDefaultAsync(string key, CancellationToken cancellationToken)

@@ -73,8 +73,6 @@ internal static class PathEx
         if (Path.IsPathRooted(relativePath))
             throw new ArgumentException("Path must be relative.", nameof(relativePath));
 
-        ValidateSegment(relativePath);
-
         var root = Path.GetFullPath(rootDirectory);
         var fullPath = Path.GetFullPath(Path.Join(root, relativePath));
 
@@ -95,7 +93,7 @@ internal static class PathEx
         ValidateSegment(segment1);
         ValidateSegment(segment2);
 
-        return Combine(rootDirectory, string.Concat(segment1, Path.DirectorySeparatorChar, segment2));
+        return Combine(rootDirectory, Path.Join(segment1, segment2));
     }
 
     /// <summary>Resolves three relative path segments under a trusted root directory.</summary>
@@ -115,7 +113,7 @@ internal static class PathEx
         ValidateSegment(segment2);
         ValidateSegment(segment3);
 
-        return Combine(rootDirectory, string.Concat(segment1, Path.DirectorySeparatorChar, segment2, Path.DirectorySeparatorChar, segment3));
+        return Combine(rootDirectory, Path.Join(segment1, segment2, segment3));
     }
 
     private static void ValidateSegment(string segment)
@@ -127,5 +125,43 @@ internal static class PathEx
             throw new ArgumentException("Path segments must be relative.", nameof(segment));
     }
 
-    private static string EnsureTrailingDirectorySeparator(string path) => Path.EndsInDirectorySeparator(path) ? path : $"{path}{Path.DirectorySeparatorChar}";
+    private static bool IsPathUnderRoot(string fullPath, string rootFullPath)
+    {
+        var rootLength = GetNormalizedRootPrefixLength(rootFullPath.AsSpan());
+        var root = rootFullPath.AsSpan(0, rootLength);
+        var path = fullPath.AsSpan();
+
+        if (path.Length == root.Length)
+            return path.Equals(root, PathComparison);
+
+        if (path.Length < root.Length)
+            return false;
+
+        if (!path.StartsWith(root, PathComparison))
+            return false;
+
+        if (IsFilesystemRoot(root))
+            return true;
+
+        return IsDirectorySeparator(path[root.Length]);
+    }
+
+    private static int GetNormalizedRootPrefixLength(ReadOnlySpan<char> path)
+    {
+        var end = path.Length;
+        while (end > 0 && IsDirectorySeparator(path[end - 1]))
+            end--;
+
+        return end > 0 ? end : path.Length;
+    }
+
+    private static bool IsFilesystemRoot(ReadOnlySpan<char> root)
+    {
+        if (root.Length is 1 && IsDirectorySeparator(root[0]))
+            return true;
+
+        return OperatingSystem.IsWindows() && root.Length is 2 && root[1] is ':';
+    }
+
+    private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 }

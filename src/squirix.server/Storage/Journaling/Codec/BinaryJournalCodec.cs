@@ -14,15 +14,19 @@ internal static class BinaryJournalCodec
 {
     private const int FixedPrefixSize = 8 + 8 + 1 + 2 + 2 + 2 + 4;
 
-    public static int ComputeFrameBodyLength(JournalRecord record) => ComputeFrameBodyLength(record, Utf8KeyLengths.From(record.Key));
+    public static int ComputeFrameBodyLength(JournalRecord record) => EncodeContext.From(record).BodyLength;
 
-    public static int Encode(JournalRecord record, Span<byte> destination, Utf8KeyLengths keyUtf8)
+    public static EncodeContext PrepareEncode(JournalRecord record) => EncodeContext.From(record);
+
+    public static int Encode(JournalRecord record, Span<byte> destination, in EncodeContext context)
     {
         var ns = record.Key.Namespace;
         var key = record.Key.Key;
+        var keyUtf8 = context.KeyUtf8;
         var nsLen = keyUtf8.NamespaceLength;
         var keyLen = keyUtf8.KeyLength;
-        GetPayloadLengths(record, out var opIdLen, out var payloadLen);
+        var opIdLen = context.OperationIdUtf8Length;
+        var payloadLen = context.PayloadUtf8Length;
 
         BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
         BinaryPrimitives.WriteInt64LittleEndian(destination[8..], record.UnixMs);
@@ -60,13 +64,11 @@ internal static class BinaryJournalCodec
         }
     }
 
-    public static (int BodyLength, Utf8KeyLengths KeyUtf8) PrepareEncode(JournalRecord record)
+    public static int Encode(JournalRecord record, Span<byte> destination)
     {
-        var keyUtf8 = Utf8KeyLengths.From(record.Key);
-        return (ComputeFrameBodyLength(record, keyUtf8), keyUtf8);
+        var context = EncodeContext.From(record);
+        return Encode(record, destination, in context);
     }
-
-    public static int Encode(JournalRecord record, Span<byte> destination) => Encode(record, destination, Utf8KeyLengths.From(record.Key));
 
     public static JournalRecord Decode(byte[] frameBuffer, int frameLength)
     {
@@ -127,17 +129,6 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static int ComputeFrameBodyLength(JournalRecord record, Utf8KeyLengths keyUtf8)
-    {
-        var extra = record.Operation switch
-        {
-            JournalOperationKind.Put => record.PutEntryBytes.Length + Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty),
-            JournalOperationKind.TouchExpiration => 8,
-            _ => 0,
-        };
-        return FixedPrefixSize + keyUtf8.TotalLength + extra;
-    }
-
     private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
     {
         var payload = record.PutEntryBytes.Span;
@@ -146,33 +137,6 @@ internal static class BinaryJournalCodec
         if (opIdLen > 0)
             offset += Encoding.UTF8.GetBytes(record.PutOperationId!, destination[offset..]);
         return offset;
-    }
-
-    private static void GetPayloadLengths(JournalRecord record, out int opIdLen, out int payloadLen)
-    {
-        opIdLen = 0;
-        payloadLen = 0;
-        switch (record.Operation)
-        {
-            case JournalOperationKind.Put:
-                payloadLen = record.PutEntryBytes.Length;
-                opIdLen = Encoding.UTF8.GetByteCount(record.PutOperationId ?? string.Empty);
-                break;
-
-            case JournalOperationKind.TouchExpiration:
-                payloadLen = 8;
-                break;
-
-            case JournalOperationKind.Remove:
-            case JournalOperationKind.RemoveExpiration:
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
-            default:
-                throw new NotSupportedException($"the length of operation {record.Operation} cannot be determined.");
-        }
     }
 
     private static JournalOpcode ToOpcode(JournalOperationKind operation)
@@ -190,6 +154,60 @@ internal static class BinaryJournalCodec
             JournalOperationKind.UnderSnapshotBarrier => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
             _ => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
         };
+    }
+
+    [StructLayout(LayoutKind.Auto)]
+    internal readonly struct EncodeContext
+    {
+        private EncodeContext(Utf8KeyLengths keyUtf8, int operationIdUtf8Length, int payloadUtf8Length)
+        {
+            KeyUtf8 = keyUtf8;
+            OperationIdUtf8Length = operationIdUtf8Length;
+            PayloadUtf8Length = payloadUtf8Length;
+        }
+
+        public Utf8KeyLengths KeyUtf8 { get; }
+
+        public int OperationIdUtf8Length { get; }
+
+        public int PayloadUtf8Length { get; }
+
+        public int BodyLength => FixedPrefixSize + KeyUtf8.TotalLength + PayloadUtf8Length + OperationIdUtf8Length;
+
+        public static EncodeContext From(JournalRecord record)
+        {
+            var keyUtf8 = Utf8KeyLengths.From(record.Key);
+            GetOperationPayloadLengths(record, out var operationIdUtf8Length, out var payloadUtf8Length);
+            return new EncodeContext(keyUtf8, operationIdUtf8Length, payloadUtf8Length);
+        }
+
+        private static void GetOperationPayloadLengths(JournalRecord record, out int operationIdUtf8Length, out int payloadUtf8Length)
+        {
+            operationIdUtf8Length = 0;
+            payloadUtf8Length = 0;
+            switch (record.Operation)
+            {
+                case JournalOperationKind.Put:
+                    payloadUtf8Length = record.PutEntryBytes.Length;
+                    if (record.PutOperationId is { Length: > 0 } operationId)
+                        operationIdUtf8Length = Encoding.UTF8.GetByteCount(operationId);
+                    break;
+
+                case JournalOperationKind.TouchExpiration:
+                    payloadUtf8Length = 8;
+                    break;
+
+                case JournalOperationKind.Remove:
+                case JournalOperationKind.RemoveExpiration:
+                case JournalOperationKind.AwaitDurabilityCommit:
+                case JournalOperationKind.WaitForStartup:
+                case JournalOperationKind.MaintenanceExclusive:
+                case JournalOperationKind.SnapshotCut:
+                case JournalOperationKind.UnderSnapshotBarrier:
+                default:
+                    throw new NotSupportedException($"the length of operation {record.Operation} cannot be determined.");
+            }
+        }
     }
 
     [StructLayout(LayoutKind.Auto)]

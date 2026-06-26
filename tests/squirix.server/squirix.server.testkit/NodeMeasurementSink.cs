@@ -81,7 +81,9 @@ public sealed class NodeMeasurementSink : IDisposable
     private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName, (string Key, string Value) tag1)
     {
         foreach (var measurement in events)
+        {
             if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
+            {
                 return true;
 
         return false;
@@ -115,6 +117,7 @@ public sealed class NodeMeasurementSink : IDisposable
 
             if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value) &&
                 MeasurementHasTag(in measurement, tag3.Key, tag3.Value))
+            {
                 return true;
         }
 

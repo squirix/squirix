@@ -40,7 +40,7 @@ internal static class CallPolicyMetrics
             {
                 { Key1, v1 },
             };
-            Histogram.Record(value.TotalSeconds, in tags);
+            _histogram.Record(value.TotalSeconds, in tags);
         }
     }
 }

@@ -34,7 +34,7 @@ internal static class MemoryPressureMetrics
             { "operation", operation },
             { "reason", reason },
         };
-        RejectionsTotal.Add(1, tags);
+        RejectionsTotal.Add(1, in tags);
     }
 
     internal static void Register(MemoryPressureMetricRegistration registration)

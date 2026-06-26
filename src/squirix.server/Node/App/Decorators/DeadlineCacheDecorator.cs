@@ -76,8 +76,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var configured = _options.Value.DefaultOperationTimeout;
-        if (configured is null || configured.Value <= TimeSpan.Zero || cancellationToken.IsCancellationRequested)
+        if (!ShouldApplyPipelineDeadline(cancellationToken, out var budget))
         {
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
             return;
@@ -103,8 +102,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var budget = _options.Value.DefaultOperationTimeout;
-        if (budget is null || budget.Value <= TimeSpan.Zero)
+        if (!ShouldApplyPipelineDeadline(cancellationToken, out var budget))
             return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -120,6 +118,19 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
 
             throw;
         }
+    }
+
+    private bool ShouldApplyPipelineDeadline(CancellationToken cancellationToken, out TimeSpan budget)
+    {
+        var configured = _options.Value.DefaultOperationTimeout;
+        if (configured is null || configured.Value <= TimeSpan.Zero || cancellationToken.IsCancellationRequested)
+        {
+            budget = TimeSpan.Zero;
+            return false;
+        }
+
+        budget = configured.Value;
+        return true;
     }
 
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);

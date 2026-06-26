@@ -12,6 +12,6 @@ internal sealed record CounterLabelBinding(Counter<long> Counter, string Key1, s
             { Key1, Value1 },
             { Key2, Value2 },
         };
-        Counter.Add(value, in tags);
+        _c.Add(value, in tags);
     }
 }
