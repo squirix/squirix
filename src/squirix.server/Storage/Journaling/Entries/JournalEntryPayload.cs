@@ -8,13 +8,17 @@ namespace Squirix.Server.Storage.Journaling.Entries;
 /// <summary>Sync encode/decode of journal Put payloads via <see cref="CacheEntryCodec" />.</summary>
 internal static class JournalEntryPayload
 {
-    public static int ComputeEncodedLength<T>(CacheEntry<T> entry) => CacheEntryCodec.ComputeEncodedLength(ToObjectEntry(entry));
+    public static int ComputeEncodedLength<T>(CacheEntry<T> entry) => PrepareEncode(entry).EncodedLength;
+
+    public static PreparedJournalEntry PrepareEncode<T>(CacheEntry<T> entry) => PreparedJournalEntry.From(entry);
 
     public static byte[] Encode<T>(CacheEntry<T> entry)
     {
-        var objectEntry = ToObjectEntry(entry);
-        var length = CacheEntryCodec.ComputeEncodedLength(objectEntry);
-        return BufferEx.EncodeToOwned(length, objectEntry, static (entry, span) => CacheEntryCodec.Write(entry, span));
+        var prepared = PrepareEncode(entry);
+        return BufferEx.EncodeToOwned(
+            prepared.EncodedLength,
+            prepared.ObjectEntry,
+            static (objectEntry, span) => CacheEntryCodec.Write(objectEntry, span));
     }
 
     /// <summary>
@@ -26,13 +30,13 @@ internal static class JournalEntryPayload
     /// <param name="entry">The entry to encode.</param>
     /// <param name="pooledBuffer">The rented buffer holding the encoded bytes (length may exceed the logical payload).</param>
     /// <returns>The logical length of the encoded payload within <paramref name="pooledBuffer" />.</returns>
-    public static int Encode<T>(CacheEntry<T> entry, out byte[] pooledBuffer)
+    public static int Encode<T>(CacheEntry<T> entry, out byte[] pooledBuffer) => Encode(PrepareEncode(entry), out pooledBuffer);
+
+    public static int Encode(in PreparedJournalEntry prepared, out byte[] pooledBuffer)
     {
-        var objectEntry = ToObjectEntry(entry);
-        var length = CacheEntryCodec.ComputeEncodedLength(objectEntry);
-        pooledBuffer = ArrayPool<byte>.Shared.Rent(length);
-        CacheEntryCodec.Write(objectEntry, pooledBuffer);
-        return length;
+        pooledBuffer = ArrayPool<byte>.Shared.Rent(prepared.EncodedLength);
+        CacheEntryCodec.Write(prepared.ObjectEntry, pooledBuffer);
+        return prepared.EncodedLength;
     }
 
     public static bool TryDecode<T>(ReadOnlySpan<byte> source, out CacheEntry<T>? entry)
@@ -41,18 +45,5 @@ internal static class JournalEntryPayload
             return true;
         entry = null;
         return false;
-    }
-
-    private static CacheEntry<object?> ToObjectEntry<T>(CacheEntry<T> entry)
-    {
-        var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
-        return new CacheEntry<object?>
-        {
-            Value = CacheEntryCodec.NormalizeValue(entry.Value),
-            ExpiresUtc = expiresUtc,
-            Expiration = expiration,
-            Version = entry.Version,
-            Tags = entry.Tags,
-        };
     }
 }

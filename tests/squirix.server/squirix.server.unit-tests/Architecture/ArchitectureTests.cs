@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using NetArchTest.Rules;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -397,13 +396,13 @@ public sealed class ArchitectureTests : UnitTestBase
     {
         var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
         var serverPackageReferences = new List<string>();
-        ListKit.ForEach(
-            ReadIncludes(project, "PackageReference"),
-            include =>
-            {
-                if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
-                    serverPackageReferences.Add(include);
-            });
+        var packageIncludes = ReadIncludes(project, "PackageReference");
+        for (var i = 0; i < packageIncludes.Count; i++)
+        {
+            var include = packageIncludes[i];
+            if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+                serverPackageReferences.Add(include);
+        }
 
         serverPackageReferences.Sort(StringComparer.Ordinal);
         var unexpectedPackageReferences = CollectExcept(serverPackageReferences, KnownServerPackageDependencyBaseline, StringComparer.Ordinal);
@@ -411,13 +410,13 @@ public sealed class ArchitectureTests : UnitTestBase
         Assert.Empty(unexpectedPackageReferences);
 
         var serverFrameworkReferences = new List<string>();
-        ListKit.ForEach(
-            ReadIncludes(project, "FrameworkReference"),
-            include =>
-            {
-                if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                    serverFrameworkReferences.Add(include);
-            });
+        var frameworkIncludes = ReadIncludes(project, "FrameworkReference");
+        for (var i = 0; i < frameworkIncludes.Count; i++)
+        {
+            var include = frameworkIncludes[i];
+            if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
+                serverFrameworkReferences.Add(include);
+        }
 
         serverFrameworkReferences.Sort(StringComparer.Ordinal);
         var unexpectedFrameworkReferences = CollectExcept(serverFrameworkReferences, KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal);

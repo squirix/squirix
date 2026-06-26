@@ -38,12 +38,13 @@ internal sealed class RpcMutationIdempotencyGuard
         return true;
     }
 
-    public void RecordSuccess<TResponse>(string operationId, string fingerprint, TResponse response)
+    public void RecordSuccess<TResponse>(string operationId, string fingerprint, TResponse? response)
         where TResponse : IMessage<TResponse>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
-        ArgumentNullException.ThrowIfNull(response);
+        if (response is null)
+            throw new ArgumentNullException(nameof(response));
 
         _records[operationId] = new StoredRpcOutcome(fingerprint, response.ToByteArray(), DateTime.UtcNow);
     }

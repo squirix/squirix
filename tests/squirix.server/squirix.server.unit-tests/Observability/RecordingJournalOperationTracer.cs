@@ -10,20 +10,16 @@ internal sealed class RecordingJournalOperationTracer : IJournalOperationTracer
 {
     public List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
 
-    public List<int> FramePayloadBytes { get; } = [];
-
     public IJournalOperationTraceScope Begin(JournalOperationKind kind, in JournalOperationTraceContext context)
     {
         BeginCalls.Add((kind, context));
-        return new RecordingScope(this);
+        return new RecordingScope();
     }
 
-    private sealed class RecordingScope(RecordingJournalOperationTracer tracer) : IJournalOperationTraceScope
+    private sealed class RecordingScope : IJournalOperationTraceScope
     {
         public void Dispose()
         {
         }
-
-        public void SetFrameBytes(int payloadBytes) => tracer.FramePayloadBytes.Add(payloadBytes);
     }
 }

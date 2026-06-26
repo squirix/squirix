@@ -256,8 +256,8 @@ internal sealed class JournalEventLoop
         _journalTotalBytes += span.Length;
         _dirty = true;
 
-        foreach (var pending in _writeBatch.PendingAppends)
-            CompleteStagedAppend(pending.Item);
+        for (var i = 0; i < _writeBatch.PendingAppends.Count; i++)
+            CompleteStagedAppend(_writeBatch.PendingAppends[i].Item);
 
         _writeBatch.Clear();
 

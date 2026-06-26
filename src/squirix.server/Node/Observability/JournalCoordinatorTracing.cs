@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Observability;
@@ -15,9 +14,6 @@ internal static class JournalCoordinatorTracing
         Key = key.Key,
         Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
     };
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void TraceFrameBytes(IJournalOperationTraceScope? scope, int payloadBytes) => scope?.SetFrameBytes(payloadBytes);
 
     public static JournalOperationTraceContext WithDurability(in JournalOperationTraceContext context, IJournalCoordinator coordinator) => context with
     {

@@ -9,9 +9,11 @@ namespace Squirix.Server.Limits;
 /// </summary>
 internal static class EntryPayloadSizeGuard
 {
-    public static void EnsureEncodedLengthWithinLimit<T>(CacheEntry<T> entry)
+    public static void EnsureEncodedLengthWithinLimit<T>(CacheEntry<T> entry) => EnsureLengthWithinLimit(JournalEntryPayload.ComputeEncodedLength(entry));
+
+    public static void EnsureLengthWithinLimit(int encodedLength)
     {
-        if (JournalEntryPayload.ComputeEncodedLength(entry) > SquirixEntryLimits.MaxEntrySizeBytes)
+        if (encodedLength > SquirixEntryLimits.MaxEntrySizeBytes)
             throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
     }
 

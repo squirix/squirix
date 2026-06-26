@@ -11,9 +11,27 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class OpenTelemetryJournalOperationTracerTests
 {
-    /// <summary>
-    /// Ensures durability settings on <see cref="JournalOperationTraceContext" /> are exported as span tags.
-    /// </summary>
+    /// <summary>Ensures payload byte tags are applied when context carries payload size.</summary>
+    [Fact]
+    public void BeginAppliesPayloadAndFrameTotalTags()
+    {
+        using var listener = CreateSquirixSamplingListener();
+
+        var tracer = new OpenTelemetryJournalOperationTracer();
+        var context = new JournalOperationTraceContext
+        {
+            PayloadBytes = 128,
+        };
+
+        using var scope = tracer.Begin(JournalOperationKind.Put, in context);
+
+        Assert.NotNull(scope);
+        var activity = AssertActivity("journal.put");
+        Assert.Equal(128, Assert.IsType<int>(activity.GetTagItem("journal.bytes_payload")));
+        Assert.Equal(136, Assert.IsType<int>(activity.GetTagItem("journal.frame.total_bytes")));
+    }
+
+    /// <summary>Ensures durability settings on <see cref="JournalOperationTraceContext" /> are exported as span tags.</summary>
     [Fact]
     public void BeginAppliesStrictFsyncAndGroupCommitTags()
     {

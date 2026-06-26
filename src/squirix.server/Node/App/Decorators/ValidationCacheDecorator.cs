@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Cluster;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.App.Decorators.Validation;
 using Squirix.Server.Runtime.Contracts;
@@ -12,10 +13,14 @@ namespace Squirix.Server.Node.App.Decorators;
 internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
+    private readonly INodeLocator _ring;
+    private readonly string _self;
 
-    public ValidationCacheDecorator(ILogicalNamespacedCache<T> inner)
+    public ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, INodeLocator ring, string self)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+        _ring = ring ?? throw new ArgumentNullException(nameof(ring));
+        _self = self ?? throw new ArgumentNullException(nameof(self));
     }
 
     public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
@@ -50,7 +55,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
-        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
+        await EnsureRemotePutWithinLimitAsync(cacheName, key, entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         await _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
@@ -67,7 +72,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     {
         KeyInputValidator.Validate(key, nameof(key));
         OperationInputValidator<T>.ValidateEntry(entry);
-        await EnsureEntryWithinLimitAsync(entry).ConfigureAwait(false);
+        await EnsureRemotePutWithinLimitAsync(cacheName, key, entry).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return await _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken).ConfigureAwait(false);
     }
@@ -77,15 +82,18 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
         KeyInputValidator.Validate(key, nameof(key));
         cancellationToken.ThrowIfCancellationRequested();
 
-        // The encoded-size guard for updates needs the existing entry metadata, so it is enforced by the
-        // memory-admission layer (the owner-local stage that already reads the existing entry) to avoid a
-        // duplicate read here and a redundant network read when the key is owned by a remote node.
+        // Local-owner update sizing runs in the ownership inner chain (journal prepare or local guard).
         return _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
     }
 
-    private static Task EnsureEntryWithinLimitAsync(CacheEntry<T> entry)
+    private Task EnsureRemotePutWithinLimitAsync(string cacheName, string key, CacheEntry<T> entry)
     {
+        if (IsLocalOwner(cacheName, key))
+            return Task.CompletedTask;
+
         EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry);
         return Task.CompletedTask;
     }
+
+    private bool IsLocalOwner(string cacheName, string key) => string.Equals(_ring.GetOwner(cacheName, key), _self, StringComparison.Ordinal);
 }

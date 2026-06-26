@@ -46,7 +46,9 @@ internal static class SquirixCachePipelineRegistration
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>()));
         _ = services.AddSingleton<ValidationCacheDecorator<object?>>(static sp => new ValidationCacheDecorator<object?>(
-            sp.GetRequiredService<BackpressureCacheDecorator<object?>>()));
+            sp.GetRequiredService<BackpressureCacheDecorator<object?>>(),
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<ClusterConfig>().NodeId));
         _ = services.AddSingleton<DeadlineCacheDecorator<object?>>(static sp => new DeadlineCacheDecorator<object?>(
             sp.GetRequiredService<ValidationCacheDecorator<object?>>(),
             sp.GetRequiredService<IOptions<CachePipelineDeadlineOptions>>()));
@@ -82,16 +84,24 @@ internal static class SquirixCachePipelineRegistration
                 sp.GetRequiredService<ClientCache<object?>>(),
                 sp.GetRequiredService<IJournalCoordinator>(),
                 sp.GetRequiredService<DurableMutationExecutor>()));
-            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+            _ = services.AddSingleton<JournalPayloadPrepareCacheDecorator<object?>>(static sp => new JournalPayloadPrepareCacheDecorator<object?>(
                 sp.GetRequiredService<ClusterConfig>().NodeId,
                 sp.GetRequiredService<INodeLocator>(),
                 sp.GetRequiredService<JournalLoggingCacheDecorator<object?>>()));
+            _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+                sp.GetRequiredService<ClusterConfig>().NodeId,
+                sp.GetRequiredService<INodeLocator>(),
+                sp.GetRequiredService<JournalPayloadPrepareCacheDecorator<object?>>()));
             return;
         }
 
-        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+        _ = services.AddSingleton<LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>>(static sp => new LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>(
             sp.GetRequiredService<ClusterConfig>().NodeId,
             sp.GetRequiredService<INodeLocator>(),
             sp.GetRequiredService<ClientCache<object?>>()));
+        _ = services.AddSingleton<OwnershipGuardCacheDecorator<object?>>(static sp => new OwnershipGuardCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId,
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<LocalOwnerPutPayloadSizeGuardCacheDecorator<object?>>()));
     }
 }

@@ -4,7 +4,6 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -38,8 +37,11 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
-        ListKit.ForEach(unexpected, route => _ = sb.Append("  + ").AppendLine(route));
-        ListKit.ForEach(missing, route => _ = sb.Append("  - ").AppendLine(route));
+        for (var i = 0; i < unexpected.Count; i++)
+            _ = sb.Append("  + ").AppendLine(unexpected[i]);
+
+        for (var i = 0; i < missing.Count; i++)
+            _ = sb.Append("  - ").AppendLine(missing[i]);
 
         Assert.Fail(sb.ToString());
     }

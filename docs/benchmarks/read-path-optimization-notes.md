@@ -129,9 +129,9 @@ Short e2e result after this step:
 
 | Item                                                                                                                           | Status                                |
 | :----------------------------------------------------------------------------------------------------------------------------- | :------------------------------------ |
-| `BackpressureCacheDecorator`: sync fast-path for `GetValueAsync` (`IsCompletedSuccessfully`, lease dispose without await)      | Done                                  |
+| `BackpressureCacheDecorator`: `GetValueAsync` fast-path (lease dispose without await)                                         | Done                                  |
 | `CallPolicy.ConfigurePerAttemptTimeout`: skip redundant per-attempt timer when ambient RPC budget is the binding constraint    | Done                                  |
-| `TracingCacheDecorator` / `MetricsCacheDecorator` / `DomainErrorMappingCacheDecorator`: sync fast-path on completed reads      | **Not done** — still always `await`   |
+| `TracingCacheDecorator` / `MetricsCacheDecorator` / `DomainErrorMappingCacheDecorator`: extra read fast-paths                  | **Won't do** — async pipeline by design |
 
 Use `SquirixServerPipelineReadBatched` before/after further decorator work.
 
@@ -329,7 +329,7 @@ Read-path decorators under `src/squirix.server/Node/App/Decorators/`:
 - `ValidationCacheDecorator`
 - `TracingCacheDecorator`
 - `MetricsCacheDecorator`
-- `BackpressureCacheDecorator` (sync fast-path on `GetValueAsync` only)
+- `BackpressureCacheDecorator` (`GetValueAsync` lease/dispose fast-path only)
 - `DeadlineCacheDecorator`
 - `DomainErrorMappingCacheDecorator`
 
