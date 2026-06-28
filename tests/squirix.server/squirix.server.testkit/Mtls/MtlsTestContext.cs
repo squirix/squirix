@@ -45,7 +45,7 @@ public sealed class MtlsTestContext : IDisposable
         {
             var standalonePeers = new Peer[topology.Length];
             for (var i = 0; i < topology.Length; i++)
-                standalonePeers[i] = new Peer { NodeId = topology[i].NodeId, Url = topology[i].Url };
+                standalonePeers[i] = new Peer { NodeId = topology[i].NodeId, Url = new Uri(topology[i].Url, UriKind.Absolute) };
 
             return standalonePeers;
         }
@@ -57,9 +57,11 @@ public sealed class MtlsTestContext : IDisposable
     internal static async Task<(MtlsTestContext? Shared, MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveForNodeAsync(
         MtlsTestContext? shared,
         ClusterConfig cluster,
-        string url,
+        Uri url,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(url);
+
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return (shared, null, null);
 
@@ -79,12 +81,12 @@ public sealed class MtlsTestContext : IDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="profile" /> is not supported.</exception>
     internal async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> ResolveNodeStartupAsync(
         ClusterConfig cluster,
-        string url,
+        Uri url,
         MtlsTestNodeProfile profile,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(cluster);
-        ArgumentException.ThrowIfNullOrWhiteSpace(url);
+        ArgumentNullException.ThrowIfNull(url);
 
         if (!MtlsTopology.RequiresInterNodeMtls(cluster))
             return (null, null, null);
@@ -118,19 +120,13 @@ public sealed class MtlsTestContext : IDisposable
     {
         var excludedPorts = new HashSet<int>();
         for (var i = 0; i < cluster.Peers.Length; i++)
-        {
-            if (Uri.TryCreate(cluster.Peers[i].Url, UriKind.Absolute, out var peerUri))
-                _ = excludedPorts.Add(peerUri.Port);
-        }
+            _ = excludedPorts.Add(cluster.Peers[i].Url.Port);
 
         return excludedPorts;
     }
 
-    private static string CreateInterNodeUrl(string primaryUrl, int internalPort)
-    {
-        var primaryUri = new Uri(primaryUrl);
-        return new UriBuilder(primaryUri.Scheme, primaryUri.Host, internalPort).Uri.AbsoluteUri;
-    }
+    private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) =>
+        new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
 
     private static bool HasRemotePeers(ReadOnlySpan<(string NodeId, string Url)> topology)
     {
@@ -153,12 +149,13 @@ public sealed class MtlsTestContext : IDisposable
         for (var i = 0; i < topology.Length; i++)
         {
             var (nodeId, url) = topology[i];
+            var primaryUrl = new Uri(url, UriKind.Absolute);
             var internalPort = GetOrAllocateInternalPort(nodeId, topology);
             peers[i] = new Peer
             {
                 NodeId = nodeId,
-                Url = url,
-                InterNodeUrl = CreateInterNodeUrl(url, internalPort),
+                Url = primaryUrl,
+                InterNodeUrl = CreateInterNodeUrl(primaryUrl, internalPort),
             };
         }
 
@@ -250,7 +247,7 @@ public sealed class MtlsTestContext : IDisposable
     /// <returns>Options and material for host startup overrides.</returns>
     private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(
         ClusterConfig cluster,
-        string url,
+        Uri url,
         CancellationToken cancellationToken)
     {
         var (options, material, _) = await ResolveNodeStartupAsync(cluster, url, MtlsTestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);

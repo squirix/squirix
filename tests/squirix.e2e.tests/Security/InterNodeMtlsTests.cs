@@ -69,14 +69,14 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var clientA = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(cluster.GetAddress("nodeA"));
+                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeA"), UriKind.Absolute));
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);
         await using var clientB = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(cluster.GetAddress("nodeB"));
+                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeB"), UriKind.Absolute));
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);

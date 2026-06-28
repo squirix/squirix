@@ -47,7 +47,7 @@ try
     var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
     await using (host.ConfigureAwait(false))
     {
-        var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(new Uri(endpoint), cancellationToken).ConfigureAwait(false);
         await using (client.ConfigureAwait(false))
         {
             var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);

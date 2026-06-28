@@ -100,7 +100,7 @@ internal static class SquirixOptionsValidators
         {
             try
             {
-                var primaryListenPort = Uri.TryCreate(_cluster.Url, UriKind.Absolute, out var uri) ? uri.Port : default(int?);
+                var primaryListenPort = _cluster.Url.IsAbsoluteUri ? _cluster.Url.Port : default(int?);
                 options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
                 return ValidateOptionsResult.Success;
             }

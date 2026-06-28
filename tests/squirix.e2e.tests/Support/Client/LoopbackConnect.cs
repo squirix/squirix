@@ -14,7 +14,7 @@ internal static class LoopbackConnect
     public static ValueTask<ISquirixClient> ConnectAsync(string endpoint, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
-        return ConnectAsync(options => options.Endpoints.Add(endpoint), cancellationToken);
+        return ConnectAsync(options => options.Endpoints.Add(new Uri(endpoint, UriKind.Absolute)), cancellationToken);
     }
 
     public static ValueTask<ISquirixClient> ConnectAsync(Action<SquirixOptions> configure, CancellationToken cancellationToken)

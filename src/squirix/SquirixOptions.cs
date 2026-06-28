@@ -30,7 +30,7 @@ public sealed class SquirixOptions
     ///     </para>
     ///     <para>This is bootstrap/high-availability routing, not full cluster partition routing or consensus membership.</para>
     /// </remarks>
-    public IList<string> Endpoints { get; } = [];
+    public IList<Uri> Endpoints { get; } = [];
 
     /// <summary>
     /// Gets or sets the serializer implementation used by the client session created from these options.

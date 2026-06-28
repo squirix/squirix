@@ -110,9 +110,10 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
     }
 }
 
-static string LoadConfiguredEndpoint()
+static Uri LoadConfiguredEndpoint()
 {
     using var document = JsonDocument.Parse(File.ReadAllText("Squirix.settings.json"));
-    return document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString() ??
+    var url = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString() ??
            throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Url.");
+    return new Uri(url, UriKind.Absolute);
 }

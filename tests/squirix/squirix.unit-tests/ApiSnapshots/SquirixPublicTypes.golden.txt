@@ -102,14 +102,14 @@ M:Squirix.Serialization.ISquirixSerializer::SerializeToElement(!0)
 M:Squirix.Serialization.ISquirixSerializer::SerializeToUtf8Bytes(!0)
 T:Squirix.SquirixClient
 M:Squirix.SquirixClient::ConnectAsync(System.Action<Squirix.SquirixOptions>,System.Threading.CancellationToken)
-M:Squirix.SquirixClient::ConnectAsync(System.String,System.Threading.CancellationToken)
+M:Squirix.SquirixClient::ConnectAsync(System.Uri,System.Threading.CancellationToken)
 M:Squirix.SquirixClient::DisposeAsync()
 M:Squirix.SquirixClient::GetCacheAsync(System.String,System.Threading.CancellationToken)
 T:Squirix.SquirixOptions
 M:Squirix.SquirixOptions::.ctor()
 P:Squirix.SquirixOptions::BearerTokenProvider:System.Func<System.Threading.CancellationToken,System.Threading.Tasks.ValueTask<System.String>>.get
 P:Squirix.SquirixOptions::BearerTokenProvider:System.Func<System.Threading.CancellationToken,System.Threading.Tasks.ValueTask<System.String>>.set
-P:Squirix.SquirixOptions::Endpoints:System.Collections.Generic.IList<System.String>.get
+P:Squirix.SquirixOptions::Endpoints:System.Collections.Generic.IList<System.Uri>.get
 P:Squirix.SquirixOptions::Serializer:Squirix.Serialization.ISquirixSerializer.get
 P:Squirix.SquirixOptions::Serializer:Squirix.Serialization.ISquirixSerializer.set
 T:Squirix.Transport.Grpc.RpcOperationIdentity

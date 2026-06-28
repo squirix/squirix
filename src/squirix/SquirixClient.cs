@@ -22,9 +22,9 @@ public sealed class SquirixClient : ISquirixClient
     /// <param name="endpoint">The Squirix server endpoint URL.</param>
     /// <param name="cancellationToken">Cancellation token for client warm-up.</param>
     /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
-    public static ValueTask<ISquirixClient> ConnectAsync(string endpoint, CancellationToken cancellationToken = default)
+    public static ValueTask<ISquirixClient> ConnectAsync(Uri endpoint, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+        ArgumentNullException.ThrowIfNull(endpoint);
         return ConnectAsync(options => options.Endpoints.Add(endpoint), cancellationToken);
     }
 

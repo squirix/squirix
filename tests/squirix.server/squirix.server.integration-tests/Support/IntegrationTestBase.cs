@@ -161,13 +161,13 @@ public abstract class IntegrationTestBase : IDisposable
     /// <returns>A handler for trusted inter-node mTLS tests.</returns>
     internal async Task<SocketsHttpHandler> CreateTrustedInterNodeClientHandlerAsync(
         string callerNodeId,
-        string callerPrimaryUrl,
+        Uri callerPrimaryUrl,
         string targetPeerNodeId,
         Peer[] peers,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callerNodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(callerPrimaryUrl);
+        ArgumentNullException.ThrowIfNull(callerPrimaryUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
         var cluster = new ClusterConfig
         {
@@ -289,7 +289,7 @@ public abstract class IntegrationTestBase : IDisposable
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = urlString,
+            Url = new Uri(urlString, UriKind.Absolute),
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -308,7 +308,7 @@ public abstract class IntegrationTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, urlString, DefaultCancellationToken);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, new Uri(urlString, UriKind.Absolute), DefaultCancellationToken);
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,

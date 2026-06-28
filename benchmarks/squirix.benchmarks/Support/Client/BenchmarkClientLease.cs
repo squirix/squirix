@@ -38,7 +38,7 @@ internal sealed class BenchmarkClientLease : IAsyncDisposable
             options =>
             {
                 BenchmarkRuntime.ConfigureRemoteClient(options);
-                options.Endpoints.Add(endpoint);
+                options.Endpoints.Add(new Uri(endpoint, UriKind.Absolute));
             },
             cancellationToken).ConfigureAwait(false);
         return new BenchmarkClientLease(client);

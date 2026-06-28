@@ -35,7 +35,7 @@ internal static class SquirixNodeOptionsRegistration
         {
             var registeredCluster = provider.GetRequiredService<ClusterConfig>();
             var options = provider.GetRequiredService<MtlsOptions>();
-            var primaryListenPort = Uri.TryCreate(registeredCluster.Url, UriKind.Absolute, out var listenUri) ? listenUri.Port : default(int?);
+            var primaryListenPort = registeredCluster.Url.IsAbsoluteUri ? registeredCluster.Url.Port : default(int?);
             return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
         });
         AddValidatedInstance<BackpressureOptions, SquirixOptionsValidators.BackpressureOptionsValidator>(services, backpressureOptions ?? new BackpressureOptions());
