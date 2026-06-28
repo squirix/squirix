@@ -134,14 +134,13 @@ public static class TestNodeHostFactory
         var clusterConfig = new TopologyOptions(peers)
         {
             NodeId = nodeId,
-            Uri = uri,
+            Url = new Uri(address, UriKind.Absolute),
             VirtualNodes = 128,
         };
 
-        var primaryUri = clusterConfig.Uri;
-        var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
-        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls is null ? (null, null, null)
-            : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
+        var primaryUrl = clusterConfig.Url;
+        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
+            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUrl, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await NodeHost.StartAsync(
             clusterConfig,

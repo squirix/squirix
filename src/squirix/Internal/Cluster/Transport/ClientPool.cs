@@ -66,7 +66,7 @@ internal sealed class ClientPool : IClientPool
             ids[i] = p.NodeId;
         }
 
-        BootstrapNodeIds = [.. ids];
+        BootstrapNodeIds = ids;
     }
 
     internal IReadOnlyList<string> BootstrapNodeIds { get; }

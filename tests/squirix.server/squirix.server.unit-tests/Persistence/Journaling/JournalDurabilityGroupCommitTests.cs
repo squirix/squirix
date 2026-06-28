@@ -123,47 +123,46 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             JournalGroupCommitMaxBatch = 4,
         };
 
-        using var flushEntered = new ManualResetEventSlim(false);
-        using var releaseFlush = new ManualResetEventSlim(false);
-        var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(
-            () =>
-            {
-                flushEntered.Set();
-                releaseFlush.Wait(DefaultCancellationToken);
-            },
-            options,
-            time);
+        var flushGate = new InFlightFlushGate(DefaultCancellationToken);
+        try
+        {
+            var time = new FakeTimeProvider();
+            var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlush, options, time);
 
-        using var firstCts = new CancellationTokenSource();
-        var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
-        var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            using var firstCts = new CancellationTokenSource();
+            var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
+            var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
-        var drainTask = Task.Factory.StartNew(
-            groupCommit.DrainDueBatchesOnJournalThread,
-            DefaultCancellationToken,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default);
-        Assert.True(flushEntered.Wait(TimeSpan.FromSeconds(5), DefaultCancellationToken));
+            var drainTask = Task.Factory.StartNew(
+                groupCommit.DrainDueBatchesOnJournalThread,
+                DefaultCancellationToken,
+                TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+            Assert.True(flushGate.WaitForFlushEntered(TimeSpan.FromSeconds(5)));
 
-        await firstCts.CancelAsync();
-        releaseFlush.Set();
+            await firstCts.CancelAsync();
+            flushGate.ReleaseFlush();
 
-        await WaitUntilCompletedAsync(first);
-        await WaitUntilCompletedAsync(second);
-        await WaitUntilCompletedAsync(third);
-        await WaitUntilCompletedAsync(fourth);
-        await drainTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+            await WaitUntilCompletedAsync(first);
+            await WaitUntilCompletedAsync(second);
+            await WaitUntilCompletedAsync(third);
+            await WaitUntilCompletedAsync(fourth);
+            await drainTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
-        Assert.True(first.IsCanceled);
+            Assert.True(first.IsCanceled);
 
-        var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
-        time.Advance(options.JournalGroupCommitMaxWait);
-        groupCommit.DrainDueBatchesOnJournalThread();
-        await WaitUntilCompletedAsync(followUp);
-        Assert.True(followUp.IsCompletedSuccessfully);
+            var followUp = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
+            time.Advance(options.JournalGroupCommitMaxWait);
+            groupCommit.DrainDueBatchesOnJournalThread();
+            await WaitUntilCompletedAsync(followUp);
+            Assert.True(followUp.IsCompletedSuccessfully);
+        }
+        finally
+        {
+            flushGate.Dispose();
+        }
     }
 
     /// <summary>Ensures group commit still fsyncs before memory apply when enabled.</summary>
@@ -341,6 +340,30 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(task.IsCompleted);
+    }
+
+    private sealed class InFlightFlushGate(CancellationToken cancellationToken) : IDisposable
+    {
+        private readonly ManualResetEventSlim _flushEntered = new(false);
+        private readonly ManualResetEventSlim _releaseFlush = new(false);
+
+        public void BlockDuringFlush()
+        {
+            _flushEntered.Set();
+            _releaseFlush.Wait(cancellationToken);
+        }
+
+        public bool WaitForFlushEntered(TimeSpan timeout) =>
+            _flushEntered.Wait(timeout, cancellationToken);
+
+        public void ReleaseFlush() => _releaseFlush.Set();
+
+        public void Dispose()
+        {
+            _releaseFlush.Set();
+            _releaseFlush.Dispose();
+            _flushEntered.Dispose();
+        }
     }
 
     private sealed class AtomicCounter

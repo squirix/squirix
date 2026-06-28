@@ -15,7 +15,7 @@ internal sealed class EndpointFailover
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private int _activeIndex;
 
-    internal EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
+    public BootstrapEndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
         if (bootstrapNodeIds.Count is 0)
@@ -74,6 +74,7 @@ internal sealed class EndpointFailover
     private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         for (var i = 0; i < bootstrapNodeIds.Count; i++)
+        {
             if (string.Equals(bootstrapNodeIds[i], primaryNodeId, StringComparison.Ordinal))
                 return i;
 

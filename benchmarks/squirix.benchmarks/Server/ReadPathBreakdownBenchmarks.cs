@@ -51,7 +51,7 @@ public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_node.Host, CacheName);
         _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Endpoint, CacheName);
         _peers = new Peer[1];
-        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Url = _node.Endpoint };
+        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Url = new Uri(_node.Endpoint) };
         _clientPool = new ClientPool(_peers, static nodeId => new CallPolicy(peer: nodeId));
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);

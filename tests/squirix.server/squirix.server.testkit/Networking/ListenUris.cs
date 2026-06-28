@@ -14,14 +14,22 @@ public static class ListenUris
         return new UriBuilder(uri.Scheme, uri.Host, uri.Port).Uri.GetLeftPart(UriPartial.Authority);
     }
 
+    /// <summary>Determines whether a listen URL and authority string refer to the same host and port.</summary>
+    /// <param name="left">The configured URL.</param>
+    /// <param name="right">The authority string.</param>
+    /// <returns><see langword="true" /> when authorities match.</returns>
+    public static bool SameAuthority(Uri left, string right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        return SameAuthority(CanonicalAuthority(left), right);
+    }
+
     /// <summary>Determines whether two listen URLs refer to the same host and port.</summary>
     /// <param name="left">The first URL.</param>
     /// <param name="right">The second URL.</param>
     /// <returns><see langword="true" /> when authorities match.</returns>
-    public static bool SameAuthority(Uri left, Uri right)
-    {
-        ArgumentNullException.ThrowIfNull(left);
-        ArgumentNullException.ThrowIfNull(right);
-        return string.Equals(CanonicalAuthority(left), CanonicalAuthority(right), StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool SameAuthority(string left, string right) => string.Equals(
+        CanonicalAuthority(new Uri(left, UriKind.Absolute)),
+        CanonicalAuthority(new Uri(right, UriKind.Absolute)),
+        StringComparison.OrdinalIgnoreCase);
 }

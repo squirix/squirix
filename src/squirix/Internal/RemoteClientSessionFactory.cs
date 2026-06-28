@@ -43,7 +43,7 @@ internal static class RemoteClientSessionFactory
             pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
 #pragma warning restore CA2000
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
-            var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
+            var failover = new BootstrapEndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
             var connected = pool;
             pool = null;
             return new RemoteClientSession(connected, failover, SerializationProvider.Create(serializer));
@@ -70,42 +70,25 @@ internal static class RemoteClientSessionFactory
         return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
     }
 
-    private static string FormatEndpointNodeId(int index)
-    {
-        var digits = 1;
-        for (var n = index; n >= 10; n /= 10)
-            digits++;
-
-        return string.Create(
-            9 + digits,
-            index,
-            static (span, value) =>
-            {
-                "endpoint-".AsSpan().CopyTo(span);
-                _ = value.TryFormat(span[9..], out _, provider: CultureInfo.InvariantCulture);
-            });
-    }
-
-    private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
+    private static Uri[] NormalizeEndpoints(IEnumerable<Uri> endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var buffer = new Uri[endpoints.Count];
-        var count = 0;
+        var result = new List<Uri>();
 
         for (var index = 0; index < endpoints.Count; index++)
         {
-            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
+            if (endpoint is null)
+                throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
+
             if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-                throw new ArgumentException("Endpoint must be an absolute Squirix server URL.", nameof(endpoints));
+                throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 
             GrpcTransportEndpoints.RequireHttps(endpoint);
             var authority = endpoint.GetLeftPart(UriPartial.Authority);
-            if (!seen.Add(authority))
-                continue;
-
-            buffer[count++] = endpoint;
+            if (seen.Add(authority))
+                result.Add(endpoint);
         }
 
         if (count is 0)

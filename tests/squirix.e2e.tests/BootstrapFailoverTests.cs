@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
 using Xunit;
@@ -16,7 +17,13 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
         var uriB = cluster.GetUri("nodeB");
         var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "bootstrap-failover");
 
-        await using var client = await LoopbackConnect.ConnectAsync(uriA, uriB, DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(
+            options =>
+            {
+                options.Endpoints.Add(new Uri(urlA, UriKind.Absolute));
+                options.Endpoints.Add(new Uri(urlB, UriKind.Absolute));
+            },
+            DefaultCancellationToken);
 
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
         await cache.SetAsync(key, "before-loss", cancellationToken: DefaultCancellationToken);

@@ -290,19 +290,21 @@ public static class Configurator
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
-            peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
+        {
+            peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url };
+        }
         else
             for (var i = 0; i < options.Peers.Count; i++)
             {
                 var peer = options.Peers[i];
-                peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
+                peers[i] = new Peer { NodeId = peer.NodeId, Url = peer.Url };
             }
 
         return new TopologyOptions(peers)
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,
-            Uri = options.Uri,
+            Url = options.Url,
             VirtualNodes = options.VirtualNodes,
         };
     }

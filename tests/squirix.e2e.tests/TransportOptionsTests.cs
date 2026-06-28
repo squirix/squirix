@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Client;
@@ -36,7 +35,13 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             cancellationToken: DefaultCancellationToken);
         var url = cluster.GetAddress("nodeA");
 
-        await using var client = await LoopbackConnect.ConnectAsync(uri, provider, DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(
+            options =>
+            {
+                options.Endpoints.Add(new Uri(url, UriKind.Absolute));
+                options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
+            },
+            DefaultCancellationToken);
 
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
         await cache.SetAsync("jwt-e2e", "ok", cancellationToken: DefaultCancellationToken);

@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Xunit;
 
@@ -20,9 +20,9 @@ public sealed class MtlsTopologyTests
             "node-a",
             NodeAUrl,
             [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
-                new ServerPeer { NodeId = "node-c", Uri = NodeCUrl },
+                new Peer { NodeId = "node-a", Url = NodeAUrl },
+                new Peer { NodeId = "node-b", Url = NodeBUrl },
+                new Peer { NodeId = "node-c", Url = NodeCUrl },
             ]);
 
         Assert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster));
@@ -32,7 +32,7 @@ public sealed class MtlsTopologyTests
     [Fact]
     public void RequiresInterNodeMtlsFalseStandaloneTopology()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
+        var cluster = CreateCluster("node-a", NodeAUrl, [new Peer { NodeId = "node-a", Url = NodeAUrl }]);
 
         Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
@@ -45,14 +45,14 @@ public sealed class MtlsTopologyTests
             "node-a",
             NodeAUrl,
             [
-                new ServerPeer { NodeId = "node-a", Uri = NodeAUrl },
-                new ServerPeer { NodeId = "node-b", Uri = NodeBUrl },
+                new Peer { NodeId = "node-a", Url = NodeAUrl },
+                new Peer { NodeId = "node-b", Url = NodeBUrl },
             ]);
 
         Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
 
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer peer) => new(peer)
+    private static ClusterConfig CreateCluster(string nodeId, Uri url, Peer[] peers) => new()
     {
         ClusterId = "test",
         NodeId = nodeId,

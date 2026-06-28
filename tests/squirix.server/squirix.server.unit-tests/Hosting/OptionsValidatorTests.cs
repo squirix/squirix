@@ -89,8 +89,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             ClusterId = "c1",
             NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
+            Url = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
+            Peers = [new Peer { NodeId = "n1", Url = new Uri("https://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -111,8 +112,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             ClusterId = "c1",
             NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
+            Url = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
+            Peers =
+            [
+                new Peer { NodeId = "n1", Url = new Uri("https://localhost:6001") },
+                new Peer { NodeId = "n1", Url = new Uri("https://localhost:6002") },
+            ],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -129,8 +135,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             ClusterId = "c1",
             NodeId = " ",
-            Uri = new Uri("https://localhost:6001"),
+            Url = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
+            Peers = [new Peer { NodeId = "x", Url = new Uri("https://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -147,8 +154,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             ClusterId = "c1",
             NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
+            Url = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
+            Peers = [new Peer { NodeId = "n1", Url = new Uri("ftp://bad.example/") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -165,8 +173,9 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
         {
             ClusterId = "c1",
             NodeId = "n1",
-            Uri = new Uri("https://localhost:6001"),
+            Url = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
+            Peers = [new Peer { NodeId = "n1", Url = new Uri("http://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);

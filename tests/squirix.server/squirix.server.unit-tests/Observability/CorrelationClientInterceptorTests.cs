@@ -124,9 +124,11 @@ public sealed class CorrelationClientInterceptorTests
         var values = new List<string>();
         for (var index = 0; index < headers.Count; index++)
         {
-            var entry = headers[index];
-            if (!string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))
-                continue;
+            ClusterId = "c",
+            NodeId = "n1",
+            Peers = [],
+            Url = new Uri("https://localhost"),
+        };
 
             values.Add(entry.Value);
         }

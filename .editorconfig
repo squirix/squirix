@@ -257,6 +257,8 @@ dotnet_analyzer_diagnostic.category-roslynator.severity = warning
 dotnet_diagnostic.RCS1069.severity = none
 # Convert interpolated string to concatenation
 dotnet_diagnostic.RCS1217.severity = none
+# Remove redundant statement — conflicts with explicit control-flow in some methods.
+dotnet_diagnostic.RCS1134.severity = none
 
 
 # ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).

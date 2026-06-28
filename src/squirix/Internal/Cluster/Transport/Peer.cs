@@ -6,5 +6,5 @@ internal sealed class Peer
 {
     internal required string NodeId { get; init; }
 
-    internal required Uri Uri { get; init; }
+    public required Uri Url { get; init; }
 }

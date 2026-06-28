@@ -21,7 +21,7 @@ public sealed class ClientPoolWarmUpTests : IntegrationTestBase
             new Peer
             {
                 NodeId = "peer-0",
-                Uri = new Uri("https://127.0.0.1:1"),
+                Url = new Uri("https://127.0.0.1:1"),
             },
         };
 

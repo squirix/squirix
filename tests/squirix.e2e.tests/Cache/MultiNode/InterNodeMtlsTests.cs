@@ -61,12 +61,21 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, cancellationToken: DefaultCancellationToken);
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-jwt-mtls");
-        var provider = CreateBearerTokenProvider(bearerToken);
-        var nodeA = cluster.GetUri("nodeA");
-        var nodeB = cluster.GetUri("nodeB");
-        await using var clientA = await LoopbackConnect.ConnectAsync(nodeA, provider, DefaultCancellationToken);
-        await using var clientB = await LoopbackConnect.ConnectAsync(nodeB, provider, DefaultCancellationToken);
+        var key = MultiNodeSupport.FindKeyOwnedBy("orders", "nodeB", "e2e-jwt-mtls");
+        await using var clientA = await LoopbackConnect.ConnectAsync(
+            options =>
+            {
+                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeA"), UriKind.Absolute));
+                options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
+            },
+            DefaultCancellationToken);
+        await using var clientB = await LoopbackConnect.ConnectAsync(
+            options =>
+            {
+                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeB"), UriKind.Absolute));
+                options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
+            },
+            DefaultCancellationToken);
         var cacheA = await clientA.GetCacheAsync<object?>("orders", DefaultCancellationToken);
         var cacheB = await clientB.GetCacheAsync<object?>("orders", DefaultCancellationToken);
 

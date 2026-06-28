@@ -33,9 +33,14 @@ internal sealed class BenchmarkClientLease : IAsyncDisposable
 
     internal static async Task<BenchmarkClientLease> ConnectAsync(Uri uri, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(uri);
-
-        var client = await SquirixClient.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
+        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
+        var client = await SquirixClient.ConnectAsync(
+            options =>
+            {
+                BenchmarkRuntime.ConfigureRemoteClient(options);
+                options.Endpoints.Add(new Uri(endpoint, UriKind.Absolute));
+            },
+            cancellationToken).ConfigureAwait(false);
         return new BenchmarkClientLease(client);
     }
 }

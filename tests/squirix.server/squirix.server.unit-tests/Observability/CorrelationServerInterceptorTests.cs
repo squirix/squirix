@@ -102,7 +102,18 @@ public sealed class CorrelationServerInterceptorTests
         Assert.Same(outer, Activity.Current);
     }
 
-    private static ServerInterceptor CreateInterceptor() => new(NullLogger<ServerInterceptor>.Instance, "n1");
+    private static Correlation.ServerInterceptor CreateInterceptor()
+    {
+        var cluster = new ClusterConfig
+        {
+            ClusterId = "c",
+            NodeId = "n1",
+            Peers = [],
+            Url = new Uri("https://localhost"),
+        };
+
+        return new Correlation.ServerInterceptor(NullLogger<Correlation.ServerInterceptor>.Instance, cluster);
+    }
 
     private static ActivityListener CreateSquirixActivityListener()
     {

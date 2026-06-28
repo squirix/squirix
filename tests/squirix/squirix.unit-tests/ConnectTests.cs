@@ -23,8 +23,8 @@ public sealed class ConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
-        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -34,7 +34,7 @@ public sealed class ConnectTests : UnitTestBase
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
         var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync("http://127.0.0.1:1", DefaultCancellationToken).AsTask());
+            SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
