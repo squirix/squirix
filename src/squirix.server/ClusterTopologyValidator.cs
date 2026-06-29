@@ -21,11 +21,11 @@ internal static class ClusterTopologyValidator
             failures,
             options.ClusterId,
             options.NodeId,
-            options.Url,
+            options.Uri,
             options.VirtualNodes,
             options.PersistenceEnabled,
             options.DataDirectory,
-            static peer => (peer.NodeId, peer.Url),
+            static peer => (peer.NodeId, peer.Uri),
             options.Peers);
 
         if (failures.Count is 0)
@@ -47,11 +47,11 @@ internal static class ClusterTopologyValidator
             failures,
             options.ClusterId,
             options.NodeId,
-            options.Url,
+            options.Uri,
             options.VirtualNodes,
             true,
             null,
-            static peer => (peer.NodeId, peer.Url),
+            static peer => (peer.NodeId, peer.Uri),
             options.Peers);
 
         if (failures.Count is 0)
@@ -82,17 +82,17 @@ internal static class ClusterTopologyValidator
         List<string> failures,
         string? clusterId,
         string? nodeId,
-        Uri? nodeUrl,
+        Uri? nodeUri,
         int virtualNodes,
         bool persistenceEnabled,
         string? dataDirectory,
-        Func<TPeer, (string? NodeId, Uri? Url)> readPeer,
+        Func<TPeer, (string? NodeId, Uri? Uri)> readPeer,
         IReadOnlyList<TPeer> peers)
         where TPeer : notnull
     {
         ValidateIdentifier(failures, clusterId, "ClusterId");
         ValidateIdentifier(failures, nodeId, "NodeId");
-        ValidateUrl(failures, nodeUrl, "Url");
+        ValidateUri(failures, nodeUri, "Uri");
         switch (virtualNodes)
         {
             case <= 0:
@@ -117,29 +117,29 @@ internal static class ClusterTopologyValidator
             failures.Add($"Peers cannot contain more than {MaxPeers} entries.");
 
         var peerIds = new HashSet<string>(StringComparer.Ordinal);
-        var peerUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var peerUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var localNodePresent = peers.Count is 0;
         for (var i = 0; i < peers.Count; i++)
         {
             var peer = peers[i];
-            var (peerNodeId, peerUrl) = readPeer(peer);
+            var (peerNodeId, uri) = readPeer(peer);
             ValidateIdentifier(failures, peerNodeId, "Peers[].NodeId");
-            ValidateUrl(failures, peerUrl, "Peers[].Url");
+            ValidateUri(failures, uri, "Peers[].Uri");
             if (peerNodeId is not null && !peerIds.Add(peerNodeId))
                 failures.Add($"Peers contains duplicate NodeId '{peerNodeId}'.");
-            if (peerUrl is not null)
+            if (uri is not null)
             {
-                var peerOrigin = peerUrl.AbsoluteUri;
-                if (!peerUrls.Add(peerOrigin))
-                    failures.Add($"Peers contains duplicate Url '{peerOrigin}'.");
+                var peerOrigin = uri.AbsoluteUri;
+                if (!peerUris.Add(peerOrigin))
+                    failures.Add($"Peers contains duplicate Uri '{peerOrigin}'.");
             }
 
             if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
                 continue;
             localNodePresent = true;
-            if (nodeUrl is not null && peerUrl is not null && !string.Equals(peerUrl.AbsoluteUri, nodeUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+            if (nodeUri is not null && uri is not null && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
             {
-                failures.Add("Peers entry for the local NodeId must use the same Url as Url.");
+                failures.Add("Peers entry for the local NodeId must use the same Uri as Uri.");
             }
         }
 
@@ -147,7 +147,7 @@ internal static class ClusterTopologyValidator
             failures.Add("Peers must include the local NodeId.");
     }
 
-    private static void ValidateUrl(List<string> failures, Uri? value, string name)
+    private static void ValidateUri(List<string> failures, Uri? value, string name)
     {
         if (value?.IsAbsoluteUri is not true || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {

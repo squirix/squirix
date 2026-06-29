@@ -40,15 +40,8 @@ internal static class SquirixClusterConnectionSecurity
 
     private static bool IsInternalOwnerHeaderPresent(ServerCallContext context)
     {
-        foreach (var header in context.RequestHeaders)
-        {
-            if (!string.Equals(header.Key, RemoteInvocationContract.InternalOwnerRpcHeaderName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            return string.Equals(header.Value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
-        }
-
-        return false;
+        var value = context.RequestHeaders.GetValue(RemoteInvocationContract.InternalOwnerRpcHeaderName);
+        return string.Equals(value, RemoteInvocationContract.InternalOwnerRpcHeaderValue, StringComparison.Ordinal);
     }
 
     private static bool IsTrustedClusterPeer(HttpContext httpContext, ClusterConfig cluster, MtlsCertificateMaterial mtlsMaterial)

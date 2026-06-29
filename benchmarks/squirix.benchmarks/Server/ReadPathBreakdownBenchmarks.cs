@@ -7,7 +7,6 @@ using BenchmarkDotNet.Engines;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Benchmarks.Support.Cluster;
 using Squirix.Benchmarks.Support.Grpc;
-using Squirix.Benchmarks.Support.Runtime;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
 using Squirix.Server.TestKit.Benchmarks;
@@ -44,14 +43,13 @@ public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        BenchmarkRuntime.EnsureInitialized();
         SeedKeys();
 
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
         _serverPipeline = BenchmarkNodeReadSurface.ForCache(_node.Host, CacheName);
-        _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Endpoint, CacheName);
+        _rawGrpc = BenchmarkRawGrpcCache.Connect(_node.Uri, CacheName);
         _peers = new Peer[1];
-        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Url = new Uri(_node.Endpoint) };
+        _peers[0] = new Peer { NodeId = BenchmarkNodeId, Uri = _node.Uri };
         _clientPool = new ClientPool(_peers, static nodeId => new CallPolicy(peer: nodeId));
         _ = await _clientPool.WarmUpAsync(CancellationToken.None).ConfigureAwait(false);
         _publicClient = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);

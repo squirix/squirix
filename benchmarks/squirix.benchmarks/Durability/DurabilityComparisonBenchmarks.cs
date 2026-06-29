@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Support.Client;
 using Squirix.Benchmarks.Support.Cluster;
-using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks.Durability;
 
@@ -61,7 +60,6 @@ public sealed class DurabilityComparisonBenchmarks
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to fields disposed in GlobalCleanup.")]
     public async Task GlobalSetupAsync()
     {
-        BenchmarkRuntime.EnsureInitialized();
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
         _cacheSession = await BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).ConfigureAwait(false);
         await SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);

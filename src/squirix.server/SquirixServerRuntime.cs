@@ -9,6 +9,8 @@ namespace Squirix.Server;
 /// <summary>Server-package bootstrap for the squirix node host runtime.</summary>
 internal static class SquirixServerRuntime
 {
+    private const string ApplicationAssemblyName = "Squirix.Server";
+
     /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
@@ -24,7 +26,7 @@ internal static class SquirixServerRuntime
             new WebApplicationOptions
             {
                 Args = [],
-                ApplicationName = typeof(SquirixServer).Assembly.GetName().Name,
+                ApplicationName = ApplicationAssemblyName,
             });
 
         _ = builder.Logging.ClearProviders();
@@ -34,7 +36,10 @@ internal static class SquirixServerRuntime
         _ = builder.Logging.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
         _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
 
-        _ = await builder.AddSquirixServerAsync(target => SquirixServerConfiguration.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+        _ = await builder.AddSquirixServerAsync(
+            target => SquirixServerConfiguration.CopyOptions(options, target),
+            loadDiscoveredSettings: false,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         var app = builder.Build();
         _ = app.MapSquirixServer();
 

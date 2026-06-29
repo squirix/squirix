@@ -14,8 +14,8 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedResolvingCacheThrows()
     {
-        var url = GetNextHttpUri();
-        var host = await StartNodeAsync(url, "nodeA");
+        var uri = GetNextHttpUri();
+        var host = await StartNodeAsync(uri, "nodeA");
         await host.DisposeAsync();
         var ex = Record.Exception(() => GetCache(host));
         _ = Assert.IsType<ObjectDisposedException>(ex);
@@ -25,8 +25,8 @@ public sealed class NodeHostCacheLifetimeTests : IntegrationTestBase
     [Fact]
     public async Task AfterHostDisposedServiceProviderThrowsOnResolve()
     {
-        var url = GetNextHttpUri();
-        var host = await StartNodeAsync(url, "nodeA");
+        var uri = GetNextHttpUri();
+        var host = await StartNodeAsync(uri, "nodeA");
         await host.DisposeAsync();
         var ex = Record.Exception(ResolveRuntime);
         _ = Assert.IsType<ObjectDisposedException>(ex);

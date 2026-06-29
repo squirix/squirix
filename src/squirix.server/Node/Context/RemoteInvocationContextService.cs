@@ -1,4 +1,3 @@
-using System;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.Context;
@@ -12,5 +11,6 @@ internal sealed class RemoteInvocationContextService : IRemoteInvocationScopeFac
     public bool IsInternalOwnerInvocation => RemoteInvocationContext.IsInternalOwnerInvocation;
 
     /// <inheritdoc />
-    public IDisposable EnterRemoteInvocation(bool isInternalOwnerInvocation) => RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation);
+    public RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation) =>
+        RemoteInvocationContext.EnterRemoteInvocation(isInternalOwnerInvocation);
 }

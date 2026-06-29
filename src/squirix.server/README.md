@@ -35,7 +35,7 @@ var builder = WebApplication.CreateBuilder(args);
 await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
-    options.Url = new Uri("https://localhost:5001");
+    options.Uri = new Uri("https://localhost:5001");
     options.UsePersistence("./data");
 });
 
@@ -59,7 +59,7 @@ await builder.AddSquirixServerAsync(
 ephemeral free HTTPS port). Pass the same URL to the client:
 
 ```csharp
-var listenUrl = "https://localhost:5001"; // or from your Squirix.settings.json Cluster.Url
+var listenUrl = "https://localhost:5001"; // or from your Squirix.settings.json Cluster.Uri
 await using var server = await SquirixServer.StartAsync(cancellationToken);
 await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellationToken);
 ```

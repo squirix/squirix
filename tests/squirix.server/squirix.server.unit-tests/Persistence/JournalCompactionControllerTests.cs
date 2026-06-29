@@ -1,7 +1,5 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
@@ -66,19 +64,13 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
             SnapshotStoreFactory.CreateReader(opt),
             journal,
             NullLogger<JournalCompactionController>.Instance);
-        var mutexField = typeof(JournalCompactionController).GetField("_mutex", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(mutexField);
-        var mutex = Assert.IsType<SemaphoreSlim>(mutexField.GetValue(controller));
-        await mutex.WaitAsync(DefaultCancellationToken);
-        try
-        {
-            Assert.False(await controller.TryTriggerNowAsync(DefaultCancellationToken));
-        }
-        finally
-        {
-            _ = mutex.Release();
-        }
 
+        var firstTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
+        var secondTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
+        var firstResult = await firstTrigger;
+        var secondResult = await secondTrigger;
+
+        Assert.True(firstResult ^ secondResult, "Exactly one concurrent trigger should succeed while compaction mutex is held.");
         Assert.True(await controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 

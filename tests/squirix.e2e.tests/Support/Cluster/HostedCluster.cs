@@ -47,13 +47,13 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     public async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
-        var url = _nodes[nodeId].Address;
-        var client = await LoopbackConnect.ConnectAsync(url, cancellationToken);
+        var uri = _nodes[nodeId].Uri;
+        var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
         _clients.Add(client);
         return client;
     }
 
-    public string GetAddress(string nodeId) => _nodes[nodeId].Address;
+    public Uri GetUri(string nodeId) => _nodes[nodeId].Uri;
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="nodeId">Node identifier to stop.</param>
@@ -96,13 +96,13 @@ internal sealed class HostedCluster : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         startOptions ??= new TwoNodeStartOptions();
-        var urls = new Dictionary<string, string>(StringComparer.Ordinal);
+        var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
-            urls[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpAddress();
+            uris[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpUri();
 
-        var topology = new (string NodeId, string Address)[nodeIds.Length];
+        var topology = new (string NodeId, Uri Uri)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)
-            topology[i] = (nodeIds[i], urls[nodeIds[i]]);
+            topology[i] = (nodeIds[i], uris[nodeIds[i]]);
 
         var nodes = new Dictionary<string, TestNode>(StringComparer.Ordinal);
         var mtls = nodeIds.Length > 1 ? new MtlsTestContext() : null;
@@ -119,7 +119,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                     Mtls = mtls,
                     MtlsProfile = startOptions.GetProfile(nodeId),
                 };
-                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, urls[nodeId], topology, hostOptions, cancellationToken));
+                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, cancellationToken));
             }
 
             return new HostedCluster(nodes, mtls, dataDir);

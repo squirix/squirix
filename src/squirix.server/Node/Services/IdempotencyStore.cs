@@ -44,22 +44,15 @@ internal sealed class IdempotencyStore : IDisposable
 
     public void RestoreInsert(string operationId, string fingerprint) => Restore(operationId, fingerprint, InsertOutcomeKind);
 
-    public void RestoreSnapshotRecords(IEnumerable<PersistedIdempotencyRecord> records)
+    public void RestoreSnapshotRecords(IReadOnlyList<PersistedIdempotencyRecord> records)
     {
         ArgumentNullException.ThrowIfNull(records);
 
-        var restored = new List<KeyValuePair<string, StoredOperation>>();
-        foreach (var record in records)
+        for (var i = 0; i < records.Count; i++)
         {
-            if (record is null)
-                throw new ArgumentException("Idempotency record must not be null.", nameof(records));
-
-            restored.Add(
-                new KeyValuePair<string, StoredOperation>(record.OperationId, new StoredOperation(record.Fingerprint, FromPersistedOutcome(record.Outcome), record.CreatedUtc)));
+            var record = records[i] ?? throw new ArgumentException("Idempotency record must not be null.", nameof(records));
+            _records[record.OperationId] = new StoredOperation(record.Fingerprint, FromPersistedOutcome(record.Outcome), record.CreatedUtc);
         }
-
-        foreach (var (operationId, operation) in restored)
-            _records[operationId] = operation;
     }
 
     public void Dispose() => _mutex.Dispose();

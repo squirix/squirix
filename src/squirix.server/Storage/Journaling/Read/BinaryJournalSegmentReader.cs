@@ -1,7 +1,5 @@
 using System;
 using System.Buffers;
-using System.Collections;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -13,26 +11,9 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Journaling.Read;
 
 /// <summary>Reads <see cref="JournalRecord" /> from a binary journal segment.</summary>
-internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
+internal static class BinaryJournalSegmentReader
 {
-    private readonly CancellationToken _cancellationToken;
-
-    public BinaryJournalSegmentReader(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken)
-    {
-        Path = path;
-        TolerateTruncatedTail = tolerateTruncatedTail;
-        _cancellationToken = cancellationToken;
-    }
-
-    public string Path { get; }
-
-    public bool TolerateTruncatedTail { get; }
-
-    public IEnumerator<JournalRecord> GetEnumerator() => new Enumerator(Path, TolerateTruncatedTail, _cancellationToken);
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-
-    private sealed class Enumerator : IEnumerator<JournalRecord>
+    public sealed class Enumerator : IDisposable
     {
         private readonly CancellationToken _cancellationToken;
         private readonly long _length;
@@ -70,8 +51,6 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
 
         public JournalRecord Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
 
-        object IEnumerator.Current => Current;
-
         public void Dispose()
         {
             if (_disposed)
@@ -94,8 +73,6 @@ internal sealed class BinaryJournalSegmentReader : IEnumerable<JournalRecord>
 
             return MoveNextFrame();
         }
-
-        public void Reset() => throw new NotSupportedException();
 
         private bool MoveNextFrame()
         {

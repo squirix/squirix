@@ -68,8 +68,8 @@ internal sealed class PrometheusMetricsScraper : IDisposable
     private static int CountExportLines(Dictionary<string, Dictionary<string, double>> exported)
     {
         var count = 0;
-        foreach (var byLabels in exported.Values)
-            count += byLabels.Count;
+        foreach (var pair in exported)
+            count += pair.Value.Count;
 
         return count;
     }

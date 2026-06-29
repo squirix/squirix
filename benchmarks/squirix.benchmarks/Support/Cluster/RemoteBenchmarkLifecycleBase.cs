@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Support.Client;
-using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks.Support.Cluster;
 
@@ -57,7 +56,6 @@ public abstract class RemoteBenchmarkLifecycleBase
         if (_node is not null)
             return;
 
-        BenchmarkRuntime.EnsureInitialized();
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
     }
 

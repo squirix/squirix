@@ -94,16 +94,18 @@ internal static class DirectoryEx
         {
             try
             {
-                // Files
-                foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly))
+                var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var i = 0; i < files.Length; i++)
                 {
+                    var f = files[i];
                     TryMakeWritable(f);
                     File.Delete(f);
                 }
 
-                // Dirs
-                foreach (var d in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly))
+                var directories = Directory.GetDirectories(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var i = 0; i < directories.Length; i++)
                 {
+                    var d = directories[i];
                     var di = new DirectoryInfo(d);
                     if (forbidSymlinks && IsSymlink(di))
                         throw new IOException($"Refusing to descend into symlink/junction: '{d}'.");
@@ -231,7 +233,7 @@ internal static class DirectoryEx
 
         try
         {
-            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
+            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
         }
         catch (IOException)
         {
@@ -345,7 +347,7 @@ internal static class DirectoryEx
         try
         {
             var attrs = File.GetAttributes(file);
-            if (attrs.HasFlag(FileAttributes.ReadOnly))
+            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)

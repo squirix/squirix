@@ -12,23 +12,23 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     private ISquirixClient? _client;
     private TestNodeHost? _host;
 
-    private EphemeralRestartableSingleNode(string address)
+    private EphemeralRestartableSingleNode(Uri uri)
     {
-        Address = address;
+        Uri = uri;
     }
 
-    private string Address { get; }
+    private Uri Uri { get; }
 
     public static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
     {
-        var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpAddress());
+        var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpUri());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await LoopbackConnect.ConnectAsync(Address, cancellationToken);
+        _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 
@@ -42,8 +42,8 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {
-        var topology = new[] { ("nodeA", Address) };
-        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Address, topology, cancellationToken);
+        var topology = new[] { ("nodeA", Uri) };
+        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, topology, cancellationToken);
     }
 
     private async ValueTask StopNodeAsync()

@@ -17,15 +17,15 @@ public sealed class GrpcAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcRejectsMissingAndInvalidJwtAndAcceptsValidJwtWhenConfigured()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://smoke.squirix.test", "smoke-grpc");
-        var url = GetNextHttpUri();
+        var uri = GetNextHttpUri();
 
         await using var node = await StartNodeAsync(
-            url,
+            uri,
             "node-grpc-auth",
             security: TestJwtHelper.ToSecurityOptions(credentials),
             cancellationToken: DefaultCancellationToken);
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 

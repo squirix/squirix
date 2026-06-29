@@ -20,7 +20,7 @@ public sealed class UnifiedSettingsTests : UnitTestBase
     public async Task TryLoadClusterConfigFromSettingsFilePathParsesClusterSectionTest()
     {
         using var dir = new TempDirectory("squirix-unified-cluster-json");
-        const string json = """{"Squirix":{"Cluster":{"NodeId":"alpha","Url":"https://127.0.0.1:60443","Peers":[{"NodeId":"alpha","Url":"https://127.0.0.1:60443"}]}}}""";
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"alpha","Uri":"https://127.0.0.1:60443","Peers":[{"NodeId":"alpha","Uri":"https://127.0.0.1:60443"}]}}}""";
         var settingsPath = PathKit.Combine(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(settingsPath, json, DefaultCancellationToken);
         var (found, cfg) = await UnifiedSettings.TryLoadClusterConfigFromSettingsFilePathAsync(settingsPath, DefaultCancellationToken);

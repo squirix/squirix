@@ -18,10 +18,11 @@ message CacheValue {
     oneof kind {
         google.protobuf.NullValue null_value = 1;
         string string_value = 2;
-        int64 int64_value = 3;
-        double double_value = 4;
-        bool bool_value = 5;
-        google.protobuf.Struct struct_value = 6;
+        int64 int32_value = 3;
+        int64 int64_value = 4;
+        double double_value = 5;
+        bool bool_value = 6;
+        google.protobuf.Struct struct_value = 7;
     }
 }
 

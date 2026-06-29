@@ -14,27 +14,27 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
     private ISquirixClient? _client;
     private TestNodeHost? _host;
 
-    private RestartableSingleNode(TempDirectory dataDir, string address)
+    private RestartableSingleNode(TempDirectory dataDir, Uri uri)
     {
         _dataDir = dataDir;
-        Address = address;
+        Uri = uri;
     }
 
-    private string Address { get; }
+    private Uri Uri { get; }
 
     private string DataDir => _dataDir.Path;
 
     public static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
     {
         var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-        var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpAddress());
+        var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri());
         await node.StartNodeAsync(cancellationToken);
         return node;
     }
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await LoopbackConnect.ConnectAsync(Address, cancellationToken);
+        _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
         return await _client.GetCacheAsync<T>(cacheName, cancellationToken);
     }
 
@@ -52,8 +52,8 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {
-        var topology = new[] { ("nodeA", Address) };
-        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Address, topology, DataDir, cancellationToken);
+        var topology = new[] { ("nodeA", Uri) };
+        _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, topology, DataDir, cancellationToken);
     }
 
     private async ValueTask StopNodeAsync()

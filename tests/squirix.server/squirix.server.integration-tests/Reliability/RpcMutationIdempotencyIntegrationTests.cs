@@ -21,10 +21,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task EmptyOperationIdReturnsInvalidArgument()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node-a");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node-a");
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await Assert.ThrowsAsync<RpcException>(() =>
@@ -45,10 +45,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task IdenticalOperationIdReplaysCachedResponse()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node-a");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node-a");
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new TryAddEntryAsyncRequest
         {
@@ -69,10 +69,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task InvalidFormatOperationIdReturnsInvalidArgument()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node-a");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node-a");
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var ex = await Assert.ThrowsAsync<RpcException>(() =>
@@ -94,10 +94,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task ReusedOperationIdWithDifferentFingerprintReturnsFailedPrecondition()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node-a");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node-a");
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         _ = await client.TryAddEntryAsync(
@@ -129,10 +129,10 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task TooLongOperationIdReturnsInvalidArgument()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node-a");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node-a");
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
 

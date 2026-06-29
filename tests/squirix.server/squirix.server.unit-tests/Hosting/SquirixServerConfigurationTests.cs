@@ -15,7 +15,7 @@ public sealed class SquirixServerConfigurationTests : UnitTestBase
     public async Task LoadFromFileReadsClusterSection()
     {
         using var dir = new TempDirectory("squirix-server-config");
-        const string json = """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Url":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Url":"https://localhost:5001"}]}}}""";
+        const string json = """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
         var path = PathKit.Combine(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var options = await SquirixServerConfiguration.LoadFromFileAsync(path, DefaultCancellationToken);
@@ -28,7 +28,7 @@ public sealed class SquirixServerConfigurationTests : UnitTestBase
     public async Task TryLoadFromFileReturnsErrorsForInvalidPeers()
     {
         using var dir = new TempDirectory("squirix-server-config-invalid");
-        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Url":"https://localhost:5001","Peers":[{"NodeId":"node-b","Url":"https://localhost:5002"}]}}}""";
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
         var path = PathKit.Combine(dir, "invalid.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, _, error) = await SquirixServerConfiguration.TryLoadFromFileAsync(path, DefaultCancellationToken);
@@ -51,7 +51,7 @@ public sealed class SquirixServerConfigurationTests : UnitTestBase
     public async Task TryValidateSettingsFileStrictRejectsInvalidMemoryPressure()
     {
         using var dir = new TempDirectory("squirix-server-config-strict");
-        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Url":"https://localhost:5001","Peers":[{"NodeId":"node-a","Url":"https://localhost:5001"}]},"MemoryPressure":{"HighPressureThresholdPercent":95,"CriticalPressureThresholdPercent":80}}}""";
+        const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"HighPressureThresholdPercent":95,"CriticalPressureThresholdPercent":80}}}""";
         var path = PathKit.Combine(dir, "strict.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, error) = await SquirixServerConfiguration.TryValidateSettingsFileAsync(path, true, DefaultCancellationToken);

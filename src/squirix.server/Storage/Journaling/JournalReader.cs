@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -20,9 +19,9 @@ internal static class JournalReader
 
         var segments = new JournalSegment[files.Length];
         var writeIndex = 0;
-        foreach (var path in files)
+        for (var i = 0; i < files.Length; i++)
         {
-            if (!TryParseJournalSegment(path, fromSegment, out var segment))
+            if (!TryParseJournalSegment(files[i], fromSegment, out var segment))
                 continue;
 
             segments[writeIndex++] = segment;
@@ -47,13 +46,14 @@ internal static class JournalReader
     /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
     public static JournalSegmentStats GetOnDiskSegmentStats(string dataDir)
     {
-        if (!Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
             return default;
 
         var segmentCount = 0;
         var totalBytes = 0L;
-        foreach (var path in files)
+        for (var i = 0; i < files.Length; i++)
         {
+            var path = files[i];
             if (!TryParseJournalSegment(path, 1, out _))
                 continue;
 
@@ -65,18 +65,8 @@ internal static class JournalReader
         return new JournalSegmentStats(segmentCount, totalBytes);
     }
 
-    public static IEnumerable<JournalRecord> ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken)
-    {
-        var segments = EnumerateSegments(dataDir, fromSegment);
-
-        for (var i = 0; i < segments.Length; i++)
-        {
-            var pair = segments[i];
-            var tolerateTruncatedTail = i == segments.Length - 1;
-            foreach (var record in new BinaryJournalSegmentReader(pair.Path, tolerateTruncatedTail, cancellationToken))
-                yield return record;
-        }
-    }
+    public static JournalReplaySequence ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
+        JournalReadPath.ReadAll(dataDir, fromSegment, cancellationToken);
 
     /// <summary>
     /// Returns up to <paramref name="maxCount" /> journal segments with the largest indices, sorted descending by index.
@@ -88,13 +78,13 @@ internal static class JournalReader
     /// <returns>Segments with the greatest indices, ordered from newest (highest index) to oldest among the selection.</returns>
     public static PriorityQueue<JournalSegment, int> SelectNewestSegments(string dataDir, int fromSegment, int maxCount)
     {
-        if (maxCount <= 0 || !Directory.Exists(dataDir) || !TryEnumerateJournalFiles(dataDir, out var files))
+        if (maxCount <= 0 || !Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
             return new PriorityQueue<JournalSegment, int>();
 
         var pq = new PriorityQueue<JournalSegment, int>();
-        foreach (var path in files)
+        for (var i = 0; i < files.Length; i++)
         {
-            if (!TryParseJournalSegment(path, fromSegment, out var seg))
+            if (!TryParseJournalSegment(files[i], fromSegment, out var seg))
                 continue;
 
             if (pq.Count < maxCount)
@@ -118,25 +108,6 @@ internal static class JournalReader
         try
         {
             files = Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
-            return true;
-        }
-        catch (IOException)
-        {
-            files = [];
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            files = [];
-            return false;
-        }
-    }
-
-    private static bool TryEnumerateJournalFiles(string dataDir, out IEnumerable<string> files)
-    {
-        try
-        {
-            files = Directory.EnumerateFiles(dataDir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
             return true;
         }
         catch (IOException)

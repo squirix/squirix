@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
-using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -43,13 +42,12 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
-        BenchmarkRuntime.EnsureInitialized();
         var nodeIds = topology is BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
-        var addresses = new Dictionary<string, string>(StringComparer.Ordinal);
+        var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
-            addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri().AbsoluteUri;
+            addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
 
-        var peers = new (string NodeId, string Address)[nodeIds.Length];
+        var peers = new (string NodeId, Uri Uri)[nodeIds.Length];
         for (var i = 0; i < nodeIds.Length; i++)
             peers[i] = (nodeIds[i], addresses[nodeIds[i]]);
 
@@ -87,7 +85,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     internal async Task<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await BenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Address, cancellationToken).ConfigureAwait(false);
+        _client ??= await BenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
         return await _client.Client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
     }
 }

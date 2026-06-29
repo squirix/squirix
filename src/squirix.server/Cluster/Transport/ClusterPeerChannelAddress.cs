@@ -19,15 +19,15 @@ internal static class ClusterPeerChannelAddress
         ArgumentNullException.ThrowIfNull(mtlsOptions);
 
         if (!interNodeMtlsEnabled)
-            return peer.Url;
+            return peer.Uri;
 
-        if (peer.InterNodeUrl is { } interNodeUrl)
-            return interNodeUrl;
+        if (peer.InterNodeUri is { } uri)
+            return uri;
 
         if (mtlsOptions.InternalListenPort <= 0)
             throw new InvalidOperationException("Cluster mTLS internal listen port must be configured for inter-node transport.");
 
-        var primaryUri = peer.Url;
+        var primaryUri = peer.Uri;
         if (!primaryUri.IsAbsoluteUri)
             throw new InvalidOperationException($"Cluster peer URL is invalid: '{primaryUri}'.");
 

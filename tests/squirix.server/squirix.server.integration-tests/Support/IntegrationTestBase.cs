@@ -119,14 +119,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Url)> topology)
-    {
-        var mapped = new (string NodeId, string Url)[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            mapped[i] = (topology[i].NodeId, ListenUrls.CanonicalAuthority(topology[i].Url));
-
-        return MtlsTestContext.CreatePeers(ref _mtls, mapped);
-    }
+    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -143,11 +136,11 @@ public abstract class IntegrationTestBase : IDisposable
         var cluster = new ClusterConfig
         {
             NodeId = bootstrapPeer.NodeId,
-            Url = bootstrapPeer.Url,
+            Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
             Peers = peers,
         };
-        (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Url, cancellationToken).ConfigureAwait(false);
+        (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
             : MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor, targetPeerNodeId);
     }
@@ -172,7 +165,7 @@ public abstract class IntegrationTestBase : IDisposable
         var cluster = new ClusterConfig
         {
             NodeId = callerNodeId,
-            Url = callerPrimaryUrl,
+            Uri = callerPrimaryUrl,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -185,7 +178,7 @@ public abstract class IntegrationTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
+        string uri,
         string nodeId,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -202,8 +195,8 @@ public abstract class IntegrationTestBase : IDisposable
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
-        url,
-        BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
+        uri,
+        BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]),
         callPolicyFactory,
         configureGrpc,
         servicesConfigure,
@@ -225,7 +218,7 @@ public abstract class IntegrationTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(
-        Uri url,
+        Uri uri,
         string nodeId,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -242,8 +235,8 @@ public abstract class IntegrationTestBase : IDisposable
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
-        url,
-        BuildClusterPeers([(nodeId, url)]),
+        uri,
+        BuildClusterPeers([(nodeId, uri)]),
         callPolicyFactory,
         configureGrpc,
         servicesConfigure,
@@ -265,7 +258,7 @@ public abstract class IntegrationTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
-        Uri url,
+        Uri uri,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -283,13 +276,14 @@ public abstract class IntegrationTestBase : IDisposable
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null)
     {
-        var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        ArgumentNullException.ThrowIfNull(uri);
+        var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
+        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = new Uri(urlString, UriKind.Absolute),
+            Uri = canonicalUri,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -308,7 +302,7 @@ public abstract class IntegrationTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, new Uri(urlString, UriKind.Absolute), DefaultCancellationToken);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, DefaultCancellationToken);
 
         var application = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -336,7 +330,7 @@ public abstract class IntegrationTestBase : IDisposable
             mtlsMaterial,
             DefaultCancellationToken);
 
-        return new TestNodeHost(application, urlString, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(application, canonicalUri, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>Allocates a dedicated port reserved for the lifetime of the test process.</summary>
@@ -344,10 +338,10 @@ public abstract class IntegrationTestBase : IDisposable
     protected static int AllocateDedicatedPort() => ListenPortPool.IntegrationTests.AllocatePort();
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
-    /// <param name="url">The node listen URL.</param>
+    /// <param name="uri">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri url) => GrpcChannel.ForAddress(
-        url,
+    protected static GrpcChannel CreateGrpcChannel(Uri uri) => GrpcChannel.ForAddress(
+        uri,
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
@@ -384,11 +378,13 @@ public abstract class IntegrationTestBase : IDisposable
         return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
+    private static string? FindSelfNodeId(Peer[] peers, Uri uri)
     {
-        foreach (var peer in peers)
+        ArgumentNullException.ThrowIfNull(uri);
+        for (var index = 0; index < peers.Length; index++)
         {
-            if (ListenUrls.SameAuthority(peer.Url, urlString))
+            var peer = peers[index];
+            if (ListenUris.SameAuthority(peer.Uri, uri))
                 return peer.NodeId;
         }
 
@@ -427,11 +423,11 @@ public abstract class IntegrationTestBase : IDisposable
     /// Starts a new <see cref="SquirixNodeHost" /> for integration testing with configurable peers,
     /// persistence, gRPC configuration, and extra services.
     /// </summary>
-    /// <param name="url">
+    /// <param name="uri">
     /// The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.
     /// </param>
     /// <param name="peers">
-    /// The cluster peer set, including the node being started (its <see cref="Peer.Url" /> must equal <paramref name="url" />).
+    /// The cluster peer set, including the node being started (its <see cref="Peer.Uri" /> must equal <paramref name="uri" />).
     /// </param>
     /// <param name="callPolicyFactory">
     /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
@@ -474,14 +470,14 @@ public abstract class IntegrationTestBase : IDisposable
     /// Dispose it to stop the node and release resources.
     /// </returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="url" /> (the self node).
+    /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).
     /// </exception>
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
+        string uri,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -498,7 +494,7 @@ public abstract class IntegrationTestBase : IDisposable
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
-        new Uri(url, UriKind.Absolute),
+        new Uri(uri, UriKind.Absolute),
         peers,
         callPolicyFactory,
         configureGrpc,

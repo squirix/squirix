@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 
 namespace Squirix.Server.PropertyTests.Cluster;
@@ -13,18 +12,23 @@ internal static class RingHelpers
     /// <summary>Generates a deterministic sequence of pseudo-random keys suitable for large sampling loops.</summary>
     /// <param name="count">Number of keys to generate. Must be non-negative.</param>
     /// <param name="seed">Seed for the pseudo-random generator to ensure reproducibility.</param>
-    /// <returns>A sequence of unique (with high probability) string keys based on a seeded PRNG.</returns>
+    /// <returns>An array of unique (with high probability) string keys based on a seeded PRNG.</returns>
     /// <remarks>
     /// Keys are produced in the form <c>"key-{NextInt64()}"</c>. Using a fixed <paramref name="seed" />
     /// guarantees the same sequence across runs, which is important for reproducible property failures.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="count" /> is negative.</exception>
-    public static IEnumerable<string> MakeKeys(int count, int seed)
+    public static string[] MakeKeys(int count, int seed)
     {
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count), "Count must be non-negative.");
 
-        return MakeKeysIterator(count, seed);
+        var keys = new string[count];
+        var rng = new DeterministicRandom(seed);
+        for (var i = 0; i < count; i++)
+            keys[i] = $"key-{rng.NextInt64().ToString(CultureInfo.InvariantCulture)}";
+
+        return keys;
     }
 
     /// <summary>
@@ -55,13 +59,6 @@ internal static class RingHelpers
         }
 
         return arr;
-    }
-
-    private static IEnumerable<string> MakeKeysIterator(int count, int seed)
-    {
-        var rng = new DeterministicRandom(seed);
-        for (var i = 0; i < count; i++)
-            yield return $"key-{rng.NextInt64().ToString(CultureInfo.InvariantCulture)}";
     }
 
     private struct DeterministicRandom

@@ -88,21 +88,15 @@ public abstract class SmokeTestBase : IDisposable
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Url)> topology)
-    {
-        var mapped = new (string NodeId, string Url)[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            mapped[i] = (topology[i].NodeId, ListenUrls.CanonicalAuthority(topology[i].Url));
-
-        return MtlsTestContext.CreatePeers(ref _mtls, mapped);
-    }
+    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) =>
+        MtlsTestContext.CreatePeers(ref _mtls, topology);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
+        string uri,
         string nodeId,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -118,8 +112,8 @@ public abstract class SmokeTestBase : IDisposable
         MemoryPressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
-        url,
-        BuildClusterPeers([(nodeId, new Uri(url, UriKind.Absolute))]),
+        uri,
+        BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]),
         callPolicyFactory,
         configureGrpc,
         servicesConfigure,
@@ -140,7 +134,7 @@ public abstract class SmokeTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(
-        Uri url,
+        Uri uri,
         string nodeId,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -156,8 +150,8 @@ public abstract class SmokeTestBase : IDisposable
         MemoryPressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
-        url,
-        BuildClusterPeers([(nodeId, url)]),
+        uri,
+        BuildClusterPeers([(nodeId, uri)]),
         callPolicyFactory,
         configureGrpc,
         servicesConfigure,
@@ -178,7 +172,7 @@ public abstract class SmokeTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
-        Uri url,
+        Uri uri,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -195,13 +189,14 @@ public abstract class SmokeTestBase : IDisposable
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default)
     {
-        var urlString = ListenUrls.CanonicalAuthority(url);
-        var selfNodeId = FindSelfNodeId(peers, urlString) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
+        ArgumentNullException.ThrowIfNull(uri);
+        var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
+        var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
         var clusterConfig = new ClusterConfig
         {
             NodeId = selfNodeId,
-            Url = new Uri(urlString, UriKind.Absolute),
+            Uri = canonicalUri,
             VirtualNodes = 128,
             Peers = peers,
         };
@@ -215,7 +210,7 @@ public abstract class SmokeTestBase : IDisposable
             dataDir = persistenceOptionsOverride.DataDir;
         }
 
-        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, new Uri(urlString, UriKind.Absolute), cancellationToken).ConfigureAwait(false);
+        (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
             b =>
@@ -242,14 +237,14 @@ public abstract class SmokeTestBase : IDisposable
             mtlsMaterial,
             cancellationToken);
 
-        return new TestNodeHost(app, urlString, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(app, canonicalUri, dataDir, persistenceOptionsOverride is not null);
     }
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
-    /// <param name="url">The node listen URL.</param>
+    /// <param name="uri">The node listen URL.</param>
     /// <returns>A disposable gRPC channel.</returns>
-    protected static GrpcChannel CreateGrpcChannel(Uri url) => GrpcChannel.ForAddress(
-        url,
+    protected static GrpcChannel CreateGrpcChannel(Uri uri) => GrpcChannel.ForAddress(
+        uri,
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
@@ -332,11 +327,13 @@ public abstract class SmokeTestBase : IDisposable
         return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    private static string? FindSelfNodeId(IReadOnlyList<Peer> peers, string urlString)
+    private static string? FindSelfNodeId(Peer[] peers, Uri uri)
     {
-        foreach (var peer in peers)
+        ArgumentNullException.ThrowIfNull(uri);
+        for (var index = 0; index < peers.Length; index++)
         {
-            if (ListenUrls.SameAuthority(peer.Url, urlString))
+            var peer = peers[index];
+            if (ListenUris.SameAuthority(peer.Uri, uri))
                 return peer.NodeId;
         }
 
@@ -396,7 +393,7 @@ public abstract class SmokeTestBase : IDisposable
     /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
     /// using the provided peers, persistence, snapshot and service options.
     /// </summary>
-    /// <param name="url">The URL this node should bind to.</param>
+    /// <param name="uri">The URL this node should bind to.</param>
     /// <param name="peers">Cluster peers including this node.</param>
     /// <param name="callPolicyFactory">Optional factory for client call policies.</param>
     /// <param name="configureGrpc">Optional action to configure gRPC options.</param>
@@ -422,7 +419,7 @@ public abstract class SmokeTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(
-        string url,
+        string uri,
         Peer[] peers,
         Func<string, CallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
@@ -438,7 +435,7 @@ public abstract class SmokeTestBase : IDisposable
         MemoryPressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
-        new Uri(url, UriKind.Absolute),
+        new Uri(uri, UriKind.Absolute),
         peers,
         callPolicyFactory,
         configureGrpc,

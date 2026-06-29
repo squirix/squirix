@@ -182,8 +182,11 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private async Task ApplySnapshotEntriesAsync(SnapshotLoadResult<T> snapshot, CancellationToken cancellationToken)
     {
-        foreach (var (k, entry) in snapshot.Entries)
+        for (var i = 0; i < snapshot.Entries.Count; i++)
+        {
+            var (k, entry) = snapshot.Entries[i];
             await _localCache.InsertForDurableRecoveryAsync(k, entry, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private (int FirstAvailableSegment, int LastAvailableSegment) GetJournalSegmentRange()

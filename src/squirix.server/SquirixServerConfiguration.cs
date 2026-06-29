@@ -21,21 +21,21 @@ public static class SquirixServerConfiguration
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="url">Optional URL override.</param>
+    /// <param name="uri">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory, bool persist = false)
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? uri, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (url is not null)
+        if (uri is not null)
         {
-            ApplyCommandLineOverrides(options, new Uri(url, UriKind.Absolute), dataDirectory, persist);
+            ApplyCommandLineOverrides(options, new Uri(uri, UriKind.Absolute), dataDirectory, persist);
         }
         else
         {
-            Uri? noUrl = null;
-            ApplyCommandLineOverrides(options, noUrl, dataDirectory, persist);
+            Uri? noUri = null;
+            ApplyCommandLineOverrides(options, noUri, dataDirectory, persist);
         }
     }
 
@@ -53,7 +53,7 @@ public static class SquirixServerConfiguration
 
         target.ClusterId = source.ClusterId;
         target.NodeId = source.NodeId;
-        target.Url = source.Url;
+        target.Uri = source.Uri;
         target.VirtualNodes = source.VirtualNodes;
         target.WaitForRecovery = source.WaitForRecovery;
         target.PersistenceEnabled = source.PersistenceEnabled;
@@ -62,7 +62,7 @@ public static class SquirixServerConfiguration
         for (var i = 0; i < peers.Length; i++)
         {
             var peer = source.Peers[i];
-            peers[i] = new SquirixServerPeerOptions { NodeId = peer.NodeId, Url = peer.Url };
+            peers[i] = new SquirixServerPeerOptions { NodeId = peer.NodeId, Uri = peer.Uri };
         }
 
         target.Peers = peers;
@@ -98,18 +98,18 @@ public static class SquirixServerConfiguration
     }
 
     /// <summary>
-    /// Returns <see langword="true" /> when the host portion of <paramref name="url" /> can accept a new TCP listener.
+    /// Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.
     /// </summary>
-    /// <param name="url">The node URL to probe.</param>
+    /// <param name="uri">The node URL to probe.</param>
     /// <returns><see langword="true" /> when the port appears available on loopback.</returns>
-    public static bool IsListenPortAvailable(Uri url)
+    public static bool IsListenPortAvailable(Uri uri)
     {
-        ArgumentNullException.ThrowIfNull(url);
+        ArgumentNullException.ThrowIfNull(uri);
 
-        if (!url.IsAbsoluteUri || url.Port <= 0)
+        if (!uri.IsAbsoluteUri || uri.Port <= 0)
             return false;
 
-        using var listener = new TcpListener(IPAddress.Loopback, url.Port);
+        using var listener = new TcpListener(IPAddress.Loopback, uri.Port);
         try
         {
             listener.Start();
@@ -169,7 +169,7 @@ public static class SquirixServerConfiguration
         return new SquirixServerOptions
         {
             NodeId = "node",
-            Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
         };
     }
 
@@ -257,14 +257,14 @@ public static class SquirixServerConfiguration
         var peers = new Peer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
         {
-            peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url };
+            peers[0] = new Peer { NodeId = options.NodeId, Uri = options.Uri };
         }
         else
         {
             for (var i = 0; i < options.Peers.Count; i++)
             {
                 var peer = options.Peers[i];
-                peers[i] = new Peer { NodeId = peer.NodeId, Url = peer.Url };
+                peers[i] = new Peer { NodeId = peer.NodeId, Uri = peer.Uri };
             }
         }
 
@@ -272,7 +272,7 @@ public static class SquirixServerConfiguration
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,
-            Url = options.Url,
+            Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
             Peers = peers,
         };
@@ -290,8 +290,8 @@ public static class SquirixServerConfiguration
             if (!string.Equals(peer.NodeId, options.NodeId, StringComparison.Ordinal))
                 continue;
 
-            if (!string.Equals(peer.Url.AbsoluteUri, options.Url.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
-                peer.Url = options.Url;
+            if (!string.Equals(peer.Uri.AbsoluteUri, options.Uri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+                peer.Uri = options.Uri;
 
             return;
         }
@@ -299,15 +299,15 @@ public static class SquirixServerConfiguration
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="url">Optional URL override.</param>
+    /// <param name="uri">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? url, string? dataDirectory, bool persist = false)
+    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (url is not null)
-            options.Url = url;
+        if (uri is not null)
+            options.Uri = uri;
         if (persist)
             options.UsePersistence();
         if (dataDirectory is not null)

@@ -120,8 +120,8 @@ P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnl
 P:Squirix.Server.SquirixServerOptions::Peers:System.Collections.Generic.IReadOnlyList<Squirix.Server.SquirixServerPeerOptions>.set
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.get
 P:Squirix.Server.SquirixServerOptions::PersistenceEnabled:System.Boolean.set
-P:Squirix.Server.SquirixServerOptions::Url:System.Uri.get
-P:Squirix.Server.SquirixServerOptions::Url:System.Uri.set
+P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.get
+P:Squirix.Server.SquirixServerOptions::Uri:System.Uri.set
 P:Squirix.Server.SquirixServerOptions::VirtualNodes:System.Int32.get
 P:Squirix.Server.SquirixServerOptions::VirtualNodes:System.Int32.set
 P:Squirix.Server.SquirixServerOptions::WaitForRecovery:System.Boolean.get
@@ -130,8 +130,8 @@ T:Squirix.Server.SquirixServerPeerOptions
 M:Squirix.Server.SquirixServerPeerOptions::.ctor()
 P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.get
 P:Squirix.Server.SquirixServerPeerOptions::NodeId:System.String.set
-P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.get
-P:Squirix.Server.SquirixServerPeerOptions::Url:System.Uri.set
+P:Squirix.Server.SquirixServerPeerOptions::Uri:System.Uri.get
+P:Squirix.Server.SquirixServerPeerOptions::Uri:System.Uri.set
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::Auto
 F:Squirix.Server.Storage.Journaling.JournalPlatformBackend::RandomAccess
 T:Squirix.Server.Storage.Journaling.JournalPlatformBackend

@@ -458,11 +458,11 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_slowdown_total", ("transport", "rest"), ("op", "put")));
     }
 
-    private static bool HasAtLeast(IEnumerable<int> values, int min)
+    private static bool HasAtLeast(List<int> values, int min)
     {
-        foreach (var value in values)
+        for (var i = 0; i < values.Count; i++)
         {
-            if (value >= min)
+            if (values[i] >= min)
                 return true;
         }
 
@@ -511,9 +511,9 @@ public sealed class BackpressureGateTests : UnitTestBase
 
     private static async Task WaitForGaugeSnapshotAsync(
         MeterListener listener,
-        IReadOnlyCollection<int> inFlight,
-        IReadOnlyCollection<int> queueDepth,
-        IReadOnlyCollection<int> trackedClients,
+        List<int> inFlight,
+        List<int> queueDepth,
+        List<int> trackedClients,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
@@ -526,9 +526,9 @@ public sealed class BackpressureGateTests : UnitTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
         }
 
-        Assert.Contains(inFlight, static x => x >= 1);
-        Assert.Contains(queueDepth, static x => x >= 1);
-        Assert.Contains(trackedClients, static x => x >= 2);
+        Assert.True(HasAtLeast(inFlight, 1));
+        Assert.True(HasAtLeast(queueDepth, 1));
+        Assert.True(HasAtLeast(trackedClients, 2));
     }
 
     private static async Task WaitUntilCanceledAsync(Task task)

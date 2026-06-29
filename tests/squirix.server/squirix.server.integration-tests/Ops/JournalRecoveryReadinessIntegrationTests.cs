@@ -23,9 +23,9 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
     [Fact]
     public async Task NonBlockingRecoveryKeepsReadyUnhealthyUntilGateOpensAndGatesCacheWrites()
     {
-        var seedUrl = GetNextHttpUri();
+        var httpUri = GetNextHttpUri();
 
-        await using (var seedNode = await StartNodeAsync(seedUrl, NodeId, usePersistence: true, extraScope: Scope))
+        await using (var seedNode = await StartNodeAsync(httpUri, NodeId, usePersistence: true, extraScope: Scope))
         {
             var seedCache = GetCache(seedNode);
             await seedCache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
@@ -43,8 +43,8 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
             extraScope: Scope,
             waitForRecovery: false);
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Address));
-        Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Address));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Uri));
+        Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Uri));
 
         var cache = GetCache(node);
         var beforeReplay = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
@@ -57,7 +57,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         replayDelay.Release();
 
         await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-        await WaitForReadyHealthyAsync(node.Address);
+        await WaitForReadyHealthyAsync(node.Uri);
 
         var recovered = await cache.GetValueAsync(CacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
         Assert.True(recovered.Found);
@@ -68,24 +68,24 @@ public sealed class JournalRecoveryReadinessIntegrationTests : IntegrationTestBa
         Assert.Equal("during-recovery", writtenDuringRecovery.Value);
     }
 
-    private async Task<HttpStatusCode> GetLiveStatusCodeAsync(string address)
+    private async Task<HttpStatusCode> GetLiveStatusCodeAsync(Uri uri)
     {
-        using var response = await HttpClient.GetAsync(new Uri(new Uri(address, UriKind.Absolute), "/health/live"), DefaultCancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(uri, "/health/live"), DefaultCancellationToken);
         return response.StatusCode;
     }
 
-    private async Task<HttpStatusCode> GetReadyStatusCodeAsync(string address)
+    private async Task<HttpStatusCode> GetReadyStatusCodeAsync(Uri uri)
     {
-        using var response = await HttpClient.GetAsync(new Uri(new Uri(address, UriKind.Absolute), "/health/ready"), DefaultCancellationToken);
+        using var response = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken);
         return response.StatusCode;
     }
 
-    private async Task WaitForReadyHealthyAsync(string address)
+    private async Task WaitForReadyHealthyAsync(Uri uri)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
-            if (await GetReadyStatusCodeAsync(address) is HttpStatusCode.OK)
+            if (await GetReadyStatusCodeAsync(uri) is HttpStatusCode.OK)
                 return;
 
             await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System, DefaultCancellationToken);

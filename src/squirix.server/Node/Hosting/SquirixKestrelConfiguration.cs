@@ -61,24 +61,24 @@ internal static class SquirixKestrelConfiguration
     {
         ArgumentNullException.ThrowIfNull(cluster);
 
-        if (!cluster.Url.IsAbsoluteUri || !cluster.Url.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Url}");
+            throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Uri}");
         }
     }
 
     /// <summary>Validates an inbound cluster mTLS client certificate against the configured cluster trust root.</summary>
     /// <param name="clientCertificate">The presented client certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="remotePeerNodeIds">Configured cluster node identifiers for remote peers.</param>
+    /// <param name="nodeIds">Configured cluster node identifiers for remote peers.</param>
     /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    internal static bool ValidateClientCertificate(X509Certificate2? clientCertificate, X509Certificate2 trustAnchor, string[] remotePeerNodeIds) =>
-        MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(clientCertificate, trustAnchor, remotePeerNodeIds);
+    internal static bool ValidateClientCertificate(X509Certificate2? clientCertificate, X509Certificate2 trustAnchor, string[] nodeIds) =>
+        MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(clientCertificate, trustAnchor, nodeIds);
 
-    private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] remotePeerNodeIds)
+    private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] nodeIds)
     {
         listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-        _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, remotePeerNodeIds));
+        _ = listenOptions.UseHttps(https => ConfigureMutualTls(https, material, nodeIds));
     }
 
     private static void ConfigureMutualTls(HttpsConnectionAdapterOptions https, MtlsCertificateMaterial material, string[] remotePeerNodeIds)

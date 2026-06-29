@@ -14,7 +14,7 @@ internal sealed class TestNode : IAsyncDisposable
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }
 
-    public string Address => _host.Address;
+    public Uri Uri => _host.Uri;
 
     public ValueTask DisposeAsync() => _host.DisposeAsync();
 }

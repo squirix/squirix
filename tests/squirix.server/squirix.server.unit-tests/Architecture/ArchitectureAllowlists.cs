@@ -33,13 +33,12 @@ internal static class ArchitectureAllowlists
     ];
 
     /// <summary>
-    /// Exact namespaces where <c>*Validator</c> types are permitted to reside.
+    /// Exact namespaces passed to architecture rules for <c>*Validator</c> types.
+    /// Excludes legacy <c>Squirix</c> and <c>Squirix.Core</c> roots that remain documented elsewhere.
     /// </summary>
-    public static readonly string[] ValidatorTypeNamespaces =
+    public static readonly string[] ValidatorTypeArchitectureNamespaces =
     [
         ServerArchitectureNamespaces.Root,
-        "Squirix",
-        "Squirix.Core",
         "Squirix.Server.Core",
         $"{ServerArchitectureNamespaces.Node}.Hosting",
         $"{ServerArchitectureNamespaces.Node}.App",

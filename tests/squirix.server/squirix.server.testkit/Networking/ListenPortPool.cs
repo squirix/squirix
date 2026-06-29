@@ -32,9 +32,6 @@ public sealed class ListenPortPool
     /// <summary>Gets the port pool for end-to-end SDK test hosts.</summary>
     public static ListenPortPool EndToEndTests { get; } = new(HostPortRegion.EndToEndTests);
 
-    /// <summary>Gets the port pool for server smoke test hosts.</summary>
-    public static ListenPortPool SmokeTests { get; } = new(HostPortRegion.SmokeTests);
-
     /// <summary>Gets the port pool for server integration test hosts.</summary>
     public static ListenPortPool IntegrationTests { get; } = new(HostPortRegion.IntegrationTests);
 
@@ -44,6 +41,9 @@ public sealed class ListenPortPool
     /// <summary>Gets the port pool for server unit tests that bind HTTPS listeners.</summary>
     public static ListenPortPool ServerUnitTests { get; } = new(HostPortRegion.ServerUnitTests);
 
+    /// <summary>Gets the port pool for server smoke test hosts.</summary>
+    public static ListenPortPool SmokeTests { get; } = new(HostPortRegion.SmokeTests);
+
     /// <summary>Reserves the next free port from this pool.</summary>
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
@@ -52,13 +52,13 @@ public sealed class ListenPortPool
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
 
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
+
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public string NextHttpAddress()
+    private string NextHttpAddress()
     {
         var port = AllocatePort();
         return FormatLoopbackHttps(port);
     }
-
-    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 }

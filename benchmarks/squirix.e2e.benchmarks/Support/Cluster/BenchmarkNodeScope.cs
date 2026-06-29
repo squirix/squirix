@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
-using Squirix.E2EBenchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -18,14 +17,14 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, string endpoint, TempDirectory? dataDir)
+    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
     {
         _host = host;
-        Endpoint = endpoint;
+        Uri = uri;
         _dataDir = dataDir;
     }
 
-    private string Endpoint { get; }
+    private Uri Uri { get; }
 
     public async ValueTask DisposeAsync()
     {
@@ -39,47 +38,45 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     internal static Task<BenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, E2EBenchmarkDurabilityMode durabilityMode = E2EBenchmarkDurabilityMode.Ephemeral) =>
         StartAsync(Guid.NewGuid().ToString("N"), durabilityMode, cancellationToken);
 
-    internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Endpoint, cancellationToken);
+    internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
 
     private static Task<BenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{scopeId}";
-        var address = ListenPortPool.EndToEndBenchmarks.NextHttpUri().AbsoluteUri;
-        return StartAsync(nodeId, address, [(nodeId, address)], durabilityMode, cancellationToken, true);
+        var uri = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
+        return StartAsync(nodeId, uri, [(nodeId, uri)], durabilityMode, cancellationToken, true);
     }
 
     private static async Task<BenchmarkNodeScope> StartAsync(
         string nodeId,
-        string address,
-        (string NodeId, string Address)[] topology,
+        Uri uri,
+        (string NodeId, Uri Uri)[] topology,
         E2EBenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
     {
-        BenchmarkRuntime.EnsureInitialized();
-
         TempDirectory? dataDir = null;
 
         TestNodeHost host;
         if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-e2e-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Address, dataDir);
+                return new BenchmarkNodeScope(host, host.Uri, dataDir);
 
-            var unused = await BenchmarkClientLease.ConnectAsync(host.Address, cancellationToken).ConfigureAwait(false);
+            var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Address, dataDir);
+            return new BenchmarkNodeScope(host, host.Uri, dataDir);
         }
         catch (InvalidOperationException)
         {

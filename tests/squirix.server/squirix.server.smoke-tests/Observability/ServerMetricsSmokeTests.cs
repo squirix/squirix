@@ -23,9 +23,9 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
     [Fact]
     public async Task MetricsEndpointExposesCountersAfterOperations()
     {
-        var url = GetNextHttpUri();
+        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(url, "node_A", cancellationToken: DefaultCancellationToken);
+        await using var node = await StartNodeAsync(uri, "node_A", cancellationToken: DefaultCancellationToken);
         var cache = GetCacheApiClient(node);
 
         const string key = "smoke:1";
@@ -33,7 +33,7 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
 
         await Task.Delay(10, DefaultCancellationToken);
 
-        var body = await GetWithRetryAsync(new Uri(url, "/metrics"), TimeSpan.FromMilliseconds(50), 30);
+        var body = await GetWithRetryAsync(new Uri(uri, "/metrics"), TimeSpan.FromMilliseconds(50), 30);
         Assert.False(string.IsNullOrWhiteSpace(body));
         Assert.DoesNotContain("cache=\"", body, StringComparison.InvariantCulture);
         Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);

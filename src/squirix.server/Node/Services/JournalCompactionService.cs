@@ -29,6 +29,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly SnapshotCoordinator<T> _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
+    private readonly EventHandler<SnapshotCompletedEventArgs> _onSnapshotCompleted;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
@@ -53,6 +54,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _opt = opt.Value;
         _persistence = persistence.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
     public bool IsInFlight => Volatile.Read(ref _inFlight) is not 0;
@@ -214,7 +216,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
             return;
 
-        _snap.SnapshotCompleted += OnSnapshotCompleted;
+        _snap.SnapshotCompleted += _onSnapshotCompleted;
     }
 
     private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
@@ -241,6 +243,6 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
             return;
 
-        _snap.SnapshotCompleted -= OnSnapshotCompleted;
+        _snap.SnapshotCompleted -= _onSnapshotCompleted;
     }
 }

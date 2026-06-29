@@ -23,17 +23,21 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         Assert.True(File.Exists(path), $"Golden file missing: {path}");
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var line in await File.ReadAllLinesAsync(path, DefaultCancellationToken))
+        var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
+        for (var i = 0; i < lines.Length; i++)
         {
-            var trimmed = line.Trim();
-            if (trimmed.Length > 0)
-                _ = expected.Add(trimmed);
+            var line = lines[i];
+            if (line.Length is 0)
+                continue;
+
+            _ = expected.Add(line);
         }
+
+        if (actual.SetEquals(expected))
+            return;
 
         var unexpected = CollectSetDifference(actual, expected);
         var missing = CollectSetDifference(expected, actual);
-        if (unexpected.Count is 0 && missing.Count is 0)
-            return;
 
         var sb = new StringBuilder();
         _ = sb.AppendLine("Golden REST endpoint surface mismatch. Update ApiSnapshots/SquirixRestEndpointSurface.golden.txt if the change is intentional.");
@@ -46,7 +50,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : UnitTestBase
         Assert.Fail(sb.ToString());
     }
 
-    private static List<string> CollectSetDifference(IEnumerable<string> left, HashSet<string> right)
+    private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)

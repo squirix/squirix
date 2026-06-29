@@ -23,11 +23,11 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     public async Task ExternalClientCannotSpoofInternalOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var url = GetNextHttpUri();
+        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(url, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
@@ -48,17 +48,17 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     public async Task ExternalJwtAuthSucceedsWhileClusterForwardingUsesInternalMtls()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-forward");
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(urlB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
         const string value = "cluster-forwarded-with-jwt";
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var setResponse = await clientA.TryAddEntryAsync(
@@ -79,14 +79,14 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task InternalListenerRejectsCallsWithoutTrustedPeerCertificate()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
-        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
+        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUri ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrl,
@@ -113,17 +113,17 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task InterNodeForwardingSucceedsWithoutJwtOnInternalTransport()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cluster-forward");
         const string value = "cluster-forwarded-value";
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var setResponse = await clientA.TryAddEntryAsync(
             new TryAddEntryAsyncRequest
@@ -137,7 +137,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
 
         Assert.True(setResponse.Added);
 
-        using var channelB = CreateGrpcChannel(urlB);
+        using var channelB = CreateGrpcChannel(uriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
 
@@ -150,14 +150,14 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     public async Task MultiNodeExternalClientCannotSpoofInternalOwnerHeader()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(urlB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
 
-        using var channel = CreateGrpcChannel(urlB);
+        using var channel = CreateGrpcChannel(uriB);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata
         {
@@ -184,16 +184,16 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task TrustedInternalOwnerRpcOnWrongOwnerNodeReturnsStaleOwner()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "stale-owner-routing");
-        var nodeBUrl = FindPeer(peers, "node-b").Url;
-        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUrl ?? throw new InvalidOperationException("Expected inter-node URL for node-a.");
+        var nodeBUrl = FindPeer(peers, "node-b").Uri;
+        var interNodeUrlA = FindPeer(peers, "node-a").InterNodeUri ?? throw new InvalidOperationException("Expected inter-node URL for node-a.");
 
         using var channel = GrpcChannel.ForAddress(
             interNodeUrlA,

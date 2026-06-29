@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using FakeItEasy;
@@ -46,21 +45,6 @@ public sealed class SquirixSerializerTests
 
         _ = A.CallTo(() => custom.Deserialize<Dictionary<string, int>>(payload)).MustHaveHappenedOnceExactly();
         A.CallTo(() => custom.Deserialize<Dictionary<string, int>>(A<Stream>._)).MustNotHaveHappened();
-        var called = false;
-        foreach (var call in Fake.GetCalls(custom))
-        {
-            var method = call.Method;
-            if (!string.Equals(method.Name, nameof(ISquirixSerializer.Deserialize), StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var parameters = method.GetParameters();
-            if (parameters.Length is not 1 || parameters[0].ParameterType != typeof(ReadOnlySpan<byte>))
-                continue;
-            called = true;
-            break;
-        }
-
-        Assert.False(called);
     }
 
     /// <summary>Ensures the default serializer host exposes the System.Text.Json implementation.</summary>

@@ -175,14 +175,17 @@ public sealed class ConsistentHashRingPropertyTests
         var ringBefore = new ConsistentHashRing(nodes, vnodes);
         var victimIndex = Math.Abs(seed % nodes.Length);
         var victim = nodes[victimIndex];
-        var remainingList = new List<string>(nodes.Length - 1);
-        foreach (var node in nodes)
+        var remaining = new string[nodes.Length - 1];
+        var writeIndex = 0;
+        for (var i = 0; i < nodes.Length; i++)
         {
-            if (!string.Equals(node, victim, StringComparison.OrdinalIgnoreCase))
-                remainingList.Add(node);
+            if (string.Equals(nodes[i], victim, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            remaining[writeIndex++] = nodes[i];
         }
 
-        var ringAfter = new ConsistentHashRing(remainingList, vnodes);
+        var ringAfter = new ConsistentHashRing(remaining.AsSpan(0, writeIndex), vnodes);
 
         var altSeed = seed ^ int.CreateTruncating(0x9E3779B9u);
 

@@ -11,17 +11,10 @@ internal sealed class E2EBenchmarkKeyOwner
 {
     private readonly (ulong Hash, string Node)[] _ring;
 
-    internal E2EBenchmarkKeyOwner(IEnumerable<string> nodeIds, int virtualNodes = 128)
+    internal E2EBenchmarkKeyOwner(HashSet<string> uniqueNodes, int virtualNodes = 128)
     {
-        var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var nodeId in nodeIds)
-        {
-            if (!string.IsNullOrWhiteSpace(nodeId))
-                _ = uniqueNodes.Add(nodeId);
-        }
-
         if (uniqueNodes.Count is 0)
-            throw new ArgumentException("At least one node is required.", nameof(nodeIds));
+            throw new ArgumentException("At least one node is required.", nameof(uniqueNodes));
 
         var nodes = new List<string>(uniqueNodes);
 

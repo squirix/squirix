@@ -14,8 +14,8 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task DefaultModeSupportsCacheOperations()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node_ephemeral_ops");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node_ephemeral_ops");
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
@@ -28,8 +28,8 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
     [Fact]
     public async Task DefaultStartupDoesNotCreatePersistenceFiles()
     {
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, "node_ephemeral");
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, "node_ephemeral");
         Assert.False(node.PersistenceEnabled);
         Assert.True(string.IsNullOrWhiteSpace(node.DataDir));
         Assert.Null(node.Services.GetService(typeof(PersistenceOptions)));

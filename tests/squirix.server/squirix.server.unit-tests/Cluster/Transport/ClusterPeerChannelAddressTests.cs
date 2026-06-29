@@ -14,7 +14,7 @@ public sealed class ClusterPeerChannelAddressTests
     [Fact]
     public void ResolveUsesConfiguredInternalListenPortWhenInterNodeUrlMissing()
     {
-        var peer = new Peer { NodeId = "node-b", Url = new Uri("https://127.0.0.1:6001") };
+        var peer = new Peer { NodeId = "node-b", Uri = new Uri("https://127.0.0.1:6001") };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
 
@@ -28,8 +28,8 @@ public sealed class ClusterPeerChannelAddressTests
         var peer = new Peer
         {
             NodeId = "node-b",
-            Url = new Uri("https://localhost:6001"),
-            InterNodeUrl = new Uri("https://localhost:6202"),
+            Uri = new Uri("https://localhost:6001"),
+            InterNodeUri = new Uri("https://localhost:6202"),
         };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, true);
@@ -41,10 +41,10 @@ public sealed class ClusterPeerChannelAddressTests
     [Fact]
     public void ResolveUsesPrimaryUrlWhenInterNodeMtlsDisabled()
     {
-        var peer = new Peer { NodeId = "node-a", Url = new Uri("https://localhost:6001") };
+        var peer = new Peer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") };
 
         var address = ClusterPeerChannelAddress.Resolve(peer, new MtlsOptions { InternalListenPort = 6101 }, false);
 
-        Assert.Equal(peer.Url, address);
+        Assert.Equal(peer.Uri, address);
     }
 }

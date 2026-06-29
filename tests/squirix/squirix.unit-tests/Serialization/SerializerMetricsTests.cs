@@ -1,9 +1,7 @@
 using System;
 using System.IO;
-using System.Reflection;
 using System.Text.Json;
 using FakeItEasy;
-using FakeItEasy.Core;
 using Squirix.Serialization;
 using Squirix.TestKit.Diagnostics;
 using Xunit;
@@ -20,34 +18,24 @@ public sealed class SerializerMetricsTests
         using var sink = new MeasurementSink("Squirix");
 
         var inner = new SystemTextJsonSerializer();
-
         var serializer = A.Fake<ISquirixSerializer>();
 
-        _ = A.CallTo(serializer).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToUtf8Bytes) && call.Method.IsGenericMethod).WithReturnType<byte[]>()
-             .ReturnsLazily(call => InvokeGeneric<byte[]>(inner, nameof(SystemTextJsonSerializer.SerializeToUtf8Bytes), call));
-
-        _ = A.CallTo(serializer).Where(static call => call.Method.Name == nameof(ISquirixSerializer.SerializeToElement) && call.Method.IsGenericMethod)
-             .WithReturnType<JsonElement>().ReturnsLazily(call => InvokeGeneric<JsonElement>(inner, nameof(SystemTextJsonSerializer.SerializeToElement), call));
-
-        _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<string>._)).ReturnsLazily((string s) => inner.Deserialize<JsonElement>(s));
-        _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<JsonElement>._)).ReturnsLazily((JsonElement el) => inner.Deserialize<JsonElement>(el));
-
+        _ = A.CallTo(() => serializer.SerializeToUtf8Bytes(A<string>._)).ReturnsLazily((string payload) => inner.SerializeToUtf8Bytes(payload));
         _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<Stream>._)).Throws(static _ => new InvalidOperationException("boom"));
-
-        _ = A.CallTo(() => serializer.Serialize(A<Stream>._, A<object?>._)).Invokes((Stream destination, object? value) => inner.Serialize(destination, value));
 
         var scoped = SerializationProvider.Create(serializer);
 
-        var bytes = scoped.SerializeToUtf8Bytes(new { Z = 7 });
+        var bytes = scoped.SerializeToUtf8Bytes("ping");
         Assert.NotEmpty(bytes);
 
         using var ms = new MemoryStream(bytes);
-        _ = Assert.Throws<InvalidOperationException>(() => _ = scoped.Deserialize<JsonElement>(ms));
+        _ = Assert.Throws<InvalidOperationException>(() => { _ = scoped.Deserialize<JsonElement>(ms); });
 
-        var implName = serializer.GetType().Name;
-        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", implName)));
-        Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "deserialize"), ("exception_type", "InvalidOperationException"), ("impl", implName)));
-        Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", implName)));
+        Assert.Contains("Proxy", serializer.GetType().Name, StringComparison.Ordinal);
+        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", serializer.GetType().Name)));
+        Assert.True(
+            sink.HasEvent("squirix_serializer_failures_total", ("op", "deserialize"), ("exception_type", "InvalidOperationException"), ("impl", serializer.GetType().Name)));
+        Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", serializer.GetType().Name)));
     }
 
     /// <summary>Ensures successful serialize/deserialize operations produce ops_total and duration metrics with expected labels.</summary>
@@ -67,30 +55,5 @@ public sealed class SerializerMetricsTests
 
         Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "ok"), ("impl", "SystemTextJsonSerializer")));
         Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", "SystemTextJsonSerializer")));
-    }
-
-    private static TResult InvokeGeneric<TResult>(SystemTextJsonSerializer inner, string methodName, IFakeObjectCall call)
-    {
-        var arg = call.Arguments[0];
-        var argType = arg?.GetType() ?? typeof(object);
-        MethodInfo? genericDef = null;
-        foreach (var method in typeof(SystemTextJsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (!string.Equals(method.Name, methodName, StringComparison.OrdinalIgnoreCase) || !method.IsGenericMethodDefinition)
-                continue;
-
-            genericDef = method;
-            break;
-        }
-
-        if (genericDef is null)
-            throw new InvalidOperationException($"Generic method '{methodName}' not found.");
-
-        var gm = genericDef.MakeGenericMethod(argType);
-        var result = gm.Invoke(inner, [arg]);
-        if (result is TResult typed)
-            return typed;
-
-        throw new InvalidOperationException($"Expected {typeof(TResult).Name}, got {result?.GetType().Name ?? "null"}.");
     }
 }

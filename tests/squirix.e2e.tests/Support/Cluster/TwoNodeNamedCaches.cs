@@ -52,7 +52,7 @@ public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
     public ICache<T> CustomerCacheB { get; }
 
     /// <summary>Gets the node A listen address.</summary>
-    public string NodeAAddress => _host.GetAddress("nodeA");
+    public Uri NodeAAddress => _host.GetUri("nodeA");
 
     private ISquirixClient ClientA { get; }
 

@@ -1,4 +1,3 @@
-using NetArchTest.Rules;
 using Squirix.Server.Cluster;
 using Squirix.Server.Runtime;
 using Xunit;
@@ -12,19 +11,17 @@ public sealed class CacheNameBoundaryArchitectureTests
     [Fact]
     public void ArchitectureRulesUseNetArchTestWherePossible()
     {
-        var asm = SquirixArchitecture.ServerAssembly;
-
-        var watchHub = Types.InAssembly(asm).That().HaveName("WatchHub`1").Should().ResideInNamespace(ServerArchitectureNamespaces.LocalCache).GetResult();
+        var watchHub = ArchitectureTypeScope.Server.And().HaveName("WatchHub`1").Should().ResideInNamespace(ServerArchitectureNamespaces.LocalCache).GetResult();
         ArchitectureAssertions.AssertArchitecture(watchHub);
 
-        var runtime = Types.InAssembly(asm).That().HaveName(nameof(CacheRuntime)).Should().ResideInNamespace(ServerArchitectureNamespaces.Runtime).GetResult();
+        var runtime = ArchitectureTypeScope.Server.And().HaveName(nameof(CacheRuntime)).Should().ResideInNamespace(ServerArchitectureNamespaces.Runtime).GetResult();
         ArchitectureAssertions.AssertArchitecture(runtime);
 
-        var validation = Types.InAssembly(asm).That().HaveName("ValidationCacheDecorator`1").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.App.Decorators")
+        var validation = ArchitectureTypeScope.Server.And().HaveName("ValidationCacheDecorator`1").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.App.Decorators")
                               .GetResult();
         ArchitectureAssertions.AssertArchitecture(validation);
 
-        var hasher = Types.InAssembly(asm).That().HaveName(nameof(Sha256Hasher)).Should().ResideInNamespace(typeof(Sha256Hasher).Namespace).GetResult();
+        var hasher = ArchitectureTypeScope.Server.And().HaveName(nameof(Sha256Hasher)).Should().ResideInNamespace(typeof(Sha256Hasher).Namespace).GetResult();
         ArchitectureAssertions.AssertArchitecture(hasher);
     }
 }

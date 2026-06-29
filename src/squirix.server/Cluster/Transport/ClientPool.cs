@@ -24,13 +24,14 @@ internal sealed class ClientPool : IClientPool
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string[] _nodeIds;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
     private volatile bool _draining;
 
     [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     public ClientPool(
-        IEnumerable<Peer> peers,
+        Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
         Interceptor? interceptor = null,
@@ -43,13 +44,12 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var peerList = peers as Peer[] ?? [.. peers];
-        var nodeIds = new string[peerList.Length];
+        var nodeIds = new string[peers.Length];
         var resolvedMtlsOptions = mtlsOptions ?? new MtlsOptions();
 
-        for (var i = 0; i < peerList.Length; i++)
+        for (var i = 0; i < peers.Length; i++)
         {
-            var p = peerList[i];
+            var p = peers[i];
             var address = ClusterPeerChannelAddress.Resolve(p, resolvedMtlsOptions, interNodeMtlsEnabled);
             HttpMessageHandler? peerHandler = null;
             if (interNodeMtlsEnabled)
@@ -79,7 +79,8 @@ internal sealed class ClientPool : IClientPool
         }
 
         Array.Sort(nodeIds, StringComparer.Ordinal);
-        NodeIds = nodeIds;
+        _nodeIds = nodeIds;
+        NodeIds = _nodeIds;
     }
 
     public IReadOnlyCollection<string> NodeIds { get; }
@@ -91,16 +92,17 @@ internal sealed class ClientPool : IClientPool
     public void BeginDrain()
     {
         _draining = true;
-        foreach (var policy in _policies.Values)
-            policy.BeginDrain();
+        for (var i = 0; i < _nodeIds.Length; i++)
+            _policies[_nodeIds[i]].BeginDrain();
     }
 
     public async ValueTask WarmUpAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var entry in _channels)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var nodeId = _nodeIds[i];
             cancellationToken.ThrowIfCancellationRequested();
-            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(entry.Value, entry.Key, _connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(_channels[nodeId], nodeId, _connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
             ClientPoolMetrics.AddWarmup();
         }
     }
@@ -111,11 +113,11 @@ internal sealed class ClientPool : IClientPool
             return;
 
         BeginDrain();
-        foreach (var item in _policies)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
             try
             {
-                await item.Value.DisposeAsync().ConfigureAwait(false);
+                await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
             }
             catch (ObjectDisposedException)
             {
@@ -127,11 +129,11 @@ internal sealed class ClientPool : IClientPool
             }
         }
 
-        foreach (var ch in _channels)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
             try
             {
-                ch.Value.Dispose();
+                _channels[_nodeIds[i]].Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
             catch (ObjectDisposedException)

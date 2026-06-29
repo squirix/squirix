@@ -82,7 +82,8 @@ public sealed class JournalTruncatedSegmentReplayTests : UnitTestBase
             fs.SetLength(fs.Length - 1);
 
         var list = new List<JournalRecord>(2);
-        list.AddRange(JournalReader.ReadAll(dir, 1, DefaultCancellationToken));
+        foreach (var record in JournalReader.ReadAll(dir, 1, DefaultCancellationToken))
+            list.Add(record);
 
         _ = Assert.Single(list);
         Assert.Equal(JournalOperationKind.Put, list[0].Operation);

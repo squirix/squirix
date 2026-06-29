@@ -11,16 +11,11 @@ internal static class LoopbackConnect
 {
     private static readonly SocketsHttpHandler SharedHandler = LoopbackHttp.CreateHandler();
 
-    public static ValueTask<ISquirixClient> ConnectAsync(string endpoint, CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
-        return ConnectAsync(options => options.Endpoints.Add(new Uri(endpoint, UriKind.Absolute)), cancellationToken);
-    }
+    public static ValueTask<ISquirixClient> ConnectAsync(Uri uri, CancellationToken cancellationToken) => ConnectAsync(options => options.Endpoints.Add(uri), cancellationToken);
 
     public static ValueTask<ISquirixClient> ConnectAsync(Action<SquirixOptions> configure, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configure);
-
         var options = new SquirixOptions();
         configure(options);
         return SquirixClient.ConnectAsync(options, SharedHandler, cancellationToken);

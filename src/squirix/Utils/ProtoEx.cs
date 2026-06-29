@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,24 +38,27 @@ internal static class ProtoEx
         {
             case CacheValue.KindOneofCase.StringValue:
                 if (typeof(T) == typeof(string))
-                    return Coerce<T>(value.StringValue);
+                    return ReinterpretReference<T, string>(value.StringValue);
                 break;
 
             case CacheValue.KindOneofCase.BoolValue:
                 if (typeof(T) == typeof(bool))
-                    return Coerce<T>(value.BoolValue);
+                    return ReinterpretScalar<T, bool>(value.BoolValue);
+                break;
+
+            case CacheValue.KindOneofCase.Int32Value:
+                if (typeof(T) == typeof(int))
+                    return ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
                 break;
 
             case CacheValue.KindOneofCase.Int64Value:
                 if (typeof(T) == typeof(long))
-                    return Coerce<T>(value.Int64Value);
-                if (typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue)
-                    return Coerce<T>(Convert.ToInt32(value.Int64Value));
+                    return ReinterpretScalar<T, long>(value.Int64Value);
                 break;
 
             case CacheValue.KindOneofCase.DoubleValue:
                 if (typeof(T) == typeof(double))
-                    return Coerce<T>(value.DoubleValue);
+                    return ReinterpretScalar<T, double>(value.DoubleValue);
                 break;
 
             case CacheValue.KindOneofCase.NullValue:
@@ -86,6 +90,16 @@ internal static class ProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
+    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
+        where TValue : class?
+    {
+        var reference = value;
+        return Unsafe.As<TValue, TTarget>(ref reference);
+    }
+
+    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
+        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+
     private static async ValueTask<T?> DeserializeAsync<T>(Value value, ISquirixSerializer serializer)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -105,7 +119,8 @@ internal static class ProtoEx
         {
             CacheValue.KindOneofCase.StringValue => value.StringValue,
             CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value,
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
@@ -135,8 +150,10 @@ internal static class ProtoEx
     private static ListValue ListFromJson(JsonElement el)
     {
         var list = new ListValue();
-        foreach (var item in el.EnumerateArray())
-            list.Values.Add(ValueFromJson(item));
+        var values = list.Values;
+        var length = el.GetArrayLength();
+        for (var index = 0; index < length; index++)
+            values.Add(ValueFromJson(el[index]));
 
         return list;
     }
@@ -187,6 +204,7 @@ internal static class ProtoEx
     {
         CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
         CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
+        CacheValue.KindOneofCase.Int32Value => WrapAsStruct("value", Value.ForNumber(value.Int32Value)),
         CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
@@ -268,19 +286,27 @@ internal static class ProtoEx
                 writer.WriteBooleanValue(value.BoolValue);
                 return;
             case Value.KindOneofCase.StructValue:
+            {
                 writer.WriteStartObject();
-                foreach (var field in value.StructValue.Fields)
+                var fields = value.StructValue.Fields;
+                using var fieldEnumerator = fields.GetEnumerator();
+                for (var index = 0; index < fields.Count; index++)
                 {
+                    _ = fieldEnumerator.MoveNext();
+                    var field = fieldEnumerator.Current;
                     writer.WritePropertyName(field.Key);
                     WriteValue(writer, field.Value);
                 }
 
                 writer.WriteEndObject();
                 return;
+            }
+
             case Value.KindOneofCase.ListValue:
                 writer.WriteStartArray();
-                foreach (var item in value.ListValue.Values)
-                    WriteValue(writer, item);
+                var values = value.ListValue.Values;
+                for (var index = 0; index < values.Count; index++)
+                    WriteValue(writer, values[index]);
 
                 writer.WriteEndArray();
                 return;

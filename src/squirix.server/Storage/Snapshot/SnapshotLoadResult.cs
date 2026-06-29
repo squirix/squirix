@@ -4,4 +4,4 @@ using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.Storage.Snapshot;
 
-internal sealed record SnapshotLoadResult<T>(IReadOnlyList<(CacheKey Key, CacheEntry<T> Entry)> Entries, IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecords);
+internal sealed record SnapshotLoadResult<T>(List<(CacheKey Key, CacheEntry<T> Entry)> Entries, IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecords);

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace Squirix.Server.Cluster;
 
@@ -10,9 +9,8 @@ internal sealed class ConsistentHashNodeLocator : INodeLocator
 {
     private readonly ConsistentHashRing _ring;
 
-    public ConsistentHashNodeLocator(IEnumerable<string> nodes, int virtualNodes = 128)
+    public ConsistentHashNodeLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128)
     {
-        ArgumentNullException.ThrowIfNull(nodes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualNodes);
 
         _ring = new ConsistentHashRing(nodes, virtualNodes);

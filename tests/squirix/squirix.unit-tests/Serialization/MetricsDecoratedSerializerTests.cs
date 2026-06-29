@@ -40,7 +40,7 @@ public sealed class MetricsDecoratedSerializerTests
         var inner = new SystemTextJsonSerializer();
         var decorated = new MetricsDecoratedSerializer(inner);
 
-        _ = Assert.Throws<JsonException>(() => _ = decorated.Deserialize<int>("not-json"));
+        _ = Assert.Throws<JsonException>(() => { _ = decorated.Deserialize<int>("not-json"); });
 
         const string impl = nameof(SystemTextJsonSerializer);
         Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", impl)));
@@ -79,8 +79,8 @@ public sealed class MetricsDecoratedSerializerTests
         using var ms = new MemoryStream();
         _ = Assert.Throws<InvalidOperationException>(() => decorated.Serialize(ms, new object()));
 
-        var impl = inner.GetType().Name;
-        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "serialize"), ("result", "error"), ("impl", impl)));
-        Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "serialize"), ("exception_type", "InvalidOperationException"), ("impl", impl)));
+        Assert.Contains("Proxy", inner.GetType().Name, StringComparison.Ordinal);
+        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "serialize"), ("result", "error"), ("impl", inner.GetType().Name)));
+        Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "serialize"), ("exception_type", "InvalidOperationException"), ("impl", inner.GetType().Name)));
     }
 }

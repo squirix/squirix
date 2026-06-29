@@ -19,12 +19,12 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
     [Fact]
     public async Task BootstrapEndpointSwitchReplaysSameOperationId()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-a", "bootstrap-idempotency");
         var request = new SetEntryAsyncRequest
@@ -35,11 +35,11 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
             Entry = new CacheEntry<object?> { Value = "bootstrap-value", Version = 1 }.MapToProto(),
         };
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         _ = await clientA.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
 
-        using var channelB = CreateGrpcChannel(urlB);
+        using var channelB = CreateGrpcChannel(uriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         _ = await clientB.SetEntryAsync(request, cancellationToken: DefaultCancellationToken);
 
@@ -52,12 +52,12 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
     [Fact]
     public async Task CrossNodeIdenticalOperationIdReplaysCachedResponse()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-idempotency");
         var request = new TryAddEntryAsyncRequest
@@ -68,12 +68,12 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
             Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
         var first = await clientA.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
         Assert.True(first.Added);
 
-        using var channelB = CreateGrpcChannel(urlB);
+        using var channelB = CreateGrpcChannel(uriB);
         var clientB = new SquirixCacheService.SquirixCacheServiceClient(channelB);
         var second = await clientB.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
 
@@ -88,17 +88,17 @@ public sealed class CrossNodeOperationIdIdempotencyIntegrationTests : Integratio
     [Fact]
     public async Task CrossNodeReusedOperationIdWithDifferentFingerprintReturnsFailedPrecondition()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", urlA), ("node-b", urlB)]);
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
+        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(urlA, peers);
-        await using var nodeB = await StartNodeAsync(urlB, peers);
+        await using var nodeA = await StartNodeAsync(uriA, peers);
+        await using var nodeB = await StartNodeAsync(uriB, peers);
 
         var keyA = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-a");
         var keyB = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-b");
 
-        using var channelA = CreateGrpcChannel(urlA);
+        using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
 
         _ = await clientA.TryAddEntryAsync(

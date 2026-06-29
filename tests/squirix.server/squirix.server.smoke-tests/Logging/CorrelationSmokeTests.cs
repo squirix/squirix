@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -28,16 +27,16 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
     [Fact]
     public async Task TraceContextFlowsFromGrpcToGrpcAcrossNodes()
     {
-        var urlA = GetNextHttpUri();
-        var urlB = GetNextHttpUri();
+        var uriA = GetNextHttpUri();
+        var uriB = GetNextHttpUri();
 
-        var peers = BuildClusterPeers([("A", urlA), ("B", urlB)]);
+        var peers = BuildClusterPeers([("A", uriA), ("B", uriB)]);
 
         var capture = new CapturingHeadersInterceptor();
 
-        await using var nodeA = await StartNodeAsync(urlA, peers, cancellationToken: DefaultCancellationToken);
+        await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: DefaultCancellationToken);
         await using var nodeB = await StartNodeAsync(
-            urlB,
+            uriB,
             peers,
             configureGrpc: static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
             servicesConfigure: services => services.AddSingleton(capture),
@@ -51,7 +50,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var traceparent = activity.Id;
         var tracestate = activity.TraceStateString;
 
-        using var channel = CreateGrpcChannel(new Uri(nodeA.Address));
+        using var channel = CreateGrpcChannel(nodeA.Uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { TraceParentHeader, traceparent! } };
         if (!string.IsNullOrEmpty(tracestate))
