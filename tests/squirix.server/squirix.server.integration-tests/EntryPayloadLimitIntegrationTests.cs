@@ -6,7 +6,6 @@ using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -37,7 +36,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             clientA.TryAddEntryAsync(
                 new TryAddEntryAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = Guid.NewGuid().ToString("N"),
                     CacheName = "default",
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
@@ -67,7 +66,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             client.SetEntryAsync(
                 new SetEntryAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = Guid.NewGuid().ToString("N"),
                     CacheName = "default",
                     Key = "grpc-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
@@ -100,7 +99,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         _ = await clientA.SetEntryAsync(
             new SetEntryAsyncRequest
             {
-                OperationId = RpcOperationIdentity.New(),
+                OperationId = Guid.NewGuid().ToString("N"),
                 CacheName = "default",
                 Key = key,
                 Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
@@ -112,7 +111,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             clientA.UpdateAsync(
                 new UpdateAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = Guid.NewGuid().ToString("N"),
                     CacheName = "default",
                     Key = key,
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
@@ -139,7 +138,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
         _ = await client.SetEntryAsync(
             new SetEntryAsyncRequest
             {
-                OperationId = RpcOperationIdentity.New(),
+                OperationId = Guid.NewGuid().ToString("N"),
                 CacheName = "default",
                 Key = "grpc-update-over-limit",
                 Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
@@ -151,7 +150,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
             client.UpdateAsync(
                 new UpdateAsyncRequest
                 {
-                    OperationId = RpcOperationIdentity.New(),
+                    OperationId = Guid.NewGuid().ToString("N"),
                     CacheName = "default",
                     Key = "grpc-update-over-limit",
                     Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),

@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -6,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Core;
 using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
-using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -60,15 +60,14 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         if (!string.IsNullOrEmpty(tracestate))
             headers.Add(TraceStateHeader, tracestate);
 
-        _ = await client.TryAddEntryAsync(
-            new TryAddEntryAsyncRequest
-            {
-                OperationId = RpcOperationIdentity.New(),
-                CacheName = "default",
-                Key = key,
-                Entry = new NodeCacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
-            },
-            new CallOptions(headers, cancellationToken: DefaultCancellationToken));
+        var tryAddEntryAsyncRequest = new TryAddEntryAsyncRequest
+        {
+            OperationId = Guid.NewGuid().ToString("N"),
+            CacheName = "default",
+            Key = key,
+            Entry = new NodeCacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
+        };
+        _ = await client.TryAddEntryAsync(tryAddEntryAsyncRequest, new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 
         await Task.Delay(50, DefaultCancellationToken);
 
