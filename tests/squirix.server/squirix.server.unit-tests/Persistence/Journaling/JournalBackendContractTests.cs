@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -19,25 +20,108 @@ public sealed class JournalBackendContractTests
     [Fact]
     public async Task AppendPutReplayRoundTrip()
     {
-        using var dir = new TempDirectory("journal-contract");
-        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
-        using var manifestStore = new ManifestStore(options);
-        var gate = new JournalStartupGate();
-        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
-        await using var coordinator = await JournalCoordinatorFactory.CreateAsync(options, manifest, manifestStore, gate, CancellationToken.None);
-
+        await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
         var payload = JournalEntryPayloadKit.EncodePut(1);
-        await coordinator.AppendPutAsync(key, payload, "op-1", CancellationToken.None);
-        await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+        await context.Coordinator.AppendPutAsync(key, payload, "op-1", CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
-        manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
+        var last = await ReadLastRecordAsync(context);
+        Assert.Equal(JournalOperationKind.Put, last.Operation);
+        Assert.Equal(key.Key, last.Key.Key);
+    }
+
+    /// <summary>Append remove and replay round-trip for the pipelined journal backend.</summary>
+    [Fact]
+    public async Task AppendRemoveReplayRoundTrip()
+    {
+        await using var context = await CreateCoordinatorAsync();
+        var key = new CacheKey("ns", "remove-key");
+        await context.Coordinator.AppendRemoveAsync(key, CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+
+        var last = await ReadLastRecordAsync(context);
+        Assert.Equal(JournalOperationKind.Remove, last.Operation);
+        Assert.Equal(key.Namespace, last.Key.Namespace);
+        Assert.Equal(key.Key, last.Key.Key);
+    }
+
+    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
+    [Fact]
+    public async Task AppendRemoveExpirationReplayRoundTrip()
+    {
+        await using var context = await CreateCoordinatorAsync();
+        var key = new CacheKey("ns", "remove-exp-key");
+        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+
+        var last = await ReadLastRecordAsync(context);
+        Assert.Equal(JournalOperationKind.RemoveExpiration, last.Operation);
+        Assert.Equal(key.Namespace, last.Key.Namespace);
+        Assert.Equal(key.Key, last.Key.Key);
+    }
+
+    /// <summary>Append touch-expiration and replay round-trip for the pipelined journal backend.</summary>
+    [Fact]
+    public async Task AppendTouchExpirationReplayRoundTrip()
+    {
+        await using var context = await CreateCoordinatorAsync();
+        var key = new CacheKey("ns", "touch-key");
+        var expiresUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc);
+        await context.Coordinator.AppendTouchExpirationAsync(key, expiresUtc, CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+
+        var last = await ReadLastRecordAsync(context);
+        Assert.Equal(JournalOperationKind.TouchExpiration, last.Operation);
+        Assert.Equal(key.Key, last.Key.Key);
+        Assert.Equal(expiresUtc, last.TouchExpirationUtc);
+    }
+
+    private static async Task<CoordinatorContext> CreateCoordinatorAsync()
+    {
+        var dir = new TempDirectory("journal-contract");
+        var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 64 };
+        var manifestStore = new ManifestStore(options);
+        var gate = new JournalStartupGate();
+        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
+        var coordinator = await JournalCoordinatorFactory.CreateAsync(options, manifest, manifestStore, gate, CancellationToken.None);
+        return new CoordinatorContext(dir, options, manifestStore, coordinator);
+    }
+
+    private static async Task<JournalRecord> ReadLastRecordAsync(CoordinatorContext context)
+    {
+        var manifest = await context.ManifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None);
         JournalRecord? last = null;
-        foreach (var record in JournalReadPath.ReadAll(dir, manifest.CurrentJournal, CancellationToken.None))
+        foreach (var record in JournalReadPath.ReadAll(context.Options.DataDir, manifest.CurrentJournal, CancellationToken.None))
             last = record;
 
         Assert.NotNull(last);
-        Assert.Equal(JournalOperationKind.Put, last.Operation);
-        Assert.Equal(key.Key, last.Key.Key);
+        return last;
+    }
+
+    private sealed class CoordinatorContext : IAsyncDisposable
+    {
+        public CoordinatorContext(TempDirectory directory, PersistenceOptions options, ManifestStore manifestStore, IJournalCoordinator coordinator)
+        {
+            Directory = directory;
+            Options = options;
+            ManifestStore = manifestStore;
+            Coordinator = coordinator;
+        }
+
+        public TempDirectory Directory { get; }
+
+        public PersistenceOptions Options { get; }
+
+        public ManifestStore ManifestStore { get; }
+
+        public IJournalCoordinator Coordinator { get; }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Coordinator.DisposeAsync().ConfigureAwait(false);
+            ManifestStore.Dispose();
+            Directory.Dispose();
+        }
     }
 }
