@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -56,11 +55,9 @@ internal static class SquirixKestrelConfiguration
     /// <summary>Ensures the node URL uses HTTPS gRPC transport.</summary>
     /// <param name="cluster">Cluster configuration including the node URL.</param>
     /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
-    [SuppressMessage("ReSharper", "RedundantEmptySwitchSection", Justification = "Switch is used to throw exception")]
     public static void EnsureHttpsTransport(ClusterConfig cluster)
     {
         ArgumentNullException.ThrowIfNull(cluster);
-
         if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Uri}");

@@ -18,7 +18,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private readonly ILogger<SnapshotTriggerService<T>> _log;
     private readonly SnapshotTriggerOptions _opt;
     private readonly TimeProvider _timeProvider;
-    private readonly EventHandler _onJournalAppended;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
@@ -42,7 +41,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _opt = opt ?? throw new ArgumentNullException(nameof(opt));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _onJournalAppended = OnJournalAppended;
     }
 
     public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) is not 0;
@@ -55,7 +53,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             return;
         }
 
-        _journal.OnAppended += _onJournalAppended;
+        _journal.OnAppended += OnJournalAppended;
         SnapshotTriggerLogs.LogStarted(_log, 1);
 
         try
@@ -73,18 +71,20 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         finally
         {
-            _journal.OnAppended -= _onJournalAppended;
+            _journal.OnAppended -= OnJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
             SnapshotTriggerLogs.LogStopped(_log);
         }
-    }
 
-    private void OnJournalAppended(object? sender, EventArgs e)
-    {
-        if (_log.IsEnabled(LogLevel.Trace))
-            SnapshotTriggerLogs.LogJournalAppended(_log);
+        return;
 
-        _ = _snapshotRequests.Writer.TryWrite(true);
+        void OnJournalAppended(object? sender, EventArgs e)
+        {
+            if (_log.IsEnabled(LogLevel.Trace))
+                SnapshotTriggerLogs.LogJournalAppended(_log);
+
+            _ = _snapshotRequests.Writer.TryWrite(true);
+        }
     }
 
     private void RecordFatalCrash(Exception ex)
