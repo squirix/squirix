@@ -81,7 +81,8 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             string key,
             CancellationToken cancellationToken)
         {
-            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync.ConfigureAwait(false);
+            return await client.GetValueAsync(new GetValueAsyncRequest { CacheName = cacheName, Key = key }, cancellationToken: cancellationToken).ResponseAsync
+                               .ConfigureAwait(false);
         }
     }
 
@@ -162,6 +163,8 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
 
         _peers = null;
+
+        GC.SuppressFinalize(this);
     }
 
     private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";

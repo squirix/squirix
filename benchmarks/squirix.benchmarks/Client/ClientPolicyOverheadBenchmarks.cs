@@ -95,6 +95,8 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             await _policy.DisposeAsync().ConfigureAwait(false);
             _policy = null;
         }
+
+        GC.SuppressFinalize(this);
     }
 
     private static ValueTask<int> CompletedValueTaskAsync(CancellationToken cancellationToken)
