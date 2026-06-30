@@ -16,6 +16,9 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
+    private readonly SnapshotTriggerOptions _opt;
+    private readonly TimeProvider _timeProvider;
+    private readonly EventHandler _onJournalAppended;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
@@ -44,8 +47,14 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (!_opt.Enabled)
+        {
+            SnapshotTriggerLogs.LogDisabled(_log);
+            return;
+        }
+
         _journal.OnAppended += _onJournalAppended;
-        LogManager.SnapshotTriggerStarted(_log, 1);
+        SnapshotTriggerLogs.LogStarted(_log, 1);
 
         try
         {
@@ -71,7 +80,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private void OnJournalAppended(object? sender, EventArgs e)
     {
         if (_log.IsEnabled(LogLevel.Trace))
-            LogManager.SnapshotTriggerJournalAppended(_log);
+            SnapshotTriggerLogs.LogJournalAppended(_log);
 
         _ = _snapshotRequests.Writer.TryWrite(true);
     }

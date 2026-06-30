@@ -97,7 +97,7 @@ internal static class DirectoryEx
                 for (var i = 0; i < files.Length; i++)
                 {
                     var f = files[i];
-                    ClearReadOnlyAttributes(f);
+                    TryMakeWritable(f);
                     File.Delete(f);
                 }
 
@@ -232,7 +232,7 @@ internal static class DirectoryEx
 
         try
         {
-            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
+            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
         }
         catch (IOException)
         {

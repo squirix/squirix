@@ -127,8 +127,11 @@ internal static class JournalCompactor
         if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
         {
             var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
-            foreach (var (key, entry) in snapshot.Entries)
+            for (var i = 0; i < snapshot.Entries.Count; i++)
+            {
+                var (key, entry) = snapshot.Entries[i];
                 state[key] = entry;
+            }
         }
 
         ulong lastSeq = 0;

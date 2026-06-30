@@ -18,7 +18,7 @@ public sealed class BootstrapConnectTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(new Uri(liveUrl, UriKind.Absolute));
+                options.Endpoints.Add(uri);
                 options.Endpoints.Add(new Uri("https://127.0.0.1:1"));
             },
             DefaultCancellationToken);

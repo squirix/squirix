@@ -1,3 +1,5 @@
+using Squirix.Server.Node.Context;
+
 namespace Squirix.Server.Runtime.Contracts;
 
 /// <summary>Enters an async-local remote-invocation scope for server endpoint handlers and interceptors.</summary>

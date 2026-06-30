@@ -36,27 +36,27 @@ internal static class ProtoEx
         {
             case CacheValue.KindOneofCase.StringValue:
                 if (typeof(T) == typeof(string))
-                    return new ValueTask<T?>(ReinterpretReference<T, string>(value.StringValue));
+                    return ReinterpretReference<T, string>(value.StringValue);
                 break;
 
             case CacheValue.KindOneofCase.BoolValue:
                 if (typeof(T) == typeof(bool))
-                    return new ValueTask<T?>(ReinterpretScalar<T, bool>(value.BoolValue));
+                    return ReinterpretScalar<T, bool>(value.BoolValue);
                 break;
 
             case CacheValue.KindOneofCase.Int32Value:
                 if (typeof(T) == typeof(int))
-                    return new ValueTask<T?>(ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value)));
+                    return ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
                 break;
 
             case CacheValue.KindOneofCase.Int64Value:
                 if (typeof(T) == typeof(long))
-                    return new ValueTask<T?>(ReinterpretScalar<T, long>(value.Int64Value));
+                    return ReinterpretScalar<T, long>(value.Int64Value);
                 break;
 
             case CacheValue.KindOneofCase.DoubleValue:
                 if (typeof(T) == typeof(double))
-                    return new ValueTask<T?>(ReinterpretScalar<T, double>(value.DoubleValue));
+                    return ReinterpretScalar<T, double>(value.DoubleValue);
                 break;
 
             case CacheValue.KindOneofCase.NullValue:
@@ -88,6 +88,16 @@ internal static class ProtoEx
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
+    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
+        where TValue : class?
+    {
+        var reference = value;
+        return Unsafe.As<TValue, TTarget>(ref reference);
+    }
+
+    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
+        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+
     private static async ValueTask<T?> DeserializeAsync<T>(Value value, ISquirixSerializer serializer)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -107,7 +117,8 @@ internal static class ProtoEx
         {
             CacheValue.KindOneofCase.StringValue => value.StringValue,
             CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value,
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
@@ -276,8 +287,6 @@ internal static class ProtoEx
             {
                 writer.WriteStartObject();
                 var fields = value.StructValue.Fields;
-
-                // Index-based loop avoids foreach enumerator allocations while writing nested structs.
                 using var fieldEnumerator = fields.GetEnumerator();
                 for (var index = 0; index < fields.Count; index++)
                 {
@@ -294,8 +303,6 @@ internal static class ProtoEx
             case Value.KindOneofCase.ListValue:
                 writer.WriteStartArray();
                 var values = value.ListValue.Values;
-
-                // Lists recurse through WriteValue so mixed scalar and structured elements round-trip.
                 for (var index = 0; index < values.Count; index++)
                     WriteValue(writer, values[index]);
 

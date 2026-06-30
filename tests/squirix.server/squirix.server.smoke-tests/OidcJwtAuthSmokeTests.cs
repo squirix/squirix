@@ -17,10 +17,10 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
     public async Task CacheRpcAcceptsValidOidcJwtAndRejectsMissingAuth()
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
-        var url = GetNextHttpUri();
+        var uri = GetNextHttpUri();
 
         await using var node = await StartNodeAsync(
-            url,
+            uri,
             "node-oidc-auth",
             security: authority.ToSecurityOptions(Audience),
             cancellationToken: DefaultCancellationToken);

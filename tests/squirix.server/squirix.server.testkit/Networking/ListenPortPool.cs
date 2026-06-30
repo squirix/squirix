@@ -49,13 +49,13 @@ public sealed class ListenPortPool : IDisposable
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
 
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
+
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public string NextHttpAddress()
+    private string NextHttpAddress()
     {
         var port = AllocatePort();
         return FormatLoopbackHttps(port);
     }
-
-    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 }

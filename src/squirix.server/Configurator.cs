@@ -23,20 +23,19 @@ public static class Configurator
     /// <param name="uri">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? url, string? dataDirectory, bool persist = false)
+    public static void ApplyCommandLineOverrides(SquirixServerOptions options, string? uri, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (uri is not null)
-            options.Uri = uri;
-        if (persist)
-            options.UsePersistence();
-        if (dataDirectory is not null)
-            options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
-
-        ApplyRuntimeDefaults(options);
-        AlignLocalPeerWithNodeUrl(options);
-        SquirixServerOptionsValidator.Validate(options);
+        {
+            ApplyCommandLineOverrides(options, new Uri(uri, UriKind.Absolute), dataDirectory, persist);
+        }
+        else
+        {
+            Uri? noUri = null;
+            ApplyCommandLineOverrides(options, noUri, dataDirectory, persist);
+        }
     }
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
@@ -175,7 +174,7 @@ public static class Configurator
         return new SquirixServerOptions
         {
             NodeId = "node",
-            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
+            Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
         };
     }
 
@@ -291,20 +290,20 @@ public static class Configurator
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
         {
-            peers[0] = new Peer { NodeId = options.NodeId, Url = options.Url };
+            peers[0] = new Peer { NodeId = options.NodeId, Uri = options.Uri };
         }
         else
             for (var i = 0; i < options.Peers.Count; i++)
             {
                 var peer = options.Peers[i];
-                peers[i] = new Peer { NodeId = peer.NodeId, Url = peer.Url };
+                peers[i] = new Peer { NodeId = peer.NodeId, Uri = peer.Uri };
             }
 
         return new TopologyOptions(peers)
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,
-            Url = options.Url,
+            Uri = options.Uri,
             VirtualNodes = options.VirtualNodes,
         };
     }
@@ -330,15 +329,15 @@ public static class Configurator
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="url">Optional URL override.</param>
+    /// <param name="uri">Optional URL override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
-    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? url, string? dataDirectory, bool persist = false)
+    private static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (url is not null)
-            options.Url = url;
+        if (uri is not null)
+            options.Uri = uri;
         if (persist)
             options.UsePersistence();
         if (dataDirectory is not null)

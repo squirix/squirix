@@ -8,7 +8,6 @@ using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.E2EBenchmarks.Support.Harness;
-using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 

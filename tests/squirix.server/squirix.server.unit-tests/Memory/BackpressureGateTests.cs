@@ -417,6 +417,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     private static bool HasAtLeast(List<int> values, int min)
     {
         for (var i = 0; i < values.Count; i++)
+        {
             if (values[i] >= min)
                 return true;
 

@@ -158,7 +158,7 @@ public static class DirectoryKit
                 for (var fi = 0; fi < files.Length; fi++)
                 {
                     var f = files[fi];
-                    ClearReadOnlyAttributes(f);
+                    TryMakeWritable(f);
                     File.Delete(f);
                 }
 
@@ -386,7 +386,7 @@ public static class DirectoryKit
         try
         {
             var attrs = File.GetAttributes(file);
-            if (attrs.HasFlag(FileAttributes.ReadOnly))
+            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)

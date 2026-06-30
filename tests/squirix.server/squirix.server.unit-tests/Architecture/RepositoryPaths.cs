@@ -10,5 +10,5 @@ internal static class RepositoryPaths
 
     /// <summary>Finds the repository root using embedded MSBuild metadata when available, otherwise walks upward from the test base directory.</summary>
     /// <returns>The absolute path to the repository root.</returns>
-    internal static string FindRepositoryRoot() => RepositoryRoot.Value;
+    public static string FindRepositoryRoot() => RepositoryRoot.Value;
 }

@@ -8,7 +8,7 @@ public static class LocalHostNetworking
 {
     /// <summary>Returns the first non-loopback IPv4 address reported for the local host name, if any.</summary>
     /// <returns>An IPv4 dotted-quad string, or <see langword="null" /> when none is available.</returns>
-    public static string? GetLocalNonLoopbackIpv4()
+    public static string? TryGetLocalNonLoopbackIpv4()
     {
         var addresses = Dns.GetHostAddresses(Dns.GetHostName());
         for (var i = 0; i < addresses.Length; i++)

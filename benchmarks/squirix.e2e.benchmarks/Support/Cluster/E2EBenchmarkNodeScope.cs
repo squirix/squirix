@@ -17,7 +17,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     private readonly TestNodeHost _host;
     private int _disposed;
 
-    private E2EBenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
+    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
     {
         _host = host;
         Uri = uri;
@@ -38,18 +38,19 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     internal static Task<E2EBenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, E2EBenchmarkDurabilityMode durabilityMode = E2EBenchmarkDurabilityMode.Ephemeral) =>
         StartAsync(Guid.NewGuid().ToString("N"), durabilityMode, cancellationToken);
 
-    internal Task<E2EBenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => E2EBenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
+    internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
 
     private static Task<E2EBenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
         var nodeId = $"bench-{scopeId}";
         var uri = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
+        return StartAsync(nodeId, uri, [(nodeId, uri)], durabilityMode, cancellationToken, true);
     }
 
     private static async Task<E2EBenchmarkNodeScope> StartAsync(
         string nodeId,
         Uri uri,
+        (string NodeId, Uri Uri)[] topology,
         E2EBenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
@@ -60,22 +61,22 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
         if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-e2e-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
             if (!warmUpClient)
-                return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
+                return new BenchmarkNodeScope(host, host.Uri, dataDir);
 
-            var unused = await E2EBenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
+            var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
+            return new BenchmarkNodeScope(host, host.Uri, dataDir);
         }
         catch (InvalidOperationException)
         {

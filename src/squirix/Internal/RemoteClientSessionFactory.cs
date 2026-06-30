@@ -31,7 +31,7 @@ internal static class RemoteClientSessionFactory
             peers[i] = new Peer
             {
                 NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
-                Url = endpoints[i],
+                Uri = endpoints[i],
             };
 
         var credentials = BuildCallCredentials(bearerTokenProvider);
@@ -64,13 +64,13 @@ internal static class RemoteClientSessionFactory
 
     private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
-        if (bearerTokenProvider is null)
+        if (options.BearerTokenProvider is not { } tokenProvider)
             return null;
 
-        return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
+        return new BearerTokenCallCredentials(tokenProvider).Credentials;
     }
 
-    private static Uri[] NormalizeEndpoints(IEnumerable<Uri> endpoints)
+    private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
@@ -79,9 +79,7 @@ internal static class RemoteClientSessionFactory
 
         for (var index = 0; index < endpoints.Count; index++)
         {
-            if (endpoint is null)
-                throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
-
+            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
             if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
                 throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 
@@ -335,5 +333,29 @@ internal static class RemoteClientSessionFactory
         }
 
         public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
+    }
+
+    private sealed class BearerTokenCallCredentials
+    {
+        private const string AuthorizationHeader = "authorization";
+        private const string BearerSchemePrefix = "Bearer ";
+
+        private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
+
+        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
+        {
+            _tokenProvider = tokenProvider;
+            Credentials = CallCredentials.FromInterceptor(InterceptAsync);
+        }
+
+        internal CallCredentials Credentials { get; }
+
+        private static async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
+        {
+            var token = await tokenTask.ConfigureAwait(false);
+            metadata.Add(AuthorizationHeader, string.Concat(BearerSchemePrefix, token));
+        }
+
+        private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
     }
 }

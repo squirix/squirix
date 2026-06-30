@@ -38,9 +38,9 @@ internal static class Program
     {
         var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
-        var url = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString()
-            ?? throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Url.");
-        return new Uri(url, UriKind.Absolute);
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString()
+            ?? throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        return new Uri(uri, UriKind.Absolute);
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)

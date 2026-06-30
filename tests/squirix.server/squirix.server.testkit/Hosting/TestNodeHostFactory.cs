@@ -15,28 +15,6 @@ public static class TestNodeHostFactory
     /// <summary>Starts an ephemeral standalone (single-peer) node without a temporary topology collection.</summary>
     /// <param name="nodeId">The node identifier.</param>
     /// <param name="uri">The HTTP listen address.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A started test node host.</returns>
-    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, CancellationToken cancellationToken = default) =>
-        StartNodeAsync(nodeId, uri, [(nodeId, uri)], null, null, cancellationToken);
-
-    /// <summary>Starts a standalone (single-peer) node with an optional persistence directory.</summary>
-    /// <param name="nodeId">The node identifier.</param>
-    /// <param name="uri">The HTTP listen address.</param>
-    /// <param name="dataDir">Persistence data directory.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A started test node host.</returns>
-    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, string? dataDir, CancellationToken cancellationToken = default) => StartNodeAsync(
-        nodeId,
-        uri,
-        [(nodeId, uri)],
-        dataDir is null ? null : new TestNodeHostStartOptions { DataDir = dataDir },
-        null,
-        cancellationToken);
-
-    /// <summary>Starts a test node with shared cluster mTLS material owned by the caller.</summary>
-    /// <param name="nodeId">The node identifier.</param>
-    /// <param name="uri">The HTTP listen address.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="options">Optional startup settings.</param>
     /// <param name="sharedMtls">Caller-owned shared mTLS context for multi-node topologies; not disposed by the factory.</param>
@@ -44,19 +22,22 @@ public static class TestNodeHostFactory
     /// <returns>A started test node host.</returns>
     public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        string address,
-        ReadOnlySpan<(string NodeId, string Address)> topology,
+        Uri uri,
+        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         TestNodeHostStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        nodeId,
-        address,
-        CopyTopology(topology),
-        options?.DataDir,
-        options?.DataDir is not null,
-        options?.Security,
-        options?.Mtls,
-        options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
-        cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return StartNodeAsync(
+            nodeId,
+            uri,
+            CopyTopology(topology),
+            options?.DataDir,
+            options?.DataDir is not null,
+            options?.Security,
+            options?.Mtls,
+            options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
+            cancellationToken);
+    }
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
     /// <param name="nodeId">The node identifier.</param>
@@ -84,29 +65,6 @@ public static class TestNodeHostFactory
         string? dataDir,
         CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
-    private static (string NodeId, Uri Uri)[] CopyTopology(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
-    {
-        var copy = new (string NodeId, Uri Uri)[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            copy[i] = (topology[i].NodeId, topology[i].Uri);
-
-        return copy;
-    }
-
-    /// <summary>Starts a test node with the provided cluster topology and optional settings.</summary>
-    /// <param name="nodeId">The node identifier.</param>
-    /// <param name="uri">The HTTP listen address.</param>
-    /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <param name="options">Optional startup settings.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A started test node host.</returns>
-    private static ValueTask<TestNodeHost> StartNodeAsync(
-        string nodeId,
-        Uri uri,
-        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
-        TestNodeHostStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, topology, options, null, cancellationToken);
-
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -115,8 +73,11 @@ public static class TestNodeHostFactory
         string nodeId,
         Uri uri,
         (string NodeId, Uri Uri)[] topology,
-        TestNodeHostStartOptions? options,
-        ClusterTls? sharedMtls,
+        string? dataDir,
+        bool persistence,
+        TestNodeSecurityOptions? security,
+        MtlsTestContext? mtls,
+        MtlsTestNodeProfile mtlsProfile,
         CancellationToken cancellationToken)
     {
         PersistenceOptions? persistenceOptions = null;
@@ -134,13 +95,13 @@ public static class TestNodeHostFactory
         var clusterConfig = new TopologyOptions(peers)
         {
             NodeId = nodeId,
-            Url = new Uri(address, UriKind.Absolute),
+            Uri = uri,
             VirtualNodes = 128,
         };
 
-        var primaryUrl = clusterConfig.Url;
+        var primaryUri = clusterConfig.Uri;
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
-            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUrl, mtlsProfile, cancellationToken).ConfigureAwait(false);
+            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await NodeHost.StartAsync(
             clusterConfig,
@@ -162,13 +123,15 @@ public static class TestNodeHostFactory
             },
             cancellationToken).ConfigureAwait(false);
 
-        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions is not null);
+        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistence);
     }
 
-    private static (string NodeId, string Address)[] CopyTopology(ReadOnlySpan<(string NodeId, string Address)> topology)
+    private static (string NodeId, Uri Uri)[] CopyTopology(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
-        var copy = new (string NodeId, string Address)[topology.Length];
-        topology.CopyTo(copy);
+        var copy = new (string NodeId, Uri Uri)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            copy[i] = (topology[i].NodeId, topology[i].Uri);
+
         return copy;
     }
 }

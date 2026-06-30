@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Benchmarks.Support.Client;
-using Squirix.Benchmarks.Support.Runtime;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
@@ -16,12 +15,14 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private readonly TempDirectory? _dataDir;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, string endpoint, TempDirectory? dataDir)
+    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
     {
         Host = host;
-        Endpoint = endpoint;
+        Uri = uri;
         _dataDir = dataDir;
     }
+
+    internal Uri Uri { get; }
 
     internal TestNodeHost Host { get; }
 
@@ -40,7 +41,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
         var uri = ListenPortPool.ServerBenchmarks.NextHttpUri();
-        return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
+        return StartAsync(nodeId, uri, [(nodeId, uri)], durabilityMode, cancellationToken, true);
     }
 
     internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
@@ -48,34 +49,33 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private static async Task<BenchmarkNodeScope> StartAsync(
         string nodeId,
         Uri uri,
+        (string NodeId, Uri Uri)[] topology,
         BenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
     {
         TempDirectory? dataDir = null;
 
-        TempDirectory? dataDir = null;
-
         TestNodeHost host;
         if (durabilityMode is BenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, address, topology, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, cancellationToken).ConfigureAwait(false);
         }
 
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Address, dataDir);
+                return new BenchmarkNodeScope(host, host.Uri, dataDir);
 
             var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Address, dataDir);
+            return new BenchmarkNodeScope(host, host.Uri, dataDir);
         }
         catch (InvalidOperationException)
         {

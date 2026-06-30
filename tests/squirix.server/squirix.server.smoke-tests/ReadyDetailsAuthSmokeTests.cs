@@ -25,8 +25,8 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
     {
-        var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp));
+        var localIp = LocalHostNetworking.TryGetLocalNonLoopbackIpv4();
+        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();

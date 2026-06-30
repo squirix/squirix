@@ -28,6 +28,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
@@ -38,7 +39,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
             static options =>
             {
                 options.NodeId = "aspnet-test";
-                options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
+                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -70,7 +71,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         _ = await builder.AddSquirixServerAsync(
             options =>
             {
-                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
                 options.UsePersistence(dir);
             },
             loadDiscoveredSettings: false,
@@ -97,7 +98,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new DecoratePipelineExtensionsConfigurer(state);
 
         _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);
@@ -121,7 +122,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
 
         _ = await builder.AddSquirixServerAsync(
-            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);
@@ -151,7 +152,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new AuthorizationStateExtensionsConfigurer(state);
 
         _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);

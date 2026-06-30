@@ -1,4 +1,3 @@
-using System;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
 using Xunit;
@@ -12,16 +11,18 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
     [Fact]
     public async Task ClientContinuesAlternateActiveEndpointLoss()
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(ClientContinuesAlternateActiveEndpointLoss), cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(
+            nameof(ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss),
+            cancellationToken: DefaultCancellationToken);
         var uriA = cluster.GetUri("nodeA");
         var uriB = cluster.GetUri("nodeB");
-        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "bootstrap-failover");
+        var key = new KeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];
 
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(new Uri(urlA, UriKind.Absolute));
-                options.Endpoints.Add(new Uri(urlB, UriKind.Absolute));
+                options.Endpoints.Add(uriA);
+                options.Endpoints.Add(uriB);
             },
             DefaultCancellationToken);
 

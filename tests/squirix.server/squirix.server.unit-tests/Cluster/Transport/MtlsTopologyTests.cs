@@ -20,9 +20,9 @@ public sealed class MtlsTopologyTests
             "node-a",
             NodeAUrl,
             [
-                new Peer { NodeId = "node-a", Url = NodeAUrl },
-                new Peer { NodeId = "node-b", Url = NodeBUrl },
-                new Peer { NodeId = "node-c", Url = NodeCUrl },
+                new Peer { NodeId = "node-a", Uri = NodeAUrl },
+                new Peer { NodeId = "node-b", Uri = NodeBUrl },
+                new Peer { NodeId = "node-c", Uri = NodeCUrl },
             ]);
 
         Assert.Equal(["node-b", "node-c"], MtlsTopology.GetRemotePeerNodeIds(cluster));
@@ -32,7 +32,7 @@ public sealed class MtlsTopologyTests
     [Fact]
     public void RequiresInterNodeMtlsFalseStandaloneTopology()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, [new Peer { NodeId = "node-a", Url = NodeAUrl }]);
+        var cluster = CreateCluster("node-a", NodeAUrl, [new Peer { NodeId = "node-a", Uri = NodeAUrl }]);
 
         Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
@@ -45,24 +45,18 @@ public sealed class MtlsTopologyTests
             "node-a",
             NodeAUrl,
             [
-                new Peer { NodeId = "node-a", Url = NodeAUrl },
-                new Peer { NodeId = "node-b", Url = NodeBUrl },
+                new Peer { NodeId = "node-a", Uri = NodeAUrl },
+                new Peer { NodeId = "node-b", Uri = NodeBUrl },
             ]);
 
         Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
 
-    private static ClusterConfig CreateCluster(string nodeId, Uri url, Peer[] peers) => new()
+    private static ClusterConfig CreateCluster(string nodeId, Uri uri, Peer[] peers) => new()
     {
         ClusterId = "test",
         NodeId = nodeId,
         Uri = uri,
-    };
-
-    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
-    {
-        ClusterId = "test",
-        NodeId = nodeId,
-        Uri = uri,
+        Peers = peers,
     };
 }

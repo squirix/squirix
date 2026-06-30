@@ -259,6 +259,8 @@ dotnet_diagnostic.RCS1069.severity = none
 dotnet_diagnostic.RCS1217.severity = none
 # Remove redundant statement — conflicts with explicit control-flow in some methods.
 dotnet_diagnostic.RCS1134.severity = none
+# RCS1021: Use expression-bodied lambda, it makes XUnit box the value inside an assert
+dotnet_diagnostic.RCS1021.severity = none
 
 
 # ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).
@@ -277,6 +279,8 @@ dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
 dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.DataLayout.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Aot.severity = warning
 
 # ErrorProne.NET (EPC/ERP/EPS): all rules at warning for dotnet build (TreatWarningsAsErrors => error).
 # Docs: https://github.com/SergeyTeplyakov/ErrorProne.NET/tree/master/docs/Rules
@@ -400,10 +404,8 @@ dotnet_diagnostic.MA0038.severity = none
 dotnet_diagnostic.MA0111.severity = none
 # MA0174: Record declarations should use explicit 'record class' keyword.
 dotnet_diagnostic.MA0174.severity = none
-# MA0192: Use HasFlag instead of bitwise checks; it adds extra allocations
+# MA0174: Use HasFlag instead of bitwise checks; it adds extra allocations
 dotnet_diagnostic.MA0192.severity = none
-# MA0211: Require multi-line <summary> XML comments; single-line summaries are fine for short, obvious members.
-dotnet_diagnostic.MA0211.severity = none
 
 [tools/**]
 # MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).

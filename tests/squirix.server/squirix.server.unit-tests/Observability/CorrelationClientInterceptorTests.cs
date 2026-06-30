@@ -69,8 +69,11 @@ public sealed class CorrelationClientInterceptorTests
 
         var options = Assert.NotNull(observed);
         var values = new List<string>();
-        foreach (var entry in options.Headers ?? [])
+        var headers = options.Headers;
+        Assert.NotNull(headers);
+        for (var index = 0; index < headers.Count; index++)
         {
+            var entry = headers[index];
             if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -107,8 +110,11 @@ public sealed class CorrelationClientInterceptorTests
 
         var options = Assert.NotNull(observed);
         var values = new List<string>();
-        foreach (var entry in options.Headers ?? [])
+        var headers = options.Headers;
+        Assert.NotNull(headers);
+        for (var index = 0; index < headers.Count; index++)
         {
+            var entry = headers[index];
             if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -127,7 +133,7 @@ public sealed class CorrelationClientInterceptorTests
             ClusterId = "c",
             NodeId = "n1",
             Peers = [],
-            Url = new Uri("https://localhost"),
+            Uri = new Uri("https://localhost"),
         };
 
             values.Add(entry.Value);

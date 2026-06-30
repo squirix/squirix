@@ -28,10 +28,11 @@ internal sealed class ClientPool : IClientPool
     private readonly BootstrapConnectOptions _connectOptions;
     private readonly string[] _nodeIds;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string[] _nodeIds;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
-    internal ClientPool(
+    public ClientPool(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
@@ -42,13 +43,12 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var list = peers as Peer[] ?? [.. peers];
-        var ids = new string[list.Length];
+        var ids = new string[peers.Length];
 
-        for (var i = 0; i < list.Length; i++)
+        for (var i = 0; i < peers.Length; i++)
         {
-            var p = list[i];
-            GrpcTransportEndpoints.RequireHttps(p.Url);
+            var p = peers[i];
+            GrpcTransportEndpoints.RequireHttps(p.Uri);
             var opts = new GrpcChannelOptions
             {
                 Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
@@ -66,12 +66,83 @@ internal sealed class ClientPool : IClientPool
             ids[i] = p.NodeId;
         }
 
-        BootstrapNodeIds = ids;
+        _nodeIds = ids;
+        BootstrapNodeIds = _nodeIds;
     }
 
     internal IReadOnlyList<string> BootstrapNodeIds { get; }
 
-    void IClientPool.BeginDrain() => BeginDrain();
+    internal int ActiveClientCount => _cacheClients.Count;
+
+    /// <summary>
+    /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
+    /// Unreachable endpoints are skipped; startup fails only when no endpoint can be reached.
+    /// After a primary peer connects, remaining peers use a short fail-fast connect budget.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The first reachable bootstrap node id.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no bootstrap endpoint is reachable.</exception>
+    public async ValueTask<string> WarmUpAsync(CancellationToken cancellationToken = default)
+    {
+        Exception? lastFailure = null;
+        string? primaryNodeId = null;
+        var failuresByNode = new Dictionary<string, Exception>(_nodeIds.Length, StringComparer.Ordinal);
+
+        for (var i = 0; i < _nodeIds.Length; i++)
+        {
+            var id = _nodeIds[i];
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_channels.TryGetValue(id, out var channel))
+                continue;
+
+            var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
+
+            try
+            {
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+                ClientPoolMetrics.AddWarmup();
+                primaryNodeId ??= id;
+            }
+            catch (RpcException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[id] = ex;
+            }
+            catch (IOException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[id] = ex;
+            }
+            catch (HttpRequestException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[id] = ex;
+            }
+            catch (InvalidOperationException ex)
+            {
+                lastFailure = ex;
+                failuresByNode[id] = ex;
+            }
+        }
+
+        if (primaryNodeId is null)
+            throw lastFailure ?? new InvalidOperationException("No bootstrap endpoints are configured.");
+        foreach (var pair in failuresByNode)
+        {
+            if (string.Equals(pair.Key, primaryNodeId, StringComparison.Ordinal))
+                continue;
+
+            ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped(pair.Key, pair.Value);
+        }
+
+        return primaryNodeId;
+    }
+
+    public void BeginDrain()
+    {
+        for (var i = 0; i < _nodeIds.Length; i++)
+            _policies[_nodeIds[i]].BeginDrain();
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -80,6 +151,7 @@ internal sealed class ClientPool : IClientPool
 
         BeginDrain();
         for (var i = 0; i < _nodeIds.Length; i++)
+        {
             try
             {
                 await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
@@ -94,6 +166,7 @@ internal sealed class ClientPool : IClientPool
             }
 
         for (var i = 0; i < _nodeIds.Length; i++)
+        {
             try
             {
                 _channels[_nodeIds[i]].Dispose();

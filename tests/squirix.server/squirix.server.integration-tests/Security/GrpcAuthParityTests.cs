@@ -17,8 +17,8 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcInvalidJwtIsRejected()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -36,8 +36,8 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcMissingAuthIsRejectedWhenJwtEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -52,8 +52,8 @@ public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
     public async Task GrpcValidJwtSucceeds()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        var url = GetNextHttpUri();
-        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

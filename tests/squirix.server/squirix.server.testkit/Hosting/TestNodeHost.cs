@@ -38,6 +38,11 @@ public sealed class TestNodeHost : IAsyncDisposable
         _scope = scope;
     }
 
+    /// <summary>
+    /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
+    /// </summary>
+    public Uri Uri { get; }
+
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
 

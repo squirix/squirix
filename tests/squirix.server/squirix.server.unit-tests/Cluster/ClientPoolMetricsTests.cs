@@ -69,7 +69,7 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     {
         var peers = new ServerPeer[n];
         for (var i = 0; i < n; i++)
-            peers[i] = new Peer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Url = new Uri($"https://localhost:{(6500 + i).ToString(CultureInfo.InvariantCulture)}") };
+            peers[i] = new Peer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Uri = new Uri($"https://localhost:{(6500 + i).ToString(CultureInfo.InvariantCulture)}") };
 
         return peers;
     }

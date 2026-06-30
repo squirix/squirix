@@ -12,7 +12,7 @@ internal static class MtlsClientCertificateValidator
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="nodeIds">Configured remote peer node identifiers.</param>
     /// <returns><see langword="true" /> when the certificate is trusted and bound to an allowed peer.</returns>
-    internal static bool ValidateForConfiguredRemotePeer(X509Certificate2? peerCertificate, X509Certificate2 trustAnchor, ReadOnlySpan<string> nodeIds)
+    public static bool ValidateForConfiguredRemotePeer(X509Certificate2? peerCertificate, X509Certificate2 trustAnchor, ReadOnlySpan<string> nodeIds)
     {
         if (!Validate(peerCertificate, trustAnchor))
             return false;

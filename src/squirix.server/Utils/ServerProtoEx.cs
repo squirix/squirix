@@ -21,7 +21,7 @@ internal static class ServerProtoEx
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
 
         if (typeof(T) == typeof(object))
-            value = Coerce<T>(NormalizeUntypedScalarForUntypedCache(value));
+            value = Coerce<T>(value);
 
         return new CacheEntry<T>
         {
@@ -71,33 +71,33 @@ internal static class ServerProtoEx
     internal static async ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
     {
         if (typeof(T) == typeof(object))
-            return new ValueTask<T?>(Coerce<T>(MapCacheValueAsObject(value)));
+            return Coerce<T>(await MapCacheValueAsObjectAsync(value).ConfigureAwait(false));
 
         switch (value.KindCase)
         {
             case CacheValue.KindOneofCase.StringValue:
                 if (typeof(T) == typeof(string))
-                    return new ValueTask<T?>(ReinterpretReference<T, string>(value.StringValue));
+                    return ReinterpretReference<T, string>(value.StringValue);
                 break;
 
             case CacheValue.KindOneofCase.BoolValue:
                 if (typeof(T) == typeof(bool))
-                    return new ValueTask<T?>(ReinterpretScalar<T, bool>(value.BoolValue));
+                    return ReinterpretScalar<T, bool>(value.BoolValue);
                 break;
 
             case CacheValue.KindOneofCase.Int32Value:
                 if (typeof(T) == typeof(int))
-                    return new ValueTask<T?>(ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value)));
+                    return ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
                 break;
 
             case CacheValue.KindOneofCase.Int64Value:
                 if (typeof(T) == typeof(long))
-                    return new ValueTask<T?>(ReinterpretScalar<T, long>(value.Int64Value));
+                    return ReinterpretScalar<T, long>(value.Int64Value);
                 break;
 
             case CacheValue.KindOneofCase.DoubleValue:
                 if (typeof(T) == typeof(double))
-                    return new ValueTask<T?>(ReinterpretScalar<T, double>(value.DoubleValue));
+                    return ReinterpretScalar<T, double>(value.DoubleValue);
                 break;
 
             case CacheValue.KindOneofCase.NullValue:
@@ -169,7 +169,8 @@ internal static class ServerProtoEx
         {
             CacheValue.KindOneofCase.StringValue => value.StringValue,
             CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value,
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue).ConfigureAwait(false),
@@ -177,35 +178,7 @@ internal static class ServerProtoEx
         };
     }
 
-    /// <summary>
-    /// Narrows numeric scalars for untyped (<c>object?</c>) cache values so callers see stable CLR types.
-    /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///     Protobuf well-known <c>Value</c> numbers are carried as <see cref="double" />.
-    ///     Parsing may also produce <see cref="long" /> (for example JSON numbers decoded with <c>TryGetInt64</c> before
-    ///     conversion to proto). Those values are semantically integers but boxed as <see cref="long" /> or <see cref="double" />,
-    ///     while many tests and APIs compare against <see cref="int" /> literals (for example xUnit <c>Assert.Equal(0, value)</c>),
-    ///     which fails when the runtime type is <see cref="long" /> even though both sides print as <c>0</c>.
-    ///     </para>
-    ///     <para>
-    ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
-    ///     </para>
-    /// </remarks>
-    /// <param name="value">Untyped cache scalar to normalize.</param>
-    private static object? NormalizeUntypedScalarForUntypedCache(object? value)
-    {
-        CacheValue.KindOneofCase.StringValue => value.StringValue,
-        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
-        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
-        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue),
-        _ => FromStruct<object?>(CacheValueToStruct(value)),
-    };
-
-    private static object? ProtoValueToClrScalarOrJson(Value v)
+    private static async ValueTask<object?> ProtoValueToClrScalarOrJsonAsync(Value v)
     {
         switch (v.KindCase)
         {
@@ -216,9 +189,7 @@ internal static class ServerProtoEx
                 return v.BoolValue;
 
             case Value.KindOneofCase.NumberValue:
-                var d = v.NumberValue;
-                var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? Convert.ToInt64(d) : d;
-                return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(d) : d2;
+                return v.NumberValue;
 
             case Value.KindOneofCase.NullValue:
                 return null;
@@ -387,6 +358,9 @@ internal static class ServerProtoEx
                 w.WriteStartArray();
                 for (var index = 0; index < v.ListValue.Values.Count; index++)
                     WriteValue(w, v.ListValue.Values[index]);
+
+                w.WriteEndArray();
+                break;
 
                 w.WriteEndArray();
                 break;

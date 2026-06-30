@@ -72,25 +72,8 @@ internal sealed class RemoteCache<T> : ICache<T>
 
         return _getOrAddFlights.RunAsync(
             key,
-            async ct =>
-            {
-                var created = await valueFactory(key, ct).ConfigureAwait(false);
-                var entry = ToEntry(created, options);
-                OperationInputValidator<T>.ValidateEntry(entry);
-
-                var request = ToGetOrAddAsyncRequest(key, entry);
-                request.OperationId = RpcOperationIdentity.New();
-                var response = await ExecuteAsync(
-                    static (client, state, token) =>
-                    {
-                        var responseAsync = client.GetOrAddAsync(state, cancellationToken: token).ResponseAsync;
-                        return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
-                    },
-                    request,
-                    ct).ConfigureAwait(false);
-
-                return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, _serializer).ConfigureAwait(false));
-            },
+            new GetOrAddFlightState(this, key, valueFactory, options),
+            static (state, ct) => ExecuteGetOrAddAsync(state, ct),
             cancellationToken);
     }
 
@@ -235,6 +218,26 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Updated;
     }
 
+    private static async Task<CacheValueResult<T>> ExecuteGetOrAddAsync(GetOrAddFlightState state, CancellationToken cancellationToken)
+    {
+        var created = await state.ValueFactory(state.Key, cancellationToken).ConfigureAwait(false);
+        var entry = ToEntry(created, state.Options);
+        OperationInputValidator<T>.ValidateEntry(entry);
+
+        var request = state.Cache.ToGetOrAddAsyncRequest(state.Key, entry);
+        request.OperationId = RpcOperationIdentity.New();
+        var response = await state.Cache.ExecuteAsync(
+            static (client, requestState, token) =>
+            {
+                var responseAsync = client.GetOrAddAsync(requestState, cancellationToken: token).ResponseAsync;
+                return new ValueTask<GetOrAddAsyncResponse>(responseAsync);
+            },
+            request,
+            cancellationToken).ConfigureAwait(false);
+
+        return new CacheValueResult<T>(true, await ProtoEx.FromCacheValueAsync<T>(response.Value, state.Cache._serializer).ConfigureAwait(false));
+    }
+
     private static async ValueTask<TResult> AwaitRpcGuardedAsync<TResult>(ValueTask<TResult> task)
     {
         try
@@ -327,4 +330,10 @@ internal sealed class RemoteCache<T> : ICache<T>
         Key = key,
         Entry = ProtoEx.MapEntryToProto(entry, _serializer),
     };
+
+    private readonly record struct GetOrAddFlightState(
+        RemoteCache<T> Cache,
+        string Key,
+        Func<string, CancellationToken, Task<T?>> ValueFactory,
+        CacheEntryOptions? Options);
 }

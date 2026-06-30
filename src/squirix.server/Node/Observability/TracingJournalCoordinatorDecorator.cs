@@ -10,6 +10,7 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Adds OpenTelemetry spans around journal coordinator operations.</summary>
 internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 {
+    private readonly EventHandler _forwardOnAppended;
     private readonly IJournalCoordinator _inner;
     private readonly IJournalOperationTracer _tracer;
 
@@ -17,13 +18,17 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
+        _forwardOnAppended = ForwardOnAppended;
+        _inner.OnAppended += _forwardOnAppended;
     }
 
     public event EventHandler? OnAppended
     {
-        add => _inner.OnAppended += value;
-        remove => _inner.OnAppended -= value;
+        add => OnAppendedInternal += value;
+        remove => OnAppendedInternal -= value;
     }
+
+    private event EventHandler? OnAppendedInternal;
 
     public long AppendedBytes => _inner.AppendedBytes;
 
@@ -87,7 +92,11 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
 
-    public ValueTask DisposeAsync() => _inner.DisposeAsync();
+    public ValueTask DisposeAsync()
+    {
+        _inner.OnAppended -= _forwardOnAppended;
+        return _inner.DisposeAsync();
+    }
 
     public async ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken)
     {
@@ -132,4 +141,6 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     }
 
     private JournalOperationTraceContext Enrich(JournalOperationTraceContext context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
+
+    private void ForwardOnAppended(object? sender, EventArgs e) => OnAppendedInternal?.Invoke(this, e);
 }

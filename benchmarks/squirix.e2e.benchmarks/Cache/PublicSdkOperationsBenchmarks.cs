@@ -6,7 +6,6 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
-using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 

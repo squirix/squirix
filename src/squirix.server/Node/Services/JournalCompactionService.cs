@@ -30,6 +30,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly SnapshotCoordinator<T> _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
+    private readonly EventHandler<SnapshotCompletedEventArgs> _onSnapshotCompleted;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
@@ -53,14 +54,8 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _snapshotReader = snapshotReader;
         _nodeId = cluster.NodeId;
         _opt = opt.Value;
-        ArgumentNullException.ThrowIfNull(deps);
-        _snap = deps.Snapshot;
-        _journalMaintenance = deps.JournalMaintenance;
-        _manifest = deps.Manifest;
-        _snapshotReader = deps.SnapshotReader;
-        _nodeId = deps.Cluster.NodeId;
-        _persistence = deps.Persistence;
-        _timeProvider = deps.TimeProvider;
+        _persistence = persistence.Value;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
