@@ -1,9 +1,11 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
+using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
 
@@ -30,6 +32,13 @@ public abstract class CacheWireAllocBenchmarkBase<T>
     private int _removeExpirationOffset;
     private int _removeOffset;
     private int _uniqueKeyOffset;
+
+    /// <summary>Gets or sets the durability mode measured by the current BenchmarkDotNet case.</summary>
+    [Params(E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence)]
+    [SuppressMessage("ReSharper", "MemberCanBePrivate.Global", Justification = "A property annotated with [Params] must have a public setter")]
+    [SuppressMessage("ReSharper", "AutoPropertyCanBeMadeGetOnly.Global", Justification = "A property annotated with [Params] must have a public setter")]
+    [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "A property annotated with [Params] must have a public setter")]
+    public E2EBenchmarkDurabilityMode DurabilityMode { get; set; }
 
     /// <summary>Gets the consumer used to prevent dead-code elimination.</summary>
     private protected Consumer Consumer { get; } = new();
@@ -159,7 +168,7 @@ public abstract class CacheWireAllocBenchmarkBase<T>
             _expiringKeys[i] = $"exp:{i.ToString("D5", CultureInfo.InvariantCulture)}";
         }
 
-        _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
         _client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         Cache = await _client.Client.GetCacheAsync<T>(GetCacheName(), CancellationToken.None).ConfigureAwait(false);
 

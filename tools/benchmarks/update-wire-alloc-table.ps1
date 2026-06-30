@@ -68,6 +68,19 @@ function Resolve-TypeReportPath {
     throw "No BenchmarkDotNet JSON report found for $TypeName under $Directory"
 }
 
+function Test-BenchmarkDurability {
+    param(
+        [string] $Parameters,
+        [string] $ExpectedMode
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Parameters)) {
+        return $ExpectedMode -eq 'Ephemeral'
+    }
+
+    return $Parameters -match "DurabilityMode[=:]\s*$ExpectedMode\b"
+}
+
 function Get-ApiLabel {
     param([string] $MethodName)
 
@@ -106,7 +119,8 @@ function Format-Number {
 function Build-TableRows {
     param(
         [object[]] $Benchmarks,
-        [string] $TypeName
+        [string] $TypeName,
+        [string] $DurabilityMode
     )
 
     $order = @(
@@ -131,18 +145,28 @@ function Build-TableRows {
             continue
         }
 
+        if (-not (Test-BenchmarkDurability -Parameters ([string]$benchmark.Parameters) -ExpectedMode $DurabilityMode)) {
+            continue
+        }
+
         $byMethod[$benchmark.Method] = $benchmark
     }
 
     $rows = New-Object System.Collections.Generic.List[string]
     foreach ($method in $order) {
         if (-not $byMethod.ContainsKey($method)) {
-            throw "Missing benchmark row for $TypeName.$method"
+            Write-Warning "Missing benchmark row for $TypeName.$method (DurabilityMode=$DurabilityMode)."
+            $label = Get-ApiLabel -MethodName $method
+            $rows.Add("| $label | _pending_ | | |")
+            continue
         }
 
         $item = $byMethod[$method]
         if (-not $item.Statistics) {
-            throw "Benchmark $TypeName.$method has no statistics. Re-run with --iterationCount 3 or higher."
+            Write-Warning "Benchmark $TypeName.$method (DurabilityMode=$DurabilityMode) has no statistics."
+            $label = Get-ApiLabel -MethodName $method
+            $rows.Add("| $label | _pending_ | | |")
+            continue
         }
 
         $meanNsPerOp = [double]$item.Statistics.Mean / $OperationsPerInvoke
@@ -175,6 +199,18 @@ function Update-MarkerSection {
     return [regex]::Replace($Content, $pattern, "`$1`n$section`n`$2")
 }
 
+function Assert-PersistencePresent {
+    param([object[]] $Benchmarks)
+
+    foreach ($benchmark in $Benchmarks) {
+        if (Test-BenchmarkDurability -Parameters ([string]$benchmark.Parameters) -ExpectedMode 'Persistence') {
+            return
+        }
+    }
+
+    throw 'No Persistence benchmark rows found in JSON. Re-run with --filter ''*CacheWire*AllocBenchmarks*'' and both DurabilityMode params.'
+}
+
 $artifactsDirectory = Resolve-ArtifactsDir -Path $ArtifactsDir
 $scalarReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'CacheWireScalarAllocBenchmarks' -ExplicitPath $(if ($ScalarResultsPath) { $ScalarResultsPath } else { $ResultsPath })
 $structuredReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'CacheWireStructuredAllocBenchmarks' -ExplicitPath $StructuredResultsPath
@@ -190,27 +226,34 @@ if (-not $structuredReport.Benchmarks) {
     throw "No benchmarks found in $structuredReportPath"
 }
 
-$scalarRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'CacheWireScalarAllocBenchmarks'
-$structuredRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'CacheWireStructuredAllocBenchmarks'
+Assert-PersistencePresent -Benchmarks $scalarReport.Benchmarks
+Assert-PersistencePresent -Benchmarks $structuredReport.Benchmarks
+
+$scalarEphemeralRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'CacheWireScalarAllocBenchmarks' -DurabilityMode 'Ephemeral'
+$scalarPersistenceRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'CacheWireScalarAllocBenchmarks' -DurabilityMode 'Persistence'
+$structuredEphemeralRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'CacheWireStructuredAllocBenchmarks' -DurabilityMode 'Ephemeral'
+$structuredPersistenceRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'CacheWireStructuredAllocBenchmarks' -DurabilityMode 'Persistence'
 
 if (-not (Test-Path -LiteralPath $MarkdownPath)) {
     throw "Markdown file not found: $MarkdownPath"
 }
 
 $content = Get-Content -LiteralPath $MarkdownPath -Raw
-$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-scalar-start -->' -EndMarker '<!-- wire-alloc-scalar-end -->' -Rows $scalarRows
-$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-structured-start -->' -EndMarker '<!-- wire-alloc-structured-end -->' -Rows $structuredRows
+$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-scalar-ephemeral-start -->' -EndMarker '<!-- wire-alloc-scalar-ephemeral-end -->' -Rows $scalarEphemeralRows
+$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-scalar-persistence-start -->' -EndMarker '<!-- wire-alloc-scalar-persistence-end -->' -Rows $scalarPersistenceRows
+$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-structured-ephemeral-start -->' -EndMarker '<!-- wire-alloc-structured-ephemeral-end -->' -Rows $structuredEphemeralRows
+$content = Update-MarkerSection -Content $content -StartMarker '<!-- wire-alloc-structured-persistence-start -->' -EndMarker '<!-- wire-alloc-structured-persistence-end -->' -Rows $structuredPersistenceRows
 
 if ($GitSha) {
-    $content = $content -replace '\| Git SHA \| _pending_ \|', "| Git SHA | ``$GitSha`` |"
+    $content = $content -replace '(?m)^\| Git SHA\s+\| [^|]+\|', "| Git SHA | ``$GitSha`` |"
 }
 
 if ($Branch) {
-    $content = $content -replace '\| Branch \| _pending_ \|', "| Branch | ``$Branch`` |"
+    $content = $content -replace '(?m)^\| Branch\s+\| [^|]+\|', "| Branch | ``$Branch`` |"
 }
 
 $utcNow = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
-$content = $content -replace '\| Date \(UTC\) \| _pending_ \|', "| Date (UTC) | $utcNow |"
+$content = $content -replace '(?m)^\| Date \(UTC\)\s+\| [^|]+\|', "| Date (UTC) | $utcNow |"
 
 Set-Content -LiteralPath $MarkdownPath -Value $content -NoNewline -Encoding utf8
 Write-Host "Updated $MarkdownPath"
