@@ -7,9 +7,9 @@ Use this document to compare `develop` against `refactor/address-wire-alloc` (or
 
 | Field      | Value                                                                                                                          |
 |------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Git SHA    | _pending_                                                                                                                      |
-| Branch     | _pending_                                                                                                                      |
-| Date (UTC) | _pending_                                                                                                                      |
+| Git SHA    | `c901d194`                                                                                                                     |
+| Branch     | `feat/wire-alloc-benchmark-baseline`                                                                                           |
+| Date (UTC) | 2026-06-30 07:45:07                                                                                                            |
 | Command    | `dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*CacheWire*AllocBenchmarks*' --exporters json` |
 
 ## Scalar (`string`)
@@ -18,7 +18,7 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 <!-- wire-alloc-scalar-start -->
 | ICache API | Mean (ns/op) | Allocated (bytes/op) | Gen0 |
-|------------|-------------:|---------------------:|-----:|
+| ------------ | -------------: | ---------------------: | -----: |
 | SetAsync | 815 | 13684.00 | 0.0000 |
 | GetValueAsync | 427 | 11023.00 | 0.0000 |
 | GetEntryAsync | 511 | 13013.00 | 0.0000 |
@@ -40,7 +40,7 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 <!-- wire-alloc-structured-start -->
 | ICache API | Mean (ns/op) | Allocated (bytes/op) | Gen0 |
-|------------|-------------:|---------------------:|-----:|
+| ------------ | -------------: | ---------------------: | -----: |
 | SetAsync | 1047 | 28056.00 | 0.0010 |
 | GetValueAsync | 598 | 23413.00 | 0.0010 |
 | GetEntryAsync | 718 | 23591.00 | 0.0010 |

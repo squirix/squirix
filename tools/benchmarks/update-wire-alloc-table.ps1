@@ -167,7 +167,7 @@ function Update-MarkerSection {
 
     $header = @(
         '| ICache API | Mean (ns/op) | Allocated (bytes/op) | Gen0 |',
-        '|------------|-------------:|---------------------:|-----:|'
+        '| ------------ | -------------: | ---------------------: | -----: |'
     )
 
     $section = @($header + $Rows) -join "`n"

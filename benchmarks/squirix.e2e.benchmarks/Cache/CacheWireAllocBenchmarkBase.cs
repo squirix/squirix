@@ -21,7 +21,8 @@ public abstract class CacheWireAllocBenchmarkBase<T>
     private readonly TimeSpan _longExpiration = TimeSpan.FromHours(1);
     private readonly string[] _expiringKeys = new string[KeyCount];
     private readonly string[] _hitKeys = new string[KeyCount];
-    private readonly GetOrAddMissFactory _getOrAddMissFactory;
+
+    private GetOrAddMissFactory? _getOrAddMissFactory;
 
     private BenchmarkClientLease? _client;
     private BenchmarkNodeScope? _node;
@@ -29,12 +30,6 @@ public abstract class CacheWireAllocBenchmarkBase<T>
     private int _removeExpirationOffset;
     private int _removeOffset;
     private int _uniqueKeyOffset;
-
-    /// <summary>Initializes a new instance of the <see cref="CacheWireAllocBenchmarkBase{T}" /> class.</summary>
-    protected CacheWireAllocBenchmarkBase()
-    {
-        _getOrAddMissFactory = new GetOrAddMissFactory(CreateValue);
-    }
 
     /// <summary>Gets the consumer used to prevent dead-code elimination.</summary>
     private protected Consumer Consumer { get; } = new();
@@ -107,8 +102,9 @@ public abstract class CacheWireAllocBenchmarkBase<T>
         var offset = Interlocked.Add(ref _getOrAddMissOffset, Batch);
         for (var i = 0; i < Batch; i++)
         {
-            _getOrAddMissFactory.ValueIndex = offset + i;
-            var result = await cache.GetOrAddAsync(FormatUniqueKey(offset + i), _getOrAddMissFactory.ValueFactory, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var factory = GetOrAddMissFactoryInstance();
+            factory.ValueIndex = offset + i;
+            var result = await cache.GetOrAddAsync(FormatUniqueKey(offset + i), factory.ValueFactory, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             ConsumeValue(result.Value);
         }
     }
@@ -262,6 +258,9 @@ public abstract class CacheWireAllocBenchmarkBase<T>
     }
 
     private static string FormatUniqueKey(int index) => $"unique:{index.ToString("D8", CultureInfo.InvariantCulture)}";
+
+    private GetOrAddMissFactory GetOrAddMissFactoryInstance() =>
+        _getOrAddMissFactory ??= new GetOrAddMissFactory(CreateValue);
 
     private sealed class GetOrAddMissFactory
     {
