@@ -24,8 +24,8 @@ P:Squirix.Server.Core.CacheRemoveResult`1::Removed:System.Boolean.set
 P:Squirix.Server.Core.CacheRemoveResult`1::Value:!!0.get
 P:Squirix.Server.Core.CacheRemoveResult`1::Value:!!0.set
 T:Squirix.Server.Core.NodeCacheValueResult`1
-M:Squirix.Server.Core.NodeCacheValueResult`1::.ctor(System.Boolean,!!0)
-M:Squirix.Server.Core.NodeCacheValueResult`1::Deconstruct(System.Boolean&,!!0&)
+M:Squirix.Server.Core.NodeCacheValueResult`1::.ctor(System.Boolean,!!0,System.ReadOnlyMemory<System.Byte>)
+M:Squirix.Server.Core.NodeCacheValueResult`1::Deconstruct(System.Boolean&,!!0&,System.ReadOnlyMemory<System.Byte>&)
 M:Squirix.Server.Core.NodeCacheValueResult`1::Equals(Squirix.Server.Core.NodeCacheValueResult<!!0>)
 M:Squirix.Server.Core.NodeCacheValueResult`1::Equals(System.Object)
 M:Squirix.Server.Core.NodeCacheValueResult`1::GetHashCode()
@@ -36,6 +36,8 @@ P:Squirix.Server.Core.NodeCacheValueResult`1::Found:System.Boolean.get
 P:Squirix.Server.Core.NodeCacheValueResult`1::Found:System.Boolean.set
 P:Squirix.Server.Core.NodeCacheValueResult`1::Value:!!0.get
 P:Squirix.Server.Core.NodeCacheValueResult`1::Value:!!0.set
+P:Squirix.Server.CacheValueResult`1::WireValuePayload:System.ReadOnlyMemory<System.Byte>.get
+P:Squirix.Server.CacheValueResult`1::WireValuePayload:System.ReadOnlyMemory<System.Byte>.set
 T:Squirix.Server.Errors.ResourceExhaustedException
 M:Squirix.Server.Errors.ResourceExhaustedException::.ctor()
 M:Squirix.Server.Errors.ResourceExhaustedException::.ctor(System.String)
@@ -137,5 +139,3 @@ M:Squirix.Server.Storage.Journaling.JournalCapacityExceededException::.ctor(Syst
 F:Squirix.Server.Storage.JournalPlatformBackend::Auto
 F:Squirix.Server.Storage.JournalPlatformBackend::RandomAccess
 T:Squirix.Server.Storage.JournalPlatformBackend
-T:Squirix.Transport.Grpc.RpcOperationIdentity
-M:Squirix.Transport.Grpc.RpcOperationIdentity::New()

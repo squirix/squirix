@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Entries.Binary;
 
 namespace Squirix.Server.LocalCache;
 
@@ -56,14 +57,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value) : new NodeCacheValueResult<T>(false, default));
+        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value, ToWirePayloadMemory(stored.WireValuePayload)) : new NodeCacheValueResult<T>(false, default));
     }
 
     public ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.WireValuePayload);
         _evictionIndex.TrackNew(key);
         return ValueTask.CompletedTask;
     }
@@ -100,7 +101,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
-        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version);
+        _store[key] = new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.WireValuePayload);
         _evictionIndex.TrackNew(key);
         EnforceCapacityIfNeeded();
         return ValueTask.CompletedTask;
@@ -136,7 +137,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             return ValueTask.FromResult(false);
 
         var normalized = NormalizeEntry(entry);
-        var added = _store.TryAdd(key, new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version));
+        var added = _store.TryAdd(key, new StoredEntry(normalized.Value, normalized.ExpiresUtc, normalized.Version, normalized.WireValuePayload));
         if (!added)
             return ValueTask.FromResult(false);
 
@@ -165,7 +166,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             if (EqualityComparer<T?>.Default.Equals(stored.Value, value))
                 return ValueTask.FromResult(true);
 
-            var updated = stored with { Value = value };
+            var updated = stored with { Value = value, WireValuePayload = CacheWirePayloadCapture.CaptureForStore(value) };
             if (!_store.TryUpdate(key, updated, stored))
                 continue;
             _evictionIndex.TouchExisting(key);
@@ -179,6 +180,9 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         ExpiresUtc = stored.ExpiresUtc,
         Version = stored.Version,
     };
+
+    private static ReadOnlyMemory<byte> ToWirePayloadMemory(byte[]? wireValuePayload) =>
+        wireValuePayload?.AsMemory() ?? default;
 
     private void EnforceCapacityIfNeeded()
     {
@@ -207,6 +211,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
             ExpiresUtc = expires,
             Expiration = entry.Expiration,
             Version = version,
+            WireValuePayload = CacheWirePayloadCapture.ResolveForStore(entry.Value, entry.WireValuePayload),
         };
     }
 
@@ -226,7 +231,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return true;
     }
 
-    private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version);
+    private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version, byte[]? WireValuePayload);
 
     /// <summary>Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).</summary>
     private sealed class LocalEvictionIndex

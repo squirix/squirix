@@ -47,6 +47,8 @@ internal sealed class ServerJsonSerializer : IServerSerializer
     /// <inheritdoc />
     public byte[] SerializeToUtf8Bytes<T>(T? value) => JsonSerializer.SerializeToUtf8Bytes(value, _options);
 
+    internal JsonSerializerOptions GetSerializerOptions() => _options;
+
     private static JsonSerializerOptions CreateDefaultOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)

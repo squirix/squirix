@@ -110,5 +110,5 @@ P:Squirix.Client.SquirixClientOptions::BearerTokenProvider:System.Func<System.Th
 P:Squirix.Client.SquirixClientOptions::Endpoints:System.Collections.Generic.IList<System.Uri>.get
 P:Squirix.Client.SquirixClientOptions::Serializer:Squirix.ISquirixSerializer.get
 P:Squirix.Client.SquirixClientOptions::Serializer:Squirix.ISquirixSerializer.set
-T:Squirix.Transport.Grpc.RpcOperationIdentity
-M:Squirix.Transport.Grpc.RpcOperationIdentity::New()
+T:Squirix.Internal.Cluster.Transport.RpcOperationIdentity
+M:Squirix.Internal.Cluster.Transport.RpcOperationIdentity::New()

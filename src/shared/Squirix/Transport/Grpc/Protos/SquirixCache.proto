@@ -9,9 +9,9 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 message CacheEntryWire {
-    google.protobuf.Struct value = 1;
-    google.protobuf.Timestamp expires_utc = 2;
-    google.protobuf.Duration expiration = 3;
+    google.protobuf.Timestamp expires_utc = 1;
+    google.protobuf.Duration expiration = 2;
+    bytes payload = 3;
 }
 
 message CacheValue {
@@ -22,7 +22,7 @@ message CacheValue {
         int64 int64_value = 4;
         double double_value = 5;
         bool bool_value = 6;
-        google.protobuf.Struct struct_value = 7;
+        bytes payload = 7;
     }
 }
 

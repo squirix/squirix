@@ -80,4 +80,10 @@ public sealed class NodeCacheEntry<T>
             field = value;
         }
     }
+
+    /// <summary>
+    /// Gets a server-internal cached binary <see cref="Squirix.Transport.Grpc.Cache.CacheValue" /> payload.
+    /// When set, Get responses reuse this buffer instead of re-encoding <see cref="Value" />.
+    /// </summary>
+    internal byte[]? WireValuePayload { get; init; }
 }
