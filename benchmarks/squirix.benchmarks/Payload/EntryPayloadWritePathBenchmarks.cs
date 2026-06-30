@@ -14,7 +14,7 @@ namespace Squirix.Benchmarks.Payload;
 /// </summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
-public sealed class EntryPayloadWritePathBenchmarks
+public class EntryPayloadWritePathBenchmarks
 {
     private ServerCacheEntry _entry = new() { Value = string.Empty, Version = 1 };
 

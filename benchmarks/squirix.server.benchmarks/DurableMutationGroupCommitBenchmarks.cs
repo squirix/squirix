@@ -16,7 +16,7 @@ namespace Squirix.Server.Benchmarks;
 [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 3)]
-public sealed class DurableMutationGroupCommitBenchmarks
+public class DurableMutationGroupCommitBenchmarks
 {
     private const int DefaultOperationsPerWriter = 2_000;
     private const int DefaultParallelWriters = 8;

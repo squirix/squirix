@@ -7,7 +7,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Isolates binary snapshot write costs: temp-file write and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public sealed class SnapshotWriteBreakdownBenchmarks
+public class SnapshotWriteBreakdownBenchmarks
 {
     private SnapshotWriteBreakdownSession? _session;
     private int _operationsPerInvoke;

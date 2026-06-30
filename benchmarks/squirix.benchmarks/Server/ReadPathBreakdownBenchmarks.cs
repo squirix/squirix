@@ -17,7 +17,7 @@ namespace Squirix.Benchmarks.Server;
 /// <summary>Layer breakdown for the read path using in-process server hooks and internal gRPC stubs (not public e2e APIs).</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public sealed class ReadPathBreakdownBenchmarks : IAsyncDisposable
+public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 {
     private const string BenchmarkNodeId = "bench-client-pool-node";
     private const string CacheName = "bench-read-path-breakdown";
