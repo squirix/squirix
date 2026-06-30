@@ -11,21 +11,29 @@ internal sealed class KeyedSingleFlight<TResult>
 {
     private readonly ConcurrentDictionary<string, Task<TResult>> _concurrent = new(StringComparer.Ordinal);
 
-    public Task<TResult> RunAsync(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
+    public Task<TResult> RunAsync<TState>(
+        string key,
+        TState state,
+        Func<TState, CancellationToken, Task<TResult>> action,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
         return _concurrent.GetOrAdd(
             key,
-            static (inFlightKey, state) => state.Flight.ExecuteAndCleanupAsync(inFlightKey, state.Action, state.CancellationToken),
-            new RunAsyncState(this, action, cancellationToken));
+            static (inFlightKey, runState) => runState.Flight.ExecuteAndCleanupAsync(inFlightKey, runState.State, runState.Action, runState.CancellationToken),
+            new RunAsyncState<TState>(this, state, action, cancellationToken));
     }
 
-    private async Task<TResult> ExecuteAndCleanupAsync(string key, Func<CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
+    private async Task<TResult> ExecuteAndCleanupAsync<TState>(
+        string key,
+        TState state,
+        Func<TState, CancellationToken, Task<TResult>> action,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await action(cancellationToken).ConfigureAwait(false);
+            return await action(state, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -33,5 +41,9 @@ internal sealed class KeyedSingleFlight<TResult>
         }
     }
 
-    private readonly record struct RunAsyncState(KeyedSingleFlight<TResult> Flight, Func<CancellationToken, Task<TResult>> Action, CancellationToken CancellationToken);
+    private readonly record struct RunAsyncState<TState>(
+        KeyedSingleFlight<TResult> Flight,
+        TState State,
+        Func<TState, CancellationToken, Task<TResult>> Action,
+        CancellationToken CancellationToken);
 }

@@ -94,7 +94,7 @@ finally
     }
 }
 
-static string BuildSettingsJson(string url)
+static string BuildSettingsJson(string uri)
 {
     var settings = new
     {
@@ -103,14 +103,14 @@ static string BuildSettingsJson(string url)
             Cluster = new
             {
                 NodeId = "external-smoke",
-                Url = url,
+                Uri = uri,
                 VirtualNodes = 128,
                 Peers = new[]
                 {
                     new
                     {
                         NodeId = "external-smoke",
-                        Url = url,
+                        Uri = uri,
                     },
                 },
             },

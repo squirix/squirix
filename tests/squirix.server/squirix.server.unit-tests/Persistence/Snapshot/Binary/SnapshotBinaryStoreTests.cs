@@ -85,7 +85,7 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
         },
     ];
 
-    private static SortedDictionary<string, CacheEntry<object?>> ToDictionary(IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> entries)
+    private static SortedDictionary<string, CacheEntry<object?>> ToDictionary(List<(CacheKey Key, CacheEntry<object?> Entry)> entries)
     {
         var result = new SortedDictionary<string, CacheEntry<object?>>(StringComparer.Ordinal);
         foreach (var (key, entry) in entries)

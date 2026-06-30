@@ -22,7 +22,7 @@ public sealed class SquirixServerOptions
     public bool PersistenceEnabled { get; set; }
 
     /// <summary>Gets or sets the primary HTTP/2 URL used for gRPC and node traffic.</summary>
-    public Uri Url { get; set; } = new("https://localhost:5001");
+    public Uri Uri { get; set; } = new("https://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>
     public int VirtualNodes { get; set; } = 128;

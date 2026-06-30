@@ -1,4 +1,4 @@
-using System;
+using Squirix.Server.Node.Context;
 
 namespace Squirix.Server.Runtime.Contracts;
 
@@ -8,5 +8,5 @@ internal interface IRemoteInvocationScopeFactory
     /// <summary>Enters a remote-invocation scope and returns a disposable that restores the previous scope.</summary>
     /// <param name="isInternalOwnerInvocation">Whether the invocation is an internal owner-routed cluster RPC.</param>
     /// <returns>A disposable scope handle.</returns>
-    IDisposable EnterRemoteInvocation(bool isInternalOwnerInvocation);
+    RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation);
 }

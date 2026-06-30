@@ -77,14 +77,17 @@ try
     foreach (var node in splitNodes)
         uniqueNodes.Add(node);
 
-    var nodes = new List<string>(uniqueNodes);
+    var nodes = new string[uniqueNodes.Count];
+    var nodeIndex = 0;
+    foreach (var node in uniqueNodes)
+        nodes[nodeIndex++] = node;
 
-    if (nodes.Count is 0)
+    if (nodes.Length is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
     var ring = new ConsistentHashRing(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
-    for (var n = 0; n < nodes.Count; n++)
+    for (var n = 0; n < nodes.Length; n++)
         distribution[nodes[n]] = 0;
 
     for (var i = 0; i < sampleSize; i++)

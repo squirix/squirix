@@ -97,8 +97,8 @@ public sealed class MtlsOptionsTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = new Uri("https://localhost:6001"),
-            Peers = [new Peer { NodeId = "node-a", Url = new Uri("https://localhost:6001") }],
+            Uri = new Uri("https://localhost:6001"),
+            Peers = [new Peer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }],
         };
         var validator = new SquirixOptionsValidators.MtlsOptionsValidator(cluster);
 

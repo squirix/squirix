@@ -22,7 +22,7 @@ internal static class ProtoEx
             expires = e.ExpiresUtc.ToDateTime().ToUniversalTime();
 
         if (typeof(T) == typeof(object))
-            value = Coerce<T>(NormalizeUntypedScalarForUntypedCache(value));
+            value = Coerce<T>(value);
 
         return new CacheEntry<T>
         {
@@ -61,7 +61,7 @@ internal static class ProtoEx
         {
             null => new CacheValue { NullValue = NullValue.NullValue },
             string text => new CacheValue { StringValue = text },
-            int number => new CacheValue { Int64Value = number },
+            int number => new CacheValue { Int32Value = number },
             long number => new CacheValue { Int64Value = number },
             double number => new CacheValue { DoubleValue = number },
             bool boolean => new CacheValue { BoolValue = boolean },
@@ -72,30 +72,33 @@ internal static class ProtoEx
     internal static async ValueTask<T?> MapCacheValueAsync<T>(CacheValue value)
     {
         if (typeof(T) == typeof(object))
-            return Coerce<T>(NormalizeUntypedScalarForUntypedCache(await MapCacheValueAsObjectAsync(value).ConfigureAwait(false)));
+            return Coerce<T>(await MapCacheValueAsObjectAsync(value).ConfigureAwait(false));
 
         switch (value.KindCase)
         {
             case CacheValue.KindOneofCase.StringValue:
                 if (typeof(T) == typeof(string))
-                    return Coerce<T>(value.StringValue);
+                    return ReinterpretReference<T, string>(value.StringValue);
                 break;
 
             case CacheValue.KindOneofCase.BoolValue:
                 if (typeof(T) == typeof(bool))
-                    return Coerce<T>(value.BoolValue);
+                    return ReinterpretScalar<T, bool>(value.BoolValue);
+                break;
+
+            case CacheValue.KindOneofCase.Int32Value:
+                if (typeof(T) == typeof(int))
+                    return ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
                 break;
 
             case CacheValue.KindOneofCase.Int64Value:
                 if (typeof(T) == typeof(long))
-                    return Coerce<T>(value.Int64Value);
-                if (typeof(T) == typeof(int) && value.Int64Value is >= int.MinValue and <= int.MaxValue)
-                    return Coerce<T>(Convert.ToInt32(value.Int64Value));
+                    return ReinterpretScalar<T, long>(value.Int64Value);
                 break;
 
             case CacheValue.KindOneofCase.DoubleValue:
                 if (typeof(T) == typeof(double))
-                    return Coerce<T>(value.DoubleValue);
+                    return ReinterpretScalar<T, double>(value.DoubleValue);
                 break;
 
             case CacheValue.KindOneofCase.NullValue:
@@ -116,6 +119,7 @@ internal static class ProtoEx
     {
         CacheValue.KindOneofCase.StringValue => WrapAsStruct("value", Value.ForString(value.StringValue)),
         CacheValue.KindOneofCase.BoolValue => WrapAsStruct("value", Value.ForBool(value.BoolValue)),
+        CacheValue.KindOneofCase.Int32Value => WrapAsStruct("value", Value.ForNumber(value.Int32Value)),
         CacheValue.KindOneofCase.Int64Value => WrapAsStruct("value", Value.ForNumber(value.Int64Value)),
         CacheValue.KindOneofCase.DoubleValue => WrapAsStruct("value", Value.ForNumber(value.DoubleValue)),
         CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => WrapAsStruct("value", Value.ForNull()),
@@ -152,8 +156,11 @@ internal static class ProtoEx
     private static ListValue ListFromJson(JsonElement el)
     {
         var list = new ListValue();
-        foreach (var item in el.EnumerateArray())
-            list.Values.Add(ValueFromJson(item));
+        var values = list.Values;
+        var length = el.GetArrayLength();
+        for (var index = 0; index < length; index++)
+            values.Add(ValueFromJson(el[index]));
+
         return list;
     }
 
@@ -163,38 +170,12 @@ internal static class ProtoEx
         {
             CacheValue.KindOneofCase.StringValue => value.StringValue,
             CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(value.Int64Value) : value.Int64Value,
+            CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+            CacheValue.KindOneofCase.Int64Value => value.Int64Value,
             CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
             CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
             CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue).ConfigureAwait(false),
             _ => await FromStructAsync<object?>(CacheValueToStruct(value)).ConfigureAwait(false),
-        };
-    }
-
-    /// <summary>
-    /// Narrows numeric scalars for untyped (<c>object?</c>) cache values so callers see stable CLR types.
-    /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///     Protobuf well-known <c>Value</c> numbers are carried as <see cref="double" />.
-    ///     Parsing may also produce <see cref="long" /> (for example JSON numbers decoded with <c>TryGetInt64</c> before
-    ///     conversion to proto). Those values are semantically integers but boxed as <see cref="long" /> or <see cref="double" />,
-    ///     while many tests and APIs compare against <see cref="int" /> literals (for example xUnit <c>Assert.Equal(0, value)</c>),
-    ///     which fails when the runtime type is <see cref="long" /> even though both sides print as <c>0</c>.
-    ///     </para>
-    ///     <para>
-    ///     Non-numeric objects (including <see cref="JsonElement" />) are returned unchanged.
-    ///     </para>
-    /// </remarks>
-    /// <param name="value">Untyped cache scalar to normalize.</param>
-    private static object? NormalizeUntypedScalarForUntypedCache(object? value)
-    {
-        return value switch
-        {
-            long lv and >= int.MinValue and <= int.MaxValue => Convert.ToInt32(lv),
-            double dv when double.IsInteger(dv) && dv is >= int.MinValue and <= int.MaxValue => Convert.ToInt32(dv),
-            double dv when double.IsInteger(dv) && dv is >= long.MinValue and <= long.MaxValue => Convert.ToInt64(dv),
-            _ => value,
         };
     }
 
@@ -209,9 +190,7 @@ internal static class ProtoEx
                 return v.BoolValue;
 
             case Value.KindOneofCase.NumberValue:
-                var d = v.NumberValue;
-                var d2 = double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue ? Convert.ToInt64(d) : d;
-                return double.IsInteger(d) && d is >= int.MinValue and <= int.MaxValue ? Convert.ToInt32(d) : d2;
+                return v.NumberValue;
 
             case Value.KindOneofCase.NullValue:
                 return null;
@@ -293,28 +272,10 @@ internal static class ProtoEx
             return true;
         }
 
-        if (value.KindCase is Value.KindOneofCase.NumberValue)
+        if (value.KindCase is Value.KindOneofCase.NumberValue && typeof(T) == typeof(double))
         {
-            var number = value.NumberValue;
-            if (typeof(T) == typeof(double))
-            {
-                result = ReinterpretScalar<T, double>(number);
-                return true;
-            }
-
-            if (typeof(T) == typeof(int) && double.IsInteger(number) && number is >= int.MinValue and <= int.MaxValue)
-            {
-                var intValue = Convert.ToInt32(number);
-                result = ReinterpretScalar<T, int>(intValue);
-                return true;
-            }
-
-            if (typeof(T) == typeof(long) && double.IsInteger(number) && number is >= long.MinValue and <= long.MaxValue)
-            {
-                var longValue = Convert.ToInt64(number);
-                result = ReinterpretScalar<T, long>(longValue);
-                return true;
-            }
+            result = ReinterpretScalar<T, double>(value.NumberValue);
+            return true;
         }
 
         result = default;
@@ -377,20 +338,27 @@ internal static class ProtoEx
                 break;
 
             case Value.KindOneofCase.StructValue:
+            {
                 w.WriteStartObject();
-                foreach (var kv in v.StructValue.Fields)
+                var fields = v.StructValue.Fields;
+                using var fieldEnumerator = fields.GetEnumerator();
+                for (var index = 0; index < fields.Count; index++)
                 {
+                    _ = fieldEnumerator.MoveNext();
+                    var kv = fieldEnumerator.Current;
                     w.WritePropertyName(kv.Key);
                     WriteValue(w, kv.Value);
                 }
 
                 w.WriteEndObject();
                 break;
+            }
 
             case Value.KindOneofCase.ListValue:
                 w.WriteStartArray();
-                foreach (var item in v.ListValue.Values)
-                    WriteValue(w, item);
+                for (var index = 0; index < v.ListValue.Values.Count; index++)
+                    WriteValue(w, v.ListValue.Values[index]);
+
                 w.WriteEndArray();
                 break;
 

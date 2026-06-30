@@ -46,8 +46,17 @@ public sealed class SnapshotTriggerOptionsTests
     [InlineData(nameof(SnapshotTriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => _ = CreateWithInvalidScalar(propertyName));
+        ArgumentOutOfRangeException? ex = null;
+        try
+        {
+            _ = CreateWithInvalidScalar(propertyName);
+        }
+        catch (ArgumentOutOfRangeException caught)
+        {
+            ex = caught;
+        }
 
+        Assert.NotNull(ex);
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }

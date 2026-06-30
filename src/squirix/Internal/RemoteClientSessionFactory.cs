@@ -26,7 +26,7 @@ internal static class RemoteClientSessionFactory
             peers[i] = new Peer
             {
                 NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
-                Url = endpoints[i],
+                Uri = endpoints[i],
             };
         }
 
@@ -53,25 +53,22 @@ internal static class RemoteClientSessionFactory
 
     private static CallCredentials? BuildCallCredentials(SquirixOptions options)
     {
-        return options.BearerTokenProvider is null ? null : CallCredentials.FromInterceptor(async (context, metadata) =>
-        {
-            var token = await options.BearerTokenProvider(context.CancellationToken).ConfigureAwait(false);
-            metadata.Add("authorization", $"Bearer {token}");
-        });
+        if (options.BearerTokenProvider is not { } tokenProvider)
+            return null;
+
+        return new BearerTokenCallCredentials(tokenProvider).Credentials;
     }
 
-    private static Uri[] NormalizeEndpoints(IEnumerable<Uri> endpoints)
+    private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var result = new List<Uri>();
 
-        foreach (var endpoint in endpoints)
+        for (var index = 0; index < endpoints.Count; index++)
         {
-            if (endpoint is null)
-                throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
-
+            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
             if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
                 throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 
@@ -82,5 +79,29 @@ internal static class RemoteClientSessionFactory
         }
 
         return result.Count is 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
+    }
+
+    private sealed class BearerTokenCallCredentials
+    {
+        private const string AuthorizationHeader = "authorization";
+        private const string BearerSchemePrefix = "Bearer ";
+
+        private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
+
+        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
+        {
+            _tokenProvider = tokenProvider;
+            Credentials = CallCredentials.FromInterceptor(InterceptAsync);
+        }
+
+        internal CallCredentials Credentials { get; }
+
+        private static async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
+        {
+            var token = await tokenTask.ConfigureAwait(false);
+            metadata.Add(AuthorizationHeader, string.Concat(BearerSchemePrefix, token));
+        }
+
+        private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
     }
 }

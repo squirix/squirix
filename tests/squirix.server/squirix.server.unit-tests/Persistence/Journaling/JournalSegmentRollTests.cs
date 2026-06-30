@@ -128,8 +128,10 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         if (!File.Exists(path))
             return false;
 
-        foreach (var record in new BinaryJournalSegmentReader(path, true, CancellationToken.None))
+        using var enumerator = new BinaryJournalSegmentReader.Enumerator(path, true, CancellationToken.None);
+        while (enumerator.MoveNext())
         {
+            var record = enumerator.Current;
             if (record.Operation is JournalOperationKind.Put && string.Equals(record.Key.Key, key, StringComparison.OrdinalIgnoreCase))
                 return true;
         }

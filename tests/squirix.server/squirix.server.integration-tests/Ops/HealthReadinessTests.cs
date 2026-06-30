@@ -39,14 +39,14 @@ public sealed class HealthReadinessTests : IntegrationTestBase
     [Fact]
     public async Task ReadyDetailsEndpointReportsReadinessSignals()
     {
-        var url = GetNextHttpUri();
+        var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(url, "node_health_A", usePersistence: true);
+        await using var node = await StartNodeAsync(uri, "node_health_A", usePersistence: true);
         var cache = GetCache(node);
 
         await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
-        var json = await FetchReadyDetailsAsync(node.Address);
+        var json = await FetchReadyDetailsAsync(node.Uri);
 
         AssertJournalReadiness(json);
         AssertSnapshotReadiness(json);
@@ -136,9 +136,9 @@ public sealed class HealthReadinessTests : IntegrationTestBase
         Assert.True(snpAge.ValueKind is JsonValueKind.Null or JsonValueKind.Number);
     }
 
-    private async Task<JsonElement> FetchReadyDetailsAsync(string address)
+    private async Task<JsonElement> FetchReadyDetailsAsync(Uri uri)
     {
-        var resp = await HttpClient.GetAsync(new Uri(new Uri(address, UriKind.Absolute), "/health/ready/details"), DefaultCancellationToken);
+        var resp = await HttpClient.GetAsync(new Uri(uri, "/health/ready/details"), DefaultCancellationToken);
         _ = resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<JsonElement>(DefaultCancellationToken);
     }

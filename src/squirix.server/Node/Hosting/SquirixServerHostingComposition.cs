@@ -74,7 +74,7 @@ internal static class SquirixServerHostingComposition
             ? null
             : PersistenceOptionsResolver.Resolve(cluster, persistenceOptionsOverride);
         var persistenceEnabled = persistence is not null;
-        var uri = cluster.Url;
+        var uri = cluster.Uri;
         _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, string.Empty);
         SquirixKestrelConfiguration.EnsureHttpsTransport(cluster);
         var requiresInterNodeMtls = MtlsTopology.RequiresInterNodeMtls(cluster);

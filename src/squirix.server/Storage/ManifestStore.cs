@@ -38,6 +38,7 @@ internal sealed class ManifestStore : IDisposable
     private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
     private volatile bool _nextIndexInitialized;
     private int _nextManifestIndex;
+    private ManifestPublishWork _publishWork;
     private volatile ManifestState? _pendingRetentionManifest;
     private int _retentionWorkerScheduled;
 
@@ -266,17 +267,26 @@ internal sealed class ManifestStore : IDisposable
 
         ManifestCodec.WriteEncoded(manifest, _encodeBuffer.AsSpan(0, encodedLength));
 
+        _publishWork = new ManifestPublishWork
+        {
+            TargetPath = targetPath,
+            EncodedLength = encodedLength,
+            ManifestIndex = nextIndex,
+        };
+
         await Task.Factory.StartNew(
-            () =>
-            {
-                ManifestDurability.WriteManifestDataFileBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength));
-                UpdateCurrentPointerBlocking(nextIndex);
-            },
+            WritePublishedManifestBlocking,
             cancellationToken,
             TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default).ConfigureAwait(false);
 
         SetCache(manifest, nextIndex);
+    }
+
+    private void WritePublishedManifestBlocking()
+    {
+        ManifestDurability.WriteManifestDataFileBlocking(_publishWork.TargetPath, _encodeBuffer.AsSpan(0, _publishWork.EncodedLength));
+        UpdateCurrentPointerBlocking(_publishWork.ManifestIndex);
     }
 
     private ManifestState PublishRollCoreBlocking(int currentJournal, ulong nextSequence, int nextIndex)
@@ -429,5 +439,12 @@ internal sealed class ManifestStore : IDisposable
     {
         ManifestPointer.Write(_currentPointerBuffer, manifestIndex);
         ManifestDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
+    }
+
+    private struct ManifestPublishWork
+    {
+        public string TargetPath;
+        public int EncodedLength;
+        public int ManifestIndex;
     }
 }

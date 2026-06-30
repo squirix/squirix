@@ -6,7 +6,6 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
-using Squirix.E2EBenchmarks.Support.Runtime;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -144,7 +143,6 @@ public sealed class PublicSdkOperationsBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        BenchmarkRuntime.EnsureInitialized();
         SeedKeys();
 
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);

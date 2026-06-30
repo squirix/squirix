@@ -35,13 +35,11 @@
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(IsSquirixBenchmarkProject)' == 'true'">
-        <!-- BenchmarkDotNet: public types, instance benchmark methods, discarded setup expressions. -->
-        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058</NoWarn>
+        <NoWarn>$(NoWarn);CA1515;CA1822;IDE0058;ZA0901</NoWarn>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(IsSquirixTestProject)' == 'true'">
-        <!-- xUnit / FsCheck / TestKit: public test, fixture, and helper types. -->
-        <NoWarn>$(NoWarn);CA1515</NoWarn>
+        <NoWarn>$(NoWarn);CA1515;CA2007;MA0004</NoWarn>
     </PropertyGroup>
 
     <!-- Solution-wide Roslyn analyzers (all projects). -->
@@ -72,6 +70,7 @@
 
     <ItemGroup Label="AnalyzerConfig">
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false"/>
+        <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Reflection.txt" Visible="false"/>
         <AdditionalFiles Include="$(MSBuildThisFileDirectory)stylecop.json" Visible="false"/>
     </ItemGroup>
 </Project>

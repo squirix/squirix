@@ -45,9 +45,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         };
 
         await using var cluster = await HostedCluster.StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, cancellationToken: DefaultCancellationToken);
-
-        var status = await MtlsInterNodeGrpcProbe.TryGetValueAsync(cluster.GetAddress("nodeB"), bearerToken, true, DefaultCancellationToken);
-
+        var status = await MtlsInterNodeGrpcProbe.TryGetValueAsync(cluster.GetUri("nodeB"), bearerToken, true, DefaultCancellationToken);
         Assert.Equal(StatusCode.Unauthenticated, status);
     }
 
@@ -69,14 +67,14 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
         await using var clientA = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeA"), UriKind.Absolute));
+                options.Endpoints.Add(cluster.GetUri("nodeA"));
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);
         await using var clientB = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(new Uri(cluster.GetAddress("nodeB"), UriKind.Absolute));
+                options.Endpoints.Add(cluster.GetUri("nodeB"));
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);

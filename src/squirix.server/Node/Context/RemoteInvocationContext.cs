@@ -1,4 +1,3 @@
-using System;
 using System.Threading;
 
 namespace Squirix.Server.Node.Context;
@@ -9,22 +8,12 @@ internal static class RemoteInvocationContext
 
     internal static bool IsInternalOwnerInvocation => InternalOwnerInvocation.Value;
 
-    internal static Scope EnterRemoteInvocation(bool isInternalOwnerInvocation = false)
+    internal static void RestoreInternalOwnerInvocation(bool internalOwnerInvocation) => InternalOwnerInvocation.Value = internalOwnerInvocation;
+
+    internal static RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation = false)
     {
         var value = InternalOwnerInvocation.Value;
         InternalOwnerInvocation.Value = isInternalOwnerInvocation;
-        return new Scope(value);
-    }
-
-    internal readonly struct Scope : IDisposable
-    {
-        private readonly bool _internalOwnerInvocation;
-
-        public Scope(bool internalOwnerInvocation)
-        {
-            _internalOwnerInvocation = internalOwnerInvocation;
-        }
-
-        public void Dispose() => InternalOwnerInvocation.Value = _internalOwnerInvocation;
+        return new RemoteInvocationScope(value);
     }
 }

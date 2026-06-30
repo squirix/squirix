@@ -34,11 +34,13 @@ internal static class E2EBenchmarkValueAdapter
     {
         private readonly ICache<T> _cache;
         private readonly Func<int, T> _factory;
+        private readonly GetOrAddMissFactory _getOrAddMissFactory;
 
         internal Adapter(ICache<T> cache, Func<int, T> factory)
         {
             _cache = cache;
             _factory = factory;
+            _getOrAddMissFactory = new GetOrAddMissFactory(factory);
         }
 
         public Task AddAsync(string key, int valueIndex, CancellationToken cancellationToken) => _cache.AddAsync(key, _factory(valueIndex), cancellationToken: cancellationToken);
@@ -84,7 +86,8 @@ internal static class E2EBenchmarkValueAdapter
 
         public async Task<bool> GetOrAddMissAsync(string key, int valueIndex, CancellationToken cancellationToken)
         {
-            var result = await _cache.GetOrAddAsync(key, (_, _) => Task.FromResult<T?>(_factory(valueIndex)), cancellationToken: cancellationToken).ConfigureAwait(false);
+            _getOrAddMissFactory.ValueIndex = valueIndex;
+            var result = await _cache.GetOrAddAsync(key, _getOrAddMissFactory.ValueFactory, cancellationToken: cancellationToken).ConfigureAwait(false);
             return result.Found;
         }
 
@@ -132,5 +135,26 @@ internal static class E2EBenchmarkValueAdapter
             _cache.TryAddAsync(key, _factory(valueIndex), cancellationToken: cancellationToken);
 
         public Task<bool> UpdateAsync(string key, int valueIndex, CancellationToken cancellationToken) => _cache.UpdateAsync(key, _factory(valueIndex), cancellationToken);
+
+        private sealed class GetOrAddMissFactory
+        {
+            private readonly Func<int, T> _valueFactory;
+
+            internal GetOrAddMissFactory(Func<int, T> valueFactory)
+            {
+                _valueFactory = valueFactory;
+                ValueFactory = CreateValueAsync;
+            }
+
+            internal int ValueIndex { get; set; }
+
+            internal Func<string, CancellationToken, Task<T?>> ValueFactory { get; }
+
+            private Task<T?> CreateValueAsync(string key, CancellationToken cancellationToken)
+            {
+                _ = key;
+                return Task.FromResult<T?>(_valueFactory(ValueIndex));
+            }
+        }
     }
 }

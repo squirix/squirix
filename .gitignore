@@ -71,7 +71,7 @@ nunit-*.xml
 *.sln.docstates
 
 #BenchmarkDotNet
-BenchmarkDotNet.Artifacts/*
+**/BenchmarkDotNet.Artifacts/*
 
 # C# DevKit
 *.lscache

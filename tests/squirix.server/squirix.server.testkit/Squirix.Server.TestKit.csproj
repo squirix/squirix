@@ -13,6 +13,7 @@
         <PackageReference Include="Grpc.Net.Client"/>
         <PackageReference Include="JetBrains.Annotations"/>
         <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp"/>
         <PackageReference Include="xunit.v3.extensibility.core"/>
     </ItemGroup>
 

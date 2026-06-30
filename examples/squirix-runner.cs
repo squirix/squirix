@@ -189,13 +189,13 @@ static Task WriteSettingsFileAsync(string directory, string endpoint, Cancellati
             Cluster = new
             {
                 NodeId = "runner",
-                Url = endpoint,
+                Uri = endpoint,
                 Peers = new[]
                 {
                     new
                     {
                         NodeId = "runner",
-                        Url = endpoint,
+                        Uri = endpoint,
                     },
                 },
             },

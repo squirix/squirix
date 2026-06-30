@@ -1,4 +1,3 @@
-using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.E2ETests.Support;
@@ -34,12 +33,12 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(ClientAuthenticatesWithBearerTokenProvider),
             security,
             cancellationToken: DefaultCancellationToken);
-        var url = cluster.GetAddress("nodeA");
+        var uri = cluster.GetUri("nodeA");
 
         await using var client = await LoopbackConnect.ConnectAsync(
             options =>
             {
-                options.Endpoints.Add(new Uri(url, UriKind.Absolute));
+                options.Endpoints.Add(uri);
                 options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
             },
             DefaultCancellationToken);
@@ -66,9 +65,9 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             nameof(ClientFailsWhenJwtRequiredButNotConfigured),
             security,
             cancellationToken: DefaultCancellationToken);
-        var url = cluster.GetAddress("nodeA");
+        var uri = cluster.GetUri("nodeA");
 
-        await using var client = await LoopbackConnect.ConnectAsync(url, DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(uri, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
         var ex = await Assert.ThrowsAsync<RpcException>(() => cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));

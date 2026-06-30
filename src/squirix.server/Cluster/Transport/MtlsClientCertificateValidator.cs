@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -22,21 +21,19 @@ internal static class MtlsClientCertificateValidator
     /// <summary>Validates a peer certificate against the cluster CA and one of the configured remote peer node identifiers.</summary>
     /// <param name="peerCertificate">The presented peer certificate.</param>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="allowedRemotePeerNodeIds">Configured remote peer node identifiers.</param>
+    /// <param name="nodeIds">Configured remote peer node identifiers.</param>
     /// <returns><see langword="true" /> when the certificate is trusted and bound to an allowed peer.</returns>
-    public static bool ValidateForConfiguredRemotePeer(X509Certificate2? peerCertificate, X509Certificate2 trustAnchor, IReadOnlyCollection<string> allowedRemotePeerNodeIds)
+    public static bool ValidateForConfiguredRemotePeer(X509Certificate2? peerCertificate, X509Certificate2 trustAnchor, ReadOnlySpan<string> nodeIds)
     {
-        ArgumentNullException.ThrowIfNull(allowedRemotePeerNodeIds);
-
         if (!Validate(peerCertificate, trustAnchor))
             return false;
 
         if (!MtlsCertificateIdentity.TryGetNodeId(peerCertificate!, out var nodeId))
             return false;
 
-        foreach (var allowedNodeId in allowedRemotePeerNodeIds)
+        for (var i = 0; i < nodeIds.Length; i++)
         {
-            if (string.Equals(nodeId, allowedNodeId, StringComparison.Ordinal))
+            if (string.Equals(nodeId, nodeIds[i], StringComparison.Ordinal))
                 return true;
         }
 

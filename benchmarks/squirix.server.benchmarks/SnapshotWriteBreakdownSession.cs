@@ -53,7 +53,7 @@ internal sealed class SnapshotWriteBreakdownSession : IDisposable
             object? value = (i % 3) switch
             {
                 0 => $"value-{i}",
-                1 => i + 0L,
+                1 => i,
                 _ => i * 1.5d,
             };
             items.Add((CacheKey.Default($"key-{i}"), new CacheEntry<object?> { Value = value, Version = 1 }));

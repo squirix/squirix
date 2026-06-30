@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
-using Squirix.Benchmarks.Support.Runtime;
 using Squirix.Serialization;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
@@ -36,14 +35,12 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    internal static BenchmarkRawGrpcCache Connect(string endpoint, string cacheName)
+    internal static BenchmarkRawGrpcCache Connect(Uri uri, string cacheName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        BenchmarkRuntime.EnsureInitialized();
         var channel = GrpcChannel.ForAddress(
-            endpoint,
+            uri,
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),

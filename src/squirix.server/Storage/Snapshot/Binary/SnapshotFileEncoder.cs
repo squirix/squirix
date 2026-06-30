@@ -21,16 +21,18 @@ internal static class SnapshotFileEncoder
     {
         long total = Codec.FileHeaderSize + Codec.FileFooterSize;
         var maxRecordLength = 0;
-        foreach (var (key, entry) in items)
+        for (var i = 0; i < items.Count; i++)
         {
+            var (key, entry) = items[i];
             var recordLength = Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry));
             total += recordLength;
             if (recordLength > maxRecordLength)
                 maxRecordLength = recordLength;
         }
 
-        foreach (var record in idempotencyRecords)
+        for (var i = 0; i < idempotencyRecords.Count; i++)
         {
+            var record = idempotencyRecords[i];
             var recordLength = Codec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
             total += recordLength;
             if (recordLength > maxRecordLength)
@@ -57,16 +59,18 @@ internal static class SnapshotFileEncoder
         WriteFileHeader(destination);
 
         var crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
-        foreach (var (key, entry) in items)
+        for (var i = 0; i < items.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var (key, entry) = items[i];
             var recordLength = WriteEntryRecord(encodeBuffer, key, entry);
             crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
         }
 
-        foreach (var record in idempotencyRecords)
+        for (var i = 0; i < idempotencyRecords.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var record = idempotencyRecords[i];
             var recordLength = WriteIdempotencyRecord(encodeBuffer, record);
             crc = await WriteRecordAndUpdateCrcAsync(destination, encodeBuffer, recordLength, crc, cancellationToken).ConfigureAwait(false);
         }

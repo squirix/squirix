@@ -25,14 +25,14 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// Initializes a new instance of the <see cref="TestNodeHost" /> class.
     /// </summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
-    /// <param name="address">The listening address (scheme/host/port) used by the test node.</param>
+    /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
     /// <param name="scope">Optional disposable scope that will be disposed alongside the host.</param>
-    public TestNodeHost(WebApplication app, string address, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
+    public TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
-        Address = address;
+        Uri = uri;
         DataDir = dataDir;
         PersistenceEnabled = persistenceEnabled;
         _scope = scope;
@@ -41,7 +41,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>
     /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
     /// </summary>
-    public string Address { get; }
+    public Uri Uri { get; }
 
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }

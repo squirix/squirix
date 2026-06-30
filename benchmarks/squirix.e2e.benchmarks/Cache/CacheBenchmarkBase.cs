@@ -9,7 +9,6 @@ using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.E2EBenchmarks.Support.Harness;
-using Squirix.E2EBenchmarks.Support.Runtime;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -59,7 +58,6 @@ public abstract class CacheBenchmarkBase
     [GlobalSetup]
     public async Task GlobalSetupAsync()
     {
-        BenchmarkRuntime.EnsureInitialized();
         var cacheName = GetType().Name + "-" + Scenario;
         Keyspace = E2EBenchmarkKeyspace.Create(cacheName, Scenario.Topology);
         Cluster = await E2EBenchmarkCluster.StartAsync(Scenario.Topology, Scenario.DurabilityMode, CancellationToken.None).ConfigureAwait(false);

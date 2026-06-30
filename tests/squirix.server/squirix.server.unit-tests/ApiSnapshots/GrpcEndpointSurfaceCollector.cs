@@ -34,7 +34,7 @@ internal static class GrpcEndpointSurfaceCollector
             });
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             cancellationToken: CancellationToken.None);
 
@@ -49,8 +49,9 @@ internal static class GrpcEndpointSurfaceCollector
         var methods = new List<string>();
         foreach (var source in routeBuilder.DataSources)
         {
-            foreach (var endpoint in source.Endpoints)
+            for (var index = 0; index < source.Endpoints.Count; index++)
             {
+                var endpoint = source.Endpoints[index];
                 var grpc = endpoint.Metadata.GetMetadata<GrpcMethodMetadata>();
                 if (grpc is null)
                     continue;

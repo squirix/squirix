@@ -15,7 +15,7 @@ internal static class MtlsInternalPortPool
     /// <returns>An internal listener port for cluster mTLS.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="excludedPorts" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown if no internal listener port can be allocated within the attempt budget.</exception>
-    public static int AllocateInternalPort(IReadOnlyCollection<int> excludedPorts)
+    public static int AllocateInternalPort(HashSet<int> excludedPorts)
     {
         ArgumentNullException.ThrowIfNull(excludedPorts);
 

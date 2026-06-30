@@ -24,15 +24,15 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         var mainPort = AllocateDedicatedPort();
-        var url = $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        await using var node = await StartNodeAsync(url, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
 
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
         await cache.SetEntryAsync(TestOperationIds.Default, secretCacheName, "k", new CacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{url}/metrics");
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{uri}/metrics");
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));

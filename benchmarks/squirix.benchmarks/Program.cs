@@ -1,7 +1,6 @@
 using System;
 using BenchmarkDotNet.Running;
 using Squirix.Benchmarks.Config;
-using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks;
 
@@ -15,7 +14,6 @@ public static class Program
     public static void Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        BenchmarkRuntime.EnsureInitialized();
 
         if (args.Length is 0)
             args = ["--filter", "*"];

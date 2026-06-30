@@ -3,8 +3,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Threading.Tasks;
 using Squirix.Server.SmokeTests.Support;
 using Squirix.Server.TestKit.Auth;
@@ -28,7 +26,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
     {
-        var localIp = TryGetLocalNonLoopbackIpv4();
+        var localIp = LocalHostNetworking.TryGetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
@@ -68,27 +66,5 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
             Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
         }
-    }
-
-    private static string? TryGetLocalNonLoopbackIpv4()
-    {
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus is not OperationalStatus.Up)
-                continue;
-
-            foreach (var address in nic.GetIPProperties().UnicastAddresses)
-            {
-                if (address.Address.AddressFamily is not AddressFamily.InterNetwork)
-                    continue;
-
-                if (IPAddress.IsLoopback(address.Address))
-                    continue;
-
-                return address.Address.ToString();
-            }
-        }
-
-        return null;
     }
 }

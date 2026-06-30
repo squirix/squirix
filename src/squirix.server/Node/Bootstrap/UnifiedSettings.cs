@@ -110,7 +110,8 @@ internal static class UnifiedSettings
 
         return await WithSquirixRootAsync(
             path,
-            root =>
+            baseline,
+            static (root, baseline) =>
             {
                 if (!root.TryGetProperty("MemoryPressure", out var memoryPressure))
                     return (false, baseline);
@@ -177,7 +178,8 @@ internal static class UnifiedSettings
 
         return await WithSquirixRootAsync(
             settingsFilePath,
-            root =>
+            baseline,
+            static (root, baseline) =>
             {
                 if (!root.TryGetProperty("Snapshot", out var snapshot))
                     return (false, baseline);
@@ -200,7 +202,8 @@ internal static class UnifiedSettings
 
         return await WithSquirixRootAsync(
             settingsFilePath,
-            root =>
+            baseline,
+            static (root, baseline) =>
             {
                 if (!root.TryGetProperty("PrometheusMetrics", out var prometheusMetrics))
                     return (false, baseline);
@@ -212,7 +215,11 @@ internal static class UnifiedSettings
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<T> WithSquirixRootAsync<T>(string settingsFilePath, Func<JsonElement, T> action, CancellationToken cancellationToken)
+    private static async Task<T> WithSquirixRootAsync<TState, T>(
+        string settingsFilePath,
+        TState state,
+        Func<JsonElement, TState, T> action,
+        CancellationToken cancellationToken)
     {
         var bytes = await File.ReadAllBytesAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(bytes, JsonOptions);
@@ -220,6 +227,6 @@ internal static class UnifiedSettings
         if (root.TryGetProperty("Squirix", out var squirix))
             root = squirix;
 
-        return action(root);
+        return action(root, state);
     }
 }

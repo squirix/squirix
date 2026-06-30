@@ -53,7 +53,7 @@ internal sealed class ManifestRollPublisher : IDisposable
     {
         try
         {
-            foreach (var request in _queue.GetConsumingEnumerable(CancellationToken.None))
+            while (_queue.TryTake(out var request, Timeout.InfiniteTimeSpan))
             {
                 _ = Interlocked.Increment(ref _inFlight);
                 try

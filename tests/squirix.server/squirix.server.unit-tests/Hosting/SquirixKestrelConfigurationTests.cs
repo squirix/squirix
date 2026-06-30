@@ -33,11 +33,11 @@ public sealed class SquirixKestrelConfigurationTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = new Uri($"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}"),
+            Uri = new Uri($"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}"),
             Peers =
             [
-                new Peer { NodeId = "node-a", Url = new Uri($"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}") },
-                new Peer { NodeId = "node-b", Url = new Uri("https://localhost:6002") },
+                new Peer { NodeId = "node-a", Uri = new Uri($"https://localhost:{primaryPort.ToString(CultureInfo.InvariantCulture)}") },
+                new Peer { NodeId = "node-b", Uri = new Uri("https://localhost:6002") },
             ],
         };
 
@@ -60,8 +60,8 @@ public sealed class SquirixKestrelConfigurationTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
-            Peers = [new Peer { NodeId = "node-a", Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}") }],
+            Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            Peers = [new Peer { NodeId = "node-a", Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}") }],
         };
 
         SquirixKestrelConfiguration.ConfigureKestrel(builder, new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"), cluster, options, material);
@@ -78,7 +78,7 @@ public sealed class SquirixKestrelConfigurationTests
         {
             ClusterId = "test",
             NodeId = "node-a",
-            Url = new Uri("http://localhost:5001"),
+            Uri = new Uri("http://localhost:5001"),
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() => SquirixKestrelConfiguration.EnsureHttpsTransport(cluster));

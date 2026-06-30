@@ -116,11 +116,11 @@ Example:
         "Cluster": {
             "ClusterId": "dev-cluster",
             "NodeId": "node-a",
-            "Url": "https://localhost:5001",
+            "Uri": "https://localhost:5001",
             "VirtualNodes": 128,
             "Peers": [
-                { "NodeId": "node-a", "Url": "https://localhost:5001" },
-                { "NodeId": "node-b", "Url": "https://localhost:5002" }
+                { "NodeId": "node-a", "Uri": "https://localhost:5001" },
+                { "NodeId": "node-b", "Uri": "https://localhost:5002" }
             ]
         }
     }
@@ -415,12 +415,12 @@ startup; the process refuses to start without them.
         "Cluster": {
             "ClusterId": "prod-cache",
             "NodeId": "cache-a",
-            "Url": "https://cache-a.example.internal:5001",
+            "Uri": "https://cache-a.example.internal:5001",
             "VirtualNodes": 256,
             "Peers": [
-                { "NodeId": "cache-a", "Url": "https://cache-a.example.internal:5001" },
-                { "NodeId": "cache-b", "Url": "https://cache-b.example.internal:5002" },
-                { "NodeId": "cache-c", "Url": "https://cache-c.example.internal:5003" }
+                { "NodeId": "cache-a", "Uri": "https://cache-a.example.internal:5001" },
+                { "NodeId": "cache-b", "Uri": "https://cache-b.example.internal:5002" },
+                { "NodeId": "cache-c", "Uri": "https://cache-c.example.internal:5003" }
             ]
         }
     }

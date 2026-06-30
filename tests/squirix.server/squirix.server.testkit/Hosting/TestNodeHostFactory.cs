@@ -14,26 +14,29 @@ public static class TestNodeHostFactory
 {
     /// <summary>Starts a test node with the provided cluster topology and optional settings.</summary>
     /// <param name="nodeId">The node identifier.</param>
-    /// <param name="address">The HTTP listen address.</param>
+    /// <param name="uri">The HTTP listen address.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="options">Optional startup settings.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
     public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        string address,
-        ReadOnlySpan<(string NodeId, string Address)> topology,
+        Uri uri,
+        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         TestNodeHostStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        nodeId,
-        address,
-        CopyTopology(topology),
-        options?.DataDir,
-        options?.DataDir is not null,
-        options?.Security,
-        options?.Mtls,
-        options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
-        cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        return StartNodeAsync(
+            nodeId,
+            uri,
+            CopyTopology(topology),
+            options?.DataDir,
+            options?.DataDir is not null,
+            options?.Security,
+            options?.Mtls,
+            options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
+            cancellationToken);
+    }
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
     /// <param name="nodeId">The node identifier.</param>
@@ -43,23 +46,23 @@ public static class TestNodeHostFactory
     /// <returns>A started test node host.</returns>
     public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        string address,
-        ReadOnlySpan<(string NodeId, string Address)> topology,
+        Uri address,
+        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, options: null, cancellationToken);
 
     /// <summary>Starts a node with the provided cluster topology and persistence directory.</summary>
     /// <param name="nodeId">The node identifier.</param>
-    /// <param name="address">The HTTP listen address.</param>
+    /// <param name="uri">The HTTP listen address.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
     /// <param name="dataDir">Persistence data directory.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A started test node host.</returns>
     public static ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        string address,
-        ReadOnlySpan<(string NodeId, string Address)> topology,
+        Uri uri,
+        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         string? dataDir,
-        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, address, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
@@ -67,8 +70,8 @@ public static class TestNodeHostFactory
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private static async ValueTask<TestNodeHost> StartNodeAsync(
         string nodeId,
-        string address,
-        (string NodeId, string Address)[] topology,
+        Uri uri,
+        (string NodeId, Uri Uri)[] topology,
         string? dataDir,
         bool persistence,
         TestNodeSecurityOptions? security,
@@ -85,14 +88,14 @@ public static class TestNodeHostFactory
         var clusterConfig = new ClusterConfig
         {
             NodeId = nodeId,
-            Url = new Uri(address, UriKind.Absolute),
+            Uri = uri,
             VirtualNodes = 128,
             Peers = peers,
         };
 
-        var primaryUrl = clusterConfig.Url;
+        var primaryUri = clusterConfig.Uri;
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
-            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUrl, mtlsProfile, cancellationToken).ConfigureAwait(false);
+            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await SquirixNodeHost.StartAsync(
             clusterConfig,
@@ -111,13 +114,15 @@ public static class TestNodeHostFactory
             mtlsMaterialOverride: mtlsMaterial,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return new TestNodeHost(app, address, persistenceOptions?.DataDir ?? string.Empty, persistence);
+        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistence);
     }
 
-    private static (string NodeId, string Address)[] CopyTopology(ReadOnlySpan<(string NodeId, string Address)> topology)
+    private static (string NodeId, Uri Uri)[] CopyTopology(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
-        var copy = new (string NodeId, string Address)[topology.Length];
-        topology.CopyTo(copy);
+        var copy = new (string NodeId, Uri Uri)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            copy[i] = (topology[i].NodeId, topology[i].Uri);
+
         return copy;
     }
 }

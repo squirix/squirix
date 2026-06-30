@@ -1,12 +1,14 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using NetArchTest.Rules;
+using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Grpc.Cache;
+using Squirix.Transport.Grpc.Mappers;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Architecture;
@@ -14,6 +16,10 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>Enforces high-value architectural dependency boundaries for the main Squirix assembly.</summary>
 public sealed class ArchitectureTests : UnitTestBase
 {
+    private const string ServerProjectRelativePath = "src/squirix.server/Squirix.Server.csproj";
+
+    private static readonly Lazy<XDocument> ServerProject = new(LoadServerProject);
+
     private static readonly string[] ForbiddenSharedGrpcTransportMapperRuntimeMarkers =
     [
         "ICacheRuntime",
@@ -39,12 +45,14 @@ public sealed class ArchitectureTests : UnitTestBase
         "Microsoft.AspNetCore.Authentication.JwtBearer",
     ];
 
+    private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => MsbuildProjectIndex.Parse(ServerProject.Value));
+
     /// <summary>Ensures transport adapters do not take dependencies on low-level journal JSON internals.</summary>
     [Fact]
     public void AdaptersShouldNotDependOnJournalJsonInternals()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Adapters).ShouldNot()
-                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Storage}.Journaling.Json").GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Adapters).ShouldNot()
+                                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Storage}.Journaling.Json").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -58,7 +66,7 @@ public sealed class ArchitectureTests : UnitTestBase
             @"..\shared\transport\grpc\Mappers\GrpcStaleOwnerMarkers.cs",
         ];
 
-        var serverIncludes = ReadProjectCompileIncludes("src/squirix.server/Squirix.Server.csproj");
+        var serverIncludes = ServerProjectIndex.Value.GetIncludes("Compile");
 
         foreach (var include in expectedIncludes)
             Assert.Contains(include, serverIncludes, StringComparer.Ordinal);
@@ -69,7 +77,7 @@ public sealed class ArchitectureTests : UnitTestBase
     public void FilterTypesShouldLiveInAdaptersRestNamespace()
     {
         var result = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Filter", StringComparison.InvariantCulture),
+            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Filter", StringComparison.InvariantCulture),
             [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
 
         ArchitectureAssertions.AssertArchitecture(result);
@@ -79,8 +87,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Handler", StringComparison.InvariantCulture).Should()
-                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security").GetResult();
+        var result = ArchitectureTypeScope.Server.And().HaveNameEndingWith("Handler", StringComparison.InvariantCulture).Should()
+                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -100,8 +108,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Metrics", StringComparison.InvariantCulture).And().AreNotInterfaces().Should()
-                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability").GetResult();
+        var result = ArchitectureTypeScope.Server.And().HaveNameEndingWith("Metrics", StringComparison.InvariantCulture).And().AreNotInterfaces().Should()
+                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -110,8 +118,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void NodeBackpressureShouldNotDependOnStorage()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Backpressure").ShouldNot()
-                          .HaveDependencyOn(ServerArchitectureNamespaces.Storage).GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Backpressure").ShouldNot()
+                                          .HaveDependencyOn(ServerArchitectureNamespaces.Storage).GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -120,8 +128,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void NodeServicesShouldNotDependOnAdapters()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Services").ShouldNot()
-                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Services").ShouldNot()
+                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -130,8 +138,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ObservabilityShouldNotDependOnAdapters()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Observability").ShouldNot()
-                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Observability").ShouldNot()
+                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -141,7 +149,7 @@ public sealed class ArchitectureTests : UnitTestBase
     public void OptionsTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Options", StringComparison.InvariantCulture),
+            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Options", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServerOptionsTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
@@ -154,21 +162,17 @@ public sealed class ArchitectureTests : UnitTestBase
         var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
         var paths = new List<string>(200);
-        paths.AddRange(Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories));
+        paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
 
         paths.Sort(StringComparer.Ordinal);
-        var offenders = new List<string>();
         foreach (var path in paths)
         {
             if (path.Contains(objMarker, StringComparison.Ordinal))
                 continue;
 
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            if (text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal))
-                offenders.Add(path);
+            Assert.False(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal), path);
         }
-
-        Assert.Empty(offenders);
     }
 
     /// <summary>Ensures repository projects and sources do not hide dependencies with global or implicit usings.</summary>
@@ -177,7 +181,7 @@ public sealed class ArchitectureTests : UnitTestBase
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
         var sourceOffenders = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        foreach (var path in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
         {
             if (IsGeneratedOutputPath(path))
                 continue;
@@ -189,7 +193,7 @@ public sealed class ArchitectureTests : UnitTestBase
             }
 
             var hasGlobalUsing = false;
-            foreach (var line in File.ReadLines(path))
+            foreach (var line in File.ReadAllLines(path))
             {
                 if (!line.TrimStart().StartsWith("global using ", StringComparison.Ordinal))
                     continue;
@@ -205,7 +209,7 @@ public sealed class ArchitectureTests : UnitTestBase
         sourceOffenders.Sort(StringComparer.Ordinal);
 
         var projectOffenders = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
+        foreach (var path in Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories))
         {
             if (IsGeneratedOutputPath(path))
                 continue;
@@ -237,26 +241,17 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerAssemblyShouldGenerateGrpcServiceBaseFromSharedTransportNamespace()
     {
-        var entryType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.CacheEntryWire", true)!;
-        var serviceType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService", true)!;
-        var serviceBaseType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Cache.SquirixCacheService+SquirixCacheServiceBase", true)!;
-
-        Assert.Same(SquirixArchitecture.ServerAssembly, entryType.Assembly);
-        Assert.Same(SquirixArchitecture.ServerAssembly, serviceType.Assembly);
-        Assert.Same(SquirixArchitecture.ServerAssembly, serviceBaseType.Assembly);
-        Assert.False(entryType.IsPublic);
-        Assert.False(serviceType.IsPublic);
-        Assert.False(serviceBaseType.IsPublic);
+        Assert.False(typeof(CacheEntryWire).IsPublic);
+        Assert.False(typeof(SquirixCacheService).IsPublic);
+        Assert.False(typeof(SquirixCacheService.SquirixCacheServiceBase).IsPublic);
     }
 
     /// <summary>Ensures the server package does not reference the client SDK assembly.</summary>
     [Fact]
     public void ServerAssemblyShouldNotReferenceSquirix()
     {
-        var references = new List<string>();
-        foreach (var assembly in SquirixArchitecture.ServerAssembly.GetReferencedAssemblies())
-            references.Add(assembly.Name!);
-        Assert.DoesNotContain("Squirix", references, StringComparer.Ordinal);
+        var references = ServerProjectIndex.Value.GetIncludes("ProjectReference");
+        Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
@@ -274,18 +269,18 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerHostProjectShouldBePackableGlobalToolExecutable()
     {
-        var project = LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj");
+        var index = MsbuildProjectIndex.Parse(LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
-        Assert.Equal("net10.0", ReadProperty(project, "TargetFramework"));
-        Assert.Equal("Exe", ReadProperty(project, "OutputType"));
-        Assert.Equal("Squirix.Server.Host", ReadProperty(project, "AssemblyName"));
-        Assert.Equal("Squirix.Server.Host", ReadProperty(project, "RootNamespace"));
-        Assert.Equal("true", ReadProperty(project, "IsPackable"));
-        Assert.Equal("true", ReadProperty(project, "PackAsTool"));
-        Assert.Equal("squirix-server", ReadProperty(project, "ToolCommandName"));
-        Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "Version"));
-        Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "PackageVersion"));
-        Assert.Equal([@"..\squirix.server\Squirix.Server.csproj"], ReadIncludes(project, "ProjectReference"));
+        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
+        Assert.Equal("Exe", index.RequireProperty("OutputType"));
+        Assert.Equal("Squirix.Server.Host", index.RequireProperty("AssemblyName"));
+        Assert.Equal("Squirix.Server.Host", index.RequireProperty("RootNamespace"));
+        Assert.Equal("true", index.RequireProperty("IsPackable"));
+        Assert.Equal("true", index.RequireProperty("PackAsTool"));
+        Assert.Equal("squirix-server", index.RequireProperty("ToolCommandName"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
+        Assert.Equal(@"..\squirix.server\Squirix.Server.csproj", index.GetIncludes("ProjectReference")[0]);
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
@@ -319,9 +314,8 @@ public sealed class ArchitectureTests : UnitTestBase
         }
 
         granted.Sort(StringComparer.Ordinal);
-        var expected = new List<string>(approved);
-        expected.Sort(StringComparer.Ordinal);
-        Assert.Equal(expected, granted);
+        Array.Sort(approved, StringComparer.Ordinal);
+        Assert.Equal(approved, granted);
     }
 
     /// <summary>Ensures server product code does not depend on client SDK namespaces.</summary>
@@ -343,7 +337,7 @@ public sealed class ArchitectureTests : UnitTestBase
 
         foreach (var forbiddenNamespace in forbiddenNamespaces)
         {
-            var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).ShouldNot().HaveDependencyOn(forbiddenNamespace).GetResult();
+            var result = ArchitectureTypeScope.Server.ShouldNot().HaveDependencyOn(forbiddenNamespace).GetResult();
 
             ArchitectureAssertions.AssertArchitecture(result);
         }
@@ -353,83 +347,61 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerProjectShouldBePackableLibrary()
     {
-        var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
+        var index = ServerProjectIndex.Value;
 
-        Assert.Equal("net10.0", ReadProperty(project, "TargetFramework"));
-        Assert.DoesNotContain(project.Descendants(), static element => string.Equals(element.Name.LocalName, "OutputType", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "AssemblyName"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, ReadProperty(project, "RootNamespace"));
-        Assert.Equal(ServerArchitectureNamespaces.PackageId, ReadProperty(project, "PackageId"));
-        Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "Version"));
-        Assert.Equal("$(SquirixPackageVersion)", ReadProperty(project, "PackageVersion"));
-        Assert.Equal("Apache-2.0", ReadProperty(project, "PackageLicenseExpression"));
-        Assert.Equal("true", ReadProperty(project, "IsPackable"));
-        Assert.Equal("true", ReadProperty(project, "TreatWarningsAsErrors"));
-        Assert.Equal("enable", ReadProperty(project, "Nullable"));
+        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
+        Assert.False(index.ContainsElement("OutputType"));
+        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("AssemblyName"));
+        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("RootNamespace"));
+        Assert.Equal(ServerArchitectureNamespaces.PackageId, index.RequireProperty("PackageId"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
+        Assert.Equal("Apache-2.0", index.RequireProperty("PackageLicenseExpression"));
+        Assert.Equal("true", index.RequireProperty("IsPackable"));
+        Assert.Equal("true", index.RequireProperty("TreatWarningsAsErrors"));
+        Assert.Equal("enable", index.RequireProperty("Nullable"));
     }
 
     /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
     [Fact]
     public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        XElement? xElement = null;
-        foreach (var element in LoadProject("src/squirix.server/Squirix.Server.csproj").Descendants())
-        {
-            if (!string.Equals(element.Name.LocalName, "Protobuf", StringComparison.OrdinalIgnoreCase))
-                continue;
+        var protobuf = ServerProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\transport\grpc\Protos\SquirixCache.proto");
 
-            if (!string.Equals(element.Attribute("Include")?.Value, @"..\shared\transport\grpc\Protos\SquirixCache.proto", StringComparison.Ordinal))
-                continue;
-
-            xElement = element;
-            break;
-        }
-
-        Assert.Equal("Server;Client", xElement?.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", xElement?.Attribute("ProtoRoot")?.Value);
-        Assert.Equal("Internal", xElement?.Attribute("Access")?.Value);
+        Assert.Equal("Server;Client", protobuf.Attribute("GrpcServices")?.Value);
+        Assert.Equal(@"..\shared\transport\grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
     }
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
     [Fact]
     public void ServerProjectShouldKeepApprovedHostingDependencyBaseline()
     {
-        var project = LoadProject("src/squirix.server/Squirix.Server.csproj");
-        var serverPackageReferences = new List<string>();
-        var packageIncludes = ReadIncludes(project, "PackageReference");
-        for (var i = 0; i < packageIncludes.Count; i++)
-        {
-            var include = packageIncludes[i];
-            if (include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
-                serverPackageReferences.Add(include);
-        }
+        var index = ServerProjectIndex.Value;
+        var frameworkIncludes = index.GetIncludes("FrameworkReference");
 
-        serverPackageReferences.Sort(StringComparer.Ordinal);
-        var unexpectedPackageReferences = CollectExcept(serverPackageReferences, KnownServerPackageDependencyBaseline, StringComparer.Ordinal);
+        Assert.Empty(
+            CollectUnexpectedMatches(
+                index.GetIncludes("PackageReference"),
+                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal),
+                KnownServerPackageDependencyBaseline,
+                StringComparer.Ordinal));
 
-        Assert.Empty(unexpectedPackageReferences);
+        Assert.Empty(
+            CollectUnexpectedMatches(
+                frameworkIncludes,
+                static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal),
+                KnownServerFrameworkDependencyBaseline,
+                StringComparer.Ordinal));
 
-        var serverFrameworkReferences = new List<string>();
-        var frameworkIncludes = ReadIncludes(project, "FrameworkReference");
-        for (var i = 0; i < frameworkIncludes.Count; i++)
-        {
-            var include = frameworkIncludes[i];
-            if (include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal))
-                serverFrameworkReferences.Add(include);
-        }
-
-        serverFrameworkReferences.Sort(StringComparer.Ordinal);
-        var unexpectedFrameworkReferences = CollectExcept(serverFrameworkReferences, KnownServerFrameworkDependencyBaseline, StringComparer.Ordinal);
-
-        Assert.Empty(unexpectedFrameworkReferences);
-        Assert.Contains(serverFrameworkReferences, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
+        Assert.Contains(frameworkIncludes, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures the server project does not reference the client SDK project.</summary>
     [Fact]
     public void ServerProjectShouldNotReferenceSquirixProject()
     {
-        var list = ReadProjectIncludes("src/squirix.server/Squirix.Server.csproj", "ProjectReference");
+        var list = ServerProjectIndex.Value.GetIncludes("ProjectReference");
 
         Assert.DoesNotContain(
             list,
@@ -440,19 +412,14 @@ public sealed class ArchitectureTests : UnitTestBase
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
     [Fact]
-    public void ServerShouldOwnPrometheusMetricsEndpointMapping()
-    {
-        var mappingType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Server.Node.Observability.Metrics.SquirixMetricsEndpointExtensions", false);
-        Assert.NotNull(mappingType);
-        Assert.False(mappingType.IsPublic);
-    }
+    public void ServerShouldOwnPrometheusMetricsEndpointMapping() => Assert.False(typeof(SquirixMetricsEndpointExtensions).IsPublic);
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
     public void ServiceTypesShouldLiveInApprovedNamespaces()
     {
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Service", StringComparison.InvariantCulture),
+            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Service", StringComparison.InvariantCulture),
             ArchitectureAllowlists.ServiceTypeNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
@@ -462,14 +429,16 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void SharedGrpcStaleOwnerMarkerConstantsShouldBePresentInServerBuild()
     {
-        var markersType = SquirixArchitecture.ServerAssembly.GetType("Squirix.Transport.Grpc.Mappers.GrpcStaleOwnerMarkers", true)!;
-        var errorCodeKey = markersType.GetField("ErrorCodeMetadataKey", BindingFlags.NonPublic | BindingFlags.Static);
-        var staleOwnerValue = markersType.GetField("StaleOwnerErrorCodeValue", BindingFlags.NonPublic | BindingFlags.Static);
+        var found = false;
+        foreach (var entry in GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers())
+        {
+            if (!string.Equals(entry.Key, "squirix-error-code", StringComparison.Ordinal) || !string.Equals(entry.Value, "stale-owner", StringComparison.Ordinal))
+                continue;
+            found = true;
+            break;
+        }
 
-        Assert.NotNull(errorCodeKey);
-        Assert.NotNull(staleOwnerValue);
-        Assert.Equal("squirix-error-code", errorCodeKey.GetRawConstantValue());
-        Assert.Equal("stale-owner", staleOwnerValue.GetRawConstantValue());
+        Assert.True(found);
     }
 
     /// <summary>Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.</summary>
@@ -482,19 +451,16 @@ public sealed class ArchitectureTests : UnitTestBase
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
         mapperPaths.Sort(StringComparer.Ordinal);
-        var offenders = new List<string>();
         for (var i = 0; i < mapperPaths.Count; i++)
         {
             var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            foreach (var marker in ForbiddenSharedGrpcTransportMapperRuntimeMarkers)
+            for (var markerIndex = 0; markerIndex < ForbiddenSharedGrpcTransportMapperRuntimeMarkers.Length; markerIndex++)
             {
-                if (text.Contains(marker, StringComparison.Ordinal))
-                    offenders.Add($"{Path.GetFileName(path)}:{marker}");
+                var marker = ForbiddenSharedGrpcTransportMapperRuntimeMarkers[markerIndex];
+                Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{Path.GetFileName(path)}:{marker}");
             }
         }
-
-        Assert.Empty(offenders);
     }
 
     /// <summary>Ensures share-sourced gRPC transport mappers use the shared mapper namespace.</summary>
@@ -505,24 +471,20 @@ public sealed class ArchitectureTests : UnitTestBase
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
         mapperPaths.Sort(StringComparer.Ordinal);
-        var offenders = new List<string>();
         for (var i = 0; i < mapperPaths.Count; i++)
         {
             var path = mapperPaths[i];
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            if (!text.Contains("namespace Squirix.Transport.Grpc.Mappers;", StringComparison.Ordinal))
-                offenders.Add(Path.GetFileName(path));
+            Assert.Contains("namespace Squirix.Transport.Grpc.Mappers;", text, StringComparison.Ordinal);
         }
-
-        Assert.Empty(offenders);
     }
 
     /// <summary>Ensures storage types stay isolated from transport adapter concerns.</summary>
     [Fact]
     public void StorageShouldNotDependOnAdapters()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
-                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
+                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -531,8 +493,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void StorageShouldNotDependOnNodeHosting()
     {
-        var result = Types.InAssembly(SquirixArchitecture.ServerAssembly).That().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
-                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Node}.Hosting").GetResult();
+        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
+                                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Node}.Hosting").GetResult();
 
         ArchitectureAssertions.AssertArchitecture(result);
     }
@@ -541,42 +503,38 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ValidatorTypesShouldLiveInApprovedNamespaces()
     {
-        var validatorNamespaces = new List<string>();
-        foreach (var ns in ArchitectureAllowlists.ValidatorTypeNamespaces)
-        {
-            if (string.Equals(ns, "Squirix", StringComparison.Ordinal) || string.Equals(ns, "Squirix.Core", StringComparison.Ordinal))
-                continue;
-
-            validatorNamespaces.Add(ns);
-        }
-
         var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            Types.InAssembly(SquirixArchitecture.ServerAssembly).That().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
-                 .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
-            validatorNamespaces);
+            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
+                                 .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
+            ArchitectureAllowlists.ValidatorTypeArchitectureNamespaces);
 
         ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
-    private static List<string> CollectExcept(IReadOnlyList<string> left, string[] baseline, StringComparer comparer)
+    private static List<string> CollectUnexpectedMatches(List<string> includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
     {
-        var result = new List<string>();
-        foreach (var item in left)
+        var unexpected = new List<string>();
+        for (var index = 0; index < includes.Count; index++)
         {
-            var found = false;
-            foreach (var known in baseline)
+            var include = includes[index];
+            if (!isMatch(include))
+                continue;
+
+            var isBaseline = false;
+            for (var baselineIndex = 0; baselineIndex < baseline.Length; baselineIndex++)
             {
-                if (!comparer.Equals(item, known))
+                if (!comparer.Equals(include, baseline[baselineIndex]))
                     continue;
-                found = true;
+
+                isBaseline = true;
                 break;
             }
 
-            if (!found)
-                result.Add(item);
+            if (!isBaseline)
+                unexpected.Add(include);
         }
 
-        return result;
+        return unexpected;
     }
 
     private static bool IsGeneratedOutputPath(string path)
@@ -596,42 +554,11 @@ public sealed class ArchitectureTests : UnitTestBase
 
     private static XDocument LoadProjectByAbsolutePath(string path) => XDocument.Load(path);
 
-    private static List<string> ReadIncludes(XDocument project, string itemName)
+    private static XDocument LoadServerProject()
     {
-        var includes = new List<string>();
-        foreach (var element in project.Descendants())
-        {
-            if (!string.Equals(element.Name.LocalName, itemName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var value = element.Attribute("Include")?.Value;
-            if (string.IsNullOrWhiteSpace(value))
-                continue;
-
-            includes.Add(value);
-        }
-
-        return includes;
-    }
-
-    private static List<string> ReadProjectCompileIncludes(string projectPath) => ReadProjectIncludes(projectPath, "Compile");
-
-    private static List<string> ReadProjectIncludes(string projectPath, string itemName) => ReadIncludes(LoadProject(projectPath), itemName);
-
-    private static string ReadProperty(XDocument project, string propertyName)
-    {
-        string? value = null;
-        foreach (var element in project.Descendants())
-        {
-            if (!string.Equals(element.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            value = element.Value.Trim();
-            break;
-        }
-
-        Assert.False(string.IsNullOrWhiteSpace(value), $"Expected MSBuild property '{propertyName}'.");
-        return value;
+        var path = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(path), $"Expected project at {path}.");
+        return LoadProjectByAbsolutePath(path);
     }
 
     private static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync()
@@ -640,7 +567,6 @@ public sealed class ArchitectureTests : UnitTestBase
         var relativePaths = new[]
         {
             "src/squirix.server.host/Program.cs",
-            "src/squirix.server.host/ShutdownSignal.cs",
             "src/squirix.server.host/SquirixServerProcess.cs",
         };
 
@@ -654,5 +580,125 @@ public sealed class ArchitectureTests : UnitTestBase
         }
 
         return sources;
+    }
+
+    private sealed class MsbuildProjectIndex
+    {
+        private readonly FrozenDictionary<string, List<XElement>> _includedElements;
+        private readonly FrozenDictionary<string, List<string>> _includes;
+        private readonly FrozenSet<string> _localNames;
+        private readonly FrozenDictionary<string, string> _properties;
+
+        private MsbuildProjectIndex(
+            FrozenDictionary<string, string> properties,
+            FrozenDictionary<string, List<string>> includes,
+            FrozenDictionary<string, List<XElement>> includedElements,
+            FrozenSet<string> localNames)
+        {
+            _properties = properties;
+            _includes = includes;
+            _includedElements = includedElements;
+            _localNames = localNames;
+        }
+
+        public static MsbuildProjectIndex Parse(XDocument project)
+        {
+            var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+            var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            CollectIndexData(project.Root, properties, includes, includedElements, localNames);
+
+            return new MsbuildProjectIndex(
+                properties.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                localNames.ToFrozenSet(StringComparer.OrdinalIgnoreCase));
+        }
+
+        public bool ContainsElement(string localName) => _localNames.Contains(localName);
+
+        public List<string> GetIncludes(string itemName) => _includes.TryGetValue(itemName, out var list) ? list : [];
+
+        public XElement RequireIncludedElement(string localName, string include)
+        {
+            Assert.True(_includedElements.TryGetValue(localName, out var elements), $"Expected MSBuild element '{localName}' with Include='{include}'.");
+
+            XElement? match = null;
+            for (var i = 0; i < elements.Count; i++)
+            {
+                var element = elements[i];
+                if (!string.Equals(element.Attribute("Include")?.Value, include, StringComparison.Ordinal))
+                    continue;
+                match = element;
+                break;
+            }
+
+            Assert.True(match is not null, $"Expected MSBuild element '{localName}' with Include='{include}'.");
+            return match;
+        }
+
+        public string RequireProperty(string propertyName)
+        {
+            Assert.True(_properties.TryGetValue(propertyName, out var value), $"Expected MSBuild property '{propertyName}'.");
+            return value;
+        }
+
+        private static void AddInclude(
+            Dictionary<string, List<string>> includes,
+            Dictionary<string, List<XElement>> includedElements,
+            string localName,
+            string include,
+            XElement element)
+        {
+            if (!includes.TryGetValue(localName, out var includeList))
+            {
+                includeList = [];
+                includes[localName] = includeList;
+            }
+
+            includeList.Add(include);
+
+            if (!includedElements.TryGetValue(localName, out var elementList))
+            {
+                elementList = [];
+                includedElements[localName] = elementList;
+            }
+
+            elementList.Add(element);
+        }
+
+        private static void CollectIndexData(
+            XElement? root,
+            Dictionary<string, string> properties,
+            Dictionary<string, List<string>> includes,
+            Dictionary<string, List<XElement>> includedElements,
+            HashSet<string> localNames)
+        {
+            if (root is null)
+                return;
+
+            var localName = root.Name.LocalName;
+            _ = localNames.Add(localName);
+
+            var include = root.Attribute("Include")?.Value;
+            if (!string.IsNullOrWhiteSpace(include))
+            {
+                AddInclude(includes, includedElements, localName, include, root);
+            }
+            else if (!properties.ContainsKey(localName))
+            {
+                var value = root.Value;
+                if (!string.IsNullOrWhiteSpace(value))
+                    properties[localName] = value.Trim();
+            }
+
+            for (var node = root.FirstNode; node is not null; node = node.NextNode)
+            {
+                if (node is XElement child)
+                    CollectIndexData(child, properties, includes, includedElements, localNames);
+            }
+        }
     }
 }

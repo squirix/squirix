@@ -2,7 +2,7 @@ using System;
 
 namespace Squirix.Server.Host;
 
-internal sealed record SquirixServerCommand(string Name, bool Strict, string? Url, string? DataDirectory, bool Persist, string? SettingsPath)
+internal sealed record SquirixServerCommand(string Name, bool Strict, string? Uri, string? DataDirectory, bool Persist, string? SettingsPath)
 {
     internal static SquirixServerCommand Parse(string[] args)
     {
@@ -10,7 +10,7 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
         var start = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal)) ? 0 : 1;
         var strict = false;
         var persist = false;
-        string? url = null;
+        string? uri = null;
         string? dataDir = null;
         string? settings = null;
 
@@ -25,7 +25,7 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
                     persist = true;
                     break;
                 case "--urls":
-                    url = ReadValue(args, ref i);
+                    uri = ReadValue(args, ref i);
                     break;
                 case "--data-dir":
                     dataDir = ReadValue(args, ref i);
@@ -41,7 +41,7 @@ internal sealed record SquirixServerCommand(string Name, bool Strict, string? Ur
             }
         }
 
-        return new SquirixServerCommand(name, strict, url, dataDir, persist, settings);
+        return new SquirixServerCommand(name, strict, uri, dataDir, persist, settings);
     }
 
     private static string ReadValue(string[] args, ref int index)

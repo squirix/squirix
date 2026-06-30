@@ -182,18 +182,20 @@ public static class DirectoryKit
         {
             try
             {
-                // Files
-                foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly))
+                var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var fi = 0; fi < files.Length; fi++)
                 {
+                    var f = files[fi];
                     TryMakeWritable(f);
                     File.Delete(f);
                 }
 
-                // Dirs
-                foreach (var d in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly))
+                var directories = Directory.GetDirectories(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var di = 0; di < directories.Length; di++)
                 {
-                    var di = new DirectoryInfo(d);
-                    if (forbidSymlinks && IsSymlink(di))
+                    var d = directories[di];
+                    var directoryInfo = new DirectoryInfo(d);
+                    if (forbidSymlinks && IsSymlink(directoryInfo))
                         throw new IOException($"Refusing to descend into symlink/junction: '{d}'.");
 
                     Directory.Delete(d, true);
@@ -294,7 +296,7 @@ public static class DirectoryKit
 
         try
         {
-            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
+            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
         }
         catch (IOException)
         {
@@ -332,7 +334,7 @@ public static class DirectoryKit
         try
         {
             var attrs = File.GetAttributes(file);
-            if (attrs.HasFlag(FileAttributes.ReadOnly))
+            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)

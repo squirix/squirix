@@ -14,36 +14,21 @@ namespace Squirix.Server.TestKit.Mtls;
 public static class MtlsInterNodeGrpcProbe
 {
     /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>
-    /// <param name="primaryUrl">Primary external HTTPS listener URL.</param>
+    /// <param name="uri">Primary external HTTPS listener URL.</param>
     /// <param name="bearerToken">Optional external bearer token.</param>
     /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The resulting gRPC status code.</returns>
-    public static Task<StatusCode> TryGetValueAsync(string primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
+    public static async Task<StatusCode> TryGetValueAsync(Uri uri, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(primaryUrl);
-        return TryGetValueAsync(new Uri(primaryUrl, UriKind.Absolute), bearerToken, includeInternalOwnerHeader, cancellationToken);
-    }
-
-    /// <summary>Attempts an owner-routing cache read with optional external JWT and internal-owner metadata.</summary>
-    /// <param name="primaryUrl">Primary external HTTPS listener URL.</param>
-    /// <param name="bearerToken">Optional external bearer token.</param>
-    /// <param name="includeInternalOwnerHeader">Whether to include the internal owner-routing marker.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The resulting gRPC status code.</returns>
-    private static async Task<StatusCode> TryGetValueAsync(Uri primaryUrl, string? bearerToken, bool includeInternalOwnerHeader, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(primaryUrl);
-
         using var channel = GrpcChannel.ForAddress(
-            primaryUrl,
+            uri,
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),
                 MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
             });
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata();
         if (!string.IsNullOrWhiteSpace(bearerToken))
             headers.Add("authorization", $"Bearer {bearerToken}");
@@ -55,9 +40,9 @@ public static class MtlsInterNodeGrpcProbe
 
         try
         {
-            _ = await client.GetValueAsync(
-                new GetValueAsyncRequest { CacheName = "default", Key = "internal-owner-probe" },
-                new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync.ConfigureAwait(false);
+            var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
+            var request = new GetValueAsyncRequest { CacheName = "default", Key = "internal-owner-probe" };
+            _ = await client.GetValueAsync(request, new CallOptions(headers, cancellationToken: cancellationToken)).ResponseAsync.ConfigureAwait(false);
             return StatusCode.OK;
         }
         catch (RpcException ex)

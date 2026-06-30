@@ -41,9 +41,9 @@ public sealed class CacheNameTests : UnitTestBase
     [Fact]
     public void ParsePublicRejectsNullOrWhitespace()
     {
-        _ = Assert.Throws<ArgumentException>(static () => _ = CacheName.ParsePublic(null));
-        _ = Assert.Throws<ArgumentException>(static () => _ = CacheName.ParsePublic(string.Empty));
-        _ = Assert.Throws<ArgumentException>(static () => _ = CacheName.ParsePublic("   "));
+        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(null); });
+        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(string.Empty); });
+        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic("   "); });
     }
 
     /// <summary>Verifies excessive length is rejected.</summary>
@@ -51,7 +51,7 @@ public sealed class CacheNameTests : UnitTestBase
     public void ParsePublicRejectsTooLongNames()
     {
         var tooLong = new string('a', CacheNameValidator.MaxLength + 1);
-        _ = Assert.Throws<ArgumentException>(() => _ = CacheName.ParsePublic(tooLong));
+        _ = Assert.Throws<ArgumentException>(() => { _ = CacheName.ParsePublic(tooLong); });
     }
 
     /// <summary>Verifies string projection returns the canonical cache name.</summary>

@@ -100,7 +100,7 @@ internal static class SquirixOptionsValidators
         {
             try
             {
-                var primaryListenPort = _cluster.Url.IsAbsoluteUri ? _cluster.Url.Port : default(int?);
+                var primaryListenPort = _cluster.Uri.IsAbsoluteUri ? _cluster.Uri.Port : default(int?);
                 options.Validate(primaryListenPort, MtlsTopology.RequiresInterNodeMtls(_cluster));
                 return ValidateOptionsResult.Success;
             }
@@ -178,25 +178,18 @@ internal static class SquirixOptionsValidators
         where TOptions : class
     {
         private readonly IOptions<TOptions> _options;
-        private readonly IEnumerable<IValidateOptions<TOptions>> _validators;
+        private readonly IValidateOptions<TOptions> _validator;
 
-        public StartupOptionsValidator(IOptions<TOptions> options, IEnumerable<IValidateOptions<TOptions>> validators)
+        public StartupOptionsValidator(IOptions<TOptions> options, IValidateOptions<TOptions> validator)
         {
             _options = options;
-            _validators = validators;
+            _validator = validator;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            var failures = new List<string>(_validators is IReadOnlyCollection<IValidateOptions<TOptions>> validators ? validators.Count : 0);
-            foreach (var validator in _validators)
-            {
-                var result = validator.Validate(Options.DefaultName, _options.Value);
-                if (result.Failed)
-                    failures.AddRange(result.Failures);
-            }
-
-            return failures.Count > 0 ? throw new OptionsValidationException(Options.DefaultName, typeof(TOptions), failures) : Task.CompletedTask;
+            var result = _validator.Validate(Options.DefaultName, _options.Value);
+            return result.Failed ? throw new OptionsValidationException(Options.DefaultName, typeof(TOptions), result.Failures) : Task.CompletedTask;
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

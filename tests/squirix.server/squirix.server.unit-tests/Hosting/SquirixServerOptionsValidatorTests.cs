@@ -14,7 +14,7 @@ public sealed class SquirixServerOptionsValidatorTests
     {
         var options = new SquirixServerOptions();
         SquirixServerOptionsValidator.Validate(options);
-        Assert.Equal(new Uri("https://localhost:5001"), options.Url);
+        Assert.Equal(new Uri("https://localhost:5001"), options.Uri);
     }
 
     /// <summary>Ensures duplicate peer node identifiers are rejected.</summary>
@@ -24,11 +24,11 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") },
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5002") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5002") },
             ],
         };
 
@@ -42,11 +42,11 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") },
-                new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-b", Uri = new Uri("https://localhost:5001") },
             ],
         };
 
@@ -70,7 +70,7 @@ public sealed class SquirixServerOptionsValidatorTests
     public void JsonDeserializationPopulatesPeers()
     {
         const string json =
-            """{"ClusterId":"c","NodeId":"node-a","Url":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-b","Url":"https://localhost:5002"}]}""";
+            """{"ClusterId":"c","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}""";
         var options = JsonSerializer.Deserialize(json, SquirixServerHostingJsonContext.Default.SquirixServerOptions) ?? throw new InvalidOperationException("Deserialization failed.");
         _ = Assert.Single(options.Peers);
         Assert.Equal("node-b", options.Peers[0].NodeId);
@@ -85,14 +85,14 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") },
-                new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-b", Uri = new Uri("https://localhost:5002") },
             ],
         };
-        options.Peers[0].Url = options.Url;
+        options.Peers[0].Uri = options.Uri;
         SquirixServerOptionsValidator.Validate(options);
     }
 
@@ -103,11 +103,11 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5999") },
-                new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5999") },
+                new SquirixServerPeerOptions { NodeId = "node-b", Uri = new Uri("https://localhost:5002") },
             ],
         };
         _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
@@ -127,7 +127,7 @@ public sealed class SquirixServerOptionsValidatorTests
     {
         var options = new SquirixServerOptions
         {
-            Peers = [new SquirixServerPeerOptions { NodeId = "other", Url = new Uri("https://localhost:5002") }],
+            Peers = [new SquirixServerPeerOptions { NodeId = "other", Uri = new Uri("https://localhost:5002") }],
         };
         _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
@@ -139,11 +139,11 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") },
-                new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002/cache") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-b", Uri = new Uri("https://localhost:5002/cache") },
             ],
         };
         _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
@@ -153,7 +153,7 @@ public sealed class SquirixServerOptionsValidatorTests
     [Fact]
     public void UrlWithPathIsRejected()
     {
-        var options = new SquirixServerOptions { Url = new Uri("https://localhost:5001/cache") };
+        var options = new SquirixServerOptions { Uri = new Uri("https://localhost:5001/cache") };
         _ = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
     }
 
@@ -164,11 +164,11 @@ public sealed class SquirixServerOptionsValidatorTests
         var options = new SquirixServerOptions
         {
             NodeId = "node-a",
-            Url = new Uri("https://localhost:5001"),
+            Uri = new Uri("https://localhost:5001"),
             Peers =
             [
-                new SquirixServerPeerOptions { NodeId = "node-a", Url = new Uri("https://localhost:5001") },
-                new SquirixServerPeerOptions { NodeId = "node-b", Url = new Uri("https://localhost:5002") },
+                new SquirixServerPeerOptions { NodeId = "node-a", Uri = new Uri("https://localhost:5001") },
+                new SquirixServerPeerOptions { NodeId = "node-b", Uri = new Uri("https://localhost:5002") },
             ],
         };
         SquirixServerOptionsValidator.Validate(options);

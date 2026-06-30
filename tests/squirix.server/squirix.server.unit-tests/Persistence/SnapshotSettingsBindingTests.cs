@@ -35,7 +35,7 @@ public sealed class SnapshotSettingsBindingTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-snapshot-settings-strict");
         const string json =
-            """{"Squirix":{"Cluster":{"NodeId":"node-a","Url":"https://localhost:5001","Peers":[{"NodeId":"node-a","Url":"https://localhost:5001"}]},"Snapshot":{"SnapshotInterval":"00:01:00","SnapshotEveryNOps":42,"SnapshotEveryNBytes":1024,"MinGapBetweenSnapshots":"00:00:10"}}}""";
+            """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"Snapshot":{"SnapshotInterval":"00:01:00","SnapshotEveryNOps":42,"SnapshotEveryNBytes":1024,"MinGapBetweenSnapshots":"00:00:10"}}}""";
         var path = PathKit.Combine(dir, "strict.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, error) = await SquirixServerConfiguration.TryValidateSettingsFileAsync(path, true, DefaultCancellationToken);

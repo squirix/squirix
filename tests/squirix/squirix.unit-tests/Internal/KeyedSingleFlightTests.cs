@@ -15,13 +15,12 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
     public async Task RunAsyncPropagatesSameFailureToConcurrentCallers()
     {
         var flights = new KeyedSingleFlight<int>();
-        var executions = 0;
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
 
         var first = RunFailingAsync();
         var second = RunFailingAsync();
         await Task.Delay(30, DefaultCancellationToken);
-        gate.SetResult();
+        state.Gate.SetResult();
 
         InvalidOperationException? firstException = null;
         try
@@ -45,17 +44,18 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
 
         Assert.NotNull(firstException);
         Assert.NotNull(secondException);
-        Assert.Equal(1, executions);
+        Assert.Equal(1, state.Executions);
         return;
 
         Task<int> RunFailingAsync()
         {
             return flights.RunAsync(
                 "k",
-                async ct =>
+                state,
+                static async (testState, ct) =>
                 {
-                    _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct);
+                    testState.IncrementExecutions();
+                    await testState.Gate.Task.WaitAsync(ct);
                     throw new InvalidOperationException("factory failed");
                 },
                 DefaultCancellationToken);
@@ -67,15 +67,14 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
     public async Task RunAsyncSharesOneExecutionForSameKey()
     {
         var flights = new KeyedSingleFlight<int>();
-        var executions = 0;
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = new SingleFlightTestState { Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
 
         var first = RunOnceAsync();
         var second = RunOnceAsync();
         await Task.Delay(30, DefaultCancellationToken);
-        gate.SetResult();
+        state.Gate.SetResult();
 
-        Assert.Equal(1, executions);
+        Assert.Equal(1, state.Executions);
         Assert.Equal(7, await first);
         Assert.Equal(7, await second);
         return;
@@ -84,13 +83,25 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
         {
             return flights.RunAsync(
                 "k",
-                async ct =>
+                state,
+                static async (testState, ct) =>
                 {
-                    _ = Interlocked.Increment(ref executions);
-                    await gate.Task.WaitAsync(ct);
+                    testState.IncrementExecutions();
+                    await testState.Gate.Task.WaitAsync(ct);
                     return 7;
                 },
                 DefaultCancellationToken);
         }
+    }
+
+    private sealed class SingleFlightTestState
+    {
+        private int _executions;
+
+        public int Executions => _executions;
+
+        public required TaskCompletionSource Gate { get; init; }
+
+        public void IncrementExecutions() => _ = Interlocked.Increment(ref _executions);
     }
 }

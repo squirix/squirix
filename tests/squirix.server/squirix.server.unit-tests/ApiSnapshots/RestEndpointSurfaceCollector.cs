@@ -32,7 +32,7 @@ internal static class RestEndpointSurfaceCollector
             });
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             cancellationToken: CancellationToken.None);
 
@@ -47,8 +47,9 @@ internal static class RestEndpointSurfaceCollector
         var routes = new List<string>();
         foreach (var source in routeBuilder.DataSources)
         {
-            foreach (var endpoint in source.Endpoints)
+            for (var index = 0; index < source.Endpoints.Count; index++)
             {
+                var endpoint = source.Endpoints[index];
                 if (endpoint is not RouteEndpoint route)
                     continue;
 

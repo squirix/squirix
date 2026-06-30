@@ -25,7 +25,11 @@ public sealed class SquirixClient : ISquirixClient
     public static ValueTask<ISquirixClient> ConnectAsync(Uri endpoint, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        return ConnectAsync(options => options.Endpoints.Add(endpoint), cancellationToken);
+
+        var options = new SquirixOptions();
+        options.Endpoints.Add(endpoint);
+
+        return ConnectAsync(options, null, cancellationToken);
     }
 
     /// <summary>Connects to Squirix server bootstrap endpoints using client-only options.</summary>

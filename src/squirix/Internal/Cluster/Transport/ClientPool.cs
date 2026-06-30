@@ -23,11 +23,12 @@ internal sealed class ClientPool : IClientPool
     private readonly ConcurrentDictionary<string, GrpcChannel> _channels = new(StringComparer.OrdinalIgnoreCase);
     private readonly BootstrapConnectOptions _connectOptions;
     private readonly ConcurrentDictionary<string, ICallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string[] _nodeIds;
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
     public ClientPool(
-        IEnumerable<Peer> peers,
+        Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,
         Interceptor? interceptor = null,
@@ -37,13 +38,12 @@ internal sealed class ClientPool : IClientPool
     {
         _connectOptions = connectOptions ?? new BootstrapConnectOptions(BootstrapConnectOptions.DefaultPerAttemptTimeout, BootstrapConnectOptions.DefaultOverallDeadline);
         _timeProvider = timeProvider ?? TimeProvider.System;
-        var list = peers as Peer[] ?? [.. peers];
-        var ids = new string[list.Length];
+        var ids = new string[peers.Length];
 
-        for (var i = 0; i < list.Length; i++)
+        for (var i = 0; i < peers.Length; i++)
         {
-            var p = list[i];
-            GrpcTransportEndpoints.RequireHttps(p.Url);
+            var p = peers[i];
+            GrpcTransportEndpoints.RequireHttps(p.Uri);
             var opts = new GrpcChannelOptions
             {
                 Credentials = callCredentials is null ? null : ChannelCredentials.Create(new SslCredentials(), callCredentials),
@@ -51,7 +51,7 @@ internal sealed class ClientPool : IClientPool
                 MaxReceiveMessageSize = SquirixClientGrpcLimits.MaxReceiveMessageSizeBytes,
                 MaxSendMessageSize = SquirixClientGrpcLimits.MaxSendMessageSizeBytes,
             };
-            var channel = GrpcChannel.ForAddress(p.Url, opts);
+            var channel = GrpcChannel.ForAddress(p.Uri, opts);
             var invoker = channel.CreateCallInvoker();
             if (interceptor is not null)
                 invoker = invoker.Intercept(interceptor);
@@ -61,7 +61,8 @@ internal sealed class ClientPool : IClientPool
             ids[i] = p.NodeId;
         }
 
-        BootstrapNodeIds = ids;
+        _nodeIds = ids;
+        BootstrapNodeIds = _nodeIds;
     }
 
     public IReadOnlyList<string> BootstrapNodeIds { get; }
@@ -80,41 +81,42 @@ internal sealed class ClientPool : IClientPool
     {
         Exception? lastFailure = null;
         string? primaryNodeId = null;
-        var failuresByNode = new Dictionary<string, Exception>(BootstrapNodeIds.Count, StringComparer.Ordinal);
+        var failuresByNode = new Dictionary<string, Exception>(_nodeIds.Length, StringComparer.Ordinal);
 
-        foreach (var nodeId in BootstrapNodeIds)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
+            var id = _nodeIds[i];
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_channels.TryGetValue(nodeId, out var channel))
+            if (!_channels.TryGetValue(id, out var channel))
                 continue;
 
             var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
 
             try
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, nodeId, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
                 ClientPoolMetrics.AddWarmup();
-                primaryNodeId ??= nodeId;
+                primaryNodeId ??= id;
             }
             catch (RpcException ex)
             {
                 lastFailure = ex;
-                failuresByNode[nodeId] = ex;
+                failuresByNode[id] = ex;
             }
             catch (IOException ex)
             {
                 lastFailure = ex;
-                failuresByNode[nodeId] = ex;
+                failuresByNode[id] = ex;
             }
             catch (HttpRequestException ex)
             {
                 lastFailure = ex;
-                failuresByNode[nodeId] = ex;
+                failuresByNode[id] = ex;
             }
             catch (InvalidOperationException ex)
             {
                 lastFailure = ex;
-                failuresByNode[nodeId] = ex;
+                failuresByNode[id] = ex;
             }
         }
 
@@ -133,8 +135,8 @@ internal sealed class ClientPool : IClientPool
 
     public void BeginDrain()
     {
-        foreach (var policy in _policies.Values)
-            policy.BeginDrain();
+        for (var i = 0; i < _nodeIds.Length; i++)
+            _policies[_nodeIds[i]].BeginDrain();
     }
 
     public async ValueTask DisposeAsync()
@@ -143,11 +145,11 @@ internal sealed class ClientPool : IClientPool
             return;
 
         BeginDrain();
-        foreach (var item in _policies)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
             try
             {
-                await item.Value.DisposeAsync().ConfigureAwait(false);
+                await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
             }
             catch (ObjectDisposedException)
             {
@@ -159,11 +161,11 @@ internal sealed class ClientPool : IClientPool
             }
         }
 
-        foreach (var ch in _channels)
+        for (var i = 0; i < _nodeIds.Length; i++)
         {
             try
             {
-                ch.Value.Dispose();
+                _channels[_nodeIds[i]].Dispose();
                 ClientPoolMetrics.AddDisposal();
             }
             catch (ObjectDisposedException)
