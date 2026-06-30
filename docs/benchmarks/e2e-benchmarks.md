@@ -216,5 +216,3 @@ separate benchmark groups and avoid mixing external service setup cost into Squi
   invocations.
 - `RemoveExpirationShouldClearExpiration` uses `IterationSetup` to re-seed expiring entries outside the measured method
   body.
-- Wire alloc `RemoveAsync` / `RemoveExpirationAsync` under `DurabilityMode=Persistence` currently fail with a server gRPC
-  handler error on `develop`; persistence table rows stay `_pending_` until fixed.

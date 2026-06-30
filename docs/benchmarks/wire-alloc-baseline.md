@@ -8,16 +8,13 @@ Durability modes:
 - **Ephemeral** — in-memory server (no journal/snapshot).
 - **Persistence** — `UsePersistence()` with a temp data directory (journal + snapshot stack).
 
-`RemoveAsync` and `RemoveExpirationAsync` under **Persistence** currently fail with a server handler error on `develop`;
-persistence table rows for those APIs remain `_pending_` until the durable remove path is fixed.
-
 ## Run metadata
 
 | Field      | Value                                                                                                                          |
 |------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Git SHA    | `ba0738d0`                                                                                                                     |
+| Git SHA    | `714b99a1`                                                                                                                     |
 | Branch     | `feat/wire-alloc-benchmark-baseline`                                                                                           |
-| Date (UTC) | 2026-06-30 08:23:42                                                                                                            |
+| Date (UTC) | 2026-06-30 09:56:13                                                                                                            |
 | Command    | `dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*CacheWire*AllocBenchmarks*' --exporters json` |
 
 ## Scalar Ephemeral (`string`)
@@ -28,19 +25,19 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 | ICache API            | Mean (ns/op) | Allocated (bytes/op) |   Gen0 |
 |-----------------------|-------------:|---------------------:|-------:|
-| SetAsync              |          749 |             13660.00 | 0.0000 |
-| GetValueAsync         |          478 |             11113.00 | 0.0000 |
-| GetEntryAsync         |          492 |             13028.00 | 0.0000 |
-| TryAddAsync           |          789 |             13736.00 | 0.0000 |
-| AddAsync              |          759 |             13913.00 | 0.0000 |
-| UpdateAsync           |          832 |             13651.00 | 0.0000 |
-| RemoveAsync           |          800 |             11846.00 | 0.0000 |
-| GetOrAddAsync (hit)   |          804 |             13568.00 | 0.0000 |
-| GetOrAddAsync (miss)  |          820 |             14450.00 | 0.0000 |
-| GetExpirationAsync    |          467 |             11274.00 | 0.0000 |
-| RemoveExpirationAsync |          781 |             11968.00 | 0.0000 |
-| TouchAsync (relative) |          760 |             12379.00 | 0.0000 |
-| TouchAsync (absolute) |          717 |             12353.00 | 0.0000 |
+| SetAsync              |          833 |             13535.00 | 0.0000 |
+| GetValueAsync         |          458 |             11153.00 | 0.0000 |
+| GetEntryAsync         |          484 |             12973.00 | 0.0000 |
+| TryAddAsync           |          784 |             13716.00 | 0.0000 |
+| AddAsync              |          782 |             15343.00 | 0.0000 |
+| UpdateAsync           |          716 |             13604.00 | 0.0000 |
+| RemoveAsync           |          690 |             11896.00 | 0.0000 |
+| GetOrAddAsync (hit)   |          752 |             13558.00 | 0.0000 |
+| GetOrAddAsync (miss)  |          838 |             14415.00 | 0.0000 |
+| GetExpirationAsync    |          473 |             11173.00 | 0.0000 |
+| RemoveExpirationAsync |          765 |             11884.00 | 0.0000 |
+| TouchAsync (relative) |          767 |             12336.00 | 0.0000 |
+| TouchAsync (absolute) |          769 |             12330.00 | 0.0000 |
 
 <!-- wire-alloc-scalar-ephemeral-end -->
 
@@ -52,19 +49,19 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 | ICache API            | Mean (ns/op) | Allocated (bytes/op) |   Gen0 |
 |-----------------------|-------------:|---------------------:|-------:|
-| SetAsync              |         1173 |             19010.00 | 0.0010 |
-| GetValueAsync         |          448 |             11174.00 | 0.0000 |
-| GetEntryAsync         |          507 |             13046.00 | 0.0000 |
-| TryAddAsync           |         1125 |             19167.00 | 0.0010 |
-| AddAsync              |         1124 |             19324.00 | 0.0010 |
-| UpdateAsync           |         1139 |             19031.00 | 0.0010 |
-| RemoveAsync           |    _pending_ |                      |        |
-| GetOrAddAsync (hit)   |          773 |             13576.00 | 0.0000 |
-| GetOrAddAsync (miss)  |         1263 |             19840.00 | 0.0010 |
-| GetExpirationAsync    |          461 |             11197.00 | 0.0000 |
-| RemoveExpirationAsync |    _pending_ |                      |        |
-| TouchAsync (relative) |         1016 |             17316.00 | 0.0000 |
-| TouchAsync (absolute) |         1130 |             17306.00 | 0.0000 |
+| SetAsync              |         1173 |             19014.00 | 0.0010 |
+| GetValueAsync         |          461 |             11174.00 | 0.0000 |
+| GetEntryAsync         |          505 |             12972.00 | 0.0000 |
+| TryAddAsync           |         1153 |             19098.00 | 0.0010 |
+| AddAsync              |         1130 |             19233.00 | 0.0010 |
+| UpdateAsync           |         1063 |             19129.00 | 0.0010 |
+| RemoveAsync           |         1101 |             17109.00 | 0.0000 |
+| GetOrAddAsync (hit)   |          754 |             13538.00 | 0.0000 |
+| GetOrAddAsync (miss)  |         1103 |             19834.00 | 0.0010 |
+| GetExpirationAsync    |          468 |             11182.00 | 0.0000 |
+| RemoveExpirationAsync |         1063 |             18063.00 | 0.0000 |
+| TouchAsync (relative) |         1130 |             17241.00 | 0.0000 |
+| TouchAsync (absolute) |         1040 |             17308.00 | 0.0000 |
 
 <!-- wire-alloc-scalar-persistence-end -->
 
@@ -76,19 +73,19 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 | ICache API            | Mean (ns/op) | Allocated (bytes/op) |   Gen0 |
 |-----------------------|-------------:|---------------------:|-------:|
-| SetAsync              |          991 |             26702.00 | 0.0010 |
-| GetValueAsync         |          672 |             23424.00 | 0.0010 |
-| GetEntryAsync         |          607 |             23650.00 | 0.0010 |
-| TryAddAsync           |          989 |             26781.00 | 0.0010 |
-| AddAsync              |          925 |             26884.00 | 0.0010 |
-| UpdateAsync           |         1005 |             26903.00 | 0.0010 |
-| RemoveAsync           |          843 |             19409.00 | 0.0000 |
-| GetOrAddAsync (hit)   |          967 |             26135.00 | 0.0010 |
-| GetOrAddAsync (miss)  |         1151 |             40024.00 | 0.0020 |
-| GetExpirationAsync    |          482 |             11107.00 | 0.0000 |
-| RemoveExpirationAsync |          787 |             12005.00 | 0.0000 |
-| TouchAsync (relative) |          792 |             12384.00 | 0.0000 |
-| TouchAsync (absolute) |          740 |             12376.00 | 0.0000 |
+| SetAsync              |         1001 |             26648.00 | 0.0010 |
+| GetValueAsync         |          622 |             23422.00 | 0.0010 |
+| GetEntryAsync         |          628 |             23668.00 | 0.0010 |
+| TryAddAsync           |          996 |             26666.00 | 0.0010 |
+| AddAsync              |         1017 |             26882.00 | 0.0010 |
+| UpdateAsync           |         1028 |             26900.00 | 0.0010 |
+| RemoveAsync           |          866 |             18154.00 | 0.0000 |
+| GetOrAddAsync (hit)   |          999 |             26050.00 | 0.0010 |
+| GetOrAddAsync (miss)  |         1182 |             40026.00 | 0.0020 |
+| GetExpirationAsync    |          482 |             11099.00 | 0.0000 |
+| RemoveExpirationAsync |          787 |             11952.00 | 0.0000 |
+| TouchAsync (relative) |          737 |             12363.00 | 0.0000 |
+| TouchAsync (absolute) |          730 |             12352.00 | 0.0000 |
 
 <!-- wire-alloc-structured-ephemeral-end -->
 
@@ -100,19 +97,19 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 | ICache API            | Mean (ns/op) | Allocated (bytes/op) |   Gen0 |
 |-----------------------|-------------:|---------------------:|-------:|
-| SetAsync              |         1368 |             33661.00 | 0.0010 |
-| GetValueAsync         |          636 |             23421.00 | 0.0010 |
-| GetEntryAsync         |          600 |             23704.00 | 0.0010 |
-| TryAddAsync           |         1265 |             33609.00 | 0.0010 |
-| AddAsync              |         1465 |             33881.00 | 0.0010 |
-| UpdateAsync           |         1285 |             33923.00 | 0.0000 |
-| RemoveAsync           |    _pending_ |                      |        |
-| GetOrAddAsync (hit)   |         1028 |             26154.00 | 0.0010 |
-| GetOrAddAsync (miss)  |         1529 |             47045.00 | 0.0020 |
-| GetExpirationAsync    |          454 |             11153.00 | 0.0000 |
-| RemoveExpirationAsync |    _pending_ |                      |        |
-| TouchAsync (relative) |         1132 |             17368.00 | 0.0000 |
-| TouchAsync (absolute) |         1196 |             17324.00 | 0.0000 |
+| SetAsync              |         1351 |             33517.00 | 0.0010 |
+| GetValueAsync         |          641 |             23405.00 | 0.0010 |
+| GetEntryAsync         |          589 |             23688.00 | 0.0010 |
+| TryAddAsync           |         1226 |             33617.00 | 0.0010 |
+| AddAsync              |         1305 |             35519.00 | 0.0000 |
+| UpdateAsync           |         1300 |             34554.00 | 0.0000 |
+| RemoveAsync           |         1202 |             23380.00 | 0.0000 |
+| GetOrAddAsync (hit)   |          996 |             26114.00 | 0.0010 |
+| GetOrAddAsync (miss)  |         1453 |             47055.00 | 0.0020 |
+| GetExpirationAsync    |          479 |             11163.00 | 0.0000 |
+| RemoveExpirationAsync |         1142 |             16799.00 | 0.0000 |
+| TouchAsync (relative) |         1076 |             17355.00 | 0.0000 |
+| TouchAsync (absolute) |         1105 |             17313.00 | 0.0000 |
 
 <!-- wire-alloc-structured-persistence-end -->
 
