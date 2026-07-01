@@ -14,7 +14,7 @@ namespace Squirix.Server.Benchmarks;
 [SuppressMessage("ReSharper", "UnusedAutoPropertyAccessor.Global", Justification = "BenchmarkDotNet [Params] properties require public setters.")]
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-public sealed class JournalAppendBenchmarks
+public class JournalAppendBenchmarks
 {
     private const int OperationsPerInvoke = 100_000;
     private JournalBenchmarkHost? _host;

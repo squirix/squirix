@@ -10,7 +10,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Binary snapshot strict-load throughput benchmarks.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public sealed class SnapshotReadBenchmarks
+public class SnapshotReadBenchmarks
 {
     private SnapshotBenchmarkHost? _host;
     private string? _snapshotPath;

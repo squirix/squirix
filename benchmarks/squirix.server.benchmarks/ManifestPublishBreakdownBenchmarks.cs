@@ -7,7 +7,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Isolates segment-roll manifest costs: data-file fsync, pointer fsync, and full publish.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public sealed class ManifestPublishBreakdownBenchmarks
+public class ManifestPublishBreakdownBenchmarks
 {
     private ManifestRollBreakdownSession? _session;
     private int _nextFileIndex = 10_000;

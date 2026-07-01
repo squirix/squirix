@@ -16,7 +16,7 @@ public static class Program
         ArgumentNullException.ThrowIfNull(args);
 
         if (args.Length is 0)
-            args = ["--filter", "*"];
+            args = ["--help"];
 
         var artifacts = Environment.GetEnvironmentVariable("BDN_ARTIFACTS");
         if (string.IsNullOrWhiteSpace(artifacts))

@@ -101,8 +101,11 @@ public sealed class CorrelationScopeBehaviorTests
                 throw new InvalidOperationException("Unexpected scope state shape.");
 
             var capturedState = new Dictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var pair in scopeState)
+            for (var index = 0; index < scopeState.Count; index++)
+            {
+                var pair = scopeState[index];
                 capturedState[pair.Key] = pair.Value;
+            }
 
             LastScopeState = capturedState;
             return NullScope.Instance;

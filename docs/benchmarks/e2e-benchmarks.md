@@ -83,6 +83,65 @@ SQUIRIX_E2E_BENCHMARK_DURABILITY=1 dotnet run -c Release --project benchmarks/sq
 
 Client SDK benchmarks (`Squirix.Benchmarks`) expose the same modes through `DurabilityComparisonBenchmarks`.
 
+## Wire allocation matrix
+
+Single-node allocation baselines for every public `ICache<T>` operation on the gRPC wire path.
+Use this matrix to compare `develop` against wire-encoding changes (for example `refactor/address-wire-alloc`).
+
+Benchmark classes:
+
+- `CacheWireScalarAllocBenchmarks` — `string` values (scalar wire path)
+- `CacheWireStructuredAllocBenchmarks` — `BenchmarkUserProfile` values (structured payload path)
+
+Each class runs 13 benchmark methods (`Batch = 512`, `[MemoryDiagnoser]`) covering all happy-path `ICache<T>` APIs.
+BenchmarkDotNet parametrizes `DurabilityMode` (`Ephemeral` vs `Persistence` / `UsePersistence()`), producing **52 rows**
+per full run (13 methods × 2 value shapes × 2 durability modes).
+
+Results table: [wire-alloc-baseline.md](wire-alloc-baseline.md) (four sections: scalar/structured × ephemeral/persistence).
+
+Smoke run (fast, one read path, persistence only):
+
+```powershell
+dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
+  --filter '*CacheWire*AllocBenchmarks.GetValueAsync*' `
+  --filter '*Persistence*' `
+  --warmupCount 1 `
+  --iterationCount 3
+```
+
+Full matrix (ephemeral + persistence; expect several minutes — persistence writes are slower and `Remove*` benchmarks
+re-seed 512 keys in `IterationSetup`):
+
+```powershell
+dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
+  --filter '*CacheWire*AllocBenchmarks*' `
+  --warmupCount 1 `
+  --iterationCount 3 `
+  --exporters json
+```
+
+Persistence-only subset:
+
+```powershell
+dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
+  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Persistence*' `
+  --warmupCount 1 `
+  --iterationCount 3 `
+  --exporters json
+```
+
+Use `--iterationCount 3` or higher. `--iterationCount 1` with `[MinIterationTime(150)]` often produces empty BDN rows.
+
+Update the committed baseline tables from BenchmarkDotNet JSON (one report file per benchmark class):
+
+```powershell
+./tools/benchmarks/update-wire-alloc-table.ps1 `
+  -ArtifactsDir BenchmarkDotNet.Artifacts/results `
+  -GitSha (git rev-parse --short HEAD) `
+  -Branch (git branch --show-current)
+```
+
 ## Benchmark Groups
 
 Basic operations:
@@ -148,7 +207,9 @@ separate benchmark groups and avoid mixing external service setup cost into Squi
 ## Known Limitations For v0.1 Benchmarks
 
 - Cluster membership is static peer configuration.
-- Durability mode is currently `Default` only through the benchmark harness.
+- Wire alloc and durability comparison benchmarks support `E2EBenchmarkDurabilityMode.Persistence`
+  (`UsePersistence()`). The default scenario matrix stays ephemeral-only unless
+  `SQUIRIX_E2E_BENCHMARK_DURABILITY=1`.
 - The benchmark project is diagnostic and early-preview oriented; absolute numbers depend heavily on the local machine,
   OS, thermal state, and background load.
 - Remove-hit benchmarks include inline reset work to keep destructive operations valid across repeated BenchmarkDotNet
