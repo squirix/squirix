@@ -12,7 +12,7 @@ namespace Squirix.Benchmarks.Client;
 /// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public sealed class ClientPolicyOverheadBenchmarks : IAsyncDisposable
+public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
 {
     private const int Batch = 16_384;
     private static readonly string[] SingleBootstrapNode = ["node-a"];
@@ -96,6 +96,8 @@ public sealed class ClientPolicyOverheadBenchmarks : IAsyncDisposable
             await _policy.DisposeAsync().ConfigureAwait(false);
             _policy = null;
         }
+
+        GC.SuppressFinalize(this);
     }
 
     private static ValueTask<int> CompletedValueTaskAsync(CancellationToken cancellationToken)

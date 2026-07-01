@@ -99,7 +99,7 @@ internal sealed record PersistenceOptions
     public int JournalWriteBatchBytes
     {
         get;
-        init
+        private init
         {
             if (value <= 0)
                 throw new ArgumentOutOfRangeException(nameof(value), value, "JournalWriteBatchBytes must be greater than zero.");

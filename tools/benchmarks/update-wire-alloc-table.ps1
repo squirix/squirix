@@ -208,12 +208,12 @@ function Assert-PersistencePresent {
         }
     }
 
-    throw 'No Persistence benchmark rows found in JSON. Re-run with --filter ''*Wire*AllocBenchmarks*'' and both DurabilityMode params.'
+    throw 'No Persistence benchmark rows found in JSON. Re-run with --filter ''*CacheWire*AllocBenchmarks*'' and both DurabilityMode params.'
 }
 
 $artifactsDirectory = Resolve-ArtifactsDir -Path $ArtifactsDir
-$scalarReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'WireScalarAllocBenchmarks' -ExplicitPath $(if ($ScalarResultsPath) { $ScalarResultsPath } else { $ResultsPath })
-$structuredReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'WireStructuredAllocBenchmarks' -ExplicitPath $StructuredResultsPath
+$scalarReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'CacheWireScalarAllocBenchmarks' -ExplicitPath $(if ($ScalarResultsPath) { $ScalarResultsPath } else { $ResultsPath })
+$structuredReportPath = Resolve-TypeReportPath -Directory $artifactsDirectory -TypeName 'CacheWireStructuredAllocBenchmarks' -ExplicitPath $StructuredResultsPath
 
 $scalarReport = Get-Content -LiteralPath $scalarReportPath -Raw | ConvertFrom-Json
 $structuredReport = Get-Content -LiteralPath $structuredReportPath -Raw | ConvertFrom-Json
@@ -229,10 +229,10 @@ if (-not $structuredReport.Benchmarks) {
 Assert-PersistencePresent -Benchmarks $scalarReport.Benchmarks
 Assert-PersistencePresent -Benchmarks $structuredReport.Benchmarks
 
-$scalarEphemeralRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'WireScalarAllocBenchmarks' -DurabilityMode 'Ephemeral'
-$scalarPersistenceRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'WireScalarAllocBenchmarks' -DurabilityMode 'Persistence'
-$structuredEphemeralRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'WireStructuredAllocBenchmarks' -DurabilityMode 'Ephemeral'
-$structuredPersistenceRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'WireStructuredAllocBenchmarks' -DurabilityMode 'Persistence'
+$scalarEphemeralRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'CacheWireScalarAllocBenchmarks' -DurabilityMode 'Ephemeral'
+$scalarPersistenceRows = Build-TableRows -Benchmarks $scalarReport.Benchmarks -TypeName 'CacheWireScalarAllocBenchmarks' -DurabilityMode 'Persistence'
+$structuredEphemeralRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'CacheWireStructuredAllocBenchmarks' -DurabilityMode 'Ephemeral'
+$structuredPersistenceRows = Build-TableRows -Benchmarks $structuredReport.Benchmarks -TypeName 'CacheWireStructuredAllocBenchmarks' -DurabilityMode 'Persistence'
 
 if (-not (Test-Path -LiteralPath $MarkdownPath)) {
     throw "Markdown file not found: $MarkdownPath"

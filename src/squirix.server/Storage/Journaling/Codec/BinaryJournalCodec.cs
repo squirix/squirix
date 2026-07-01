@@ -199,6 +199,8 @@ internal static class BinaryJournalCodec
 
                 case JournalOperationKind.Remove:
                 case JournalOperationKind.RemoveExpiration:
+                    break;
+
                 case JournalOperationKind.AwaitDurabilityCommit:
                 case JournalOperationKind.WaitForStartup:
                 case JournalOperationKind.MaintenanceExclusive:

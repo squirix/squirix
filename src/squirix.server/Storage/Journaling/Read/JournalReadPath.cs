@@ -28,9 +28,9 @@ internal static class JournalReadPath
 
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment) => JournalReader.EnumerateSegments(dataDir, fromSegment);
 
-    internal static JournalReplaySequence ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) =>
-        new(dataDir, fromSegment, cancellationToken);
+    internal static JournalReplaySequence ReadAll(string dataDir, int fromSegment, CancellationToken cancellationToken) => new(dataDir, fromSegment, cancellationToken);
 
-    internal static InvalidDataException CreateSegmentReadFailure(string path, bool tolerateTruncatedTail, Exception ex) =>
-        new($"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}", ex);
+    internal static InvalidDataException CreateSegmentReadFailure(string path, bool tolerateTruncatedTail, Exception ex) => new(
+        $"failed reading journal segment '{path}' (tolerateTruncatedTail={tolerateTruncatedTail}): {ex.Message}",
+        ex);
 }

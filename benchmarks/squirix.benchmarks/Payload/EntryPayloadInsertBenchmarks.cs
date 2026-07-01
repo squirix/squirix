@@ -10,7 +10,7 @@ namespace Squirix.Benchmarks.Payload;
 /// <summary>End-to-end insert benchmarks comparing small vs near-limit payloads through the full client write path.</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 2, iterationCount: 5)]
-public sealed class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
+public class EntryPayloadInsertBenchmarks : RemoteBenchmarkLifecycleBase
 {
     private const int BatchSize = 32;
 

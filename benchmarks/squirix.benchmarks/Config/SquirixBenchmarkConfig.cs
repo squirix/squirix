@@ -1,5 +1,4 @@
 using System;
-using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Validators;
 
@@ -17,7 +16,7 @@ public static class SquirixBenchmarkConfig
     public static IConfig Create()
     {
         var config = DefaultConfig.Instance.WithOptions(ConfigOptions.DisableOptimizationsValidator).WithOptions(ConfigOptions.JoinSummary)
-                                  .AddValidator(JitOptimizationsValidator.DontFailOnError);
+                                           .AddValidator(JitOptimizationsValidator.DontFailOnError);
 
         var envArtifacts = Environment.GetEnvironmentVariable("BDN_ARTIFACTS");
         if (!string.IsNullOrWhiteSpace(envArtifacts))

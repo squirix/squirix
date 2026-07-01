@@ -16,7 +16,7 @@ namespace Squirix.Server.Benchmarks;
 
 /// <summary>End-to-end segment roll benchmarks including manifest publish on the journal I/O thread.</summary>
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public sealed class ManifestSegmentRollBenchmarks
+public class ManifestSegmentRollBenchmarks
 {
     private const int FillPayloadBytes = 8_192;
     private const int OverflowPayloadSize = 16_000;

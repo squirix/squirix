@@ -12,7 +12,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public sealed class PublicSdkOperationsBenchmarks
+public class PublicSdkOperationsBenchmarks
 {
     private const string CacheName = "bench-public-sdk-operations";
     private const int KeyCount = 8_192;

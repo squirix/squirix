@@ -9,7 +9,7 @@ namespace Squirix.Server.Benchmarks;
 /// <summary>Manifest publish throughput (segment-roll manifest updates).</summary>
 [MemoryDiagnoser]
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
-public sealed class ManifestPublishBenchmarks
+public class ManifestPublishBenchmarks
 {
     private ManifestBenchmarkHost? _host;
     private int _operationsPerInvoke;
