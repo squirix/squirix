@@ -34,7 +34,7 @@ namespace Squirix.Server.Storage.Snapshot;
 internal sealed class SnapshotCoordinator<T>
 {
     private readonly ILocalCacheSnapshotReader<T> _cache;
-    private readonly IdempotencyStore _idempotency;
+    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly IJournalMetrics _journal;
     private readonly ManifestStore _manifestStore;
     private readonly IMemoryPressureStateEvaluator _memoryPressureEvaluator;
@@ -54,7 +54,7 @@ internal sealed class SnapshotCoordinator<T>
         ILocalCacheSnapshotReader<T> cache,
         ISnapshotWriter snapWriter,
         ManifestStore manifestStore,
-        IdempotencyStore idempotency,
+        RpcMutationIdempotencyStore idempotency,
         ClusterConfig cluster,
         IMemoryPressureStateEvaluator memoryPressureEvaluator,
         IMemoryUsageAccounting memoryUsageAccounting)

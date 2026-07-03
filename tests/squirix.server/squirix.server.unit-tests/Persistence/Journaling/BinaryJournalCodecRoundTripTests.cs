@@ -28,6 +28,10 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Fact]
     public void PrepareEncodeRoundTripsTouchExpiration() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.TouchExpiration);
 
+    /// <summary>Idempotency outcome journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
+    [Fact]
+    public void PrepareEncodeRoundTripsIdempotencyOutcome() => PrepareEncodeRoundTripsDecodeCore(JournalOperationKind.IdempotencyOutcome);
+
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>
     [Fact]
     public void PrepareEncodeRejectsInternalOnlyOperations()
@@ -68,6 +72,12 @@ public sealed class BinaryJournalCodecRoundTripTests
 
         if (operation is JournalOperationKind.TouchExpiration)
             Assert.Equal(record.TouchExpirationUtc, decoded.TouchExpirationUtc);
+
+        if (operation is not JournalOperationKind.IdempotencyOutcome)
+            return;
+        Assert.Equal(record.IdempotencyOperationId, decoded.IdempotencyOperationId);
+        Assert.Equal(record.IdempotencyFingerprint, decoded.IdempotencyFingerprint);
+        Assert.Equal(record.IdempotencyResponseBytes.Length, decoded.IdempotencyResponseBytes.Length);
     }
 
     private static JournalRecord CreateRecord(JournalOperationKind operation)
@@ -105,6 +115,16 @@ public sealed class BinaryJournalCodecRoundTripTests
                 Operation = JournalOperationKind.TouchExpiration,
                 Key = key,
                 TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
+            },
+            JournalOperationKind.IdempotencyOutcome => new JournalRecord
+            {
+                Sequence = 5,
+                UnixMs = 123,
+                Operation = JournalOperationKind.IdempotencyOutcome,
+                Key = new CacheKey(string.Empty, string.Empty),
+                IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
+                IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
+                IdempotencyResponseBytes = new byte[] { 0x08, 0x01 },
             },
             _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
         };

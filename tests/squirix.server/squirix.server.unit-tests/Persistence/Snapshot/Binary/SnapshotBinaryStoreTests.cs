@@ -3,12 +3,14 @@ using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Google.Protobuf;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
+using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot.Binary;
@@ -81,7 +83,7 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
             OperationId = "op-parity",
             Fingerprint = "fp-parity",
             CreatedUtc = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
-            Outcome = new PersistedIdempotencyOutcome { Kind = "insert" },
+            ResponseBytes = new TryAddAsyncResponse { Added = true }.ToByteArray(),
         },
     ];
 

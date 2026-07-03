@@ -63,6 +63,8 @@ internal static class JournalCompactor
             case JournalOperationKind.TouchExpiration:
                 ApplyTouchExpiration(record, state);
                 break;
+            case JournalOperationKind.IdempotencyOutcome:
+                break;
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
             case JournalOperationKind.MaintenanceExclusive:

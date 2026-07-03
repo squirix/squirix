@@ -29,4 +29,7 @@ internal enum JournalOperationKind
 
     /// <summary>Work executed under the snapshot barrier.</summary>
     UnderSnapshotBarrier = 8,
+
+    /// <summary>Idempotency outcome record (durable replay state for mutating RPCs).</summary>
+    IdempotencyOutcome = 9,
 }

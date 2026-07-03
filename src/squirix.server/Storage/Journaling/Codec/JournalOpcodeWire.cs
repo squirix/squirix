@@ -12,6 +12,7 @@ internal static class JournalOpcodeWire
         2 => JournalOpcode.Remove,
         3 => JournalOpcode.RemoveExpiration,
         4 => JournalOpcode.TouchExpiration,
+        5 => JournalOpcode.IdempotencyOutcome,
         _ => throw new InvalidDataException($"unknown journal opcode {value.ToString(CultureInfo.InvariantCulture)}."),
     };
 
@@ -21,6 +22,7 @@ internal static class JournalOpcodeWire
         JournalOpcode.Remove => 2,
         JournalOpcode.RemoveExpiration => 3,
         JournalOpcode.TouchExpiration => 4,
+        JournalOpcode.IdempotencyOutcome => 5,
         _ => throw new InvalidDataException($"unknown journal opcode {Enum.GetName(opcode)}."),
     };
 }

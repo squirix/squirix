@@ -2,17 +2,25 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Coordinates replay-or-execute semantics for mutating cache RPC handlers.</summary>
 internal sealed class RpcMutationIdempotencyCoordinator
 {
-    private readonly RpcMutationIdempotencyGuard _guard;
+    private readonly RpcMutationIdempotencyStore _store;
+    private readonly IJournalCoordinator? _journal;
 
-    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyGuard guard)
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
     {
-        _guard = guard ?? throw new ArgumentNullException(nameof(guard));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+    }
+
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
+        : this(store)
+    {
+        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
@@ -26,11 +34,16 @@ internal sealed class RpcMutationIdempotencyCoordinator
         ArgumentNullException.ThrowIfNull(execute);
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
-        if (_guard.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
+        if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
         var response = await execute(state, cancellationToken).ConfigureAwait(false);
-        _guard.RecordSuccess(operationId, fingerprint, response);
+        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(response);
+        _store.RecordSuccess(operationId, fingerprint, responseBytes);
+
+        if (_journal is not null)
+            await _journal.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+
         return response;
     }
 

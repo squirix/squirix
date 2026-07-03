@@ -14,4 +14,7 @@ internal enum JournalOpcode : byte
 
     /// <summary>Touch expiration operation.</summary>
     TouchExpiration = 4,
+
+    /// <summary>Idempotency outcome record (operation id + fingerprint + response bytes).</summary>
+    IdempotencyOutcome = 5,
 }

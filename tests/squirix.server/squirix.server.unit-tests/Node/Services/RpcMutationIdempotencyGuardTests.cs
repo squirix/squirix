@@ -10,7 +10,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Node.Services;
 
-/// <summary>Unit tests for mutating RPC idempotency guard behavior.</summary>
+/// <summary>Unit tests for mutating RPC idempotency store behavior.</summary>
 public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
@@ -19,8 +19,8 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public async Task CoordinatorReplaysWithoutReExecutingHandler()
     {
-        var guard = new RpcMutationIdempotencyGuard();
-        var coordinator = new RpcMutationIdempotencyCoordinator(guard);
+        var store = new RpcMutationIdempotencyStore();
+        var coordinator = new RpcMutationIdempotencyCoordinator(store);
         var ctx = new ExecutionCounter();
         var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
         var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "k", entry);
@@ -56,12 +56,12 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public async Task ExpiredRecordsAreNotReplayed()
     {
-        var guard = new RpcMutationIdempotencyGuard(TimeSpan.FromMilliseconds(50));
-        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
+        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMilliseconds(50));
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
         await Task.Delay(100, DefaultCancellationToken);
 
-        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.False(replayed);
         Assert.Null(response);
@@ -71,11 +71,11 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public void RecordSuccessThenTryReplayReturnsCachedResponse()
     {
-        var guard = new RpcMutationIdempotencyGuard();
+        var store = new RpcMutationIdempotencyStore();
         var original = new TryAddAsyncResponse { Added = true };
-        guard.RecordSuccess("op-1", "fp-1", original);
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(original));
 
-        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.True(replayed);
         Assert.NotNull(response);
@@ -136,12 +136,12 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public void ReuseWithDifferentFingerprintThrowsTypedException()
     {
-        var guard = new RpcMutationIdempotencyGuard();
-        guard.RecordSuccess("op-1", "fp-1", new TryAddAsyncResponse { Added = true });
+        var store = new RpcMutationIdempotencyStore();
+        store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
         var ex = Assert.Throws<OperationIdReuseMismatchException>(() =>
         {
-            var replayed = guard.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
+            var replayed = store.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
             Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
         });
 
@@ -152,8 +152,8 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
     [Fact]
     public void TryReplayReturnsFalseWhenOperationIdIsUnknown()
     {
-        var guard = new RpcMutationIdempotencyGuard();
-        var replayed = guard.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+        var store = new RpcMutationIdempotencyStore();
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
         Assert.False(replayed);
         Assert.Null(response);

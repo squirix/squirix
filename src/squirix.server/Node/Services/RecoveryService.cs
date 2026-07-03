@@ -29,7 +29,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class RecoveryService<T> : IHostedService
 {
     private readonly IHostApplicationLifetime? _applicationLifetime;
-    private readonly IdempotencyStore _idempotency;
+    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly JournalStartupGate _journalStartupGate;
     private readonly ILocalCacheRecovery<T> _localCache;
     private readonly ILogger<RecoveryService<T>> _log;
@@ -40,7 +40,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private Task? _replayTask;
 
     public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
+        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new RpcMutationIdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -51,7 +51,7 @@ internal sealed class RecoveryService<T> : IHostedService
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
         ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
+        : this(opt, manifestStore, localCache, options, journalStartupGate, new RpcMutationIdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
     {
     }
 
@@ -61,7 +61,7 @@ internal sealed class RecoveryService<T> : IHostedService
         ILocalCacheRecovery<T> localCache,
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
-        IdempotencyStore idempotency,
+        RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader,
         ILogger<RecoveryService<T>> log,
         IHostApplicationLifetime? applicationLifetime = null)
@@ -123,8 +123,6 @@ internal sealed class RecoveryService<T> : IHostedService
         throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
     }
 
-    private static string FingerprintKey(CacheKey key) => key.ToString();
-
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
@@ -142,9 +140,7 @@ internal sealed class RecoveryService<T> : IHostedService
                     break;
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
-                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), putEntryBytes.Span);
                 await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
-                _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, insertFingerprint);
                 break;
             }
 
@@ -169,6 +165,10 @@ internal sealed class RecoveryService<T> : IHostedService
                 _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
+
+            case JournalOperationKind.IdempotencyOutcome:
+                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, DateTime.UtcNow);
+                break;
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:

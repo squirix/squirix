@@ -12,25 +12,23 @@ internal static class IdempotencyCodec
     {
         var operationIdBytes = Encoding.UTF8.GetByteCount(record.OperationId);
         var fingerprintBytes = Encoding.UTF8.GetByteCount(record.Fingerprint);
-        var outcomeBytes = Encoding.UTF8.GetByteCount(record.Outcome.Kind);
-        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue || outcomeBytes > ushort.MaxValue)
+        var responseBytes = record.ResponseBytes.Length;
+        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue || responseBytes > int.MaxValue - 8)
             throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
 
-        return 2 + operationIdBytes + 2 + fingerprintBytes + 8 + 2 + outcomeBytes;
+        return 2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes;
     }
 
     public static void Write(PersistedIdempotencyRecord record, Span<byte> destination)
     {
-        var required = ComputeEncodedLength(record);
-        if (destination.Length < required)
-            throw new ArgumentException("Destination span is too small for the encoded idempotency record.", nameof(destination));
-
         var offset = 0;
         offset += WriteUtf8Prefixed(record.OperationId, destination[offset..]);
         offset += WriteUtf8Prefixed(record.Fingerprint, destination[offset..]);
         BinaryPrimitives.WriteInt64LittleEndian(destination[offset..], new DateTimeOffset(record.CreatedUtc.ToUniversalTime()).ToUnixTimeMilliseconds());
         offset += 8;
-        _ = WriteUtf8Prefixed(record.Outcome.Kind, destination[offset..]);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], record.ResponseBytes.Length);
+        offset += 4;
+        record.ResponseBytes.AsSpan().CopyTo(destination[offset..]);
     }
 
     public static PersistedIdempotencyRecord Read(ReadOnlySpan<byte> source)
@@ -47,15 +45,25 @@ internal static class IdempotencyCodec
 
         var createdUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(source[offset..])).UtcDateTime;
         offset += 8;
-        if (!TryReadUtf8Prefixed(source[offset..], out var outcomeKind, out _))
-            throw new InvalidDataException("Snapshot idempotency outcome kind is missing.");
+        if (source.Length < offset + 4)
+            throw new InvalidDataException("Snapshot idempotency response length is missing.");
 
+        var responseLength = BinaryPrimitives.ReadInt32LittleEndian(source[offset..]);
+        offset += 4;
+        if (responseLength < 0 || source.Length < offset + responseLength)
+            throw new InvalidDataException("Snapshot idempotency response bytes are truncated.");
+
+        // ZA0302: exact-size owned buffer escape; the record must outlive the borrowed read span.
+#pragma warning disable ZA0302
+        var bytes = new byte[responseLength];
+#pragma warning restore ZA0302
+        source.Slice(offset, responseLength).CopyTo(bytes);
         var record = new PersistedIdempotencyRecord
         {
             OperationId = operationId,
             Fingerprint = fingerprint,
             CreatedUtc = createdUtc,
-            Outcome = new PersistedIdempotencyOutcome { Kind = outcomeKind },
+            ResponseBytes = bytes,
         };
         Validate(record);
         return record;
@@ -69,8 +77,8 @@ internal static class IdempotencyCodec
         if (string.IsNullOrWhiteSpace(record.Fingerprint))
             throw new InvalidDataException("Snapshot idempotency fingerprint is missing.");
 
-        if (!string.Equals(record.Outcome.Kind, "insert", StringComparison.Ordinal))
-            throw new InvalidDataException($"Unsupported snapshot idempotency outcome kind: {record.Outcome.Kind}");
+        if (record.ResponseBytes.Length is 0)
+            throw new InvalidDataException("Snapshot idempotency response bytes are empty.");
     }
 
     private static int WriteUtf8Prefixed(string text, Span<byte> destination)

@@ -29,6 +29,8 @@ internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceE
 
     ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken);
 
+    ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken);
+
     ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken);
 
     void BeginPendingMemoryApply();

@@ -81,6 +81,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         await _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.IdempotencyOutcome, in traceContext);
+        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         var traceContext = Enrich(default);

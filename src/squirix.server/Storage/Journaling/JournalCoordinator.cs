@@ -124,6 +124,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         AllocateRecord(key, JournalOperationKind.TouchExpiration, touchExpirationUtc: expiresUtc),
         cancellationToken);
 
+    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        ArgumentNullException.ThrowIfNull(responseBytes);
+
+        var record = AllocateIdempotencyRecord(operationId, fingerprint, responseBytes);
+        return AppendRecordCoreAsync(record, cancellationToken);
+    }
+
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
         ThrowIfJournalThreadFailed();
@@ -306,6 +316,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         record.PutEntryBytes = putEntryBytes;
         record.PutOperationId = putOperationId;
         record.TouchExpirationUtc = touchExpirationUtc;
+        return record;
+    }
+
+    private JournalRecord AllocateIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes)
+    {
+        var record = JournalRecord.RentForAppend();
+        record.Sequence = AllocateSequence();
+        record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        record.Operation = JournalOperationKind.IdempotencyOutcome;
+        record.Key = new CacheKey(string.Empty, string.Empty);
+        record.IdempotencyOperationId = operationId;
+        record.IdempotencyFingerprint = fingerprint;
+        record.IdempotencyResponseBytes = responseBytes;
         return record;
     }
 

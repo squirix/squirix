@@ -47,6 +47,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         JournalOperationKind.RemoveExpiration => "journal.remove_expiration",
         JournalOperationKind.TouchExpiration => "journal.touch_expiration",
         JournalOperationKind.Put => "journal.put",
+        JournalOperationKind.IdempotencyOutcome => "journal.idempotency_outcome",
         JournalOperationKind.AwaitDurabilityCommit => "journal.await_durability",
         JournalOperationKind.WaitForStartup => "journal.wait_startup",
         JournalOperationKind.MaintenanceExclusive => "journal.maintenance",
