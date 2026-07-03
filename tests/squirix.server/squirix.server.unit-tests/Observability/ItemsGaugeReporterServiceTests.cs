@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using FakeItEasy;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Xunit;
@@ -38,9 +37,7 @@ public sealed class ItemsGaugeReporterServiceTests
             await empty.StopAsync(CancellationToken.None);
         }
 
-        var faultStats = A.Fake<ILocalCacheStats>();
-        _ = A.CallTo(() => faultStats.EntryCount).Throws(new InvalidOperationException("stats-down"));
-        using var faulting = new ItemsGaugeReporterService(faultStats);
+        using var faulting = new ItemsGaugeReporterService(new FaultingStats());
         await faulting.StartAsync(CancellationToken.None);
         var aggregate = Assert.Throws<AggregateException>(listener.RecordObservableInstruments);
         var inner = Assert.Single(aggregate.InnerExceptions);
@@ -91,5 +88,10 @@ public sealed class ItemsGaugeReporterServiceTests
         }
 
         public int EntryCount { get; }
+    }
+
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 }

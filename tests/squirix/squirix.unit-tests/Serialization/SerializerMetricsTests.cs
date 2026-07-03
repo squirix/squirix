@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using FakeItEasy;
 using Squirix.Serialization;
 using Squirix.TestKit.Diagnostics;
 using Xunit;
@@ -18,10 +17,7 @@ public sealed class SerializerMetricsTests
         using var sink = new MeasurementSink("Squirix");
 
         var inner = new SystemTextJsonSerializer();
-        var serializer = A.Fake<ISquirixSerializer>();
-
-        _ = A.CallTo(() => serializer.SerializeToUtf8Bytes(A<string>._)).ReturnsLazily((string payload) => inner.SerializeToUtf8Bytes(payload));
-        _ = A.CallTo(() => serializer.Deserialize<JsonElement>(A<Stream>._)).Throws(static _ => new InvalidOperationException("boom"));
+        var serializer = new StreamDeserializeFaultSerializer(inner);
 
         var scoped = SerializationProvider.Create(serializer);
 
@@ -31,11 +27,11 @@ public sealed class SerializerMetricsTests
         using var ms = new MemoryStream(bytes);
         _ = Assert.Throws<InvalidOperationException>(() => { _ = scoped.Deserialize<JsonElement>(ms); });
 
-        Assert.Contains("Proxy", serializer.GetType().Name, StringComparison.Ordinal);
-        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", serializer.GetType().Name)));
+        const string impl = nameof(StreamDeserializeFaultSerializer);
+        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "deserialize"), ("result", "error"), ("impl", impl)));
         Assert.True(
-            sink.HasEvent("squirix_serializer_failures_total", ("op", "deserialize"), ("exception_type", "InvalidOperationException"), ("impl", serializer.GetType().Name)));
-        Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", serializer.GetType().Name)));
+            sink.HasEvent("squirix_serializer_failures_total", ("op", "deserialize"), ("exception_type", "InvalidOperationException"), ("impl", impl)));
+        Assert.True(sink.HasEvent("squirix_serializer_op_duration_seconds", ("op", "deserialize"), ("impl", impl)));
     }
 
     /// <summary>Ensures successful serialize/deserialize operations produce ops_total and duration metrics with expected labels.</summary>

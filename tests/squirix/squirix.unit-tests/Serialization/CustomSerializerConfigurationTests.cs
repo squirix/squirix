@@ -1,5 +1,4 @@
 using System.IO;
-using FakeItEasy;
 using Squirix.Serialization;
 using Xunit;
 
@@ -15,7 +14,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void ConnectAsyncConfigurePatternAssignsSerializerAfterConstruction()
     {
-        var custom = A.Fake<ISquirixSerializer>();
+        var custom = new MarkerSerializer();
         var options = new SquirixOptions();
         ConfigureLikeConnect(options, custom);
 
@@ -38,7 +37,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void CustomSerializerRoundTripsComplexPayload()
     {
-        var custom = CreateDelegatingFake(new SystemTextJsonSerializer());
+        var custom = new SpySerializer(new SystemTextJsonSerializer());
         var scoped = SerializationProvider.Create(custom);
 
         var payload = new[] { 1, 2, 3 };
@@ -58,7 +57,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void PostConstructionSerializerAssignmentCreatesScopedSerializer()
     {
-        var custom = CreateDelegatingFake(new SystemTextJsonSerializer());
+        var custom = new SpySerializer(new SystemTextJsonSerializer());
         var opts = new SquirixOptions
         {
             Serializer = custom,
@@ -72,8 +71,8 @@ public sealed class CustomSerializerConfigurationTests
         var deserialized = scoped.Deserialize<string>(stream);
 
         Assert.Equal("hello", deserialized);
-        _ = A.CallTo(() => custom.SerializeToUtf8Bytes("hello")).MustHaveHappenedOnceExactly();
-        _ = A.CallTo(() => custom.Deserialize<string>(A<Stream>._)).MustHaveHappenedOnceExactly();
+        Assert.Equal(1, custom.SerializeToUtf8BytesCalls);
+        Assert.Equal(1, custom.DeserializeStreamCalls);
         Assert.Same(before, SerializationProvider.Instance);
     }
 
@@ -81,8 +80,8 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void ScopedSerializersDoNotCrossAffect()
     {
-        var first = CreateDelegatingFake(new SystemTextJsonSerializer());
-        var second = CreateDelegatingFake(new SystemTextJsonSerializer());
+        var first = new SpySerializer(new SystemTextJsonSerializer());
+        var second = new SpySerializer(new SystemTextJsonSerializer());
         var before = SerializationProvider.Instance;
 
         var firstScoped = SerializationProvider.Create(first);
@@ -91,8 +90,8 @@ public sealed class CustomSerializerConfigurationTests
         _ = firstScoped.SerializeToUtf8Bytes("first");
         _ = secondScoped.SerializeToUtf8Bytes("second");
 
-        _ = A.CallTo(() => first.SerializeToUtf8Bytes("first")).MustHaveHappenedOnceExactly();
-        _ = A.CallTo(() => second.SerializeToUtf8Bytes("second")).MustHaveHappenedOnceExactly();
+        Assert.Equal(1, first.SerializeToUtf8BytesCalls);
+        Assert.Equal(1, second.SerializeToUtf8BytesCalls);
         Assert.Same(before, SerializationProvider.Instance);
     }
 
@@ -100,7 +99,7 @@ public sealed class CustomSerializerConfigurationTests
     [Fact]
     public void SerializerPropertyHasPublicSetterForConfigureDelegates()
     {
-        var custom = A.Fake<ISquirixSerializer>();
+        var custom = new MarkerSerializer();
         var options = new SquirixOptions
         {
             Serializer = custom,
@@ -110,16 +109,4 @@ public sealed class CustomSerializerConfigurationTests
     }
 
     private static void ConfigureLikeConnect(SquirixOptions options, ISquirixSerializer serializer) => options.Serializer = serializer;
-
-    private static ISquirixSerializer CreateDelegatingFake(SystemTextJsonSerializer inner)
-    {
-        var fake = A.Fake<ISquirixSerializer>();
-
-        _ = A.CallTo(() => fake.SerializeToUtf8Bytes(A<string>._)).ReturnsLazily((string value) => inner.SerializeToUtf8Bytes(value));
-        _ = A.CallTo(() => fake.SerializeToUtf8Bytes(A<int[]>._)).ReturnsLazily((int[] value) => inner.SerializeToUtf8Bytes(value));
-        _ = A.CallTo(() => fake.Deserialize<string>(A<Stream>._)).ReturnsLazily((Stream stream) => inner.Deserialize<string>(stream));
-        _ = A.CallTo(() => fake.Deserialize<int[]>(A<Stream>._)).ReturnsLazily((Stream stream) => inner.Deserialize<int[]>(stream));
-
-        return fake;
-    }
 }

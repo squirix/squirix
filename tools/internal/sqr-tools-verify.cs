@@ -35,15 +35,31 @@ if (files.Count is 0)
     return 1;
 }
 
+var dotnetPath = Environment.ProcessPath;
+if (string.IsNullOrWhiteSpace(dotnetPath))
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
+var repoRoot = Directory.GetParent(toolsDir)?.FullName;
+if (string.IsNullOrWhiteSpace(repoRoot))
+{
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
+    return 1;
+}
+
+repoRoot = Path.GetFullPath(repoRoot);
+
 foreach (var file in files)
 {
     var name = Path.GetFileName(file);
     await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         Arguments = $"run --file \"{file}\" -- --help",
-        WorkingDirectory = Directory.GetParent(toolsDir)?.FullName ?? Environment.CurrentDirectory,
+        WorkingDirectory = repoRoot,
         UseShellExecute = false,
     };
     using var proc = Process.Start(processStartInfo);
