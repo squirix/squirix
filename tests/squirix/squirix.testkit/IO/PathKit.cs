@@ -22,7 +22,7 @@ public static class PathKit
 {
     private const int MaxSegmentBufferLength = 16;
     private static readonly string ProcessSessionSegment = BuildProcessSessionSegment();
-    private static readonly char[] CrossPlatformInvalidFileNameChars = [.. Path.GetInvalidFileNameChars(), '<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    private static readonly char[] CrossPlatformInvalidFileNameChars = BuildCrossPlatformInvalidFileNameChars();
 
     /// <summary>Combines path segments into a single path, sanitizing each segment first.</summary>
     /// <param name="path1">First path segment. Null, empty, or whitespace-only segments are ignored.</param>
@@ -106,6 +106,24 @@ public static class PathKit
         var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < sanitizedParts.Length; i++)
             AddSegment(SanitizePath(sanitizedParts[i]), buffer, ref count, ref heapBuffer);
+    }
+
+    private static char[] BuildCrossPlatformInvalidFileNameChars()
+    {
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        invalid.Add('<');
+        invalid.Add('>');
+        invalid.Add(':');
+        invalid.Add('"');
+        invalid.Add('/');
+        invalid.Add('\\');
+        invalid.Add('|');
+        invalid.Add('?');
+        invalid.Add('*');
+
+        var chars = new char[invalid.Count];
+        invalid.CopyTo(chars);
+        return chars;
     }
 
     private static string BuildProcessSessionSegment()

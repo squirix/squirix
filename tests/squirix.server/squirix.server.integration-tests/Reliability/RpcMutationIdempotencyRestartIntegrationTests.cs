@@ -1,8 +1,10 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -38,6 +40,7 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
             Assert.True(first.Added);
+            await AssertJournalContainsPutAndIdempotencyOutcomeAsync(node.DataDir);
         }
 
         await node.AbruptShutdownAsync();
@@ -133,5 +136,24 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
             var retry = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
             Assert.True(retry.Added);
         }
+    }
+
+    private static async Task AssertJournalContainsPutAndIdempotencyOutcomeAsync(string dataDir)
+    {
+        var persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        using var manifestStore = new ManifestStore(persistence);
+        var manifest = await manifestStore.ReadCurrentOrDefaultAsync(CancellationToken.None).ConfigureAwait(false);
+        var sawPut = false;
+        var sawIdempotency = false;
+        foreach (var record in JournalReadPath.ReadAll(dataDir, manifest.CurrentJournal, CancellationToken.None))
+        {
+            if (record.Operation is JournalOperationKind.Put)
+                sawPut = true;
+            if (record.Operation is JournalOperationKind.IdempotencyOutcome)
+                sawIdempotency = true;
+        }
+
+        Assert.True(sawPut);
+        Assert.True(sawIdempotency);
     }
 }

@@ -16,7 +16,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
-    private readonly SnapshotTriggerOptions _opt;
     private readonly TimeProvider _timeProvider;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
@@ -33,12 +32,10 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         ILogger<SnapshotTriggerService<T>> log,
         SnapshotCoordinator<T> coordinator,
         IJournalCoordinator journal,
-        SnapshotTriggerOptions opt,
         TimeProvider? timeProvider = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _log = log ?? throw new ArgumentNullException(nameof(log));
-        _opt = opt ?? throw new ArgumentNullException(nameof(opt));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
@@ -47,12 +44,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_opt.Enabled)
-        {
-            SnapshotTriggerLogs.LogDisabled(_log);
-            return;
-        }
-
         _journal.OnAppended += OnJournalAppended;
         SnapshotTriggerLogs.LogStarted(_log, 1);
 

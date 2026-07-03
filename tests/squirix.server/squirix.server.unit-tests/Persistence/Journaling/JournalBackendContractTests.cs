@@ -101,15 +101,15 @@ public sealed class JournalBackendContractTests
 
     private sealed class CoordinatorContext : IAsyncDisposable
     {
+        private readonly TempDirectory _directory;
+
         public CoordinatorContext(TempDirectory directory, PersistenceOptions options, ManifestStore manifestStore, IJournalCoordinator coordinator)
         {
-            Directory = directory;
+            _directory = directory;
             Options = options;
             ManifestStore = manifestStore;
             Coordinator = coordinator;
         }
-
-        public TempDirectory Directory { get; }
 
         public PersistenceOptions Options { get; }
 
@@ -121,7 +121,7 @@ public sealed class JournalBackendContractTests
         {
             await Coordinator.DisposeAsync().ConfigureAwait(false);
             ManifestStore.Dispose();
-            Directory.Dispose();
+            _directory.Dispose();
         }
     }
 }

@@ -37,14 +37,23 @@ internal sealed class RpcMutationIdempotencyCoordinator
         if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
-        var response = await execute(state, cancellationToken).ConfigureAwait(false);
-        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(response);
-        _store.RecordSuccess(operationId, fingerprint, responseBytes);
-
         if (_journal is not null)
-            await _journal.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
+        {
+            using var scope = RpcMutationIdempotencyExecutionScope.Begin(
+                _store,
+                operationId,
+                fingerprint,
+                _journal,
+                static (TResponse typedResponse) => RpcMutationIdempotencyStore.SerializeResponseBytes(typedResponse));
+            var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+            await scope.CompleteBeforeDurabilityAsync(durableResponse, cancellationToken).ConfigureAwait(false);
+            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+            return durableResponse;
+        }
 
-        return response;
+        var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+        _store.RecordSuccess(operationId, fingerprint, RpcMutationIdempotencyStore.SerializeResponseBytes(memoryOnlyResponse));
+        return memoryOnlyResponse;
     }
 
     private static class DefaultParser<T>

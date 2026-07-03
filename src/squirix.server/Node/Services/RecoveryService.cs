@@ -71,11 +71,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
         }
 
-        _replayTask = Task.Factory.StartNew(
-            () => ReplayInBackgroundAsync(cancellationToken),
-            cancellationToken,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default).Unwrap();
+        _replayTask = ReplayInBackgroundAsync(cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

@@ -76,9 +76,6 @@ internal sealed class SnapshotCoordinator<T>
 
     public async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        if (!_opt.Enabled)
-            return;
-
         if (!ShouldTrigger(DateTime.UtcNow))
             return;
         if (ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure())
@@ -202,8 +199,6 @@ internal sealed class SnapshotCoordinator<T>
 
     private bool ShouldTrigger(DateTime utcNow)
     {
-        if (!_opt.Enabled)
-            return false;
         if (_latencyThrottledUntilUtc > utcNow)
             return false;
 

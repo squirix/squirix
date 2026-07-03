@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
 using Squirix.Serialization;
 using Xunit;
 
