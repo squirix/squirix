@@ -109,6 +109,9 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
 
+    private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
+        record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
+
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
         switch (record.Operation)
@@ -151,7 +154,7 @@ internal sealed class RecoveryService<T> : IHostedService
             }
 
             case JournalOperationKind.IdempotencyOutcome:
-                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, DateTime.UtcNow);
+                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, ResolveIdempotencyCreatedUtc(record));
                 break;
 
             case JournalOperationKind.AwaitDurabilityCommit:

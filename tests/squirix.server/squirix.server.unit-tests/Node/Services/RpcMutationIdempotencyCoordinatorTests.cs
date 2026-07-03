@@ -67,6 +67,20 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
         Assert.Null(response);
     }
 
+    /// <summary>Ensures RestoreRecord honors CreatedUtc for retention sweeps after recovery replay.</summary>
+    [Fact]
+    public void RestoredExpiredRecordIsNotReplayed()
+    {
+        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMinutes(15));
+        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        store.RestoreRecord("op-1", "fp-1", responseBytes, DateTime.UtcNow.AddMinutes(-20));
+
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
     /// <summary>Ensures a recorded success can be replayed from the in-memory cache.</summary>
     [Fact]
     public void RecordSuccessThenTryReplayReturnsCachedResponse()

@@ -32,6 +32,26 @@ internal static class BinaryJournalTestSegmentWriter
             });
     }
 
+    public static Task<JournalRecord> BuildIdempotencyOutcomeRecordAsync(
+        ulong seq,
+        string operationId,
+        string fingerprint,
+        byte[] responseBytes,
+        long unixMs)
+    {
+        return Task.FromResult(
+            new JournalRecord
+            {
+                Sequence = seq,
+                UnixMs = unixMs,
+                Operation = JournalOperationKind.IdempotencyOutcome,
+                Key = new CacheKey(string.Empty, string.Empty),
+                IdempotencyOperationId = operationId,
+                IdempotencyFingerprint = fingerprint,
+                IdempotencyResponseBytes = responseBytes,
+            });
+    }
+
     public static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
         var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
