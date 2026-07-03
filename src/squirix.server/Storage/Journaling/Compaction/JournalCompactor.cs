@@ -37,17 +37,17 @@ internal static class JournalCompactor
         var oldManifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var snapshotRef = oldManifest.LastSnapshot;
         var replayFromSegment = snapshotRef?.ReplayFromJournalSegment > 0 ? snapshotRef.ReplayFromJournalSegment : 1;
-        var (state, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, cancellationToken).ConfigureAwait(false);
+        var (state, idempotencyState, lastSeq) = await BuildCompactionStateAsync(options, snapshotRef, replayFromSegment, snapshotReader, cancellationToken).ConfigureAwait(false);
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = GetNextJournalSegmentIndex(journalSegments);
         var tmpPath = PathEx.Combine(options.DataDir, $"{StorageFilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
-        await WriteCompactedJournalAsync(tmpPath, state, lastSeq, cancellationToken).ConfigureAwait(false);
-        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, lastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
+        var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, cancellationToken).ConfigureAwait(false);
+        await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
     }
 
-    private static void Apply(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state)
+    private static void Apply(JournalRecord record, Dictionary<CacheKey, CacheEntry<object?>> state, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
     {
         switch (record.Operation)
         {
@@ -64,6 +64,7 @@ internal static class JournalCompactor
                 ApplyTouchExpiration(record, state);
                 break;
             case JournalOperationKind.IdempotencyOutcome:
+                ApplyIdempotencyOutcome(record, idempotencyState);
                 break;
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:
@@ -118,7 +119,21 @@ internal static class JournalCompactor
         };
     }
 
-    private static async Task<(Dictionary<CacheKey, CacheEntry<object?>> State, ulong LastSeq)> BuildCompactionStateAsync(
+    private static void ApplyIdempotencyOutcome(JournalRecord record, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
+    {
+        var operationId = record.IdempotencyOperationId ?? throw CreateCompactionDecodeFailure("idempotency-outcome", string.Empty);
+        var fingerprint = record.IdempotencyFingerprint ?? throw CreateCompactionDecodeFailure("idempotency-outcome", operationId);
+        var responseBytes = record.IdempotencyResponseBytes;
+
+        // ZA0302: exact-size owned buffer; compacted state must outlive the borrowed frame buffer.
+#pragma warning disable ZA0302
+        var copy = new byte[responseBytes.Length];
+#pragma warning restore ZA0302
+        responseBytes.Span.CopyTo(copy);
+        idempotencyState[operationId] = new CompactedIdempotencyRecord(operationId, fingerprint, copy, record.UnixMs);
+    }
+
+    private static async Task<(Dictionary<CacheKey, CacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)> BuildCompactionStateAsync(
         PersistenceOptions options,
         ManifestState.SnapshotRef? snapshotRef,
         int replayFromSegment,
@@ -126,6 +141,7 @@ internal static class JournalCompactor
         CancellationToken cancellationToken)
     {
         var state = new Dictionary<CacheKey, CacheEntry<object?>>();
+        var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
         if (!string.IsNullOrWhiteSpace(snapshotRef?.Path) && File.Exists(snapshotRef.Path))
         {
             var snapshot = await snapshotReader.LoadStrictAsync<object?>(snapshotRef.Path, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -134,6 +150,17 @@ internal static class JournalCompactor
                 var (key, entry) = snapshot.Entries[i];
                 state[key] = entry;
             }
+
+            for (var i = 0; i < snapshot.IdempotencyRecords.Count; i++)
+            {
+                var record = snapshot.IdempotencyRecords[i] ?? throw new InvalidOperationException("Idempotency record must not be null.");
+                var unixMs = new DateTimeOffset(DateTime.SpecifyKind(record.CreatedUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
+                idempotencyState[record.OperationId] = new CompactedIdempotencyRecord(
+                    record.OperationId,
+                    record.Fingerprint,
+                    record.ResponseBytes,
+                    unixMs);
+            }
         }
 
         ulong lastSeq = 0;
@@ -141,10 +168,10 @@ internal static class JournalCompactor
         foreach (var record in JournalReadPath.ReadAll(options.DataDir, fromSeg, cancellationToken))
         {
             lastSeq = Math.Max(lastSeq, record.Sequence);
-            Apply(record, state);
+            Apply(record, state, idempotencyState);
         }
 
-        return (state, lastSeq);
+        return (state, idempotencyState, lastSeq);
     }
 
     private static InvalidOperationException CreateCompactionDecodeFailure(string operation, string key) =>
@@ -191,7 +218,12 @@ internal static class JournalCompactor
 
     private static bool IsExpired(CacheEntry<object?>? e) => e is { ExpiresUtc: { } utc } && utc <= DateTime.UtcNow;
 
-    private static async Task WriteCompactedJournalAsync(string tmpPath, Dictionary<CacheKey, CacheEntry<object?>> state, ulong lastSeq, CancellationToken cancellationToken)
+    private static async Task<ulong> WriteCompactedJournalAsync(
+        string tmpPath,
+        Dictionary<CacheKey, CacheEntry<object?>> state,
+        Dictionary<string, CompactedIdempotencyRecord> idempotencyState,
+        ulong lastSeq,
+        CancellationToken cancellationToken)
     {
         var fs = new FileStream(tmpPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
         await using (fs.ConfigureAwait(false))
@@ -199,6 +231,7 @@ internal static class JournalCompactor
             await WriteCompactedJournalHeaderAsync(fs, cancellationToken).ConfigureAwait(false);
 
             var seq = lastSeq is 0UL ? 1UL : lastSeq + 1UL;
+            var wroteAny = false;
             var i = 0;
             foreach (var (k, e) in state)
             {
@@ -213,6 +246,7 @@ internal static class JournalCompactor
                 try
                 {
                     seq = await WriteCompactedPutEntryAsync(fs, k, payloadBuffer.AsMemory(0, payloadLength), seq, cancellationToken).ConfigureAwait(false);
+                    wroteAny = true;
                 }
                 finally
                 {
@@ -220,7 +254,14 @@ internal static class JournalCompactor
                 }
             }
 
+            foreach (var pair in idempotencyState)
+            {
+                seq = await WriteCompactedIdempotencyOutcomeAsync(fs, pair.Value, seq, cancellationToken).ConfigureAwait(false);
+                wroteAny = true;
+            }
+
             await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+            return wroteAny ? seq - 1UL : lastSeq;
         }
     }
 
@@ -262,5 +303,63 @@ internal static class JournalCompactor
         }
 
         return sequence + 1UL;
+    }
+
+    private static async Task<ulong> WriteCompactedIdempotencyOutcomeAsync(
+        FileStream fs,
+        CompactedIdempotencyRecord record,
+        ulong sequence,
+        CancellationToken cancellationToken)
+    {
+        var journalRecord = new JournalRecord
+        {
+            Sequence = sequence,
+            UnixMs = record.UnixMs,
+            Operation = JournalOperationKind.IdempotencyOutcome,
+            Key = new CacheKey(string.Empty, string.Empty),
+            IdempotencyOperationId = record.OperationId,
+            IdempotencyFingerprint = record.Fingerprint,
+            IdempotencyResponseBytes = record.ResponseBytes,
+        };
+
+        var encode = BinaryJournalCodec.PrepareEncode(journalRecord);
+        var bodyLen = encode.BodyLength;
+        var frameLen = JournalFraming.FrameTotalLength(bodyLen);
+        var frame = ArrayPool<byte>.Shared.Rent(frameLen);
+        try
+        {
+            const int bodyOffset = JournalFraming.FrameHeaderSize;
+            var encodedLength = BinaryJournalCodec.Encode(journalRecord, frame.AsSpan(bodyOffset, bodyLen), in encode);
+            if (encodedLength != bodyLen)
+                throw new InvalidOperationException("unexpected journal frame length after encode.");
+
+            JournalFraming.WriteFrame(frame.AsSpan(0, frameLen), frame.AsSpan(bodyOffset, bodyLen));
+            await fs.WriteAsync(frame.AsMemory(0, frameLen), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(frame);
+        }
+
+        return sequence + 1UL;
+    }
+
+    private sealed class CompactedIdempotencyRecord
+    {
+        public CompactedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs)
+        {
+            OperationId = operationId;
+            Fingerprint = fingerprint;
+            ResponseBytes = responseBytes;
+            UnixMs = unixMs;
+        }
+
+        public string OperationId { get; }
+
+        public string Fingerprint { get; }
+
+        public byte[] ResponseBytes { get; }
+
+        public long UnixMs { get; }
     }
 }
