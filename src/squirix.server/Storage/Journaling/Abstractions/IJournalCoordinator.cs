@@ -19,9 +19,9 @@ internal interface IJournalCoordinator : IJournalMetrics, IExclusiveMaintenanceE
 
     ulong NextSequence { get; }
 
-    ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken);
+    ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
-    ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken);
+    ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
     ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken);
 

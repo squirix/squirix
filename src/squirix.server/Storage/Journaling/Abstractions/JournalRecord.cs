@@ -28,9 +28,6 @@ internal sealed class JournalRecord
     /// <summary>Gets or sets put entry bytes; only set for <see cref="JournalOperationKind.Put" />.</summary>
     public ReadOnlyMemory<byte> PutEntryBytes { get; set; }
 
-    /// <summary>Gets or sets put idempotency operation id; only set for <see cref="JournalOperationKind.Put" />.</summary>
-    public string? PutOperationId { get; set; }
-
     /// <summary>Gets or sets the monotonic journal sequence number.</summary>
     public ulong Sequence { get; set; }
 
@@ -45,7 +42,6 @@ internal sealed class JournalRecord
     internal void ReturnToAppendPool()
     {
         PutEntryBytes = default;
-        PutOperationId = null;
         TouchExpirationUtc = null;
         IdempotencyOperationId = null;
         IdempotencyFingerprint = null;

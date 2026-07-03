@@ -194,7 +194,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
             journal,
             (Key: key, Payload: payload),
-            static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, null, ct),
+            static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
             observedPendingFlushDuringMemoryApply,
             static (j, observation, _) =>
             {
@@ -280,8 +280,8 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
             DefaultCancellationToken);
         var pipelined = Assert.IsType<JournalCoordinator>(journal);
 
-        await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), null, DefaultCancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k1"), JournalEntryPayloadKit.EncodePut("v1"), DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("k2"), JournalEntryPayloadKit.EncodePut("v2"), DefaultCancellationToken);
 
         var firstCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
         var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
@@ -315,7 +315,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
 
         try
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), null, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
             var durability = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
             await journal.DisposeAsync();
             await WaitUntilCompletedAsync(durability);

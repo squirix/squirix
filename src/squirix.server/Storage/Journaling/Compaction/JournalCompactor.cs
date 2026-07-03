@@ -240,7 +240,6 @@ internal static class JournalCompactor
             Operation = JournalOperationKind.Put,
             Key = key,
             PutEntryBytes = body,
-            PutOperationId = string.Empty,
         };
 
         var encode = BinaryJournalCodec.PrepareEncode(record);

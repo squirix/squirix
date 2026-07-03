@@ -49,7 +49,7 @@ public class JournalAppendBenchmarks
         var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
         for (var i = 0; i < OperationsPerInvoke; i++)
         {
-            await host.Coordinator.AppendPutAsync(_key, _putPayload, null, CancellationToken.None).ConfigureAwait(false);
+            await host.Coordinator.AppendPutAsync(_key, _putPayload, CancellationToken.None).ConfigureAwait(false);
             await host.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }

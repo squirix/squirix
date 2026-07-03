@@ -11,7 +11,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Unit tests for mutating RPC idempotency store behavior.</summary>
-public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
+public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 

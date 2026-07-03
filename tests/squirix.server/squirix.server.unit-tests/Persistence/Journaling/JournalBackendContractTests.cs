@@ -23,7 +23,7 @@ public sealed class JournalBackendContractTests
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
         var payload = JournalEntryPayloadKit.EncodePut(1);
-        await context.Coordinator.AppendPutAsync(key, payload, "op-1", CancellationToken.None);
+        await context.Coordinator.AppendPutAsync(key, payload, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);

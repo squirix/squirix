@@ -99,7 +99,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
                 this,
                 new PutJournalArgs(cacheKey, payloadBuffer.AsMemory(0, payloadLength)),
-                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
+                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, ct),
                 new SetMemoryArgs(operationId, cacheName, key, entry),
                 static (self, args, ct) => self.ApplySetEntryAsync(args, ct),
                 cancellationToken).ConfigureAwait(false);
@@ -156,7 +156,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 this,
                 args,
                 static (self, state, ct) => EvaluateTryAddPreconditionAsync(self, state, ct),
-                static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, null, ct),
+                static (self, state, ct) => self._journal.AppendPutAsync(state.CacheKey, state.Payload, ct),
                 static (self, state, ct) => self._inner.TryAddEntryAsync(state.OperationId, state.CacheName, state.Key, state.Entry, ct),
                 cancellationToken).ConfigureAwait(false);
         }
@@ -197,7 +197,7 @@ internal sealed class JournalLoggingCacheDecorator<T> : ILogicalNamespacedCache<
                 static _ => ValueTask.FromResult(DurableMutationCondition<bool>.Apply()),
                 this,
                 new PutJournalArgs(cacheKey, payloadBuffer.AsMemory(0, payloadLength)),
-                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, null, ct),
+                static (self, args, ct) => self._journal.AppendPutAsync(args.CacheKey, args.Payload, ct),
                 new UpdateMemoryArgs(operationId, cacheName, key, value),
                 static (self, args, ct) => self._inner.UpdateAsync(args.OperationId, args.CacheName, args.Key, args.Value, ct),
                 cancellationToken).ConfigureAwait(false);

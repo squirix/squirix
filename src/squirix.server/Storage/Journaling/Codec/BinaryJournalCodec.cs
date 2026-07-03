@@ -12,7 +12,7 @@ namespace Squirix.Server.Storage.Journaling.Codec;
 /// <summary>Binary frame body codec for Pipelined journal (SJRN v1 file header).</summary>
 internal static class BinaryJournalCodec
 {
-    private const int FixedPrefixSize = 8 + 8 + 1 + 2 + 2 + 2 + 4;
+    private const int FixedPrefixSize = 8 + 8 + 1 + 2 + 2 + 4;
 
     public static int ComputeFrameBodyLength(JournalRecord record) => EncodeContext.From(record).BodyLength;
 
@@ -25,7 +25,6 @@ internal static class BinaryJournalCodec
         var keyUtf8 = context.KeyUtf8;
         var nsLen = keyUtf8.NamespaceLength;
         var keyLen = keyUtf8.KeyLength;
-        var opIdLen = context.OperationIdUtf8Length;
         var payloadLen = context.PayloadUtf8Length;
 
         BinaryPrimitives.WriteUInt64LittleEndian(destination, record.Sequence);
@@ -33,8 +32,7 @@ internal static class BinaryJournalCodec
         destination[16] = JournalOpcodeWire.ToWireValue(ToOpcode(record.Operation));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[17..], Convert.ToUInt16(nsLen));
         BinaryPrimitives.WriteUInt16LittleEndian(destination[19..], Convert.ToUInt16(keyLen));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[21..], Convert.ToUInt16(opIdLen));
-        BinaryPrimitives.WriteInt32LittleEndian(destination[23..], payloadLen);
+        BinaryPrimitives.WriteInt32LittleEndian(destination[21..], payloadLen);
 
         var offset = FixedPrefixSize;
         offset += Encoding.UTF8.GetBytes(ns, destination[offset..]);
@@ -43,7 +41,8 @@ internal static class BinaryJournalCodec
         switch (record.Operation)
         {
             case JournalOperationKind.Put:
-                return EncodePut(record, destination, offset, opIdLen);
+                record.PutEntryBytes.Span.CopyTo(destination[offset..]);
+                return offset + record.PutEntryBytes.Length;
 
             case JournalOperationKind.Remove:
             case JournalOperationKind.RemoveExpiration:
@@ -86,8 +85,7 @@ internal static class BinaryJournalCodec
         var opcode = JournalOpcodeWire.FromByte(frameBody[16]);
         var nsLen = BinaryPrimitives.ReadUInt16LittleEndian(frameBody[17..]);
         var keyLen = BinaryPrimitives.ReadUInt16LittleEndian(frameBody[19..]);
-        var opIdLen = BinaryPrimitives.ReadUInt16LittleEndian(frameBody[21..]);
-        var payloadLen = BinaryPrimitives.ReadInt32LittleEndian(frameBody[23..]);
+        var payloadLen = BinaryPrimitives.ReadInt32LittleEndian(frameBody[21..]);
         var offset = FixedPrefixSize;
         var ns = Encoding.UTF8.GetString(frameBody.Slice(offset, nsLen));
         offset += nsLen;
@@ -97,15 +95,7 @@ internal static class BinaryJournalCodec
 
         return opcode switch
         {
-            JournalOpcode.Put => new JournalRecord
-            {
-                Sequence = seq,
-                UnixMs = unixMs,
-                Operation = JournalOperationKind.Put,
-                Key = cacheKey,
-                PutEntryBytes = payloadLen > 0 ? frameBuffer.AsMemory(offset, payloadLen) : ReadOnlyMemory<byte>.Empty,
-                PutOperationId = opIdLen > 0 ? Encoding.UTF8.GetString(frameBody.Slice(offset + payloadLen, opIdLen)) : string.Empty,
-            },
+            JournalOpcode.Put => DecodePut(seq, unixMs, cacheKey, frameBuffer, offset, payloadLen),
             JournalOpcode.Remove => new JournalRecord
             {
                 Sequence = seq,
@@ -133,14 +123,22 @@ internal static class BinaryJournalCodec
         };
     }
 
-    private static int EncodePut(JournalRecord record, Span<byte> destination, int offset, int opIdLen)
+    private static JournalRecord DecodePut(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, int offset, int payloadLen)
     {
-        var payload = record.PutEntryBytes.Span;
-        payload.CopyTo(destination[offset..]);
-        offset += payload.Length;
-        if (opIdLen > 0)
-            offset += Encoding.UTF8.GetBytes(record.PutOperationId!, destination[offset..]);
-        return offset;
+        if (payloadLen < 0)
+            throw new InvalidDataException("binary journal put frame has invalid payload length.");
+
+        if (frameBuffer.Length < offset + payloadLen)
+            throw new InvalidDataException("binary journal put frame is truncated.");
+
+        return new JournalRecord
+        {
+            Sequence = seq,
+            UnixMs = unixMs,
+            Operation = JournalOperationKind.Put,
+            Key = cacheKey,
+            PutEntryBytes = payloadLen > 0 ? frameBuffer.AsMemory(offset, payloadLen) : ReadOnlyMemory<byte>.Empty,
+        };
     }
 
     private static int EncodeIdempotencyOutcome(JournalRecord record, Span<byte> destination, int offset)
@@ -220,53 +218,43 @@ internal static class BinaryJournalCodec
     [StructLayout(LayoutKind.Auto)]
     internal readonly struct EncodeContext
     {
-        private EncodeContext(Utf8KeyLengths keyUtf8, int operationIdUtf8Length, int payloadUtf8Length)
+        private EncodeContext(Utf8KeyLengths keyUtf8, int payloadUtf8Length)
         {
             KeyUtf8 = keyUtf8;
-            OperationIdUtf8Length = operationIdUtf8Length;
             PayloadUtf8Length = payloadUtf8Length;
         }
 
         public Utf8KeyLengths KeyUtf8 { get; }
 
-        public int OperationIdUtf8Length { get; }
-
         public int PayloadUtf8Length { get; }
 
-        public int BodyLength => FixedPrefixSize + KeyUtf8.TotalLength + PayloadUtf8Length + OperationIdUtf8Length;
+        public int BodyLength => FixedPrefixSize + KeyUtf8.TotalLength + PayloadUtf8Length;
 
         public static EncodeContext From(JournalRecord record)
         {
             var keyUtf8 = Utf8KeyLengths.From(record.Key);
-            GetOperationPayloadLengths(record, out var operationIdUtf8Length, out var payloadUtf8Length);
-            return new EncodeContext(keyUtf8, operationIdUtf8Length, payloadUtf8Length);
+            var payloadUtf8Length = GetOperationPayloadLength(record);
+            return new EncodeContext(keyUtf8, payloadUtf8Length);
         }
 
-        private static void GetOperationPayloadLengths(JournalRecord record, out int operationIdUtf8Length, out int payloadUtf8Length)
+        private static int GetOperationPayloadLength(JournalRecord record)
         {
-            operationIdUtf8Length = 0;
-            payloadUtf8Length = 0;
             switch (record.Operation)
             {
                 case JournalOperationKind.Put:
-                    payloadUtf8Length = record.PutEntryBytes.Length;
-                    if (record.PutOperationId is { Length: > 0 } operationId)
-                        operationIdUtf8Length = Encoding.UTF8.GetByteCount(operationId);
-                    break;
+                    return record.PutEntryBytes.Length;
 
                 case JournalOperationKind.TouchExpiration:
-                    payloadUtf8Length = 8;
-                    break;
+                    return 8;
 
                 case JournalOperationKind.Remove:
                 case JournalOperationKind.RemoveExpiration:
-                    break;
+                    return 0;
 
                 case JournalOperationKind.IdempotencyOutcome:
-                    payloadUtf8Length = 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty)
-                                        + 2 + Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty)
-                                        + 4 + record.IdempotencyResponseBytes.Length;
-                    break;
+                    return 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty)
+                           + 2 + Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty)
+                           + 4 + record.IdempotencyResponseBytes.Length;
 
                 case JournalOperationKind.AwaitDurabilityCommit:
                 case JournalOperationKind.WaitForStartup:

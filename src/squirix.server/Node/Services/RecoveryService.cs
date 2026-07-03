@@ -39,22 +39,6 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new RpcMutationIdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
-    {
-    }
-
-    public RecoveryService(
-        PersistenceOptions opt,
-        ManifestStore manifestStore,
-        ILocalCacheRecovery<T> localCache,
-        RecoveryOptions options,
-        JournalStartupGate journalStartupGate,
-        ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, journalStartupGate, new RpcMutationIdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
-    {
-    }
-
     public RecoveryService(
         PersistenceOptions opt,
         ManifestStore manifestStore,

@@ -65,10 +65,7 @@ public sealed class BinaryJournalCodecRoundTripTests
         Assert.Equal(record.Key.Key, decoded.Key.Key);
 
         if (operation is JournalOperationKind.Put)
-        {
             Assert.Equal(record.PutEntryBytes.Length, decoded.PutEntryBytes.Length);
-            Assert.Equal(record.PutOperationId, decoded.PutOperationId);
-        }
 
         if (operation is JournalOperationKind.TouchExpiration)
             Assert.Equal(record.TouchExpirationUtc, decoded.TouchExpirationUtc);
@@ -92,7 +89,6 @@ public sealed class BinaryJournalCodecRoundTripTests
                 Operation = JournalOperationKind.Put,
                 Key = key,
                 PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
-                PutOperationId = "op-1",
             },
             JournalOperationKind.Remove => new JournalRecord
             {

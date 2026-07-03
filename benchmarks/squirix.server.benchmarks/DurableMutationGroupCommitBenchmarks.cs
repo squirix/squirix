@@ -66,7 +66,7 @@ public class DurableMutationGroupCommitBenchmarks
                         static _ => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
                         coordinator,
                         append,
-                        static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, null, ct),
+                        static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, ct),
                         0,
                         static (_, _, _) => new ValueTask<int>(1),
                         cancellationToken).ConfigureAwait(false);

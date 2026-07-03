@@ -8,6 +8,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
@@ -36,7 +37,7 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
                          new JournalStartupGate(),
                          DefaultCancellationToken))
         {
-            await journal.AppendPutAsync(CacheKey.Default("k"), BuildPutPayload("v"), null, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("k"), BuildPutPayload("v"), DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
 
@@ -64,12 +65,15 @@ public sealed class JournalInvalidHeaderRecoveryTests : UnitTestBase
             DefaultCancellationToken);
 
         var gate = new JournalStartupGate(false);
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 },
+            persistence,
             scenario.ManifestStore,
             scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
             gate,
+            new RpcMutationIdempotencyStore(),
+            SnapshotStoreFactory.CreateReader(persistence),
             NullLogger<RecoveryService<object?>>.Instance);
 
         var ex = await Assert.ThrowsAsync<InvalidDataException>(() => recovery.StartAsync(DefaultCancellationToken));
