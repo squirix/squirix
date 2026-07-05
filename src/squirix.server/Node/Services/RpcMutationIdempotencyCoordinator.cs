@@ -2,8 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Server.Errors;
-using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
@@ -11,10 +9,15 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Coordinates replay-or-execute semantics for mutating cache RPC handlers.</summary>
 internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotencyCoordinator
 {
-    private readonly IJournalCoordinator? _journal;
     private readonly RpcMutationIdempotencyStore _store;
+    private readonly IJournalCoordinator? _journal;
 
-    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+    }
+
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
         : this(store)
     {
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
@@ -31,12 +34,26 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         ArgumentNullException.ThrowIfNull(execute);
 
         var operationId = RpcMutationContracts.RequireOperationId(rawOperationId);
-        if (_guard.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
+        if (_store.TryReplay(operationId, fingerprint, DefaultParser<TResponse>.Instance, out var cached))
             return cached ?? throw new InvalidOperationException("Replayed response was not cached.");
 
-        var response = await execute(state, cancellationToken).ConfigureAwait(false);
-        _guard.RecordSuccess(operationId, fingerprint, response);
-        return response;
+        if (_journal is not null)
+        {
+            using var scope = RpcMutationIdempotencyExecutionScope.Begin(
+                _store,
+                operationId,
+                fingerprint,
+                _journal,
+                static (TResponse typedResponse) => RpcMutationIdempotencyStore.SerializeResponseBytes(typedResponse));
+            var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+            await scope.CompleteBeforeDurabilityAsync(durableResponse, cancellationToken).ConfigureAwait(false);
+            await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
+            return durableResponse;
+        }
+
+        var memoryOnlyResponse = await execute(state, cancellationToken).ConfigureAwait(false);
+        _store.RecordSuccess(operationId, fingerprint, RpcMutationIdempotencyStore.SerializeResponseBytes(memoryOnlyResponse));
+        return memoryOnlyResponse;
     }
 
     private static class DefaultParser<T>

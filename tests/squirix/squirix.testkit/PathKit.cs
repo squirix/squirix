@@ -151,6 +151,24 @@ public static class PathKit
         return chars;
     }
 
+    private static char[] BuildCrossPlatformInvalidFileNameChars()
+    {
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        invalid.Add('<');
+        invalid.Add('>');
+        invalid.Add(':');
+        invalid.Add('"');
+        invalid.Add('/');
+        invalid.Add('\\');
+        invalid.Add('|');
+        invalid.Add('?');
+        invalid.Add('*');
+
+        var chars = new char[invalid.Count];
+        invalid.CopyTo(chars);
+        return chars;
+    }
+
     private static string BuildProcessSessionSegment()
     {
         long startTicks;

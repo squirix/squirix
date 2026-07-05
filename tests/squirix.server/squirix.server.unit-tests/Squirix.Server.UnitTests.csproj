@@ -10,8 +10,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing"/>
-        <PackageReference Include="TngTech.ArchUnitNET"/>
-        <PackageReference Include="TngTech.ArchUnitNET.xUnitV3"/>
+        <PackageReference Include="NetArchTest.Rules"/>
         <PackageReference Include="xunit.v3"/>
         <PackageReference Include="xunit.v3.assert"/>
         <PackageReference Include="xunit.runner.visualstudio"/>

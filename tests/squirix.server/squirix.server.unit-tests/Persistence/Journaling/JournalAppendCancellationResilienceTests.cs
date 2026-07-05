@@ -56,7 +56,7 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
         var opsBefore = journal.AppendedOps;
 
         // The pool/counter must still be intact: a clean durable mutation completes promptly.
-        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, null, DefaultCancellationToken).AsTask()
+        await journal.AppendPutAndAwaitDurabilityAsync(CacheKey.Default("final"), payload, DefaultCancellationToken).AsTask()
                      .WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(journal.AppendedOps > opsBefore);
@@ -98,7 +98,7 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
             var deadline = Environment.TickCount64 + 30_000;
             for (var i = 0; pipelined.CurrentSegmentIndex is 1 && Environment.TickCount64 < deadline;)
             {
-                await journal.AppendPutAsync(CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}"), payload.AsMemory(0, payloadSize), null, DefaultCancellationToken);
+                await journal.AppendPutAsync(CacheKey.Default($"k{i.ToString(CultureInfo.InvariantCulture)}"), payload.AsMemory(0, payloadSize), DefaultCancellationToken);
                 await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
                 i++;
             }
@@ -117,7 +117,7 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(cancelAfterMs));
         try
         {
-            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, null, cts.Token);
+            await journal.AppendPutAndAwaitDurabilityAsync(key, payload, cts.Token);
         }
         catch (OperationCanceledException)
         {

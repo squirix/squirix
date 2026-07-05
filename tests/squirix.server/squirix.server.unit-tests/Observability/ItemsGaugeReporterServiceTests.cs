@@ -106,4 +106,9 @@ public sealed class ItemsGaugeReporterServiceTests
 
         public int EntryCount { get; }
     }
+
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
+    }
 }

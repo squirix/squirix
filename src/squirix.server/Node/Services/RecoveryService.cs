@@ -39,29 +39,13 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    public RecoveryService(PersistenceOptions opt, ManifestStore manifestStore, ILocalCacheRecovery<T> localCache, RecoveryOptions options, ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, new JournalStartupGate(), new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
-    {
-    }
-
     public RecoveryService(
         PersistenceOptions opt,
         ManifestStore manifestStore,
         ILocalCacheRecovery<T> localCache,
         RecoveryOptions options,
         JournalStartupGate journalStartupGate,
-        ILogger<RecoveryService<T>> log)
-        : this(opt, manifestStore, localCache, options, journalStartupGate, new IdempotencyStore(), SnapshotStoreFactory.CreateReader(opt), log)
-    {
-    }
-
-    public RecoveryService(
-        PersistenceOptions opt,
-        ManifestStore manifestStore,
-        ILocalCacheRecovery<T> localCache,
-        RecoveryOptions options,
-        JournalStartupGate journalStartupGate,
-        IdempotencyStore idempotency,
+        RpcMutationIdempotencyStore idempotency,
         ISnapshotReader snapshotReader,
         ILogger<RecoveryService<T>> log,
         IHostApplicationLifetime? applicationLifetime = null)
@@ -87,11 +71,7 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
         }
 
-        _replayTask = Task.Factory.StartNew(
-            () => ReplayInBackgroundAsync(cancellationToken),
-            cancellationToken,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default).Unwrap();
+        _replayTask = ReplayInBackgroundAsync(cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -127,9 +107,10 @@ internal sealed class RecoveryService<T> : IHostedService
         throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
     }
 
-    private static string FingerprintKey(CacheKey key) => key.ToString();
-
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
+
+    private static DateTime ResolveIdempotencyCreatedUtc(JournalRecord record) =>
+        record.UnixMs <= 0 ? DateTime.UtcNow : DateTimeOffset.FromUnixTimeMilliseconds(record.UnixMs).UtcDateTime;
 
     private async Task ApplyJournalRecordAsync(JournalRecord record, CancellationToken cancellationToken)
     {
@@ -146,9 +127,7 @@ internal sealed class RecoveryService<T> : IHostedService
                     break;
 
                 entry = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, record.UnixMs);
-                var insertFingerprint = IdempotencyStore.BuildInsertFingerprint(FingerprintKey(key), putEntryBytes.Span);
                 await _localCache.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);
-                _idempotency.RestoreInsert(record.PutOperationId ?? string.Empty, insertFingerprint);
                 break;
             }
 
@@ -173,6 +152,10 @@ internal sealed class RecoveryService<T> : IHostedService
                 _ = await _localCache.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
                 break;
             }
+
+            case JournalOperationKind.IdempotencyOutcome:
+                _idempotency.RestoreRecord(record.IdempotencyOperationId!, record.IdempotencyFingerprint!, record.IdempotencyResponseBytes, ResolveIdempotencyCreatedUtc(record));
+                break;
 
             case JournalOperationKind.AwaitDurabilityCommit:
             case JournalOperationKind.WaitForStartup:

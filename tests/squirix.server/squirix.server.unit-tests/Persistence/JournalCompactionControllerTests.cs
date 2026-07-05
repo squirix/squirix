@@ -55,7 +55,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
 
         using var manifestStore = new ManifestStore(opt);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new ManifestState(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
         using var controller = new JournalCompactionController(

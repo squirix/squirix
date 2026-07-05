@@ -170,7 +170,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         Assert.Equal(2, journal.CurrentSegmentIndex);
 
         var payload = JournalEntryPayloadKit.EncodePut("after");
-        await journal.AppendPutAsync(CacheKey.Default("after"), payload, null, DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         Assert.Equal(5UL, journal.NextSequence);
     }
@@ -224,7 +224,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
                          DefaultCancellationToken))
         {
             var p = JournalEntryPayloadKit.EncodePut("keep");
-            await journal.AppendPutAsync(CacheKey.Default("keep"), p, null, DefaultCancellationToken);
+            await journal.AppendPutAsync(CacheKey.Default("keep"), p, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
         }
 

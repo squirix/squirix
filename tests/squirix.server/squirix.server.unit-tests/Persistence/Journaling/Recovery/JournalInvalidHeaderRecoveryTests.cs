@@ -7,11 +7,8 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot.Binary;
-using Squirix.Server.TestKit;
+using Squirix.Server.Storage.Journaling.Framing;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -72,15 +69,14 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var gate = new JournalStartupGate(false);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
+            persistence,
+            scenario.ManifestStore,
+            scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
-            NullLogger<RecoveryService<object?>>.Instance,
-            new RecoveryDependencies<object?>(
-                persistence,
-                scenario.ManifestStore,
-                scenario.Cache,
-                gate,
-                new RpcMutationIdempotencyStore(),
-                StoreFactory.CreateReader(persistence)));
+            gate,
+            new RpcMutationIdempotencyStore(),
+            SnapshotStoreFactory.CreateReader(persistence),
+            NullLogger<RecoveryService<object?>>.Instance);
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(DefaultCancellationToken));
 

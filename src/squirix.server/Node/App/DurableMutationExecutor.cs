@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
@@ -69,6 +70,8 @@ internal sealed class DurableMutationExecutor
             : await ExecuteMonolithicAsync(context, state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }
 
+    private static bool IsIdempotentDurabilityDeferred() => RpcMutationIdempotencyExecutionScope.Current is not null;
+
     private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TContext, TApplyState, TResult>(
         DurableMutationPlan<TResult> plan,
         GroupCommitExecutionState state,
@@ -82,14 +85,26 @@ internal sealed class DurableMutationExecutor
 
         try
         {
+            if (IsIdempotentDurabilityDeferred())
+            {
+                var withState = new GroupCommitApplyWithState<TContext, TApplyState, TResult>
+                {
+                    Context = context,
+                    ApplyState = applyState,
+                    ApplyMemory = applyMemory,
+                };
+                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.Context, s.ApplyState, ct), cancellationToken)
+                                     .ConfigureAwait(false);
+            }
+
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            var withState = new GroupCommitApplyWithState<TContext, TApplyState, TResult>
+            var withStateDeferred = new GroupCommitApplyWithState<TContext, TApplyState, TResult>
             {
                 Context = context,
                 ApplyState = applyState,
                 ApplyMemory = applyMemory,
             };
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.Context, s.ApplyState, ct), cancellationToken)
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.Context, s.ApplyState, ct), cancellationToken)
                                  .ConfigureAwait(false);
         }
         finally
@@ -115,8 +130,10 @@ internal sealed class DurableMutationExecutor
         {
             if (IsIdempotentDurabilityDeferred())
             {
-                var withState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
+                return await _journal.ExecuteUnderSnapshotBarrierAsync(
+                    new GroupCommitApplyDirect<TResult> { ApplyMemory = applyMemory },
+                    static (s, ct) => s.ApplyMemory(ct),
+                    cancellationToken).ConfigureAwait(false);
             }
 
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
@@ -315,6 +332,9 @@ internal sealed class DurableMutationExecutor
             return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
 
         await state.AppendJournal(state.Context, state.AppendState, cancellationToken).ConfigureAwait(false);
+        if (IsIdempotentDurabilityDeferred())
+            return await state.ApplyMemory(state.Context, state.ApplyState, cancellationToken).ConfigureAwait(false);
+
         await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         return await state.ApplyMemory(state.Context, state.ApplyState, cancellationToken).ConfigureAwait(false);
     }
@@ -328,6 +348,9 @@ internal sealed class DurableMutationExecutor
             return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
 
         await state.AppendJournal(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+        if (IsIdempotentDurabilityDeferred())
+            return await state.ApplyMemory(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+
         await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         return await state.ApplyMemory(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
     }
@@ -339,6 +362,9 @@ internal sealed class DurableMutationExecutor
             return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
 
         await state.AppendJournal(cancellationToken).ConfigureAwait(false);
+        if (IsIdempotentDurabilityDeferred())
+            return await state.ApplyMemory(cancellationToken).ConfigureAwait(false);
+
         await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         return await state.ApplyMemory(cancellationToken).ConfigureAwait(false);
     }

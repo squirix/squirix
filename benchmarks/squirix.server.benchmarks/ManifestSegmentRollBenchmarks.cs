@@ -76,7 +76,7 @@ public class ManifestSegmentRollBenchmarks
         for (var i = 0; i < _rollsPerInvoke; i++)
         {
             await FillActiveSegmentNearCapacityAsync(coordinator, overflowFrameLen, CancellationToken.None).ConfigureAwait(false);
-            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, null, CancellationToken.None).ConfigureAwait(false);
+            await coordinator.AppendPutAsync(_overflowKey, overflowPayload, CancellationToken.None).ConfigureAwait(false);
             await coordinator.AwaitDurabilityCommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -93,7 +93,7 @@ public class ManifestSegmentRollBenchmarks
             const long maxBytes = 1024L * 1024L;
 
             while (pipelined.ActiveSegmentWrittenBytes + fillFrameLen + overflowFrameLen <= maxBytes)
-                await pipelined.AppendPutAsync(fillKey, fillPayload, null, cancellationToken).ConfigureAwait(false);
+                await pipelined.AppendPutAsync(fillKey, fillPayload, cancellationToken).ConfigureAwait(false);
 
             await pipelined.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
         }

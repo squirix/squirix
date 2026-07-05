@@ -64,7 +64,7 @@ foreach (var file in files)
     {
         var smokeCommand = FormatSmokeCommand(smokeArgs);
         await output.WriteLineAsync($"---- {relativePath} {smokeCommand} ----").ConfigureAwait(false);
-        if (await RunDotnetAsync(repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) is not 0)
+        if (await RunDotnetAsync(dotnetPath, repoRoot, ["run", "--file", relativePath, "--", .. smokeArgs], CancellationToken.None).ConfigureAwait(false) is not 0)
             return 1;
     }
 }
@@ -101,7 +101,7 @@ static string FormatSmokeCommand(string[] args)
     return builder.ToString();
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, string[] args, CancellationToken cancellationToken)
+static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, string[] args, CancellationToken cancellationToken)
 {
     var quotedArgs = new string[args.Length];
     for (var i = 0; i < args.Length; i++)

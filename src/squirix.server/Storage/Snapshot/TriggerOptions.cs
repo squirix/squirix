@@ -46,24 +46,6 @@ internal sealed class TriggerOptions
     {
     }
 
-    private TriggerOptions(
-        long journalGrowthThrottleBytes,
-        double latencySloMilliseconds,
-        TimeSpan latencyThrottleDuration,
-        TimeSpan minGapBetweenSnapshots,
-        long snapshotEveryNBytes,
-        long snapshotEveryNOps,
-        TimeSpan snapshotInterval)
-    {
-        JournalGrowthThrottleBytes = journalGrowthThrottleBytes;
-        LatencySloMilliseconds = latencySloMilliseconds;
-        LatencyThrottleDuration = latencyThrottleDuration;
-        MinGapBetweenSnapshots = minGapBetweenSnapshots;
-        SnapshotEveryNBytes = snapshotEveryNBytes;
-        SnapshotEveryNOps = snapshotEveryNOps;
-        SnapshotInterval = snapshotInterval;
-    }
-
     /// <summary>
     /// Gets the minimum journal byte delta required before a snapshot is allowed, even when other triggers are satisfied.
     /// Default is 0 (disabled).

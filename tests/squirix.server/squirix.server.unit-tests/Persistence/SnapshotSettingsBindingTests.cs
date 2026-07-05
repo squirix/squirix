@@ -19,14 +19,15 @@ public sealed class SnapshotSettingsBindingTests : UnitTestBase
     public async Task UnifiedSettingsMergesSnapshotSectionFromFile()
     {
         using var dir = new TempDirectory("squirix-snapshot-settings-merge");
-        const string json = """{"Squirix":{"Snapshot":{"snapshotInterval":"00:01:00","snapshotEveryNOps":42}}}""";
+        const string json = """{"Squirix":{"Snapshot":{"SnapshotInterval":"00:01:00","SnapshotEveryNOps":42}}}""";
+        const long expectedDefaultSnapshotEveryNBytes = 128L * 1024 * 1024; // 128 MiB default when SnapshotEveryNBytes is not specified.
         var path = PathKit.Combine(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (found, merged) = await UnifiedSettings.TryMergeSnapshotFromSettingsFilePathAsync(path, new SnapshotTriggerOptions(), DefaultCancellationToken);
         Assert.True(found);
         Assert.Equal(TimeSpan.FromMinutes(1), merged.SnapshotInterval);
         Assert.Equal(42, merged.SnapshotEveryNOps);
-        Assert.Equal(128L * 1024 * 1024, merged.SnapshotEveryNBytes);
+        Assert.Equal(expectedDefaultSnapshotEveryNBytes, merged.SnapshotEveryNBytes);
     }
 
     /// <summary>Verifies strict settings validation includes a valid <c>Snapshot</c> section.</summary>

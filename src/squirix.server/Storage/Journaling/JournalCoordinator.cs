@@ -95,21 +95,21 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         return new JournalCoordinator(opt, manifest, manifestStore, startupGate);
     }
 
-    public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
+    public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         if (_opt.IsJournalGroupCommitEnabled)
         {
-            return AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, operationId, cancellationToken);
+            return AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, cancellationToken);
         }
 
-        return AppendRecordWithDurabilityCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes, operationId ?? string.Empty), cancellationToken);
+        return AppendRecordWithDurabilityCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }
 
-    public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
+    public ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
-        return AppendRecordCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes, operationId ?? string.Empty), cancellationToken);
+        return AppendRecordCoreAsync(AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }
 
     public ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken) => AppendRecordCoreAsync(
@@ -123,6 +123,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
     public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) => AppendRecordCoreAsync(
         AllocateRecord(key, JournalOperationKind.TouchExpiration, touchExpirationUtc: expiresUtc),
         cancellationToken);
+
+    public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        ArgumentNullException.ThrowIfNull(responseBytes);
+
+        var record = AllocateIdempotencyRecord(operationId, fingerprint, responseBytes);
+        return AppendRecordCoreAsync(record, cancellationToken);
+    }
 
     public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
     {
@@ -295,7 +305,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         CacheKey key,
         JournalOperationKind operation,
         ReadOnlyMemory<byte> putEntryBytes = default,
-        string? putOperationId = null,
         DateTime? touchExpirationUtc = null)
     {
         var record = JournalRecord.RentForAppend();
@@ -304,8 +313,20 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         record.Operation = operation;
         record.Key = key;
         record.PutEntryBytes = putEntryBytes;
-        record.PutOperationId = putOperationId;
         record.TouchExpirationUtc = touchExpirationUtc;
+        return record;
+    }
+
+    private JournalRecord AllocateIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes)
+    {
+        var record = JournalRecord.RentForAppend();
+        record.Sequence = AllocateSequence();
+        record.UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        record.Operation = JournalOperationKind.IdempotencyOutcome;
+        record.Key = new CacheKey(string.Empty, string.Empty);
+        record.IdempotencyOperationId = operationId;
+        record.IdempotencyFingerprint = fingerprint;
+        record.IdempotencyResponseBytes = responseBytes;
         return record;
     }
 
@@ -320,9 +341,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator, IJournalEventLoo
         }
     }
 
-    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
+    private async ValueTask AppendPutAndAwaitDurabilityViaGroupCommitAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
-        await AppendPutAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
+        await AppendPutAsync(key, entryBytes, cancellationToken).ConfigureAwait(false);
         await AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
