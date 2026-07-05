@@ -12,6 +12,7 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Serialization;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -46,8 +47,15 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
         _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
         _ = services.AddSingleton<IGrpcCacheOperations<object?>, GrpcCacheOperations<object?>>();
-        _ = services.AddSingleton<RpcMutationIdempotencyGuard>();
-        _ = services.AddSingleton<RpcMutationIdempotencyCoordinator>();
+        _ = services.AddSingleton<RpcMutationIdempotencyStore>();
+        _ = services.AddSingleton<RpcMutationIdempotencyCoordinator>(static sp =>
+        {
+            var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
+            var journal = sp.GetService<IJournalCoordinator>();
+            return journal is not null
+                ? new RpcMutationIdempotencyCoordinator(store, journal)
+                : new RpcMutationIdempotencyCoordinator(store);
+        });
         _ = services.AddSingleton<ICacheApi<object?>>(static sp => sp.GetRequiredService<IInboundEndpointCacheOperations<object?>>().ForCache(CacheNames.DefaultNamespace));
 
         return services;

@@ -44,20 +44,20 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
-    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, string? operationId, CancellationToken cancellationToken)
+    public async ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken)
     {
         var payloadBytes = entryBytes.Length;
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key) with { PayloadBytes = payloadBytes });
         using var scope = _tracer.Begin(JournalOperationKind.Put, in traceContext);
-        await _inner.AppendPutAsync(key, entryBytes, operationId, cancellationToken).ConfigureAwait(false);
+        await _inner.AppendPutAsync(key, entryBytes, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AppendRemoveAsync(CacheKey key, CancellationToken cancellationToken)
@@ -79,6 +79,13 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         var traceContext = Enrich(JournalCoordinatorTracing.ForKey(key));
         using var scope = _tracer.Begin(JournalOperationKind.TouchExpiration, in traceContext);
         await _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+    {
+        var traceContext = Enrich(default);
+        using var scope = _tracer.Begin(JournalOperationKind.IdempotencyOutcome, in traceContext);
+        await _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)

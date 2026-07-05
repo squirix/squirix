@@ -52,6 +52,16 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
     public IServiceProvider Services => _app.Services;
 
+    /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
+    public async ValueTask AbruptShutdownAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+            return;
+
+        await SuppressObjectDisposedAsync(() => _app.DisposeAsync()).ConfigureAwait(false);
+        _scope?.Dispose();
+    }
+
     /// <summary>
     /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
     /// </summary>

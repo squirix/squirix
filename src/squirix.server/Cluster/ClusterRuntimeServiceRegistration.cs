@@ -8,7 +8,6 @@ using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Cluster;
@@ -60,7 +59,6 @@ internal static class ClusterRuntimeServiceRegistration
             _ = services.AddSingleton<Correlation.ClientInterceptor>();
             _ = services.AddSingleton<Correlation.ServerInterceptor>();
             _ = services.AddSingleton<ClusterInternalOwnerClientInterceptor>();
-            _ = services.AddSingleton<IdempotencyStore>();
             _ = services.AddSingleton<IClientPool>(sp =>
             {
                 var material = sp.GetRequiredService<MtlsCertificateMaterial>();

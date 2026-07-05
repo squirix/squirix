@@ -10,5 +10,5 @@ internal sealed class PersistedIdempotencyRecord
 
     public required string OperationId { get; init; }
 
-    public required PersistedIdempotencyOutcome Outcome { get; init; }
+    public required byte[] ResponseBytes { get; init; }
 }

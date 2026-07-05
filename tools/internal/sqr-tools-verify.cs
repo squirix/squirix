@@ -35,15 +35,31 @@ if (files.Count is 0)
     return 1;
 }
 
+var dotnetPath = ResolveDotnetPath();
+if (dotnetPath is null)
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
+var repoRoot = Directory.GetParent(toolsDir)?.FullName;
+if (string.IsNullOrWhiteSpace(repoRoot))
+{
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
+    return 1;
+}
+
+repoRoot = Path.GetFullPath(repoRoot);
+
 foreach (var file in files)
 {
     var name = Path.GetFileName(file);
     await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         Arguments = $"run --file \"{file}\" -- --help",
-        WorkingDirectory = Directory.GetParent(toolsDir)?.FullName ?? Environment.CurrentDirectory,
+        WorkingDirectory = repoRoot,
         UseShellExecute = false,
     };
     using var proc = Process.Start(processStartInfo);
@@ -57,3 +73,39 @@ foreach (var file in files)
 
 await output.WriteLineAsync("OK: all file-based tools responded to --help.").ConfigureAwait(false);
 return 0;
+
+static string? ResolveDotnetPath()
+{
+    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    {
+        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        if (File.Exists(dotnetRootCandidate))
+            return Path.GetFullPath(dotnetRootCandidate);
+    }
+
+    var processPath = Environment.ProcessPath;
+    if (!string.IsNullOrWhiteSpace(processPath))
+    {
+        var processFileName = Path.GetFileName(processPath);
+        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(processPath);
+        }
+    }
+
+    var pathValue = Environment.GetEnvironmentVariable("PATH");
+    if (string.IsNullOrWhiteSpace(pathValue))
+        return null;
+
+    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var pathCandidate = Path.Combine(segment, executableName);
+        if (File.Exists(pathCandidate))
+            return Path.GetFullPath(pathCandidate);
+    }
+
+    return null;
+}

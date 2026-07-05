@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using FakeItEasy;
 using Squirix.Serialization;
 using Squirix.TestKit.Diagnostics;
 using Xunit;
@@ -72,15 +71,14 @@ public sealed class MetricsDecoratedSerializerTests
     public void SerializeFailureRecordsErrorMetrics()
     {
         using var sink = new MeasurementSink("Squirix");
-        var inner = A.Fake<ISquirixSerializer>();
-        _ = A.CallTo(() => inner.Serialize(A<Stream>._, A<object?>._)).Throws(new InvalidOperationException("fail"));
+        var inner = new StreamSerializeFaultSerializer();
         var decorated = new MetricsDecoratedSerializer(inner);
 
         using var ms = new MemoryStream();
         _ = Assert.Throws<InvalidOperationException>(() => decorated.Serialize(ms, new object()));
 
-        Assert.Contains("Proxy", inner.GetType().Name, StringComparison.Ordinal);
-        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "serialize"), ("result", "error"), ("impl", inner.GetType().Name)));
-        Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "serialize"), ("exception_type", "InvalidOperationException"), ("impl", inner.GetType().Name)));
+        const string impl = nameof(StreamSerializeFaultSerializer);
+        Assert.True(sink.HasEvent("squirix_serializer_ops_total", ("op", "serialize"), ("result", "error"), ("impl", impl)));
+        Assert.True(sink.HasEvent("squirix_serializer_failures_total", ("op", "serialize"), ("exception_type", "InvalidOperationException"), ("impl", impl)));
     }
 }

@@ -53,7 +53,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
 
             await BlockNextManifestWriteAsync(manifestStore, dir);
             var manifestFileCountAfterBlock = CountManifestDataFiles(dir);
-            await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
+            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
 
             var deadline = Environment.TickCount64 + 5_000;
             while (!journal.HasFlushLoopFailure && Environment.TickCount64 < deadline)
@@ -97,7 +97,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             var overflowFrameLen = FrameLength(overflowPayload, overflowKey);
             await FillSegmentOneForOverflowAsync(pipelined, overflowFrameLen, DefaultCancellationToken);
 
-            await journal.AppendPutAsync(overflowKey, overflowPayload, null, DefaultCancellationToken);
+            await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
             await ManifestStoreTestSupport.WaitUntilAsync(
@@ -169,7 +169,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
                 if (journal.ActiveSegmentWrittenBytes + fillFrameLen > maxBytes)
                     break;
 
-                await journal.AppendPutAsync(fillKey, fillPayload, null, cancellationToken);
+                await journal.AppendPutAsync(fillKey, fillPayload, cancellationToken);
                 await journal.AwaitDurabilityCommitAsync(cancellationToken);
             }
 

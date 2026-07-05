@@ -34,7 +34,7 @@ namespace Squirix.Server.Storage.Snapshot;
 internal sealed class SnapshotCoordinator<T>
 {
     private readonly ILocalCacheSnapshotReader<T> _cache;
-    private readonly IdempotencyStore _idempotency;
+    private readonly RpcMutationIdempotencyStore _idempotency;
     private readonly IJournalMetrics _journal;
     private readonly ManifestStore _manifestStore;
     private readonly IMemoryPressureStateEvaluator _memoryPressureEvaluator;
@@ -54,7 +54,7 @@ internal sealed class SnapshotCoordinator<T>
         ILocalCacheSnapshotReader<T> cache,
         ISnapshotWriter snapWriter,
         ManifestStore manifestStore,
-        IdempotencyStore idempotency,
+        RpcMutationIdempotencyStore idempotency,
         ClusterConfig cluster,
         IMemoryPressureStateEvaluator memoryPressureEvaluator,
         IMemoryUsageAccounting memoryUsageAccounting)
@@ -76,9 +76,6 @@ internal sealed class SnapshotCoordinator<T>
 
     public async ValueTask TrySnapshotAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
-        if (!_opt.Enabled)
-            return;
-
         if (!ShouldTrigger(DateTime.UtcNow))
             return;
         if (ShouldSuppressBackgroundSnapshotDueToCriticalMemoryPressure())
@@ -202,8 +199,6 @@ internal sealed class SnapshotCoordinator<T>
 
     private bool ShouldTrigger(DateTime utcNow)
     {
-        if (!_opt.Enabled)
-            return false;
         if (_latencyThrottledUntilUtc > utcNow)
             return false;
 

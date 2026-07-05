@@ -26,7 +26,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="FakeItEasy"/>
         <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing"/>
     </ItemGroup>

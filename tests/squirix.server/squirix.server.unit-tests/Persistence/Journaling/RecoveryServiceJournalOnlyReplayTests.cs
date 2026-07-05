@@ -4,6 +4,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -33,12 +34,15 @@ public sealed class RecoveryServiceJournalOnlyReplayTests : UnitTestBase
             DefaultCancellationToken);
 
         var gate = new JournalStartupGate(false);
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 },
+            persistence,
             scenario.ManifestStore,
             scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
             gate,
+            new RpcMutationIdempotencyStore(),
+            SnapshotStoreFactory.CreateReader(persistence),
             NullLogger<RecoveryService<object?>>.Instance);
         await recovery.StartAsync(DefaultCancellationToken);
 

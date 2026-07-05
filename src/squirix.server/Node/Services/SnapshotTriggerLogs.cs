@@ -12,11 +12,6 @@ internal static class SnapshotTriggerLogs
 
     private static readonly Action<ILogger, Exception?> Crashed = LoggerMessage.Define(LogLevel.Error, new EventId(1004, nameof(Crashed)), "SnapshotTriggerService crashed.");
 
-    private static readonly Action<ILogger, Exception?> Disabled = LoggerMessage.Define(
-        LogLevel.Information,
-        new EventId(1000, nameof(Disabled)),
-        "SnapshotTriggerService disabled via configuration; exiting.");
-
     private static readonly Action<ILogger, Exception?> JournalAppended = LoggerMessage.Define(
         LogLevel.Trace,
         new EventId(1006, nameof(JournalAppended)),
@@ -37,8 +32,6 @@ internal static class SnapshotTriggerLogs
     public static void LogCanceled(ILogger l) => Canceled(l, null);
 
     public static void LogCrashed(ILogger l, Exception ex) => Crashed(l, ex);
-
-    public static void LogDisabled(ILogger l) => Disabled(l, null);
 
     public static void LogJournalAppended(ILogger l) => JournalAppended(l, null);
 

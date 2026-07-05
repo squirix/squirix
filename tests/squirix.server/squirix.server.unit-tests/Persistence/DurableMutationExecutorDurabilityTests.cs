@@ -62,10 +62,9 @@ public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
             ValueTask AppendJournalAsync(CancellationToken cancellationToken)
             {
                 return journal.AppendPutAsync(
-                CacheKey.Default("k"),
-                JournalEntryPayloadKit.EncodePut("v"),
-                null,
-                cancellationToken);
+                    CacheKey.Default("k"),
+                    JournalEntryPayloadKit.EncodePut("v"),
+                    cancellationToken);
             }
 
             ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)

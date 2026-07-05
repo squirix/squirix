@@ -102,12 +102,15 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
     private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario)
     {
         var gate = new JournalStartupGate(false);
+        var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 },
+            persistence,
             scenario.ManifestStore,
             scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
             gate,
+            new RpcMutationIdempotencyStore(),
+            SnapshotStoreFactory.CreateReader(persistence),
             NullLogger<RecoveryService<object?>>.Instance);
         return recovery.StartAsync(DefaultCancellationToken);
     }

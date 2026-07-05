@@ -23,7 +23,7 @@ public sealed class JournalBackendContractTests
         await using var context = await CreateCoordinatorAsync();
         var key = new CacheKey("ns", "k1");
         var payload = JournalEntryPayloadKit.EncodePut(1);
-        await context.Coordinator.AppendPutAsync(key, payload, "op-1", CancellationToken.None);
+        await context.Coordinator.AppendPutAsync(key, payload, CancellationToken.None);
         await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
 
         var last = await ReadLastRecordAsync(context);
@@ -101,15 +101,15 @@ public sealed class JournalBackendContractTests
 
     private sealed class CoordinatorContext : IAsyncDisposable
     {
+        private readonly TempDirectory _directory;
+
         public CoordinatorContext(TempDirectory directory, PersistenceOptions options, ManifestStore manifestStore, IJournalCoordinator coordinator)
         {
-            Directory = directory;
+            _directory = directory;
             Options = options;
             ManifestStore = manifestStore;
             Coordinator = coordinator;
         }
-
-        public TempDirectory Directory { get; }
 
         public PersistenceOptions Options { get; }
 
@@ -121,7 +121,7 @@ public sealed class JournalBackendContractTests
         {
             await Coordinator.DisposeAsync().ConfigureAwait(false);
             ManifestStore.Dispose();
-            Directory.Dispose();
+            _directory.Dispose();
         }
     }
 }
