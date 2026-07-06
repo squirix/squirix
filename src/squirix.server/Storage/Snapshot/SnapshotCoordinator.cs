@@ -42,6 +42,8 @@ internal sealed class SnapshotCoordinator<T>
     private readonly string _nodeId;
     private readonly SnapshotTriggerOptions _opt;
     private readonly ISnapshotWriter _snapWriter;
+    private readonly List<(CacheKey Key, CacheEntry<object?> Entry)> _captureItems = [];
+    private readonly List<PersistedIdempotencyRecord> _captureIdempotency = [];
     private long _bytesAtLast;
     private DateTime _lastSnapshotUtc = DateTime.MinValue;
     private DateTime _latencyThrottledUntilUtc = DateTime.MinValue;
@@ -119,17 +121,22 @@ internal sealed class SnapshotCoordinator<T>
 
     private async ValueTask<CapturedSnapshotBundle> CaptureSnapshotBundleAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
+        _captureItems.Clear();
+        var utcNow = DateTime.UtcNow;
         var capacity = _cache is ILocalCacheStats stats ? stats.EntryCount : 0;
-        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(capacity);
+        if (_captureItems.Capacity < capacity)
+            _captureItems.Capacity = capacity;
+
         await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
+            if (entry.ExpiresUtc is { } exp && exp <= utcNow)
                 continue;
 
-            items.Add((key, ToSnapshotEntry(entry)));
+            _captureItems.Add((key, ToSnapshotEntry(entry)));
         }
 
-        return new CapturedSnapshotBundle(items, journal.CurrentSegmentIndex, journal.NextSequence);
+        _idempotency.ExportSnapshot(_captureIdempotency, utcNow);
+        return new CapturedSnapshotBundle(_captureItems, journal.CurrentSegmentIndex, journal.NextSequence, _captureIdempotency);
 
         static CacheEntry<object?> ToSnapshotEntry(CacheEntry<T> source)
         {
@@ -163,8 +170,7 @@ internal sealed class SnapshotCoordinator<T>
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         _ = currentActivity?.SetTag("snapshot.index", nextIndex);
 
-        var idempotencyRecords = _idempotency.ExportSnapshot(DateTime.UtcNow);
-        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
+        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
@@ -226,5 +232,9 @@ internal sealed class SnapshotCoordinator<T>
         return timeOk || opsOk || bytesOk;
     }
 
-    private sealed record CapturedSnapshotBundle(List<(CacheKey Key, CacheEntry<object?> Entry)> Items, int ReplayFromJournalSegmentAtFlush, ulong NextSequenceAtFlush);
+    private sealed record CapturedSnapshotBundle(
+        List<(CacheKey Key, CacheEntry<object?> Entry)> Items,
+        int ReplayFromJournalSegmentAtFlush,
+        ulong NextSequenceAtFlush,
+        IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecordsAtFlush);
 }
