@@ -136,7 +136,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         ChangeState(CompactionState.Running);
         LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
 
-        var sw = Stopwatch.StartNew();
+        var started = Stopwatch.GetTimestamp();
         var resultLabel = "failure";
         try
         {
@@ -147,18 +147,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         finally
         {
-            sw.Stop();
-            try
-            {
-                CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
-            }
-            catch (InvalidOperationException)
-            {
-                // Metrics emission is best-effort and must not fail compaction flow.
-            }
+            var elapsed = Stopwatch.GetElapsedTime(started);
+            CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
         }
 
         LastRunUtc = DateTime.UtcNow;
