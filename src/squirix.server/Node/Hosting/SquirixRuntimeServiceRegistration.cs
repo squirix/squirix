@@ -32,7 +32,7 @@ internal static class SquirixRuntimeServiceRegistration
             sp.GetRequiredService<IMemoryPressureStateEvaluator>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<ClusterConfig>().NodeId));
-        _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new CacheEntrySizeEstimator<object?>());
+        _ = services.AddSingleton<ICacheEntrySizeEstimator<object?>>(static _ => new ObjectCacheEntrySizeEstimator());
 
         _ = services.AddSingleton(static _ => new PhysicalCache<object?>(null, new EvictionOptions { Policy = EvictionPolicyType.Lru }));
         _ = services.AddSingleton<ILocalCache<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());

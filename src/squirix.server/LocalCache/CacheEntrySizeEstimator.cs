@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.LocalCache;
 
@@ -29,6 +30,14 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
+    }
+
+    /// <inheritdoc />
+    public bool HasUnknownPayloadMagnitude(CacheEntry<T> entry, bool payloadIsCounter)
+    {
+        if (payloadIsCounter)
+            return false;
+        return MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
     }
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)
