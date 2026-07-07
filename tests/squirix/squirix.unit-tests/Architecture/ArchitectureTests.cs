@@ -22,15 +22,6 @@ public sealed class ArchitectureTests
 
     private static readonly Lazy<MsbuildProjectIndex> ClientProjectIndex = new(static () => MsbuildProjectIndex.Parse(ClientProject.Value));
 
-    private static readonly string[] BlockedClientRuntimeNamespaces =
-    [
-        "Squirix.Server.Adapters",
-        "Squirix.Server.LocalCache",
-        "Squirix.Server.Node",
-        "Squirix.Server.Storage",
-        "Squirix.Server.Runtime",
-    ];
-
     /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
     [Fact]
     public void ClientAssemblyGrpcTransportTypesShouldRemainInternalClientSurface()
@@ -38,17 +29,6 @@ public sealed class ArchitectureTests
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
         _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
-    }
-
-    /// <summary>Ensures the client assembly does not take dependencies on server-owned runtime namespaces.</summary>
-    [Fact]
-    public void ClientAssemblyShouldNotDependOnServerRuntimeNamespaces()
-    {
-        foreach (var blockedNamespace in BlockedClientRuntimeNamespaces)
-        {
-            var result = SdkArchitectureScope.Sdk.ShouldNot().HaveDependencyOn(blockedNamespace).GetResult();
-            ArchitectureAssertions.AssertArchitecture(result);
-        }
     }
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>

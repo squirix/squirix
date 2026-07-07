@@ -144,7 +144,7 @@ internal sealed class SnapshotCoordinator<T>
             // repeated length/write passes never re-serialize it. Directly-encodable values pass through
             // unchanged, preserving the zero-copy fast path for the object pipeline.
             var normalized = CacheEntryCodec.NormalizeValue(source.Value);
-            if (source is CacheEntry<object?> objectEntry && ReferenceEquals(normalized, source.Value))
+            if (source is CacheEntry<object?> objectEntry && Equals(normalized, objectEntry.Value))
                 return objectEntry;
 
             return new CacheEntry<object?>

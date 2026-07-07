@@ -4,12 +4,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using ArchUnitNET.xUnitV3;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;
 using Xunit;
+using static ArchUnitNET.Fluent.ArchRuleDefinition;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
@@ -51,10 +53,10 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void AdaptersShouldNotDependOnJournalJsonInternals()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Adapters).ShouldNot()
-                                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Storage}.Journaling.Json").GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters)
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining($"{ServerArchitectureNamespaces.Storage}.Journaling.Json");
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
@@ -76,21 +78,20 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void FilterTypesShouldLiveInAdaptersRestNamespace()
     {
-        var result = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Filter", StringComparison.InvariantCulture),
+        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
+            ServerArchitectureScope.Server.And().HaveNameEndingWith("Filter"),
             [$"{ServerArchitectureNamespaces.Adapters}.Rest", $"{ServerArchitectureNamespaces.Adapters}.Endpoint.Rest"]);
-
-        ArchitectureAssertions.AssertArchitecture(result);
     }
 
     /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
     [Fact]
     public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
     {
-        var result = ArchitectureTypeScope.Server.And().HaveNameEndingWith("Handler", StringComparison.InvariantCulture).Should()
-                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security").GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler")
+            .Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
+            .WithoutRequiringPositiveResults();
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures the journal thread is joined during disposal instead of being fire-and-forget.</summary>
@@ -108,51 +109,49 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var result = ArchitectureTypeScope.Server.And().HaveNameEndingWith("Metrics", StringComparison.InvariantCulture).And().AreNotInterfaces().Should()
-                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability").GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Metrics").And().AreNot(Interfaces())
+            .Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability");
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures backpressure controls stay isolated from storage concerns.</summary>
     [Fact]
     public void NodeBackpressureShouldNotDependOnStorage()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Backpressure").ShouldNot()
-                                          .HaveDependencyOn(ServerArchitectureNamespaces.Storage).GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Backpressure")
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Storage);
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures node services remain application-layer components and do not depend on transport adapters.</summary>
     [Fact]
     public void NodeServicesShouldNotDependOnAdapters()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Services").ShouldNot()
-                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Services")
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures observability remains transport-agnostic and reusable across adapters.</summary>
     [Fact]
     public void ObservabilityShouldNotDependOnAdapters()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith($"{ServerArchitectureNamespaces.Node}.Observability").ShouldNot()
-                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Observability")
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
     [Fact]
     public void OptionsTypesShouldLiveInApprovedNamespaces()
     {
-        var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Options", StringComparison.InvariantCulture),
+        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
+            ServerArchitectureScope.Server.And().HaveNameEndingWith("Options"),
             ArchitectureAllowlists.ServerOptionsTypeNamespaces);
-
-        ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
     /// <summary>Ensures product code does not use access-check bypass attributes.</summary>
@@ -337,9 +336,9 @@ public sealed class ArchitectureTests : UnitTestBase
 
         foreach (var forbiddenNamespace in forbiddenNamespaces)
         {
-            var result = ArchitectureTypeScope.Server.ShouldNot().HaveDependencyOn(forbiddenNamespace).GetResult();
+            var rule = ServerArchitectureScope.Server.Should().NotDependOnAnyTypesThat().HaveFullNameContaining(forbiddenNamespace);
 
-            ArchitectureAssertions.AssertArchitecture(result);
+            rule.Check(ServerArchitecture.Instance);
         }
     }
 
@@ -418,11 +417,9 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServiceTypesShouldLiveInApprovedNamespaces()
     {
-        var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Service", StringComparison.InvariantCulture),
+        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
+            ServerArchitectureScope.Server.And().HaveNameEndingWith("Service"),
             ArchitectureAllowlists.ServiceTypeNamespaces);
-
-        ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
@@ -483,32 +480,29 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void StorageShouldNotDependOnAdapters()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
-                                          .HaveDependencyOn(ServerArchitectureNamespaces.Adapters).GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage)
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures storage code does not take a dependency on hosting/DI composition details.</summary>
     [Fact]
     public void StorageShouldNotDependOnNodeHosting()
     {
-        var result = ArchitectureTypeScope.Server.And().ResideInNamespaceStartingWith(ServerArchitectureNamespaces.Storage).ShouldNot()
-                                          .HaveDependencyOn($"{ServerArchitectureNamespaces.Node}.Hosting").GetResult();
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage)
+            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
 
-        ArchitectureAssertions.AssertArchitecture(result);
+        rule.Check(ServerArchitecture.Instance);
     }
 
     /// <summary>Ensures validator types stay centralized in the hosting composition layer.</summary>
     [Fact]
     public void ValidatorTypesShouldLiveInApprovedNamespaces()
     {
-        var serverResult = ArchitectureNetArchRules.EvaluateShouldResideInOneOfNamespaces(
-            ArchitectureTypeScope.Server.And().HaveNameEndingWith("Validator", StringComparison.InvariantCulture).And()
-                                 .DoNotHaveNameEndingWith("Invalidator", StringComparison.InvariantCulture),
+        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
+            ServerArchitectureScope.Server.And().HaveNameEndingWith("Validator").And().DoNotHaveNameEndingWith("Invalidator"),
             ArchitectureAllowlists.ValidatorTypeArchitectureNamespaces);
-
-        ArchitectureAssertions.AssertArchitecture(serverResult);
     }
 
     private static List<string> CollectUnexpectedMatches(List<string> includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)

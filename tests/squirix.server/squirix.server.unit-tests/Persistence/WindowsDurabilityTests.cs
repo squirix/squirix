@@ -78,18 +78,27 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
         Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
-    /// <summary>Cleans up the temporary directory after the test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        _dir?.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Creates a temporary directory for test storage.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Cleans up the temporary directory after the test.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _dir?.Dispose();
+
+        base.Dispose(disposing);
     }
 
     private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)

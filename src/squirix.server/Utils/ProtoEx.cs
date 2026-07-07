@@ -322,6 +322,7 @@ internal static class ProtoEx
         switch (v.KindCase)
         {
             case Value.KindOneofCase.NullValue:
+            case Value.KindOneofCase.None:
                 w.WriteNullValue();
                 break;
 
@@ -360,10 +361,6 @@ internal static class ProtoEx
                     WriteValue(w, v.ListValue.Values[index]);
 
                 w.WriteEndArray();
-                break;
-
-            case Value.KindOneofCase.None:
-                w.WriteNullValue();
                 break;
 
             default:

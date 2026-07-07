@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,10 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixPersistenceServiceRegistration
 {
+    [SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "PersistenceRuntime lifetime is transferred to the DI container.")]
     public static async Task<IServiceCollection> AddSquirixPersistenceServicesAsync(
         this IServiceCollection services,
         PersistenceOptions persistence,

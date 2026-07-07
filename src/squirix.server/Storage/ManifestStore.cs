@@ -35,6 +35,7 @@ internal sealed class ManifestStore : IDisposable
     private readonly ManifestRetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private bool _dataDirEnsured;
+    private bool _disposed;
     private byte[] _encodeBuffer = new byte[DefaultEncodeBufferCapacity];
     private volatile bool _nextIndexInitialized;
     private int _nextManifestIndex;
@@ -98,8 +99,12 @@ internal sealed class ManifestStore : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
         _currentPointerWriter.Dispose();
         _gate.Dispose();
+        _disposed = true;
     }
 
     internal void PublishRollBlocking(int currentJournal, ulong nextSequence)

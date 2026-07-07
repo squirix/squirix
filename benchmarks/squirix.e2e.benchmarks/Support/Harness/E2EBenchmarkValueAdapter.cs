@@ -153,6 +153,7 @@ internal static class E2EBenchmarkValueAdapter
             private Task<T?> CreateValueAsync(string key, CancellationToken cancellationToken)
             {
                 _ = key;
+                cancellationToken.ThrowIfCancellationRequested();
                 return Task.FromResult<T?>(_valueFactory(ValueIndex));
             }
         }

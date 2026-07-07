@@ -59,16 +59,20 @@ internal static class MemoryPressureMetrics
             if (index < 0)
                 return;
 
-            if (previous.Length is 1)
+            switch (previous.Length)
             {
-                _registrations = [];
-                return;
+                case 0:
+                    return;
+                case 1:
+                    _registrations = [];
+                    return;
+                default:
+                    var next = new MemoryPressureMetricRegistration[previous.Length - 1];
+                    previous.AsSpan(0, index).CopyTo(next);
+                    previous.AsSpan(index + 1).CopyTo(next.AsSpan(index));
+                    _registrations = next;
+                    break;
             }
-
-            var next = new MemoryPressureMetricRegistration[previous.Length - 1];
-            previous.AsSpan(0, index).CopyTo(next);
-            previous.AsSpan(index + 1).CopyTo(next.AsSpan(index));
-            _registrations = next;
         }
     }
 

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace Squirix.Server.TestKit.Networking;
@@ -11,13 +10,10 @@ namespace Squirix.Server.TestKit.Networking;
 /// Each preset allocates from the full <see cref="HostPortRegion" /> range. Cross-process safety
 /// relies on bind probing in <see cref="PortAllocator" />; regions stay disjoint per consumer.
 /// </remarks>
-[SuppressMessage(
-    "Design",
-    "CA1001:Types that own disposable fields should be disposable",
-    Justification = "Pools are process-lifetime singletons; ports are released via PortAllocator process-wide reservation.")]
-public sealed class ListenPortPool
+public sealed class ListenPortPool : IDisposable
 {
     private readonly PortAllocator _allocator;
+    private bool _disposed;
 
     private ListenPortPool(HostPortRegion region)
     {
@@ -51,6 +47,16 @@ public sealed class ListenPortPool
     /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
     public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _allocator.Dispose();
+        _disposed = true;
+    }
 
     private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 

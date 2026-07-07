@@ -19,6 +19,8 @@ internal static class ArchitectureAllowlists
         ServerArchitectureNamespaces.Storage,
         $"{ServerArchitectureNamespaces.Storage}.Snapshot",
         $"{ServerArchitectureNamespaces.Storage}.Journaling",
+        $"{ServerArchitectureNamespaces.Storage}.Journaling.Compaction",
+        $"{ServerArchitectureNamespaces.Cluster}.Transport",
     ];
 
     /// <summary>
@@ -43,5 +45,6 @@ internal static class ArchitectureAllowlists
         $"{ServerArchitectureNamespaces.Node}.Hosting",
         $"{ServerArchitectureNamespaces.Node}.App",
         $"{ServerArchitectureNamespaces.Node}.App.Decorators.Validation",
+        $"{ServerArchitectureNamespaces.Cluster}.Transport",
     ];
 }

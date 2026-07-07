@@ -93,7 +93,10 @@ internal sealed class SnapshotReader : ISnapshotReader
 
                 _cancellationToken.ThrowIfCancellationRequested();
                 if (_stream.Position >= _footerOffset)
-                    return ValidateFooterAndStop();
+                {
+                    ValidateFooter();
+                    return false;
+                }
 
                 if (!TryReadNextRecord(out var record))
                     return false;
@@ -115,7 +118,7 @@ internal sealed class SnapshotReader : ISnapshotReader
             _disposed = true;
         }
 
-        private bool ValidateFooterAndStop()
+        private void ValidateFooter()
         {
             if (_stream.Position != _footerOffset)
             {
@@ -123,7 +126,7 @@ internal sealed class SnapshotReader : ISnapshotReader
                     throw new InvalidDataException("Binary snapshot file footer is misaligned.");
 
                 _footerValidated = true;
-                return false;
+                return;
             }
 
             Span<byte> footer = stackalloc byte[Codec.FileFooterSize];
@@ -132,7 +135,6 @@ internal sealed class SnapshotReader : ISnapshotReader
 
             Codec.ValidateFileFooter(footer, Crc32C.Finalize(_crc));
             _footerValidated = true;
-            return false;
         }
 
         private bool TryReadNextRecord(out object? record)

@@ -95,18 +95,27 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         Assert.True(FileKit.Exists(SnapshotPath(3)));
     }
 
-    /// <summary>Cleans up the temporary storage directory after each test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        _dir?.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Creates a fresh temporary storage directory before each test.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Cleans up the temporary storage directory after each test.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _dir?.Dispose();
+
+        base.Dispose(disposing);
     }
 
     private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{index.ToString(CultureInfo.InvariantCulture)}");

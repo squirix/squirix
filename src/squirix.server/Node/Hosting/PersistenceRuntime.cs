@@ -7,8 +7,10 @@ using Squirix.Server.Storage.Journaling;
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
-internal sealed class PersistenceRuntime
+internal sealed class PersistenceRuntime : IDisposable
 {
+    private bool _disposed;
+
     private PersistenceRuntime(PersistenceOptions persistence)
     {
         Retention = new StorageRetentionCleanupReadiness(persistence);
@@ -32,5 +34,15 @@ internal sealed class PersistenceRuntime
         var manifest = await runtime.ManifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         await runtime.JournalCoordinator.InitializeAsync(persistence, manifest, runtime.ManifestStore, runtime.Gate, cancellationToken).ConfigureAwait(false);
         return runtime;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        ManifestStore.Dispose();
+        _disposed = true;
     }
 }

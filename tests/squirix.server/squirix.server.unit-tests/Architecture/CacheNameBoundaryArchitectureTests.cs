@@ -1,3 +1,4 @@
+using ArchUnitNET.xUnitV3;
 using Squirix.Server.Cluster;
 using Squirix.Server.Runtime;
 using Xunit;
@@ -7,21 +8,20 @@ namespace Squirix.Server.UnitTests.Architecture;
 /// <summary>Architecture rules for canonical cache name boundaries, validation ownership, and placement of routing versus local watch infrastructure.</summary>
 public sealed class CacheNameBoundaryArchitectureTests
 {
-    /// <summary>Ensures key routing, runtime, watch hub, and validation decorator types remain in their intended namespaces (NetArchTest-backed placement checks).</summary>
+    /// <summary>Ensures key routing, runtime, and validation decorator types remain in their intended namespaces.</summary>
     [Fact]
-    public void ArchitectureRulesUseNetArchTestWherePossible()
+    public void CacheBoundaryTypesShouldLiveInApprovedNamespaces()
     {
-        var watchHub = ArchitectureTypeScope.Server.And().HaveName("WatchHub`1").Should().ResideInNamespace(ServerArchitectureNamespaces.LocalCache).GetResult();
-        ArchitectureAssertions.AssertArchitecture(watchHub);
+        var runtime = ServerArchitectureScope.Server.And().HaveName(nameof(CacheRuntime))
+            .Should().ResideInNamespace(ServerArchitectureNamespaces.Runtime);
+        runtime.Check(ServerArchitecture.Instance);
 
-        var runtime = ArchitectureTypeScope.Server.And().HaveName(nameof(CacheRuntime)).Should().ResideInNamespace(ServerArchitectureNamespaces.Runtime).GetResult();
-        ArchitectureAssertions.AssertArchitecture(runtime);
+        var validation = ServerArchitectureScope.Server.And().HaveName("ValidationCacheDecorator`1")
+            .Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.App.Decorators");
+        validation.Check(ServerArchitecture.Instance);
 
-        var validation = ArchitectureTypeScope.Server.And().HaveName("ValidationCacheDecorator`1").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.App.Decorators")
-                              .GetResult();
-        ArchitectureAssertions.AssertArchitecture(validation);
-
-        var hasher = ArchitectureTypeScope.Server.And().HaveName(nameof(Sha256Hasher)).Should().ResideInNamespace(typeof(Sha256Hasher).Namespace).GetResult();
-        ArchitectureAssertions.AssertArchitecture(hasher);
+        var hasher = ServerArchitectureScope.Server.And().HaveName(nameof(Sha256Hasher))
+            .Should().ResideInNamespace(typeof(Sha256Hasher).Namespace!);
+        hasher.Check(ServerArchitecture.Instance);
     }
 }

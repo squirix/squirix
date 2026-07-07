@@ -26,16 +26,35 @@ internal static class BinaryJsonTreeCodec
 
     public static int Write(JsonElement element, Span<byte> destination)
     {
-        return element.ValueKind switch
+        switch (element.ValueKind)
         {
-            JsonValueKind.Null or JsonValueKind.Undefined => WriteNull(destination),
-            JsonValueKind.True or JsonValueKind.False => WriteBool(element.GetBoolean(), destination),
-            JsonValueKind.String => WriteString(element.GetString() ?? string.Empty, destination),
-            JsonValueKind.Number => WriteNumber(element, destination),
-            JsonValueKind.Object => WriteObject(element, destination),
-            JsonValueKind.Array => WriteArray(element, destination),
-            _ => throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding."),
-        };
+            case JsonValueKind.Null or JsonValueKind.Undefined:
+                return WriteNull(destination);
+            case JsonValueKind.True or JsonValueKind.False:
+                return WriteBool(element.GetBoolean(), destination);
+            case JsonValueKind.String:
+                return WriteString(element.GetString() ?? string.Empty, destination);
+            case JsonValueKind.Number:
+                if (TryGetInteger(element, out var integer))
+                {
+                    destination[0] = ValueKind.Int64;
+                    BinaryPrimitives.WriteInt64LittleEndian(destination[1..], integer);
+                }
+                else
+                {
+                    destination[0] = ValueKind.Double;
+                    BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], element.GetDouble());
+                }
+
+                return 1 + sizeof(long);
+
+            case JsonValueKind.Object:
+                return WriteObject(element, destination);
+            case JsonValueKind.Array:
+                return WriteArray(element, destination);
+            default:
+                throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding.");
+        }
     }
 
     public static bool TryRead(ReadOnlySpan<byte> source, out JsonElement element, out int bytesRead)
@@ -100,20 +119,6 @@ internal static class BinaryJsonTreeCodec
     {
         destination[0] = ValueKind.Null;
         return 1;
-    }
-
-    private static int WriteNumber(JsonElement element, Span<byte> destination)
-    {
-        if (TryGetInteger(element, out var integer))
-        {
-            destination[0] = ValueKind.Int64;
-            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], integer);
-            return 1 + 8;
-        }
-
-        destination[0] = ValueKind.Double;
-        BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], element.GetDouble());
-        return 1 + 8;
     }
 
     private static int WriteObject(JsonElement element, Span<byte> destination)
