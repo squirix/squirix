@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.Services;
@@ -11,9 +11,9 @@ internal sealed class IdempotencyMetricsService : IHostedService
 {
     private readonly IdempotencyMetricRegistration _registration;
 
-    public IdempotencyMetricsService(TopologyOptions cluster, RpcMutationIdempotencyStore store)
+    public IdempotencyMetricsService(ClusterConfig cluster, RpcMutationIdempotencyStore store)
     {
-        _registration = new IdempotencyMetricRegistration(cluster.NodeId, () => store.RecordCount);
+        _registration = new IdempotencyMetricRegistration(cluster.NodeId, store);
     }
 
     /// <inheritdoc />

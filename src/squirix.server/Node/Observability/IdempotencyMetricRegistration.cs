@@ -1,17 +1,18 @@
 using System;
+using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.Node.Observability;
 
 /// <summary>Holds per-node inputs for idempotency observable gauges.</summary>
 internal sealed class IdempotencyMetricRegistration
 {
-    internal IdempotencyMetricRegistration(string nodeId, Func<int> recordCount)
+    public IdempotencyMetricRegistration(string nodeId, RpcMutationIdempotencyStore store)
     {
         NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
-        RecordCount = recordCount ?? throw new ArgumentNullException(nameof(recordCount));
+        Store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    internal string NodeId { get; }
+    public string NodeId { get; }
 
-    internal Func<int> RecordCount { get; }
+    public RpcMutationIdempotencyStore Store { get; }
 }

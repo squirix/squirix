@@ -39,9 +39,9 @@ internal static class CachePipelineRegistration
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
             sp.GetRequiredService<INodeLocator>(),
-            sp.GetRequiredService<TopologyOptions>().NodeId));
-        _ = services.AddSingleton(static sp => new MetricsCacheDecorator<object?>(sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
-        _ = services.AddSingleton(static sp => new BackpressureCacheDecorator<object?>(
+            sp.GetRequiredService<ClusterConfig>().NodeId));
+        _ = services.AddSingleton<MetricsCacheDecorator<object?>>(static sp => new MetricsCacheDecorator<object?>(sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
+        _ = services.AddSingleton<BackpressureCacheDecorator<object?>>(static sp => new BackpressureCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),
             sp.GetRequiredService<IBackpressureGate>()));
         _ = services.AddSingleton<ValidationCacheDecorator<object?>>(static sp => new ValidationCacheDecorator<object?>(
