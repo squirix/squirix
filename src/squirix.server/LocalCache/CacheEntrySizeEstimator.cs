@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using Squirix.Server.Core;
+using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.LocalCache;
 
@@ -32,7 +33,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter)
+    public bool HasUnknownPayloadMagnitude(CacheEntry<T> entry, bool payloadIsCounter)
     {
         if (payloadIsCounter)
             return false;

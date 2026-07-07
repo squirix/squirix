@@ -11,11 +11,11 @@ internal interface ICacheEntrySizeEstimator<T>
     /// <param name="entry">The observed cache entry snapshot.</param>
     /// <param name="payloadIsCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>
     /// <returns>The approximate byte footprint for the entry.</returns>
-    long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter);
+    long EstimateBytes(CacheKey key, CacheEntry<T> entry, bool payloadIsCounter);
 
     /// <summary>Returns whether the estimator cannot bound payload growth conservatively for admission checks.</summary>
     /// <param name="entry">The observed cache entry snapshot.</param>
     /// <param name="payloadIsCounter">When <see langword="true" />, the payload uses the dedicated counter representation.</param>
     /// <returns><see langword="true" /> when admission should treat growth magnitude as unknown.</returns>
-    bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter);
+    bool HasUnknownPayloadMagnitude(CacheEntry<T> entry, bool payloadIsCounter);
 }
