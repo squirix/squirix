@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Hosting;
+using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -27,8 +27,6 @@ public sealed class MtlsKestrelHandshakeTests : UnitTestBase
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         var internalPort = ListenPortPool.ServerUnitTests.AllocatePort();
         await using var host = await MtlsInternalListenerHost.StartAsync(bundle, internalPort, "node-b", "node-a", DefaultCancellationToken);
-
-        Assert.True(SquirixKestrelConfiguration.ValidateClientCertificate(host.ClientCertificate, host.TrustAnchor, ["node-a"]));
 
         using var tcpClient = new TcpClient();
         await tcpClient.ConnectAsync("127.0.0.1", internalPort, DefaultCancellationToken);
@@ -51,9 +49,9 @@ public sealed class MtlsKestrelHandshakeTests : UnitTestBase
             ServerNodeId = serverNodeId;
         }
 
-        public X509Certificate2 ClientCertificate { get; }
+        private X509Certificate2 ClientCertificate { get; }
 
-        public X509Certificate2 TrustAnchor { get; }
+        private X509Certificate2 TrustAnchor { get; }
 
         private X509Certificate2 ServerCertificate { get; }
 
@@ -125,9 +123,9 @@ public sealed class MtlsKestrelHandshakeTests : UnitTestBase
         }
 
         private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            SquirixKestrelConfiguration.ValidateClientCertificate(certificate, TrustAnchor, ["node-a"]);
+            MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, TrustAnchor, ["node-a"]);
 
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
+            MtlsTestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
     }
 }

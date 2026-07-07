@@ -3,8 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.TestKit.Benchmarks;
-using Squirix.Server.TestKit.Limits;
-using ServerCacheEntry = Squirix.Server.CacheEntry<string>;
+using Squirix.Server.TestKit.Journaling;
+using NodeCacheEntry = Squirix.Server.NodeCacheEntry<string>;
 
 namespace Squirix.Benchmarks.Payload;
 
@@ -16,7 +16,7 @@ namespace Squirix.Benchmarks.Payload;
 [SimpleJob(warmupCount: 3, iterationCount: 8)]
 public class EntryPayloadWritePathBenchmarks
 {
-    private ServerCacheEntry _entry = new() { Value = string.Empty, Version = 1 };
+    private NodeCacheEntry _entry = new() { Value = string.Empty, Version = 1 };
 
     /// <summary>Gets or sets the payload profile measured by the current BenchmarkDotNet case.</summary>
     [Params(EntryPayloadProfile.Small256B, EntryPayloadProfile.Medium64KiB, EntryPayloadProfile.Large1MiB, EntryPayloadProfile.NearLimitEntry)]
@@ -52,6 +52,6 @@ public class EntryPayloadWritePathBenchmarks
             _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
         };
 
-        _entry = new ServerCacheEntry { Value = value, Version = 1 };
+        _entry = new NodeCacheEntry { Value = value, Version = 1 };
     }
 }

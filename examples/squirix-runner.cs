@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Grpc.Core;
 using Squirix;
+using Squirix.Client;
 using Squirix.Server;
 
 var argv = Environment.GetCommandLineArgs()[1..];

@@ -189,7 +189,7 @@ Client policy isolation check:
 | `CallPolicyCompletedValueTaskBatched`               | **260.545 ns**, about **144 B/op** from GC diagnostics   |
 | `BootstrapAndCallPolicyCompletedValueTaskBatched`   | **278.299 ns**, about **144 B/op** from GC diagnostics   |
 
-`BootstrapEndpointFailover` is effectively free on the one-bootstrap-node happy path. `CallPolicy` has a small fixed allocation cost, likely from the per-call attempt cancellation
+`EndpointFailover` is effectively free on the one-bootstrap-node happy path. `CallPolicy` has a small fixed allocation cost, likely from the per-call attempt cancellation
 source/timer path, but this is far below the raw unary gRPC allocation and does not explain the full public SDK delta by itself.
 
 State-overload client wrapper check:
@@ -383,10 +383,10 @@ Profile here only if `SquirixServerPipelineReadBatched` regresses or if a low-la
     - Result: request reuse saved only about **40 B/op**. Do not add product request pooling based on this signal.
     - Added `SquirixPublicSdkReadBatched` to compare public SDK and raw gRPC inside the same node benchmark.
     - Result: public SDK read **143.645 µs / ~12.99 KB**, raw gRPC read **123.082 µs / ~11.57 KB**. The client SDK tax is measurable but not the dominant cost.
-    - Added `ClientPolicyOverheadBenchmarks` to isolate `BootstrapEndpointFailover` and `CallPolicy` without gRPC.
+    - Added `PolicyOverheadBenchmarks` to isolate `EndpointFailover` and `CallPolicy` without gRPC.
     - Result: bootstrap failover is about **15 ns / 0 B**; call policy is about **260 ns / 144 B**. Optimizing this can trim allocations, but will not materially change read
       latency.
-    - Added state overloads for `BootstrapEndpointFailover` and `CallPolicy`, then routed `RemoteCache.ExecuteAsync` through them.
+    - Added state overloads for `EndpointFailover` and `CallPolicy`, then routed `RemoteCache.ExecuteAsync` through them.
     - Result: wrapper-only benchmark moved **280.628 ns -> 278.928 ns**. Same-process public read moved **143.645 µs / ~12.99 KB -> 137.346 µs / ~12.83 KB**, but raw gRPC also
       moved in the same run, so treat latency as noise. Allocation improved only slightly.
     - Added `QueueWaitMetricObserveBatched` to isolate metric overhead.

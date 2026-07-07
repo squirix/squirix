@@ -29,15 +29,15 @@ internal static class SnapshotTriggerLogs
 
     private static readonly Action<ILogger, Exception?> Tick = LoggerMessage.Define(LogLevel.Trace, new EventId(1002, nameof(Tick)), "Timer tick — triggering snapshot check.");
 
-    public static void LogCanceled(ILogger l) => Canceled(l, null);
+    internal static void LogCanceled(ILogger l) => Canceled(l, null);
 
-    public static void LogCrashed(ILogger l, Exception ex) => Crashed(l, ex);
+    internal static void LogCrashed(ILogger l, Exception ex) => Crashed(l, ex);
 
-    public static void LogJournalAppended(ILogger l) => JournalAppended(l, null);
+    internal static void LogJournalAppended(ILogger l) => JournalAppended(l, null);
 
-    public static void LogStarted(ILogger l, int intervalSeconds) => Started(l, intervalSeconds, null);
+    internal static void LogStarted(ILogger l, int intervalSeconds) => Started(l, intervalSeconds, null);
 
-    public static void LogStopped(ILogger l) => Stopped(l, null);
+    internal static void LogStopped(ILogger l) => Stopped(l, null);
 
-    public static void LogTick(ILogger l) => Tick(l, null);
+    internal static void LogTick(ILogger l) => Tick(l, null);
 }

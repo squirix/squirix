@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Endpoint.Rest;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
-using static Squirix.Server.Adapters.Rest.RestDtos;
+using static Squirix.Server.Adapters.Rest.Dtos;
 
 namespace Squirix.Server.Adapters.Rest;
 
@@ -9,7 +9,7 @@ internal static class SquirixExceptionHttpExtensions
 {
     extension(SquirixException exception)
     {
-        public IResult ToHttpResult()
+        internal IResult ToHttpResult()
         {
             var statusCode = exception.Code switch
             {

@@ -7,19 +7,6 @@ internal static class TypedValueFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 8, 15, 30, TimeSpan.Zero);
 
-    public static TypedMutableCart CreateCart(string id) => new()
-    {
-        Id = id,
-        Items =
-        [
-            new TypedCartItem { Sku = "SKU-001", Quantity = 2, Price = 12.50m },
-            new TypedCartItem { Sku = "SKU-002", Quantity = 1, Price = 7.25m },
-        ],
-        Total = 32.25m,
-        UpdatedAt = BaseInstant.AddHours(1),
-        CouponCode = "SAVE10",
-    };
-
     public static TypedCustomerProfile CreateProfile(string id) => new(
         id,
         $"Customer {id}",
@@ -82,6 +69,19 @@ internal static class TypedValueFactory
         },
         BaseInstant.AddMinutes(30),
         TypedCustomerStatus.Suspended);
+
+    internal static TypedMutableCart CreateCart(string id) => new()
+    {
+        Id = id,
+        Items =
+        [
+            new TypedCartItem { Sku = "SKU-001", Quantity = 2, Price = 12.50m },
+            new TypedCartItem { Sku = "SKU-002", Quantity = 1, Price = 7.25m },
+        ],
+        Total = 32.25m,
+        UpdatedAt = BaseInstant.AddHours(1),
+        CouponCode = "SAVE10",
+    };
 
     private static TypedCustomerAddress CreateAddress(string city, string street, string postalCode, string country) => new(
         city,

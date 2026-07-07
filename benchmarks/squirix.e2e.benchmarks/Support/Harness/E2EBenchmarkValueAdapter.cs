@@ -146,9 +146,9 @@ internal static class E2EBenchmarkValueAdapter
                 ValueFactory = CreateValueAsync;
             }
 
-            internal int ValueIndex { get; set; }
-
             internal Func<string, CancellationToken, Task<T?>> ValueFactory { get; }
+
+            internal int ValueIndex { get; set; }
 
             private Task<T?> CreateValueAsync(string key, CancellationToken cancellationToken)
             {

@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.Server;
 
 namespace Squirix.ExternalPackageSmoke;
@@ -11,7 +12,7 @@ internal static class Program
 {
     private const string IsolationSharedKey = "shared-key";
 
-    public static async Task<int> Main()
+    private static async Task<int> Main()
     {
         var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
         try
@@ -37,8 +38,8 @@ internal static class Program
     {
         var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
         using var document = JsonDocument.Parse(json);
-        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString()
-            ?? throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
+                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
         return new Uri(uri, UriKind.Absolute);
     }
 

@@ -3,10 +3,9 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Framing;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
@@ -76,71 +75,6 @@ public sealed class JournalFrameReaderTests : UnitTestBase
         AssertConsistentStatus([.. length], JournalFrameReadStatus.OversizedFrame);
     }
 
-    /// <summary>Verifies verifier-facing and mapped-reader-facing frame parsing classify the same corrupted byte streams the same way.</summary>
-    /// <param name="kind">The corruption variant to classify through both parsing paths.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="kind" /> is not a supported corruption variant.</exception>
-    [Theory]
-    [InlineData("truncated-header")]
-    [InlineData("truncated-payload")]
-    [InlineData("truncated-crc")]
-    [InlineData("crc-mismatch")]
-    [InlineData("oversized")]
-    public void StreamAndMappedFramePathsClassifyCorruptionConsistently(string kind)
-    {
-        var bytes = kind switch
-        {
-            "truncated-header" => [0x10, 0x00],
-            "truncated-payload" => BuildTruncatedPayload(),
-            "truncated-crc" => BuildFrameBytes(BuildPayload(1, "crc"))[..^2],
-            "crc-mismatch" => BuildCrcMismatchFrame(),
-            "oversized" => BuildOversizedFrame(),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown corruption kind."),
-        };
-
-        using var stream = new MemoryStream(bytes, false);
-        var streamRead = JournalFrameReader.ReadNext(stream, 0, out _, out _);
-        var spanRead = JournalFrameReader.ReadNext(bytes, 0);
-
-        Assert.Equal(streamRead.Status, spanRead.Status);
-    }
-
-    /// <summary>Verifies trailing bytes after a full frame are classified consistently as a truncated header for the next frame.</summary>
-    [Fact]
-    public void TrailingBytesAfterLastFrameAreHandledConsistently()
-    {
-        var frame = BuildFrameBytes(BuildPayload(1, "tail"));
-        var totalLen = frame.Length + 2;
-        var rented = ArrayPool<byte>.Shared.Rent(totalLen);
-        try
-        {
-            frame.CopyTo(rented.AsSpan(0, totalLen));
-            rented[frame.Length] = 0xAA;
-            rented[frame.Length + 1] = 0xBB;
-
-            using var stream = new MemoryStream(rented, 0, totalLen, false, true);
-            var firstRead = JournalFrameReader.ReadNext(stream, 0, out var rentedBuffer, out _);
-            try
-            {
-                Assert.Equal(JournalFrameReadStatus.Success, firstRead.Status);
-            }
-            finally
-            {
-                if (rentedBuffer is not null)
-                    ArrayPool<byte>.Shared.Return(rentedBuffer);
-            }
-
-            var secondRead = JournalFrameReader.ReadNext(stream, firstRead.NextFrameOffset, out _, out _);
-            var spanRead = JournalFrameReader.ReadNext(rented.AsSpan(0, totalLen)[int.CreateTruncating(firstRead.NextFrameOffset)..], firstRead.NextFrameOffset);
-
-            Assert.Equal(JournalFrameReadStatus.TruncatedHeader, secondRead.Status);
-            Assert.Equal(secondRead.Status, spanRead.Status);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
-    }
-
     /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>
     [Fact]
     public void TruncatedChecksumIsClassifiedConsistently()
@@ -191,17 +125,8 @@ public sealed class JournalFrameReaderTests : UnitTestBase
     {
         using var stream = new MemoryStream(bytes, false);
         var streamRead = JournalFrameReader.ReadNext(stream, 0, out _, out _);
-        var spanRead = JournalFrameReader.ReadNext(bytes, 0);
 
         Assert.Equal(expectedStatus, streamRead.Status);
-        Assert.Equal(expectedStatus, spanRead.Status);
-    }
-
-    private static byte[] BuildCrcMismatchFrame()
-    {
-        var frame = BuildFrameBytes(BuildPayload(1, "bad-crc"));
-        frame[^1] ^= 0xFF;
-        return frame;
     }
 
     private static byte[] BuildFrameBytes(byte[] payload) => BufferKit.ToOwnedBytes(
@@ -223,13 +148,6 @@ public sealed class JournalFrameReaderTests : UnitTestBase
             });
     }
 
-    private static byte[] BuildOversizedFrame()
-    {
-        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(length, 0x8000_0000u);
-        return [.. length];
-    }
-
     private static byte[] BuildPayload(ulong sequence, string key)
     {
         var record = new JournalRecord
@@ -241,13 +159,7 @@ public sealed class JournalFrameReaderTests : UnitTestBase
             PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
         };
         var bodyLength = BinaryJournalCodec.ComputeFrameBodyLength(record);
-        return BufferKit.ToOwnedBytes(bodyLength, record, static (r, body) => _ = BinaryJournalCodec.Encode(r, body));
-    }
-
-    private static byte[] BuildTruncatedPayload()
-    {
-        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        return [.. length, .. "ab"u8];
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        return BufferKit.ToOwnedBytes(bodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
     }
 }

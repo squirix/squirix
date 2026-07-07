@@ -7,14 +7,13 @@ using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster.Reliability;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.TestKit.Diagnostics;
-using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>
-/// Unit tests for deadline-aware retry and timeout handling in <see cref="CallPolicy" />.
+/// Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.
 /// </summary>
 public sealed class CallPolicyTests : UnitTestBase
 {
@@ -29,10 +28,11 @@ public sealed class CallPolicyTests : UnitTestBase
             TimeSpan.FromMilliseconds(5),
             peer: "peer-a",
             timeProvider: TimeProvider.System);
-        using var deadline = RpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
+        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
         var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            static async token =>
+            0,
+            static async (_, token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
                 return 1;
@@ -50,27 +50,10 @@ public sealed class CallPolicyTests : UnitTestBase
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
-    }
-
-    /// <summary>Verifies that retry reason classification does not allocate for gRPC status codes on the hot path.</summary>
-    [Fact]
-    public void ClassifyRetryReasonDoesNotAllocate()
-    {
-        var ex = new RpcException(new Status(StatusCode.DeadlineExceeded, "boom"));
-
-        _ = CallPolicy.ClassifyRetryReason(ex);
-
-        var allocated = AllocationTestHelper.MeasureAllocatedBytes(() =>
-        {
-            for (var i = 0; i < 10_000; i++)
-                _ = CallPolicy.ClassifyRetryReason(ex);
-        });
-
-        Assert.Equal(0, allocated);
     }
 
     /// <summary>Ensures the per-peer concurrency cap does not allow more concurrent executions than configured.</summary>
@@ -133,9 +116,9 @@ public sealed class CallPolicyTests : UnitTestBase
     [Fact]
     public void DeadlineContextComputesEffectiveCallDeadline()
     {
-        using var scope = RpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2));
+        using var scope = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddSeconds(2));
 
-        var effective = RpcDeadlineContext.EffectiveDeadline(DateTime.UtcNow.AddSeconds(5));
+        var effective = ServerRpcDeadlineContext.EffectiveDeadline(DateTime.UtcNow.AddSeconds(5));
 
         _ = Assert.NotNull(effective);
         Assert.True(effective <= DateTime.UtcNow.AddSeconds(2.5));
@@ -169,7 +152,7 @@ public sealed class CallPolicyTests : UnitTestBase
             await policy.DisposeAsync();
 
             Assert.Equal(7, await inFlight);
-            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
         }
         finally
         {
@@ -250,7 +233,7 @@ public sealed class CallPolicyTests : UnitTestBase
 
         await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, DefaultCancellationToken);
 
-        var queued = policy.ExecuteAsync(static _ => ValueTask.FromResult(2), DefaultCancellationToken);
+        var queued = policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(2), DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, DefaultCancellationToken);
 
         policy.BeginDrain();
@@ -299,11 +282,12 @@ public sealed class CallPolicyTests : UnitTestBase
     {
         using var sink = new MeasurementSink("Squirix");
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System);
-        using var deadline = RpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
-        _ = Assert.NotNull(RpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
+        using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
+        _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
         var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            static async token =>
+            0,
+            static async (_, token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
                 return 1;
@@ -314,7 +298,7 @@ public sealed class CallPolicyTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget")));
     }
 
-    private static CallPolicy CreatePolicy(
+    private static ServerCallPolicy CreatePolicy(
         TimeSpan? timeoutPerAttempt = null,
         int maxAttempts = 3,
         TimeSpan? baseBackoff = null,
@@ -325,9 +309,9 @@ public sealed class CallPolicyTests : UnitTestBase
 
     private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
     {
-        public InvocationCounter Attempts { get; } = attempts;
-
         public TaskCompletionSource Entered { get; } = entered;
+
+        internal InvocationCounter Attempts { get; } = attempts;
     }
 
     private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)

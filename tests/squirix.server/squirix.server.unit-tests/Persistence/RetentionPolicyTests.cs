@@ -28,10 +28,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(4);
 
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -70,9 +70,9 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(3);
 
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
@@ -125,10 +125,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
     private string JournalPath(int index) => PathKit.Combine(
         false,
         Dir,
-        $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 
     private string SnapshotPath(int index) => PathKit.Combine(
         false,
         Dir,
-        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
+        $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
 }

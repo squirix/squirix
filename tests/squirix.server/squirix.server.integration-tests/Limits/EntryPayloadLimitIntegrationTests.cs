@@ -5,7 +5,7 @@ using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Limits;
 using Squirix.Server.TestKit.Cluster;
-using Squirix.Server.TestKit.Limits;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -41,7 +41,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
                 cancellationToken: DefaultCancellationToken).ResponseAsync);
 
@@ -71,12 +71,12 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "grpc-over-limit",
-                    Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
                 },
                 cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
 
         var getResponse = await client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-over-limit" }, cancellationToken: DefaultCancellationToken);
         Assert.False(getResponse.Found);
@@ -104,7 +104,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new CacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
             },
             cancellationToken: DefaultCancellationToken);
 
@@ -116,7 +116,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new CacheEntry<object?> { Value = value }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
                 cancellationToken: DefaultCancellationToken).ResponseAsync);
 
@@ -143,7 +143,7 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = "grpc-update-over-limit",
-                Entry = new CacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "small", Version = 1 }.MapToProto(),
             },
             cancellationToken: DefaultCancellationToken);
 
@@ -155,12 +155,12 @@ public sealed class EntryPayloadLimitIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "grpc-update-over-limit",
-                    Entry = new CacheEntry<object?> { Value = value }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = value }.MapToProto(),
                 },
                 cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Status.Detail, StringComparison.Ordinal);
 
         var getResponse = await client.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = "grpc-update-over-limit" }, cancellationToken: DefaultCancellationToken);
         Assert.True(getResponse.Found);

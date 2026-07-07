@@ -6,7 +6,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
@@ -15,39 +14,9 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 [SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Binary.SnapshotWriter and snapshot breakdown benchmarks.")]
 internal static class SnapshotFileEncoder
 {
-    public static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics(
-        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
-        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
-    {
-        long total = Codec.FileHeaderSize + Codec.FileFooterSize;
-        var maxRecordLength = 0;
-        for (var i = 0; i < items.Count; i++)
-        {
-            var (key, entry) = items[i];
-            var recordLength = Codec.ComputeRecordLength(Codec.ComputeEntryBodyLength(key, entry));
-            total += recordLength;
-            if (recordLength > maxRecordLength)
-                maxRecordLength = recordLength;
-        }
-
-        for (var i = 0; i < idempotencyRecords.Count; i++)
-        {
-            var record = idempotencyRecords[i];
-            var recordLength = Codec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
-            total += recordLength;
-            if (recordLength > maxRecordLength)
-                maxRecordLength = recordLength;
-        }
-
-        if (total > int.MaxValue)
-            throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.");
-
-        return (total, maxRecordLength);
-    }
-
-    public static async Task WriteFileAsync(
+    internal static async Task WriteFileAsync(
         FileStream destination,
-        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         byte[] encodeBuffer,
         long totalFileSize,
@@ -58,7 +27,7 @@ internal static class SnapshotFileEncoder
 
         WriteFileHeader(destination);
 
-        var crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
+        var crc = Crc32C.Append(Crc32C.InitialValue, [SnapshotCodec.Version]);
         for (var i = 0; i < items.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -79,37 +48,67 @@ internal static class SnapshotFileEncoder
         await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static void WriteFileHeader(FileStream destination)
+    internal static (long TotalFileSize, int MaxRecordLength) ComputeWriteMetrics(
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
+        IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords)
     {
-        Span<byte> header = stackalloc byte[Codec.FileHeaderSize];
-        Codec.WriteFileHeader(header);
-        destination.Write(header);
+        long total = SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize;
+        var maxRecordLength = 0;
+        for (var i = 0; i < items.Count; i++)
+        {
+            var (key, entry) = items[i];
+            var recordLength = SnapshotCodec.ComputeRecordLength(SnapshotCodec.ComputeEntryBodyLength(key, entry));
+            total += recordLength;
+            if (recordLength > maxRecordLength)
+                maxRecordLength = recordLength;
+        }
+
+        for (var i = 0; i < idempotencyRecords.Count; i++)
+        {
+            var record = idempotencyRecords[i];
+            var recordLength = SnapshotCodec.ComputeRecordLength(IdempotencyCodec.ComputeEncodedLength(record));
+            total += recordLength;
+            if (recordLength > maxRecordLength)
+                maxRecordLength = recordLength;
+        }
+
+        if (total > int.MaxValue)
+            throw new InvalidDataException("Binary snapshot file exceeds maximum encoded length.");
+
+        return (total, maxRecordLength);
+    }
+
+    private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, NodeCacheEntry<object?> entry)
+    {
+        var bodyLength = SnapshotCodec.ComputeEntryBodyLength(key, entry);
+        var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
+        var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
+        SnapshotCodec.WriteEntryBody(key, entry, body);
+        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), SnapshotCodec.RecordKind.Entry, body);
+        return recordLength;
     }
 
     private static void WriteFileFooter(FileStream destination, uint crc)
     {
-        Span<byte> footer = stackalloc byte[Codec.FileFooterSize];
+        Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
         BinaryPrimitives.WriteUInt32LittleEndian(footer, Crc32C.Finalize(crc));
         destination.Write(footer);
     }
 
-    private static int WriteEntryRecord(byte[] encodeBuffer, CacheKey key, CacheEntry<object?> entry)
+    private static void WriteFileHeader(FileStream destination)
     {
-        var bodyLength = Codec.ComputeEntryBodyLength(key, entry);
-        var recordLength = Codec.ComputeRecordLength(bodyLength);
-        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
-        Codec.WriteEntryBody(key, entry, body);
-        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Entry, body);
-        return recordLength;
+        Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
+        SnapshotCodec.WriteFileHeader(header);
+        destination.Write(header);
     }
 
     private static int WriteIdempotencyRecord(byte[] encodeBuffer, PersistedIdempotencyRecord record)
     {
         var bodyLength = IdempotencyCodec.ComputeEncodedLength(record);
-        var recordLength = Codec.ComputeRecordLength(bodyLength);
-        var body = encodeBuffer.AsSpan(Codec.RecordHeaderSize, bodyLength);
+        var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
+        var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
         IdempotencyCodec.Write(record, body);
-        Codec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), Codec.RecordKind.Idempotency, body);
+        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), SnapshotCodec.RecordKind.Idempotency, body);
         return recordLength;
     }
 

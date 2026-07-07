@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.E2ETests.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -15,9 +16,9 @@ namespace Squirix.E2ETests.Support.Cluster;
 internal sealed class HostedCluster : IAsyncDisposable
 {
     private readonly List<ISquirixClient> _clients = [];
+    private readonly TempDirectory? _dataDir;
     private readonly MtlsTestContext? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
-    private readonly TempDirectory? _dataDir;
     private int _disposed;
 
     private HostedCluster(Dictionary<string, TestNode> nodes, MtlsTestContext? mtls, TempDirectory? dataDir)
@@ -26,12 +27,6 @@ internal sealed class HostedCluster : IAsyncDisposable
         _mtls = mtls;
         _dataDir = dataDir;
     }
-
-    public static ValueTask<HostedCluster> StartSingleNodeAsync(
-        string? testName = null,
-        TestNodeSecurityOptions? security = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
     public static ValueTask<HostedCluster> StartTwoNodeAsync(
         string? testName = null,
@@ -57,7 +52,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
     /// <param name="nodeId">Node identifier to stop.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId"/> is not a running node.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is not a running node.</exception>
     public ValueTask StopNodeAsync(string nodeId)
     {
         if (!_nodes.Remove(nodeId, out var node))
@@ -80,6 +75,12 @@ internal sealed class HostedCluster : IAsyncDisposable
         _mtls?.Dispose();
         _dataDir?.Dispose();
     }
+
+    internal static ValueTask<HostedCluster> StartSingleNodeAsync(
+        string? testName = null,
+        TestNodeSecurityOptions? security = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
     {

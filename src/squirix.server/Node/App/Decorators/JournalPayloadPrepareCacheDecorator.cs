@@ -23,10 +23,9 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _journal.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _journal.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.GetValueAsync(cacheName, key, cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
@@ -35,7 +34,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return _journal.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
@@ -48,7 +47,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
         _journal.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         if (!IsLocalOwner(cacheName, key))
             return _journal.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
@@ -73,7 +72,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         return await _journal.UpdateWithPreparedPayloadAsync(operationId, cacheName, key, value, prepared, cancellationToken).ConfigureAwait(false);
     }
 
-    private static CacheEntry<T> CreateUpdateReplacement(CacheEntry<T> existing, T? value) => new()
+    private static NodeCacheEntry<T> CreateUpdateReplacement(NodeCacheEntry<T> existing, T? value) => new()
     {
         Value = value,
         ExpiresUtc = existing.ExpiresUtc,

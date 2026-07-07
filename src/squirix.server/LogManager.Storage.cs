@@ -20,7 +20,7 @@ internal static partial class LogManager
     internal static partial void CompactionStart(ILogger logger, int index, int segments, long bytes);
 
     [LoggerMessage(EventId = 1001, Level = LogLevel.Debug, Message = "Compaction state {Prev} -> {Next}")]
-    internal static partial void CompactionStateChanged(ILogger logger, CompactionState prev, CompactionState next);
+    internal static partial void CompactionStateChanged(ILogger logger, RunState prev, RunState next);
 
     [LoggerMessage(EventId = 1009, Level = LogLevel.Warning, Message = "Manifest retention cleanup for {ArtifactKind} failed")]
     internal static partial void ManifestRetentionCleanupFailed(ILogger logger, Exception exception, string artifactKind);

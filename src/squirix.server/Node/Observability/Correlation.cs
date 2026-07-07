@@ -15,7 +15,7 @@ internal static class Correlation
     private const string TraceParentHeader = "traceparent";
     private const string TraceStateHeader = "tracestate";
 
-    internal static IDisposable BeginStandardScope(ILogger logger, string nodeId, string? method = null)
+    private static IDisposable BeginStandardScope(ILogger logger, string nodeId, string? method = null)
     {
         var act = Activity.Current;
         var traceId = act?.TraceId.ToString() ?? string.Empty;
@@ -24,7 +24,43 @@ internal static class Correlation
         return scope ?? NoopDisposable.Instance;
     }
 
-    public sealed class ClientInterceptor : Interceptor
+    internal sealed class ServerInterceptor : Interceptor
+    {
+        private readonly ILogger<ServerInterceptor> _log;
+        private readonly string _nodeId;
+
+        public ServerInterceptor(ILogger<ServerInterceptor> log, ClusterConfig cluster)
+        {
+            _log = log;
+            _nodeId = cluster.NodeId;
+        }
+
+        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
+            TRequest request,
+            ServerCallContext context,
+            UnaryServerMethod<TRequest, TResponse> continuation)
+        {
+            var headers = context.RequestHeaders;
+            var tp = headers.GetValue(TraceParentHeader);
+            var ts = headers.GetValue(TraceStateHeader);
+
+            using var activity = StartServerActivity(tp, ts, context.Method);
+            using var scope = BeginStandardScope(_log, _nodeId, context.Method);
+            using var deadlineScope = ServerRpcDeadlineContext.Push(context.Deadline);
+            return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
+        }
+
+        private static Activity? StartServerActivity(string? traceParent, string? traceState, string method)
+        {
+            ActivityContext parent = default;
+            if (!string.IsNullOrEmpty(traceParent))
+                _ = ActivityContext.TryParse(traceParent, traceState, out parent);
+
+            return ActivitySourceHolder.StartServer(method, in parent);
+        }
+    }
+
+    internal sealed class ClientInterceptor : Interceptor
     {
         private readonly ILogger<ClientInterceptor> _log;
         private readonly string _nodeId;
@@ -72,7 +108,7 @@ internal static class Correlation
             if (!string.IsNullOrEmpty(ts))
                 Upsert(meta, TraceStateHeader, ts);
 
-            return new CallOptions(meta, RpcDeadlineContext.EffectiveDeadline(opt.Deadline), opt.CancellationToken, opt.WriteOptions, opt.PropagationToken, opt.Credentials);
+            return new CallOptions(meta, ServerRpcDeadlineContext.EffectiveDeadline(opt.Deadline), opt.CancellationToken, opt.WriteOptions, opt.PropagationToken, opt.Credentials);
         }
 
         private static void Upsert(Metadata meta, string key, string value)
@@ -130,47 +166,11 @@ internal static class Correlation
         }
     }
 
-    public sealed class ServerInterceptor : Interceptor
-    {
-        private readonly ILogger<ServerInterceptor> _log;
-        private readonly string _nodeId;
-
-        public ServerInterceptor(ILogger<ServerInterceptor> log, ClusterConfig cluster)
-        {
-            _log = log;
-            _nodeId = cluster.NodeId;
-        }
-
-        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
-            TRequest request,
-            ServerCallContext context,
-            UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            var headers = context.RequestHeaders;
-            var tp = headers.GetValue(TraceParentHeader);
-            var ts = headers.GetValue(TraceStateHeader);
-
-            using var activity = StartServerActivity(tp, ts, context.Method);
-            using var scope = BeginStandardScope(_log, _nodeId, context.Method);
-            using var deadlineScope = RpcDeadlineContext.Push(context.Deadline);
-            return await base.UnaryServerHandler(request, context, continuation).ConfigureAwait(false);
-        }
-
-        private static Activity? StartServerActivity(string? traceParent, string? traceState, string method)
-        {
-            ActivityContext parent = default;
-            if (!string.IsNullOrEmpty(traceParent))
-                _ = ActivityContext.TryParse(traceParent, traceState, out parent);
-
-            return ActivitySourceHolder.StartServer(method, in parent);
-        }
-    }
-
     private sealed class NoopDisposable : IDisposable
     {
-        public static readonly NoopDisposable Instance = new();
+        internal static readonly NoopDisposable Instance = new();
 
-        public void Dispose()
+        void IDisposable.Dispose()
         {
         }
     }

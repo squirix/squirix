@@ -12,21 +12,21 @@ internal static class ClusterTopologyValidator
     private const int MaxUrlLength = 2048;
     private const int MaxVirtualNodes = 16384;
 
-    public static bool TryValidate(SquirixServerOptions options, out IReadOnlyList<string> errors)
+    internal static bool TryValidate(ClusterConfig options, out IReadOnlyList<string> errors)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         var failures = new List<string>();
-        ValidateTopology(
-            failures,
-            options.ClusterId,
-            options.NodeId,
-            options.Uri,
-            options.VirtualNodes,
-            options.PersistenceEnabled,
-            options.DataDirectory,
-            static peer => (peer.NodeId, peer.Uri),
-            options.Peers);
+        var args = new TopologyValidationArgs
+        {
+            ClusterId = options.ClusterId,
+            NodeId = options.NodeId,
+            NodeUri = options.Uri,
+            VirtualNodes = options.VirtualNodes,
+            PersistenceEnabled = true,
+            DataDirectory = null,
+        };
+        ValidateTopology(failures, args, static peer => (peer.NodeId, peer.Uri), options.Peers);
 
         if (failures.Count is 0)
         {
@@ -38,36 +38,36 @@ internal static class ClusterTopologyValidator
         return false;
     }
 
-    public static bool TryValidate(ClusterConfig options, out IReadOnlyList<string> errors)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        var failures = new List<string>();
-        ValidateTopology(
-            failures,
-            options.ClusterId,
-            options.NodeId,
-            options.Uri,
-            options.VirtualNodes,
-            true,
-            null,
-            static peer => (peer.NodeId, peer.Uri),
-            options.Peers);
-
-        if (failures.Count is 0)
-        {
-            errors = [];
-            return true;
-        }
-
-        errors = failures;
-        return false;
-    }
-
-    public static void Validate(SquirixServerOptions options)
+    internal static void Validate(SquirixServerOptions options)
     {
         if (!TryValidate(options, out var errors))
             throw new ArgumentException(errors[0], nameof(options));
+    }
+
+    internal static bool TryValidate(SquirixServerOptions options, out IReadOnlyList<string> errors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var failures = new List<string>();
+        var args = new TopologyValidationArgs
+        {
+            ClusterId = options.ClusterId,
+            NodeId = options.NodeId,
+            NodeUri = options.Uri,
+            VirtualNodes = options.VirtualNodes,
+            PersistenceEnabled = options.PersistenceEnabled,
+            DataDirectory = options.DataDirectory,
+        };
+        ValidateTopology(failures, args, static peer => (peer.NodeId, peer.Uri), options.Peers);
+
+        if (failures.Count is 0)
+        {
+            errors = [];
+            return true;
+        }
+
+        errors = failures;
+        return false;
     }
 
     private static void ValidateIdentifier(List<string> failures, string? value, string name)
@@ -78,22 +78,15 @@ internal static class ClusterTopologyValidator
             failures.Add($"{name} cannot exceed {MaxIdentifierLength} characters.");
     }
 
-    private static void ValidateTopology<TPeer>(
-        List<string> failures,
-        string? clusterId,
-        string? nodeId,
-        Uri? nodeUri,
-        int virtualNodes,
-        bool persistenceEnabled,
-        string? dataDirectory,
-        Func<TPeer, (string? NodeId, Uri? Uri)> readPeer,
-        IReadOnlyList<TPeer> peers)
+    private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, IReadOnlyList<TPeer> peers)
         where TPeer : notnull
     {
-        ValidateIdentifier(failures, clusterId, "ClusterId");
-        ValidateIdentifier(failures, nodeId, "NodeId");
-        ValidateUri(failures, nodeUri, "Uri");
-        switch (virtualNodes)
+        ValidateIdentifier(failures, args.ClusterId, "ClusterId");
+        ValidateIdentifier(failures, args.NodeId, "NodeId");
+        ValidateUri(failures, args.NodeUri, "Uri");
+
+        // Virtual node count bounds the consistent-hash ring size configured for this process.
+        switch (args.VirtualNodes)
         {
             case <= 0:
                 failures.Add("VirtualNodes must be greater than zero.");
@@ -103,21 +96,31 @@ internal static class ClusterTopologyValidator
                 break;
         }
 
-        if (!persistenceEnabled && dataDirectory is not null)
+        if (args is { PersistenceEnabled: false, DataDirectory: not null })
             failures.Add("DataDirectory requires persistence. Call UsePersistence() or pass --persist.");
-        if (persistenceEnabled)
+
+        // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
+        if (args.PersistenceEnabled)
         {
-            if (dataDirectory is { Length: > MaxDataDirectoryLength })
+            if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
                 failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
-            if (dataDirectory is not null && string.IsNullOrWhiteSpace(dataDirectory))
+            if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
                 failures.Add("DataDirectory cannot be empty or whitespace.");
         }
 
         if (peers.Count > MaxPeers)
             failures.Add($"Peers cannot contain more than {MaxPeers} entries.");
 
+        ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
+    }
+
+    private static void ValidatePeers<TPeer>(List<string> failures, string? nodeId, Uri? nodeUri, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, IReadOnlyList<TPeer> peers)
+        where TPeer : notnull
+    {
         var peerIds = new HashSet<string>(StringComparer.Ordinal);
         var peerUris = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Empty peer list means single-node mode; otherwise the local node id must appear in Peers.
         var localNodePresent = peers.Count is 0;
         for (var i = 0; i < peers.Count; i++)
         {
@@ -137,6 +140,8 @@ internal static class ClusterTopologyValidator
             if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
                 continue;
             localNodePresent = true;
+
+            // The self peer entry must advertise the same origin Uri as the local listener configuration.
             if (nodeUri is not null && uri is not null && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
             {
                 failures.Add("Peers entry for the local NodeId must use the same Uri as Uri.");
@@ -164,5 +169,20 @@ internal static class ClusterTopologyValidator
         {
             failures.Add($"{name} must be an origin URI without credentials, path, query, or fragment.");
         }
+    }
+
+    private sealed class TopologyValidationArgs
+    {
+        internal required string? ClusterId { get; init; }
+
+        internal required string? NodeId { get; init; }
+
+        internal required Uri? NodeUri { get; init; }
+
+        internal required int VirtualNodes { get; init; }
+
+        internal required bool PersistenceEnabled { get; init; }
+
+        internal required string? DataDirectory { get; init; }
     }
 }

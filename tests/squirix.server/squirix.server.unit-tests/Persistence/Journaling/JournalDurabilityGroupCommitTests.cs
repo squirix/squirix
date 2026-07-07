@@ -7,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
@@ -192,19 +193,20 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         _ = await executor.ExecuteAsync(
             key,
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            journal,
-            (Key: key, Payload: payload),
-            static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
-            observedPendingFlushDuringMemoryApply,
-            static (j, observation, _) =>
-            {
-                observation.PendingDuringApply = Assert.IsType<JournalCoordinator>(j).IsDurabilityFlushPending;
-                return new ValueTask<int>(1);
-            },
+            new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, ReadOnlyMemory<byte> Payload), PendingFlushObservation, int>(
+                journal,
+                (Key: key, Payload: payload),
+                static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
+                observedPendingFlushDuringMemoryApply,
+                static (j, observation, _) =>
+                {
+                    observation.PendingDuringApply = Assert.IsType<JournalCoordinator>(j).EventLoop.IsDurabilityFlushPending;
+                    return new ValueTask<int>(1);
+                }),
             DefaultCancellationToken);
 
         Assert.False(observedPendingFlushDuringMemoryApply.PendingDuringApply);
-        Assert.False(Assert.IsType<JournalCoordinator>(journal).IsDurabilityFlushPending);
+        Assert.False(Assert.IsType<JournalCoordinator>(journal).EventLoop.IsDurabilityFlushPending);
     }
 
     /// <summary>Ensures an immediate batch flush racing the delay timer does not fail concurrent waiters.</summary>
@@ -287,7 +289,7 @@ public sealed class JournalDurabilityGroupCommitTests : UnitTestBase
         var secondCommit = AsSingleUseTaskAsync(journal.AwaitDurabilityCommitAsync(DefaultCancellationToken));
         await Task.WhenAll(firstCommit, secondCommit);
 
-        Assert.False(pipelined.IsDurabilityFlushPending);
+        Assert.False(pipelined.EventLoop.IsDurabilityFlushPending);
     }
 
     /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>

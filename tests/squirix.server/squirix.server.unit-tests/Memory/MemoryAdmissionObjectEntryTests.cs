@@ -23,10 +23,10 @@ public sealed class MemoryAdmissionObjectEntryTests : UnitTestBase
     {
         await using var physical = new PhysicalCache<object?>();
         var accounting = new MemoryUsageAccounting();
-        var gate = new MemoryPressureGate(
-            new MemoryPressureStateEvaluator(
+        var gate = new PressureGate(
+            new StateEvaluator(
                 Options.Create(
-                    new MemoryPressureOptions
+                    new PressureOptions
                     {
                         MaxEstimatedCacheBytes = 400_000,
                         HighPressureThresholdPercent = 80,
@@ -37,12 +37,12 @@ public sealed class MemoryAdmissionObjectEntryTests : UnitTestBase
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
         var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
-        var entry = new CacheEntry<object?> { Value = new { Data = new string('y', 250_000) }, Version = 1 };
+        var entry = new NodeCacheEntry<object?> { Value = new { Data = new string('y', 250_000) }, Version = 1 };
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, "a", entry, DefaultCancellationToken));
         _ = await Assert.ThrowsAsync<ResourceExhaustedException>(() =>
             cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, "b", entry, DefaultCancellationToken).AsTask());
-        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(1, accounting.ReadEntryCount());
     }
 
     private sealed class FixedOwnerLocator(string owner) : INodeLocator

@@ -85,19 +85,18 @@ public static class TestNodeHostFactory
         var sharedMtls = mtls;
         var peers = MtlsTestContext.CreatePeers(ref sharedMtls, topology);
 
-        var clusterConfig = new ClusterConfig
+        var clusterConfig = new ClusterConfig(peers)
         {
             NodeId = nodeId,
             Uri = uri,
             VirtualNodes = 128,
-            Peers = peers,
         };
 
         var primaryUri = clusterConfig.Uri;
         var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
             : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
-        var app = await SquirixNodeHost.StartAsync(
+        var app = await NodeHost.StartAsync(
             clusterConfig,
             static b =>
             {

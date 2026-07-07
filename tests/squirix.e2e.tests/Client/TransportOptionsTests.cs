@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Client;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Auth;
 using Squirix.E2ETests.Support.Client;
@@ -10,12 +11,12 @@ using Xunit;
 namespace Squirix.E2ETests.Client;
 
 /// <summary>
-/// End-to-end coverage for <see cref="SquirixOptions" /> transport and auth extension points.
+/// End-to-end coverage for <see cref="SquirixClientOptions" /> transport and auth extension points.
 /// </summary>
 public sealed class TransportOptionsTests : EndToEndTestBase
 {
     /// <summary>
-    /// Verifies <see cref="SquirixOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
+    /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> supplies JWT authentication for cache RPCs.
     /// </summary>
     [Fact]
     public async Task ClientAuthenticatesWithBearerTokenProvider()
@@ -49,7 +50,7 @@ public sealed class TransportOptionsTests : EndToEndTestBase
     }
 
     /// <summary>
-    /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixOptions.BearerTokenProvider" /> is unset.
+    /// Verifies cache RPCs fail when the server requires JWT but <see cref="SquirixClientOptions.BearerTokenProvider" /> is unset.
     /// </summary>
     [Fact]
     public async Task ClientFailsWhenJwtRequiredButNotConfigured()

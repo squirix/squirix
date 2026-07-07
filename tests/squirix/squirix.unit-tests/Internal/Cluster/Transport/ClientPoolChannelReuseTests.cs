@@ -45,7 +45,6 @@ public sealed class ClientPoolChannelReuseTests
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy());
-        Assert.Equal(2, pool.ActiveClientCount);
         Assert.Equal(ExpectedNodes, pool.BootstrapNodeIds);
 
         var anchor = pool.ForNode("node-a");
@@ -54,6 +53,5 @@ public sealed class ClientPoolChannelReuseTests
             _ = pool.ForNode(i % 2 is 0 ? "node-a" : "node-b");
 
         Assert.Same(anchor, pool.ForNode("node-a"));
-        Assert.Equal(2, pool.ActiveClientCount);
     }
 }

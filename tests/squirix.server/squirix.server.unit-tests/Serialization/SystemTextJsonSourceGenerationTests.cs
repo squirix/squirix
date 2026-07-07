@@ -4,8 +4,8 @@ using System.Text.Json;
 using Squirix.Server.Serialization;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
-using static Squirix.Server.Adapters.Rest.RestDtos;
-using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.Rest.RestJsonSerializerContext;
+using static Squirix.Server.Adapters.Rest.Dtos;
+using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.RestJsonSerializerContext;
 
 namespace Squirix.Server.UnitTests.Serialization;
 
@@ -16,7 +16,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
     [Fact]
     public void KeepsReflectionFallbackForUnknownApplicationTypes()
     {
-        var serializer = new SystemTextJsonSerializer();
+        var serializer = new ServerJsonSerializer();
         var payload = serializer.SerializeToUtf8Bytes(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 });
 
         var roundTrip = serializer.Deserialize<Dictionary<string, int>>(payload);
@@ -33,11 +33,12 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
             7,
             12.5,
             true,
-            new HealthCompactionDetails("idle", null, false),
-            new HealthClientPoolDetails(true, 2),
-            new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
-            new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
-            new HealthRetentionCleanupDetails(false, 0, 0, null));
+            new HealthReadyDetailSections(
+                new HealthCompactionDetails("idle", null, false),
+                new HealthClientPoolDetails(true, 2),
+                new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
+                new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
+                new HealthRetentionCleanupDetails(false, 0, 0, null)));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
@@ -71,7 +72,7 @@ public sealed class SystemTextJsonSourceGenerationTests : UnitTestBase
     [Fact]
     public void SerializeToElementKeepsReflectionFallbackForUnknownApplicationTypes()
     {
-        var serializer = new SystemTextJsonSerializer();
+        var serializer = new ServerJsonSerializer();
         var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };
 
         var element = serializer.SerializeToElement(payload);

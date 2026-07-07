@@ -33,12 +33,6 @@ public static class PathKit
     /// <inheritdoc cref="Combine(string,string)" />
     public static string Combine(string path1, string path2, string path3) => CombineCore(true, path1, path2, path3);
 
-    /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4, string path5) => CombineCore(true, path1, path2, path3, path4, path5);
-
-    /// <inheritdoc cref="Combine(string,string)" />
-    public static string Combine(string path1, string path2, string path3, string path4, string path5, string path6) => CombineCore(true, path1, path2, path3, path4, path5, path6);
-
     /// <summary>Combines path segments into a single path, optionally sanitizing each segment first.</summary>
     /// <param name="sanitize">
     /// When <see langword="true" />, each non-root segment is passed through <see cref="SanitizePath(string)" />
@@ -155,12 +149,6 @@ public static class PathKit
     private static string CombineCore(bool sanitize, string path1, string path2, string path3) => CombineCore(sanitize, path1, path2, path3, null, null, null, 3);
 
     private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4) => CombineCore(sanitize, path1, path2, path3, path4, null, null, 4);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5) =>
-        CombineCore(sanitize, path1, path2, path3, path4, path5, null, 5);
-
-    private static string CombineCore(bool sanitize, string path1, string path2, string path3, string path4, string path5, string path6) =>
-        CombineCore(sanitize, path1, path2, path3, path4, path5, path6, 6);
 
     private static string CombineCore(bool sanitize, string? path1, string? path2, string? path3, string? path4, string? path5, string? path6, int pathCount)
     {

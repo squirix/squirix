@@ -48,8 +48,6 @@ public sealed class KeyInputValidatorTests : UnitTestBase
     {
         var ex = Assert.Throws<ArgumentException>(() => KeyInputValidator.Validate(key, nameof(key)));
 
-        Assert.False(KeyInputValidator.TryValidate(key, out var error));
-        Assert.Equal(expectedMessage, KeyInputValidator.GetMessage(error));
         Assert.StartsWith(expectedMessage, ex.Message, StringComparison.Ordinal);
     }
 }

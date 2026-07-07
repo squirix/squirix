@@ -4,5 +4,5 @@ namespace Squirix.Server.Storage;
 internal static class ManifestRetentionFailureOutcome
 {
     public const string CleanupException = "cleanup_exception";
-    public const string DeleteFailed = "delete_failed";
+    internal const string DeleteFailed = "delete_failed";
 }

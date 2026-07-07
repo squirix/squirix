@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using ArchUnitNET.xUnitV3;
 using Squirix.Server.Node.Observability.Metrics;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;
@@ -15,7 +14,10 @@ using static ArchUnitNET.Fluent.ArchRuleDefinition;
 
 namespace Squirix.Server.UnitTests.Architecture;
 
-/// <summary>Enforces high-value architectural dependency boundaries for the main Squirix assembly.</summary>
+/// <summary>
+/// Enforces packaging, placement, and structural architecture invariants for the server assembly. Namespace dependency boundaries are enforced by NsDepCop at build time for
+/// production code and server test projects.
+/// </summary>
 public sealed class ArchitectureTests : UnitTestBase
 {
     private const string ServerProjectRelativePath = "src/squirix.server/Squirix.Server.csproj";
@@ -30,7 +32,7 @@ public sealed class ArchitectureTests : UnitTestBase
         "LocalCache<",
         "ClusteredCache<",
         "JournalCoordinator",
-        "SnapshotCoordinator",
+        "Coordinator",
         "Squirix.Storage.Journaling",
         "Squirix.Storage.Snapshot",
         "Squirix.Runtime",
@@ -49,23 +51,13 @@ public sealed class ArchitectureTests : UnitTestBase
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => MsbuildProjectIndex.Parse(ServerProject.Value));
 
-    /// <summary>Ensures transport adapters do not take dependencies on low-level journal JSON internals.</summary>
-    [Fact]
-    public void AdaptersShouldNotDependOnJournalJsonInternals()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters)
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining($"{ServerArchitectureNamespaces.Storage}.Journaling.Json");
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
     [Fact]
     public void ClientAndServerProjectsShouldCompileSharedGrpcTransportMappersFromSameSources()
     {
         string[] expectedIncludes =
         [
-            @"..\shared\transport\grpc\Mappers\GrpcStaleOwnerMarkers.cs",
+            @"..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs",
         ];
 
         var serverIncludes = ServerProjectIndex.Value.GetIncludes("Compile");
@@ -87,9 +79,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler")
-            .Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
-            .WithoutRequiringPositiveResults();
+        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
+                                          .WithoutRequiringPositiveResults();
 
         rule.Check(ServerArchitecture.Instance);
     }
@@ -99,48 +90,22 @@ public sealed class ArchitectureTests : UnitTestBase
     public async Task JournalThreadShouldBeJoinedOnDispose()
     {
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var text = await File.ReadAllTextAsync(PathKit.Combine(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), DefaultCancellationToken);
+        var coordinatorText = await File.ReadAllTextAsync(Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinator.cs"), DefaultCancellationToken);
+        var durabilityText = await File.ReadAllTextAsync(
+            Path.Join(root, "src", "squirix.server", "Storage", "Journaling", "JournalCoordinatorDurabilityPipeline.cs"),
+            DefaultCancellationToken);
 
-        Assert.Contains("_journalThread.Join(", text, StringComparison.Ordinal);
-        Assert.Contains("AwaitJournalThreadDuringDisposeAsync", text, StringComparison.Ordinal);
+        Assert.Contains("JournalThread.Join(", durabilityText, StringComparison.Ordinal);
+        Assert.Contains("AwaitJournalThreadDuringDisposeAsync", coordinatorText, StringComparison.Ordinal);
     }
 
     /// <summary>Ensures metrics types stay centralized in the observability namespace.</summary>
     [Fact]
     public void MetricsTypesShouldLiveInObservabilityNamespace()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Metrics").And().AreNot(Interfaces())
-            .Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability");
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures backpressure controls stay isolated from storage concerns.</summary>
-    [Fact]
-    public void NodeBackpressureShouldNotDependOnStorage()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Backpressure")
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Storage);
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures node services remain application-layer components and do not depend on transport adapters.</summary>
-    [Fact]
-    public void NodeServicesShouldNotDependOnAdapters()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Services")
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
-
-        rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures observability remains transport-agnostic and reusable across adapters.</summary>
-    [Fact]
-    public void ObservabilityShouldNotDependOnAdapters()
-    {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Observability")
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
+        var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Metrics").And().AreNot(Interfaces()).And()
+                                          .DoNotHaveFullName("Squirix.Server.Storage.Manifest.NoOpManifestRetentionFailureMetrics").Should()
+                                          .ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Observability");
 
         rule.Check(ServerArchitecture.Instance);
     }
@@ -158,7 +123,7 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public async Task ProductionSourcesShouldNotUseIgnoresAccessChecksTo()
     {
-        var root = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
+        var root = Path.Join(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src");
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
         var paths = new List<string>(200);
         paths.AddRange(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
@@ -214,7 +179,7 @@ public sealed class ArchitectureTests : UnitTestBase
                 continue;
 
             var hasImplicitUsings = false;
-            foreach (var element in LoadProjectByAbsolutePath(path).Descendants())
+            foreach (var element in LoadProject(path).Descendants())
             {
                 if (!string.Equals(element.Name.LocalName, "ImplicitUsings", StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -289,7 +254,6 @@ public sealed class ArchitectureTests : UnitTestBase
         string[] approved =
         [
             "Squirix.Server.UnitTests",
-            "Squirix.Server.PropertyTests",
             "Squirix.Server.IntegrationTests",
             "Squirix.Server.SmokeTests",
             "Squirix.Server.TestKit",
@@ -300,7 +264,7 @@ public sealed class ArchitectureTests : UnitTestBase
         ];
 
         var root = ArchitectureRepositoryPaths.FindRepositoryRoot();
-        var assemblyInfoPath = PathKit.Combine(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
+        var assemblyInfoPath = Path.Join(root, "src", "squirix.server", "Properties", "AssemblyInfo.cs");
         var text = await File.ReadAllTextAsync(assemblyInfoPath, DefaultCancellationToken);
         var granted = new List<string>();
         var index = 0;
@@ -315,31 +279,6 @@ public sealed class ArchitectureTests : UnitTestBase
         granted.Sort(StringComparer.Ordinal);
         Array.Sort(approved, StringComparer.Ordinal);
         Assert.Equal(approved, granted);
-    }
-
-    /// <summary>Ensures server product code does not depend on client SDK namespaces.</summary>
-    [Fact]
-    public void ServerProductCodeShouldNotImportSquirixNamespaces()
-    {
-        var forbiddenNamespaces = new[]
-        {
-            "Squirix.Atomic",
-            "Squirix.Batch",
-            "Squirix.Watch",
-            "Squirix.Scan",
-            "Squirix.Batch",
-            "Squirix.Mutations",
-            "Squirix.Errors",
-            "Squirix.Internal",
-            "Squirix.Runtime",
-        };
-
-        foreach (var forbiddenNamespace in forbiddenNamespaces)
-        {
-            var rule = ServerArchitectureScope.Server.Should().NotDependOnAnyTypesThat().HaveFullNameContaining(forbiddenNamespace);
-
-            rule.Check(ServerArchitecture.Instance);
-        }
     }
 
     /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
@@ -365,10 +304,10 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var protobuf = ServerProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\transport\grpc\Protos\SquirixCache.proto");
+        var protobuf = ServerProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
         Assert.Equal("Server;Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
         Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
     }
 
@@ -411,24 +350,23 @@ public sealed class ArchitectureTests : UnitTestBase
 
     /// <summary>Ensures Prometheus metrics endpoint mapping is owned by the server package.</summary>
     [Fact]
-    public void ServerShouldOwnPrometheusMetricsEndpointMapping() => Assert.False(typeof(SquirixMetricsEndpointExtensions).IsPublic);
+    public void ServerShouldOwnPrometheusMetricsEndpointMapping() => Assert.False(typeof(EndpointExtensions).IsPublic);
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
-    public void ServiceTypesShouldLiveInApprovedNamespaces()
-    {
-        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
-            ServerArchitectureScope.Server.And().HaveNameEndingWith("Service"),
-            ArchitectureAllowlists.ServiceTypeNamespaces);
-    }
+    public void ServiceTypesShouldLiveInApprovedNamespaces() => ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
+        ServerArchitectureScope.Server.And().HaveNameEndingWith("Service"),
+        ArchitectureAllowlists.ServiceTypeNamespaces);
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
     [Fact]
     public void SharedGrpcStaleOwnerMarkerConstantsShouldBePresentInServerBuild()
     {
         var found = false;
-        foreach (var entry in GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers())
+        var entries = GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers();
+        for (var index = 0; index < entries.Count; index++)
         {
+            var entry = entries[index];
             if (!string.Equals(entry.Key, "squirix-error-code", StringComparison.Ordinal) || !string.Equals(entry.Value, "stale-owner", StringComparison.Ordinal))
                 continue;
             found = true;
@@ -442,7 +380,7 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public async Task SharedGrpcTransportMapperSourcesShouldNotDependOnCoreInternalRuntimeTypes()
     {
-        var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
+        var mapperDirectory = Path.Join(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
 
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
@@ -464,7 +402,7 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public async Task SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
     {
-        var mapperDirectory = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "transport", "grpc", "Mappers");
+        var mapperDirectory = Path.Join(ArchitectureRepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
         mapperPaths.Sort(StringComparer.Ordinal);
@@ -480,8 +418,8 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void StorageShouldNotDependOnAdapters()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage)
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
+                                          .HaveFullNameContaining(ServerArchitectureNamespaces.Adapters);
 
         rule.Check(ServerArchitecture.Instance);
     }
@@ -490,19 +428,10 @@ public sealed class ArchitectureTests : UnitTestBase
     [Fact]
     public void StorageShouldNotDependOnNodeHosting()
     {
-        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage)
-            .Should().NotDependOnAnyTypesThat().HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
+        var rule = ServerArchitectureScope.Server.And().HaveFullNameContaining(ServerArchitectureNamespaces.Storage).Should().NotDependOnAnyTypesThat()
+                                          .HaveFullNameContaining($"{ServerArchitectureNamespaces.Node}.Hosting");
 
         rule.Check(ServerArchitecture.Instance);
-    }
-
-    /// <summary>Ensures validator types stay centralized in the hosting composition layer.</summary>
-    [Fact]
-    public void ValidatorTypesShouldLiveInApprovedNamespaces()
-    {
-        ArchitectureRuleHelpers.AssertResideInOneOfNamespaces(
-            ServerArchitectureScope.Server.And().HaveNameEndingWith("Validator").And().DoNotHaveNameEndingWith("Invalidator"),
-            ArchitectureAllowlists.ValidatorTypeArchitectureNamespaces);
     }
 
     private static List<string> CollectUnexpectedMatches(List<string> includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
@@ -539,20 +468,20 @@ public sealed class ArchitectureTests : UnitTestBase
         return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static XDocument LoadProject(string relativePath)
+    private static XDocument LoadProject(string relativeOrAbsolutePath)
     {
-        var path = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.IsPathRooted(relativeOrAbsolutePath)
+            ? relativeOrAbsolutePath
+            : Path.Join(ArchitectureRepositoryPaths.FindRepositoryRoot(), relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path), $"Expected project at {path}.");
-        return LoadProjectByAbsolutePath(path);
+        return XDocument.Load(path);
     }
-
-    private static XDocument LoadProjectByAbsolutePath(string path) => XDocument.Load(path);
 
     private static XDocument LoadServerProject()
     {
-        var path = PathKit.Combine(ArchitectureRepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.Join(ArchitectureRepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
         Assert.True(File.Exists(path), $"Expected project at {path}.");
-        return LoadProjectByAbsolutePath(path);
+        return XDocument.Load(path);
     }
 
     private static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync()
@@ -561,14 +490,13 @@ public sealed class ArchitectureTests : UnitTestBase
         var relativePaths = new[]
         {
             "src/squirix.server.host/Program.cs",
-            "src/squirix.server.host/SquirixServerProcess.cs",
         };
 
         var sources = new (string RelativePath, string Text)[relativePaths.Length];
         for (var i = 0; i < relativePaths.Length; i++)
         {
             var relativePath = relativePaths[i].Replace('/', Path.DirectorySeparatorChar);
-            var absolutePath = PathKit.Combine(root, relativePath);
+            var absolutePath = Path.Join(root, relativePath);
             Assert.True(File.Exists(absolutePath), $"Expected server bootstrap source at {absolutePath}.");
             sources[i] = (relativePath, await File.ReadAllTextAsync(absolutePath, DefaultCancellationToken));
         }
@@ -593,22 +521,6 @@ public sealed class ArchitectureTests : UnitTestBase
             _includes = includes;
             _includedElements = includedElements;
             _localNames = localNames;
-        }
-
-        public static MsbuildProjectIndex Parse(XDocument project)
-        {
-            var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
-            var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            CollectIndexData(project.Root, properties, includes, includedElements, localNames);
-
-            return new MsbuildProjectIndex(
-                properties.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
-                includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
-                includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
-                localNames.ToFrozenSet(StringComparer.OrdinalIgnoreCase));
         }
 
         public bool ContainsElement(string localName) => _localNames.Contains(localName);
@@ -637,6 +549,22 @@ public sealed class ArchitectureTests : UnitTestBase
         {
             Assert.True(_properties.TryGetValue(propertyName, out var value), $"Expected MSBuild property '{propertyName}'.");
             return value;
+        }
+
+        internal static MsbuildProjectIndex Parse(XDocument project)
+        {
+            var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+            var localNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            CollectIndexData(project.Root, properties, includes, includedElements, localNames);
+
+            return new MsbuildProjectIndex(
+                properties.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase),
+                localNames.ToFrozenSet(StringComparer.OrdinalIgnoreCase));
         }
 
         private static void AddInclude(

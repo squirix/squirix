@@ -8,14 +8,14 @@ internal readonly record struct DurableMutationCondition<TResult>
         SkipResult = skipResult;
     }
 
-    public bool ShouldApply { get; }
+    internal bool ShouldApply { get; }
 
     /// <summary>
     /// Gets the result returned when <see cref="ShouldApply" /> is false.
     /// </summary>
-    public TResult? SkipResult { get; }
+    internal TResult? SkipResult { get; }
 
-    public static DurableMutationCondition<TResult> Apply() => new(true, default);
+    internal static DurableMutationCondition<TResult> Apply() => new(true, default);
 
-    public static DurableMutationCondition<TResult> Skip(TResult result) => new(false, result);
+    internal static DurableMutationCondition<TResult> Skip(TResult result) => new(false, result);
 }

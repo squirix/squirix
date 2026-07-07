@@ -12,7 +12,7 @@ public sealed class CacheValueGrpcMappingTests
     [Fact]
     public void Int32EncodesAsInt32ValueWireForm()
     {
-        var wire = ProtoEx.CacheValueToGrpcValue(42);
+        var wire = ServerProtoEx.CacheValueToGrpcValue(42);
 
         Assert.Equal(CacheValue.KindOneofCase.Int32Value, wire.KindCase);
         Assert.Equal(42, wire.Int32Value);
@@ -23,7 +23,7 @@ public sealed class CacheValueGrpcMappingTests
     public void Int64EncodesAsInt64ValueWireForm()
     {
         const long value = int.MaxValue + 1L;
-        var wire = ProtoEx.CacheValueToGrpcValue(value);
+        var wire = ServerProtoEx.CacheValueToGrpcValue(value);
 
         Assert.Equal(CacheValue.KindOneofCase.Int64Value, wire.KindCase);
         Assert.Equal(value, wire.Int64Value);
@@ -35,6 +35,6 @@ public sealed class CacheValueGrpcMappingTests
     {
         var wire = new CacheValue { Int32Value = 7 };
 
-        Assert.Equal(7, await ProtoEx.MapCacheValueAsync<int>(wire));
+        Assert.Equal(7, await ServerProtoEx.MapCacheValueAsync<int>(wire));
     }
 }

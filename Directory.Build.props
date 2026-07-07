@@ -1,6 +1,9 @@
 <Project>
     <PropertyGroup Label="Squirix NuGet">
         <SquirixPackageVersion>0.1.0-preview.5</SquirixPackageVersion>
+        <SquirixAssemblyVersion>0.1.0.0</SquirixAssemblyVersion>
+        <AssemblyVersion>$(SquirixAssemblyVersion)</AssemblyVersion>
+        <FileVersion>$(SquirixAssemblyVersion)</FileVersion>
     </PropertyGroup>
 
     <PropertyGroup Label="Build">
@@ -9,6 +12,7 @@
         <DebugType>portable</DebugType>
         <LangVersion>14.0</LangVersion>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <DefineConstants>$(DefineConstants);CODE_ANALYSIS</DefineConstants>
     </PropertyGroup>
 
     <PropertyGroup Label="Analyzers">
@@ -26,6 +30,10 @@
         <_NormalizedProjectDir>$([System.String]::Copy('$(MSBuildProjectDirectory)').Replace('\', '/'))</_NormalizedProjectDir>
         <IsSquirixTestProject>false</IsSquirixTestProject>
         <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
+        <IsSquirixProductionProject>false</IsSquirixProductionProject>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/'))">
+        <IsSquirixProductionProject>true</IsSquirixProductionProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
         <IsSquirixTestProject>true</IsSquirixTestProject>
@@ -55,6 +63,11 @@
         <PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all"/>
         <PackageReference Include="StyleCop.Analyzers" PrivateAssets="all"/>
         <PackageReference Include="ZeroAlloc.Analyzers" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <!-- Namespace dependency rules for production packages under src/** and server tests under tests/squirix.server/**. -->
+    <ItemGroup Label="NsDepCop" Condition="'$(IsSquirixProductionProject)' == 'true' Or $(_NormalizedProjectDir.Contains('/tests/squirix.server/'))">
+        <PackageReference Include="NsDepCop" PrivateAssets="all"/>
     </ItemGroup>
 
     <!-- Library-specific analyzers: only tests/** and benchmarks/** (not src/**). -->

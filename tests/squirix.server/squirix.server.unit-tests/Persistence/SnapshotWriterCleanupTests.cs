@@ -75,7 +75,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
-    private static CacheEntry<object?> BuildEntry(object? value) => new() { Value = value, Version = 1 };
+    private static NodeCacheEntry<object?> BuildEntry(object? value) => new() { Value = value, Version = 1 };
 
     private static FailingAfterFirstItemList FailingItems() => new();
 
@@ -91,17 +91,17 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
         return keys;
     }
 
-    private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)>
+    private sealed class FailingAfterFirstItemList : IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)>
     {
         public int Count => 2;
 
-        public (CacheKey Key, CacheEntry<object?> Entry) this[int index] => index switch
+        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] => index switch
         {
             0 => (new CacheKey("default", "a"), BuildEntry(1)),
             _ => throw new InvalidOperationException("simulated serialization failure"),
         };
 
-        public IEnumerator<(CacheKey Key, CacheEntry<object?> Entry)> GetEnumerator()
+        public IEnumerator<(CacheKey Key, NodeCacheEntry<object?> Entry)> GetEnumerator()
         {
             yield return this[0];
             _ = this[1];
@@ -112,7 +112,7 @@ public sealed class SnapshotWriterCleanupTests : UnitTestBase
 
     private sealed class PublishFailingStorageFileOperations : IStorageFileOperations
     {
-        private readonly StorageFileOperations _inner = new();
+        private readonly FileOperations _inner = new();
 
         public bool PublishSnapshot(string tempPath, string finalPath) => throw new IOException("simulated snapshot publish failure");
 

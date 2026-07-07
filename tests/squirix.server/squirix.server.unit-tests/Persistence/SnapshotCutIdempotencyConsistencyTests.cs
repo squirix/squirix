@@ -42,7 +42,7 @@ public sealed class SnapshotCutIdempotencyConsistencyTests : UnitTestBase
             new JournalStartupGate(),
             DefaultCancellationToken);
         var idempotency = new RpcMutationIdempotencyStore();
-        var writer = SnapshotStoreFactory.CreateWriter(persistence);
+        var writer = StoreFactory.CreateWriter(persistence);
 
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
@@ -54,7 +54,7 @@ public sealed class SnapshotCutIdempotencyConsistencyTests : UnitTestBase
             idempotency,
             DefaultCancellationToken);
 
-        var loaded = await SnapshotStoreFactory.CreateReader(persistence)
+        var loaded = await StoreFactory.CreateReader(persistence)
             .LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
         var record = Assert.Single(loaded.IdempotencyRecords);
         Assert.Equal(AtFlushOperationId, record.OperationId);
@@ -72,8 +72,13 @@ public sealed class SnapshotCutIdempotencyConsistencyTests : UnitTestBase
         var cut = (buildStarted, releaseBuild, journal, manifestStore, writer, idempotency);
         var snapshotPathTask = journal.ExecuteSnapshotCutAsync(
             cut,
-            static (state, _, _) => new ValueTask<IReadOnlyList<PersistedIdempotencyRecord>>(
-                state.idempotency.ExportSnapshot(DateTime.UtcNow)),
+            static (state, _, _) =>
+            {
+                var records = new List<PersistedIdempotencyRecord>();
+                IIdempotencySnapshotExporter exporter = state.idempotency;
+                exporter.ExportSnapshot(records, DateTime.UtcNow);
+                return new ValueTask<IReadOnlyList<PersistedIdempotencyRecord>>(records);
+            },
             static async (state, seqAtFlush, idempotencyAtFlush, ct) =>
             {
                 state.buildStarted.SetResult();
@@ -87,12 +92,12 @@ public sealed class SnapshotCutIdempotencyConsistencyTests : UnitTestBase
                     idempotencyAtFlush,
                     ct).ConfigureAwait(false);
                 await state.manifestStore.WriteAsync(
-                    new ManifestState
+                    new State
                     {
                         Format = prev.Format,
                         CurrentJournal = prev.CurrentJournal,
                         NextSequence = state.journal.NextSequence,
-                        LastSnapshot = new ManifestState.SnapshotRef
+                        LastSnapshot = new State.SnapshotRef
                         {
                             Index = nextIndex,
                             Path = path,

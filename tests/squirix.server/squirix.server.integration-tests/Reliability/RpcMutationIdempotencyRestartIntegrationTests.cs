@@ -2,8 +2,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
@@ -31,7 +31,7 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
             OperationId = ValidOperationId,
             CacheName = "default",
             Key = "force-kill-idempotency",
-            Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
         var node = await StartNodeAsync(uri, "node-a", usePersistence: true, extraScope: Scope);
@@ -71,7 +71,7 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
             OperationId = ValidOperationId,
             CacheName = "default",
             Key = "force-kill-set-idempotency",
-            Entry = new CacheEntry<object?> { Value = "set-value", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "set-value", Version = 1 }.MapToProto(),
         };
 
         var node = await StartNodeAsync(uri, "node-b", usePersistence: true, extraScope: SetScope);
@@ -110,7 +110,7 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
             OperationId = ValidOperationId,
             CacheName = "default",
             Key = "force-kill-compact-idempotency",
-            Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
         var node = await StartNodeAsync(uri, "node-c", usePersistence: true, extraScope: CompactScope);
@@ -126,7 +126,7 @@ public sealed class RpcMutationIdempotencyRestartIntegrationTests : IntegrationT
 
         var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new ManifestStore(persistence);
-        await JournalCompactor.CompactAsync(persistence, manifestStore, SnapshotStoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var restartUri = GetNextHttpUri();
         await using var restarted = await StartNodeAsync(restartUri, "node-c", usePersistence: true, cleanTestDir: false, extraScope: CompactScope);

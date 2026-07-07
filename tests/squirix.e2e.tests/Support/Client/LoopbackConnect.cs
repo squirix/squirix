@@ -2,6 +2,7 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.Server.TestKit.Networking;
 
 namespace Squirix.E2ETests.Support.Client;
@@ -11,13 +12,13 @@ internal static class LoopbackConnect
 {
     private static readonly SocketsHttpHandler SharedHandler = LoopbackHttp.CreateHandler();
 
-    public static ValueTask<ISquirixClient> ConnectAsync(Uri uri, CancellationToken cancellationToken) => ConnectAsync(options => options.Endpoints.Add(uri), cancellationToken);
-
-    public static ValueTask<ISquirixClient> ConnectAsync(Action<SquirixOptions> configure, CancellationToken cancellationToken)
+    public static ValueTask<ISquirixClient> ConnectAsync(Action<SquirixClientOptions> configure, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(configure);
-        var options = new SquirixOptions();
+        var options = new SquirixClientOptions();
         configure(options);
         return SquirixClient.ConnectAsync(options, SharedHandler, cancellationToken);
     }
+
+    internal static ValueTask<ISquirixClient> ConnectAsync(Uri uri, CancellationToken cancellationToken) => ConnectAsync(options => options.Endpoints.Add(uri), cancellationToken);
 }

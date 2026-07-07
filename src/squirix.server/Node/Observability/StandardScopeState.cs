@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace Squirix.Server.Node.Observability;
 
-internal readonly struct StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
+internal sealed record StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
 {
     private readonly string? _method;
     private readonly string _nodeId;
@@ -35,7 +35,8 @@ internal readonly struct StandardScopeState : IReadOnlyList<KeyValuePair<string,
 
     IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_traceId, _spanId, _nodeId, _method);
 
-    private struct Enumerator : IEnumerator<KeyValuePair<string, object?>>
+    /// <summary>Mutable enumerator state lives on a class so ND1903 does not require an immutable struct.</summary>
+    private sealed class Enumerator : IEnumerator<KeyValuePair<string, object?>>
     {
         private readonly string? _method;
         private readonly string _nodeId;
@@ -55,9 +56,9 @@ internal readonly struct StandardScopeState : IReadOnlyList<KeyValuePair<string,
 
         public KeyValuePair<string, object?> Current { get; private set; }
 
-        readonly object IEnumerator.Current => Current;
+        object IEnumerator.Current => Current;
 
-        public readonly void Dispose()
+        public void Dispose()
         {
         }
 

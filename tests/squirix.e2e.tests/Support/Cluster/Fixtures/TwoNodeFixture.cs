@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Xunit;
 
 namespace Squirix.E2ETests.Support.Cluster.Fixtures;

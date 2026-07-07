@@ -9,18 +9,18 @@ internal static class Crc32C
     private const uint Poly = 0x82F63B78u;
     private static readonly uint[] Table = CreateTable();
 
-    public static uint InitialValue => 0xFFFF_FFFFu;
+    internal static uint InitialValue => 0xFFFF_FFFFu;
 
-    public static uint Append(uint crc, ReadOnlySpan<byte> data)
+    internal static uint Append(uint crc, ReadOnlySpan<byte> data)
     {
         foreach (var b in data)
             crc = Table[(crc ^ b) & 0xFF] ^ (crc >> 8);
         return crc;
     }
 
-    public static uint Compute(ReadOnlySpan<byte> data) => Finalize(Append(InitialValue, data));
+    internal static uint Compute(ReadOnlySpan<byte> data) => Finalize(Append(InitialValue, data));
 
-    public static uint Finalize(uint crc) => ~crc;
+    internal static uint Finalize(uint crc) => ~crc;
 
     [SuppressMessage("ReSharper", "ArrangeRedundantParentheses", Justification = "Readability")]
     private static uint[] CreateTable()

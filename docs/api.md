@@ -4,9 +4,12 @@ squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP en
 
 ## Client SDK
 
-Entry point:
+Entry point (`Squirix.Client`):
 
 ```csharp
+using Squirix;
+using Squirix.Client;
+
 await using var client = await SquirixClient.ConnectAsync("https://localhost:5001", cancellationToken);
 var cache = await client.GetCacheAsync<T>("cache-name", cancellationToken);
 ```
@@ -35,12 +38,12 @@ when you need TTL eviction.
 
 Out of scope for v0.1: batch, scan, watch, counters, tag invalidation, compare-and-set.
 
-Configuration (`SquirixOptions`): endpoints, JWT bearer token provider, custom serializer.
+Configuration (`SquirixClientOptions`): endpoints, JWT bearer token provider, custom serializer.
 See [configuration.md](configuration.md) and [serialization.md](serialization.md).
 
 ## Wire contract
 
-gRPC contract: `src/shared/transport/grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
+gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (shared source, not a separate NuGet package).
 
 `SquirixCacheService` exposes **10** unary RPCs on the v0.1 server surface:
 
@@ -96,7 +99,7 @@ The approved RPC list is locked by a golden snapshot test:
 
 Transport requires HTTPS endpoints. Cleartext `http://` URLs are rejected at configuration time.
 
-Authentication uses JWT bearer tokens when enabled via `SquirixOptions.BearerTokenProvider`.
+Authentication uses JWT bearer tokens when enabled via `SquirixClientOptions.BearerTokenProvider`.
 
 ## Cache names
 

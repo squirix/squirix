@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage.Entries.Binary;
 using Squirix.Server.Utils;
 
@@ -15,10 +14,10 @@ internal sealed class SnapshotReader : ISnapshotReader
 {
     private const int InitialRecordScratchSize = 4096;
 
-    public Task<SnapshotLoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
+    public Task<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var entries = new List<(CacheKey Key, CacheEntry<T> Entry)>(1024);
+        var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
         var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
         using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
         {
@@ -43,25 +42,25 @@ internal sealed class SnapshotReader : ISnapshotReader
             }
         }
 
-        return Task.FromResult(new SnapshotLoadResult<T>(entries, idempotencyRecords));
+        return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
     }
 
-    private static bool IsExpired(CacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;
+    private static bool IsExpired(NodeCacheEntry<object?> entry) => entry.ExpiresUtc is { } expiresUtc && expiresUtc.ToUniversalTime() <= DateTime.UtcNow;
 
-    private sealed record EntryRecord(CacheKey Key, CacheEntry<object?> Entry);
+    private sealed record EntryRecord(CacheKey Key, NodeCacheEntry<object?> Entry);
 
     private sealed record IdempotencyRecord(PersistedIdempotencyRecord Record);
 
-    private sealed class SnapshotRecordEnumerator : IDisposable
+    private sealed class SnapshotRecordEnumerator : IEnumerator<object>
     {
         private readonly CancellationToken _cancellationToken;
         private readonly long _footerOffset;
-        private readonly bool _strict;
         private readonly FileStream _stream;
+        private readonly bool _strict;
+        private uint _crc;
         private object? _current;
         private bool _disposed;
         private bool _footerValidated;
-        private uint _crc;
         private byte[] _scratch = new byte[InitialRecordScratchSize];
 
         public SnapshotRecordEnumerator(string path, bool strict, CancellationToken cancellationToken)
@@ -69,16 +68,16 @@ internal sealed class SnapshotReader : ISnapshotReader
             _strict = strict;
             _cancellationToken = cancellationToken;
             _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (_stream.Length < Codec.FileHeaderSize + Codec.FileFooterSize)
+            if (_stream.Length < SnapshotCodec.FileHeaderSize + SnapshotCodec.FileFooterSize)
                 throw new InvalidDataException("Binary snapshot file is truncated.");
 
-            Span<byte> header = stackalloc byte[Codec.FileHeaderSize];
+            Span<byte> header = stackalloc byte[SnapshotCodec.FileHeaderSize];
             if (!StreamEx.TryReadExact(_stream, header))
                 throw new EndOfStreamException("Binary snapshot file header is truncated.");
 
-            Codec.ValidateFileHeader(header);
-            _crc = Crc32C.Append(Crc32C.InitialValue, [Codec.Version]);
-            _footerOffset = _stream.Length - Codec.FileFooterSize;
+            SnapshotCodec.ValidateFileHeader(header);
+            _crc = Crc32C.Append(Crc32C.InitialValue, [SnapshotCodec.Version]);
+            _footerOffset = _stream.Length - SnapshotCodec.FileFooterSize;
         }
 
         public object Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
@@ -109,6 +108,8 @@ internal sealed class SnapshotReader : ISnapshotReader
             }
         }
 
+        public void Reset() => throw new NotSupportedException();
+
         public void Dispose()
         {
             if (_disposed)
@@ -118,81 +119,19 @@ internal sealed class SnapshotReader : ISnapshotReader
             _disposed = true;
         }
 
-        private void ValidateFooter()
-        {
-            if (_stream.Position != _footerOffset)
-            {
-                if (_strict)
-                    throw new InvalidDataException("Binary snapshot file footer is misaligned.");
-
-                _footerValidated = true;
-                return;
-            }
-
-            Span<byte> footer = stackalloc byte[Codec.FileFooterSize];
-            if (!StreamEx.TryReadExact(_stream, footer))
-                throw new EndOfStreamException("Binary snapshot file footer is truncated.");
-
-            Codec.ValidateFileFooter(footer, Crc32C.Finalize(_crc));
-            _footerValidated = true;
-        }
-
-        private bool TryReadNextRecord(out object? record)
-        {
-            record = null;
-            if (_stream.Position >= _footerOffset)
-                return false;
-
-            Span<byte> recordHeader = stackalloc byte[Codec.RecordHeaderSize];
-            if (!StreamEx.TryReadExact(_stream, recordHeader))
-            {
-                if (_strict)
-                    throw new EndOfStreamException("Binary snapshot record header is truncated.");
-
-                return false;
-            }
-
-            var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
-            var recordLength = Codec.ComputeRecordLength(int.CreateChecked(bodyLength));
-            if (_scratch.Length < recordLength)
-                _scratch = new byte[recordLength];
-
-            recordHeader.CopyTo(_scratch);
-            if (!StreamEx.TryReadExact(_stream, _scratch.AsSpan(Codec.RecordHeaderSize, recordLength - Codec.RecordHeaderSize)))
-            {
-                if (_strict)
-                    throw new EndOfStreamException("Binary snapshot record body is truncated.");
-
-                return false;
-            }
-
-            var recordBytes = _scratch.AsSpan(0, recordLength);
-            if (!Codec.TryReadRecord(recordBytes, out var kind, out var body, out _))
-            {
-                if (_strict)
-                    throw new InvalidDataException("Binary snapshot record is truncated.");
-
-                return false;
-            }
-
-            _crc = Crc32C.Append(_crc, recordBytes);
-            record = MapRecord(kind, body);
-            return true;
-        }
-
-        private object? MapRecord(Codec.RecordKind kind, ReadOnlySpan<byte> body)
+        private object? MapRecord(SnapshotCodec.RecordKind kind, ReadOnlySpan<byte> body)
         {
             switch (kind)
             {
-                case Codec.RecordKind.Entry:
-                    if (Codec.TryReadEntryBody(body, out var key, out var entry) && entry is not null)
+                case SnapshotCodec.RecordKind.Entry:
+                    if (SnapshotCodec.TryReadEntryBody(body, out var key, out var entry) && entry is not null)
                         return new EntryRecord(key, entry);
                     if (_strict)
                         throw new InvalidDataException("Binary snapshot entry body could not be read.");
 
                     return null;
 
-                case Codec.RecordKind.Idempotency:
+                case SnapshotCodec.RecordKind.Idempotency:
                     return TryReadIdempotency(body, out var idempotencyRecord) && idempotencyRecord is not null ? new IdempotencyRecord(idempotencyRecord) : null;
 
                 default:
@@ -215,6 +154,77 @@ internal sealed class SnapshotReader : ISnapshotReader
                 record = null;
                 return false;
             }
+        }
+
+        private bool TryReadNextRecord(out object? record)
+        {
+            record = null;
+            if (_stream.Position >= _footerOffset)
+                return false;
+
+            if (!TryReadRecordBytes(out var recordBytes))
+                return false;
+
+            if (!SnapshotCodec.TryReadRecord(recordBytes, out var kind, out var body, out _))
+            {
+                if (_strict)
+                    throw new InvalidDataException("Binary snapshot record is truncated.");
+
+                return false;
+            }
+
+            _crc = Crc32C.Append(_crc, recordBytes);
+            record = MapRecord(kind, body);
+            return true;
+        }
+
+        private bool TryReadRecordBytes(out ReadOnlySpan<byte> recordBytes)
+        {
+            recordBytes = default;
+            Span<byte> recordHeader = stackalloc byte[SnapshotCodec.RecordHeaderSize];
+            if (!StreamEx.TryReadExact(_stream, recordHeader))
+            {
+                if (_strict)
+                    throw new EndOfStreamException("Binary snapshot record header is truncated.");
+
+                return false;
+            }
+
+            var bodyLength = BinaryPrimitives.ReadUInt32LittleEndian(recordHeader[1..]);
+            var recordLength = SnapshotCodec.ComputeRecordLength(int.CreateChecked(bodyLength));
+            if (_scratch.Length < recordLength)
+                _scratch = new byte[recordLength];
+
+            recordHeader.CopyTo(_scratch);
+            if (!StreamEx.TryReadExact(_stream, _scratch.AsSpan(SnapshotCodec.RecordHeaderSize, recordLength - SnapshotCodec.RecordHeaderSize)))
+            {
+                if (_strict)
+                    throw new EndOfStreamException("Binary snapshot record body is truncated.");
+
+                return false;
+            }
+
+            recordBytes = _scratch.AsSpan(0, recordLength);
+            return true;
+        }
+
+        private void ValidateFooter()
+        {
+            if (_stream.Position != _footerOffset)
+            {
+                if (_strict)
+                    throw new InvalidDataException("Binary snapshot file footer is misaligned.");
+
+                _footerValidated = true;
+                return;
+            }
+
+            Span<byte> footer = stackalloc byte[SnapshotCodec.FileFooterSize];
+            if (!StreamEx.TryReadExact(_stream, footer))
+                throw new EndOfStreamException("Binary snapshot file footer is truncated.");
+
+            SnapshotCodec.ValidateFileFooter(footer, Crc32C.Finalize(_crc));
+            _footerValidated = true;
         }
     }
 }

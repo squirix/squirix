@@ -4,12 +4,11 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -43,22 +42,25 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
-        var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
-        var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "guard-key", entry);
         var key = CacheKey.Default("guard-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
         var executor = new DurableMutationExecutor(journal);
 
         _ = await coordinator.ExecuteAsync(
             ValidOperationId,
-            fingerprint,
+            "fingerprint",
             (Executor: executor, Journal: journal, Key: key, Payload: payload),
             static async (state, cancellationToken) =>
             {
                 var added = await state.Executor.ExecuteAsync(
+                    null,
                     static _ => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
-                    ct => state.Journal.AppendPutAsync(state.Key, state.Payload, ct),
-                    static _ => new ValueTask<bool>(true),
+                    new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, byte[] Payload), byte, bool>(
+                        state.Journal,
+                        (state.Key, state.Payload),
+                        static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
+                        0,
+                        static (_, _, _) => new ValueTask<bool>(true)),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
             },

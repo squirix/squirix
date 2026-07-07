@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Google.Protobuf;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
@@ -24,8 +23,8 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-binary-snapshot");
         var options = new PersistenceOptions { DataDir = dir.Path };
-        var writer = SnapshotStoreFactory.CreateWriter(options);
-        var reader = SnapshotStoreFactory.CreateReader(options);
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
 
         var items = BuildSampleItems();
         var idempotency = BuildIdempotencyRecords();
@@ -53,11 +52,11 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-binary-snapshot-crc");
         var options = new PersistenceOptions { DataDir = dir.Path };
-        var writer = SnapshotStoreFactory.CreateWriter(options);
-        var reader = SnapshotStoreFactory.CreateReader(options);
-        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>
+        var writer = StoreFactory.CreateWriter(options);
+        var reader = StoreFactory.CreateReader(options);
+        var items = new List<(CacheKey Key, NodeCacheEntry<object?> Entry)>
         {
-            (CacheKey.Default("k"), new CacheEntry<object?> { Value = "v", Version = 1 }),
+            (CacheKey.Default("k"), new NodeCacheEntry<object?> { Value = "v", Version = 1 }),
         };
 
         var path = await writer.WriteAsync(1, items, [], DefaultCancellationToken);
@@ -68,35 +67,36 @@ public sealed class SnapshotBinaryStoreTests : UnitTestBase
         _ = await Assert.ThrowsAsync<InvalidDataException>(() => reader.LoadStrictAsync<object?>(path, cancellationToken: DefaultCancellationToken));
     }
 
-    private static List<(CacheKey Key, CacheEntry<object?> Entry)> BuildSampleItems() =>
+    private static List<(CacheKey Key, NodeCacheEntry<object?> Entry)> BuildSampleItems() =>
     [
-        (CacheKey.Default("alpha"), new CacheEntry<object?> { Value = "text", Version = 2 }),
-        (CacheKey.Default("beta"), new CacheEntry<object?> { Value = 42L, Version = 3, Expiration = TimeSpan.FromMinutes(1) }),
-        (CacheKey.Default("gamma"), new CacheEntry<object?> { Value = 3.5d, Version = 1, ExpiresUtc = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc) }),
-        (new CacheKey("ns", "bytes"), new CacheEntry<object?> { Value = new byte[] { 1, 2, 3 }, Version = 4, Tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal) }),
+        (CacheKey.Default("alpha"), new NodeCacheEntry<object?> { Value = "text", Version = 2 }),
+        (CacheKey.Default("beta"), new NodeCacheEntry<object?> { Value = 42L, Version = 3, Expiration = TimeSpan.FromMinutes(1) }),
+        (CacheKey.Default("gamma"), new NodeCacheEntry<object?> { Value = 3.5d, Version = 1, ExpiresUtc = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc) }),
+        (new CacheKey("ns", "bytes"), new NodeCacheEntry<object?>(
+            new byte[] { 1, 2, 3 },
+            4,
+            tags: new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal))),
     ];
 
     private static PersistedIdempotencyRecord[] BuildIdempotencyRecords() =>
     [
-        new()
-        {
-            OperationId = "op-parity",
-            Fingerprint = "fp-parity",
-            CreatedUtc = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
-            ResponseBytes = new TryAddAsyncResponse { Added = true }.ToByteArray(),
-        },
+        new(
+            "op-parity",
+            "fp-parity",
+            new TryAddAsyncResponse { Added = true }.ToByteArray(),
+            new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc)),
     ];
 
-    private static SortedDictionary<string, CacheEntry<object?>> ToDictionary(List<(CacheKey Key, CacheEntry<object?> Entry)> entries)
+    private static SortedDictionary<string, NodeCacheEntry<object?>> ToDictionary(List<(CacheKey Key, NodeCacheEntry<object?> Entry)> entries)
     {
-        var result = new SortedDictionary<string, CacheEntry<object?>>(StringComparer.Ordinal);
+        var result = new SortedDictionary<string, NodeCacheEntry<object?>>(StringComparer.Ordinal);
         foreach (var (key, entry) in entries)
             result[$"{key.Namespace}:{key.Key}"] = entry;
 
         return result;
     }
 
-    private static bool EntryEquals(CacheEntry<object?> left, CacheEntry<object?> right)
+    private static bool EntryEquals(NodeCacheEntry<object?> left, NodeCacheEntry<object?> right)
     {
         if (left.Version != right.Version)
             return false;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.TestKit.IO;
@@ -14,6 +15,8 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
 public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
 {
+    private static readonly OtelManifestRetentionMetrics RetentionFailureMetrics = new();
+
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
     public async Task WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
@@ -27,12 +30,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         await File.WriteAllTextAsync(PathKit.Combine(dir, ManifestStoreTestSupport.JournalSegment000002), "obsolete journal", DefaultCancellationToken);
         await File.WriteAllTextAsync(currentJournalPath, "current journal", DefaultCancellationToken);
         var options = new PersistenceOptions { DataDir = dir };
-        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment));
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleJournalSegment), RetentionFailureMetrics);
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 1,
                     Path = PathKit.Combine(dir, ManifestStoreTestSupport.Snapshot000001),
@@ -74,21 +77,17 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
             RetentionCleanupDegradedConsecutiveWrites = 2,
             RetentionCleanupDegradedWindowFailures = 10,
         };
-        var readiness = new StorageRetentionCleanupReadiness(options);
+        var readiness = new RetentionCleanupReadiness(options);
         var staleManifest = PathKit.Combine(dir, ManifestStoreTestSupport.Manifest000001);
         await File.WriteAllBytesAsync(staleManifest, [0x53, 0x51, 0x4D, 0x46, 0x01], DefaultCancellationToken);
-        using var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest));
+        using var store = new ManifestStore(options, logger, readiness, new DeleteFailingStorageFileOperations(staleManifest), RetentionFailureMetrics);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1 }, DefaultCancellationToken);
-        await ManifestStoreTestSupport.WaitUntilAsync(
-            readiness,
-            static r => r.ConsecutiveWriteFailures is 1,
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.State { CurrentJournal = 1 }, DefaultCancellationToken);
+        await ManifestStoreTestSupport.WaitUntilAsync(readiness, static r => r.ConsecutiveWriteFailures is 1, TimeSpan.FromSeconds(5), DefaultCancellationToken);
         Assert.False(readiness.IsDegraded);
         Assert.Equal(1, readiness.ConsecutiveWriteFailures);
 
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.State { CurrentJournal = 2 }, DefaultCancellationToken);
         await ManifestStoreTestSupport.WaitUntilAsync(
             readiness,
             static r => r is { IsDegraded: true, ConsecutiveWriteFailures: 2 },
@@ -111,12 +110,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
         using var dir = new TempDirectory("manifest-retention-delete-failure");
         var options = new PersistenceOptions { DataDir = dir, ManifestRetentionCount = 2 };
         var staleManifest = PathKit.Combine(dir, ManifestStoreTestSupport.Manifest000001);
-        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest));
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 1 }, DefaultCancellationToken);
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 2 }, DefaultCancellationToken);
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleManifest), RetentionFailureMetrics);
+        await store.WriteAsync(new Storage.Manifest.State { CurrentJournal = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.State { CurrentJournal = 2 }, DefaultCancellationToken);
 
         Assert.True(File.Exists(staleManifest));
-        await store.WriteAsync(new Storage.Manifest.ManifestState { CurrentJournal = 3 }, DefaultCancellationToken);
+        await store.WriteAsync(new Storage.Manifest.State { CurrentJournal = 3 }, DefaultCancellationToken);
 
         await ManifestStoreTestSupport.WaitUntilAsync(
             logger,
@@ -157,12 +156,12 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
             DataDir = dir,
             SnapshotRetentionCount = 1,
         };
-        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot));
+        using var store = new ManifestStore(options, logger, null, new DeleteFailingStorageFileOperations(staleSnapshot), RetentionFailureMetrics);
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
                 CurrentJournal = 2,
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 2,
                     Path = currentSnapshot,
@@ -212,7 +211,7 @@ public sealed class ManifestStoreRetentionObservabilityTests : UnitTestBase
 
     private sealed class DeleteFailingStorageFileOperations(string retainedPath) : IStorageFileOperations
     {
-        private readonly StorageFileOperations _inner = new();
+        private readonly FileOperations _inner = new();
 
         public bool PublishSnapshot(string tempPath, string finalPath) => _inner.PublishSnapshot(tempPath, finalPath);
 

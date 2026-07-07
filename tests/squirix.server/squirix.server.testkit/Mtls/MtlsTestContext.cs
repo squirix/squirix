@@ -34,18 +34,18 @@ public sealed class MtlsTestContext : IDisposable
     /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
     /// <param name="shared">Shared context for the current test case.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <returns>Peer entries for host startup.</returns>
+    /// <returns>ServerPeer entries for host startup.</returns>
     /// <exception cref="ArgumentException">Thrown when <paramref name="topology" /> is empty.</exception>
-    internal static Peer[] CreatePeers(ref MtlsTestContext? shared, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    internal static ServerPeer[] CreatePeers(ref MtlsTestContext? shared, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
         if (topology.IsEmpty)
             throw new ArgumentException("Topology must not be empty.", nameof(topology));
 
         if (!HasRemotePeers(topology))
         {
-            var standalonePeers = new Peer[topology.Length];
+            var standalonePeers = new ServerPeer[topology.Length];
             for (var i = 0; i < topology.Length; i++)
-                standalonePeers[i] = new Peer { NodeId = topology[i].NodeId, Uri = topology[i].Uri };
+                standalonePeers[i] = new ServerPeer { NodeId = topology[i].NodeId, Uri = topology[i].Uri };
 
             return standalonePeers;
         }
@@ -101,8 +101,8 @@ public sealed class MtlsTestContext : IDisposable
             MtlsTestNodeProfile.NoOutboundClientCertificate => (options, material,
                 peerNodeId => MtlsTestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor!, peerNodeId)),
             MtlsTestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
-            MtlsTestNodeProfile.UntrustedInboundServerCertificate => await CreateUntrustedInboundServerStartupAsync(cluster.NodeId, internalPort, material, cancellationToken).ConfigureAwait(false),
-            MtlsTestNodeProfile.ExpiredPeerCertificate => await CreateExpiredPeerStartupAsync(cluster.NodeId, internalPort, material, cancellationToken).ConfigureAwait(false),
+            MtlsTestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
+            MtlsTestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unsupported mTLS test node profile."),
         };
     }
@@ -143,14 +143,14 @@ public sealed class MtlsTestContext : IDisposable
         return false;
     }
 
-    private Peer[] BuildPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    private ServerPeer[] BuildPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
-        var peers = new Peer[topology.Length];
+        var peers = new ServerPeer[topology.Length];
         for (var i = 0; i < topology.Length; i++)
         {
             var (nodeId, primaryUri) = topology[i];
             var internalPort = GetOrAllocateInternalPort(nodeId, topology);
-            peers[i] = new Peer
+            peers[i] = new ServerPeer
             {
                 NodeId = nodeId,
                 Uri = primaryUri,
@@ -161,40 +161,30 @@ public sealed class MtlsTestContext : IDisposable
         return peers;
     }
 
-    private Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> CreateExpiredPeerStartupAsync(
+    private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateExpiredPeerStartup(
         string nodeId,
-        int internalListenPort,
-        MtlsCertificateMaterial material,
-        CancellationToken cancellationToken)
+        MtlsOptions options,
+        MtlsCertificateMaterial material)
     {
         var clusterCa = _bundle!.GetClusterCertificateAuthority();
         var notBefore = new DateTimeOffset(clusterCa.NotBefore.AddHours(1).ToUniversalTime());
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
-        return CreateMaterialStartupAsync(nodeId, internalListenPort, expiredCertificate, material.TrustAnchor!, cancellationToken);
+        var clientCertificate = TrackCertificate(MtlsTestCertificates.LoadExportableCertificate(expiredCertificate));
+        var trustAnchor = material.TrustAnchor!;
+        return (options, material, peerNodeId => MtlsTestCertificates.CreateMtlsHandler(clientCertificate, trustAnchor, peerNodeId));
     }
 
-    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> CreateMaterialStartupAsync(
+    private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateUntrustedInboundServerStartup(
         string nodeId,
-        int internalListenPort,
-        X509Certificate2 nodeCertificate,
-        X509Certificate2 trustAnchor,
-        CancellationToken cancellationToken)
-    {
-        var (options, material) = await _bundle!.CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeCertificate, cancellationToken).ConfigureAwait(false);
-        var clientCertificate = TrackCertificate(MtlsTestCertificates.LoadExportableCertificate(nodeCertificate));
-        return (options, material, peerNodeId => GrpcTransportEndpoints.CreateMtlsHandler(clientCertificate, trustAnchor, peerNodeId));
-    }
-
-    private Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory)> CreateUntrustedInboundServerStartupAsync(
-        string nodeId,
-        int internalListenPort,
-        MtlsCertificateMaterial material,
-        CancellationToken cancellationToken)
+        MtlsOptions options,
+        MtlsCertificateMaterial material)
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedServerCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
-        return CreateMaterialStartupAsync(nodeId, internalListenPort, untrustedServerCertificate, material.TrustAnchor!, cancellationToken);
+        var serverCertificate = TrackCertificate(MtlsTestCertificates.LoadExportableCertificate(untrustedServerCertificate));
+        var trustAnchor = material.TrustAnchor!;
+        return (options, new MtlsCertificateMaterial(serverCertificate, trustAnchor), null);
     }
 
     private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateUntrustedOutboundStartup(
@@ -205,7 +195,7 @@ public sealed class MtlsTestContext : IDisposable
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedClientCertificate = TrackCertificate(MtlsTestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
         var trustAnchor = material.TrustAnchor!;
-        return (options, material, peerNodeId => GrpcTransportEndpoints.CreateMtlsHandler(untrustedClientCertificate, trustAnchor, peerNodeId));
+        return (options, material, peerNodeId => MtlsTestCertificates.CreateMtlsHandler(untrustedClientCertificate, trustAnchor, peerNodeId));
     }
 
     private int GetOrAllocateInternalPort(string nodeId, ReadOnlySpan<(string NodeId, Uri Uri)> topology)

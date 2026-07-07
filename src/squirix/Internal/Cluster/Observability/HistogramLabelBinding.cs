@@ -3,30 +3,20 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Internal.Cluster.Observability;
 
-internal readonly struct HistogramLabelBinding
+internal sealed record HistogramLabelBinding(
+    Histogram<double> Histogram,
+    string Key1,
+    string Value1,
+    string Key2,
+    string Value2)
 {
-    private readonly Histogram<double> _h;
-    private readonly string _k1;
-    private readonly string _k2;
-    private readonly string _v1;
-    private readonly string _v2;
-
-    public HistogramLabelBinding(Histogram<double> h, string k1, string v1, string k2, string v2)
-    {
-        _h = h;
-        _k1 = k1;
-        _v1 = v1;
-        _k2 = k2;
-        _v2 = v2;
-    }
-
-    public void Observe(double value)
+    internal void Observe(double value)
     {
         var tags = new TagList
         {
-            { _k1, _v1 },
-            { _k2, _v2 },
+            { Key1, Value1 },
+            { Key2, Value2 },
         };
-        _h.Record(value, in tags);
+        Histogram.Record(value, in tags);
     }
 }

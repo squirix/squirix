@@ -23,7 +23,7 @@ Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged
 when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
 `SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
-## Remote client (`SquirixOptions`)
+## Remote client (`SquirixClientOptions`)
 
 Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 

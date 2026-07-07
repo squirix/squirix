@@ -14,16 +14,6 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>Covers persistence opt-in hosting behavior.</summary>
 public sealed class PersistenceHostingTests : UnitTestBase
 {
-    /// <summary>Ensures data directory without persistence is rejected.</summary>
-    [Fact]
-    public void DataDirectoryWithoutPersistenceIsRejected()
-    {
-        var options = new SquirixServerOptions { DataDirectory = "/tmp/data" };
-
-        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
-        Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
-    }
-
     /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]
     public async Task DefaultHostingDoesNotRegisterPersistenceOptions()

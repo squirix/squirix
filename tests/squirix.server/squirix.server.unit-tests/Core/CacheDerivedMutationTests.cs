@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Time.Testing;
+using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
@@ -18,7 +19,7 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         await using var physical = new PhysicalCache<string>(timeProvider);
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
-        await clientCache.SetEntryAsync(TestOperationIds.Default, "orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await clientCache.SetEntryAsync(TestOperationIds.Default, "orders", "k", new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await clientCache.UpdateAsync(TestOperationIds.Default, "orders", "k", "new", DefaultCancellationToken);
 
@@ -36,12 +37,12 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
-        await cache.SetAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
-        var updated = await cache.UpdateAsync("k", "new", DefaultCancellationToken);
+        var updated = await cache.UpdateAsync(CacheKey.Default("k"), "new", DefaultCancellationToken);
 
         Assert.True(updated);
-        var entry = await cache.GetEntryAsync("k", DefaultCancellationToken);
+        var entry = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
         Assert.NotNull(entry);
         Assert.Equal("new", entry.Value);
         Assert.Equal(expires, entry.ExpiresUtc);
@@ -52,7 +53,7 @@ public sealed class CacheDerivedMutationTests : UnitTestBase
     public async Task UpdateAsyncReturnsFalseForMissingKey()
     {
         await using var cache = new PhysicalCache<string>();
-        var updated = await cache.UpdateAsync("missing", "new", DefaultCancellationToken);
+        var updated = await cache.UpdateAsync(CacheKey.Default("missing"), "new", DefaultCancellationToken);
         Assert.False(updated);
     }
 }

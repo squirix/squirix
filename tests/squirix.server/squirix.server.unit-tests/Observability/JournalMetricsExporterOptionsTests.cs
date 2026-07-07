@@ -35,7 +35,7 @@ public sealed class JournalMetricsExporterOptionsTests
     public void JsonDeserializeBindsValidatedInterval()
     {
         const string json = """{"interval":"00:00:03"}""";
-        var options = new SystemTextJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
+        var options = new ServerJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromSeconds(3), options.Interval);
     }

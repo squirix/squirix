@@ -15,7 +15,7 @@ internal sealed class ItemsGaugeReporterService : BackgroundService
     public ItemsGaugeReporterService(ILocalCacheStats stats)
     {
         _stats = stats;
-        _ = MeterRegistry.Meter.CreateObservableGauge("squirix_items_total", ObserveCount, description: "Number of items in local cache");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_items_total", ObserveCount, description: "Number of items in local cache");
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;

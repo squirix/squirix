@@ -5,24 +5,13 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Metrics for best-effort manifest retention cleanup after durable manifest commits.</summary>
 internal static class StorageRetentionMetrics
 {
-    public static readonly Counter2Labels DeleteFailuresTotal = new(
-        MeterRegistry.Meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"),
+    internal static readonly Counter2Labels DeleteFailuresTotal = new(
+        ServerMeterRegistry.Meter.CreateCounter<long>("squirix_storage_retention_delete_failures_total"),
         "artifact",
         "outcome");
 
-    internal readonly struct Counter2Labels
+    internal sealed record Counter2Labels(Counter<long> Counter, string Key1, string Key2)
     {
-        private readonly Counter<long> _ctr;
-        private readonly string _k1;
-        private readonly string _k2;
-
-        public Counter2Labels(Counter<long> ctr, string k1, string k2)
-        {
-            _ctr = ctr;
-            _k1 = k1;
-            _k2 = k2;
-        }
-
-        public CounterLabelBinding WithLabels(string v1, string v2) => new(_ctr, _k1, v1, _k2, v2);
+        internal ServerCounterLabelBinding WithLabels(string v1, string v2) => new(Counter, Key1, v1, Key2, v2);
     }
 }

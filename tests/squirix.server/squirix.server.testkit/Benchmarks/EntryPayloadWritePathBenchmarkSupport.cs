@@ -11,20 +11,21 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <summary>Serializes the entry once using the binary journal entry codec.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length.</returns>
-    public static int BinarySerializeOnce(CacheEntry<string> entry)
+    public static int BinarySerializeOnce(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        return EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
+        return JournalEntryPayload.MeasureSerializedBytes(entry);
     }
 
     /// <summary>Simulates validation guard plus journal path with two independent binary encodings.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The combined serialized byte length from both passes.</returns>
-    public static int BinarySerializeTwice(CacheEntry<string> entry)
+    public static int BinarySerializeTwice(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        var guardBytes = EntryPayloadSizeGuard.MeasureSerializedBytes(entry);
-        var length = JournalEntryPayload.Encode(entry, out var buffer);
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var guardBytes = prepared.EncodedLength;
+        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
         try
         {
             return guardBytes + length;
@@ -38,7 +39,7 @@ public static class EntryPayloadWritePathBenchmarkSupport
     /// <summary>Simulates the write path: prepare once, guard on prepared length, then pooled encode.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length after validation.</returns>
-    public static int SerializeOnceThenLengthCheck(CacheEntry<string> entry)
+    public static int SerializeOnceThenLengthCheck(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var prepared = JournalEntryPayload.PrepareEncode(entry);

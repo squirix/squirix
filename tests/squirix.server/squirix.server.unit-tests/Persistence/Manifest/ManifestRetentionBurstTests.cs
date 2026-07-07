@@ -38,7 +38,7 @@ public sealed class ManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var currentPath = PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestCurrentPointer);
-        Assert.Equal(20, ManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        Assert.Equal(20, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
         Assert.True(File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20))));
     }
 

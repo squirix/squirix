@@ -13,13 +13,13 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
     private readonly ClusterConfig _cluster;
     private readonly IMemoryUsageAccounting _memoryAccounting;
     private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
-    private readonly MemoryPressureOptions _memoryPressureOptions;
+    private readonly PressureOptions _memoryPressureOptions;
 
     public EphemeralHealthReadyDetailsProvider(
         ClusterConfig cluster,
         IMemoryUsageAccounting memoryAccounting,
         IMemoryPressureStateEvaluator memoryEvaluator,
-        MemoryPressureOptions memoryPressureOptions)
+        PressureOptions memoryPressureOptions)
     {
         _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
         _memoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
@@ -34,13 +34,13 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
         var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
         var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
-        var estimatedBytes = _memoryAccounting.EstimatedBytes;
+        var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
         var state = _memoryEvaluator.Evaluate(estimatedBytes);
         var pressureStateName = state switch
         {
-            MemoryPressureState.Normal => "normal",
-            MemoryPressureState.High => "high",
-            MemoryPressureState.Critical => "critical",
+            PressureLevel.Normal => "normal",
+            PressureLevel.High => "high",
+            PressureLevel.Critical => "critical",
             _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
         };
 
@@ -48,8 +48,8 @@ internal sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsP
             pressureStateName,
             _memoryPressureOptions.MaxEstimatedCacheBytes,
             estimatedBytes,
-            _memoryAccounting.EntryCount,
-            _memoryAccounting.RejectedWriteCount,
+            _memoryAccounting.ReadEntryCount(),
+            _memoryAccounting.ReadRejectedWriteCount(),
             true);
 
         return Task.FromResult(

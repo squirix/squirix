@@ -21,7 +21,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
+        Assert.True(ConnectionSecurity.IsRequestAuthorized(http));
     }
 
     /// <summary>Verifies remote authenticated clients can scrape metrics.</summary>
@@ -37,7 +37,7 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.True(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
+        Assert.True(ConnectionSecurity.IsRequestAuthorized(http));
     }
 
     /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
@@ -52,6 +52,6 @@ public sealed class MetricsLoopbackOrAuthenticatedFilterTests
             },
         };
 
-        Assert.False(SquirixMetricsConnectionSecurity.IsRequestAuthorized(http));
+        Assert.False(ConnectionSecurity.IsRequestAuthorized(http));
     }
 }

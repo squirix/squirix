@@ -7,9 +7,6 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Cluster-scoped inter-node mTLS configuration. Does not affect external client authentication.</summary>
 internal sealed record MtlsOptions
 {
-    /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>
-    public string? CaPath { get; init; }
-
     /// <summary>Gets the path to the PEM-encoded node certificate.</summary>
     public string? CertPath { get; init; }
 
@@ -27,28 +24,47 @@ internal sealed record MtlsOptions
     /// <summary>Gets the path to the PEM-encoded node private key.</summary>
     public string? KeyPath { get; init; }
 
+    /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>
+    public string? CaPath { get; init; }
+
     /// <summary>Validates configuration shape and file presence without loading certificates.</summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>
     /// <param name="requiresInterNodeMtls">Whether cluster topology requires inter-node mTLS.</param>
     /// <exception cref="InvalidOperationException">Thrown when configuration is incomplete or inconsistent.</exception>
-    public void Validate(int? primaryListenPort, bool requiresInterNodeMtls)
+    internal void Validate(int? primaryListenPort, bool requiresInterNodeMtls)
     {
         if (!requiresInterNodeMtls)
             return;
 
         var failures = new List<string>();
-        var hasPfx = !string.IsNullOrWhiteSpace(CertPfxPath);
-        var hasPemCert = !string.IsNullOrWhiteSpace(CertPath);
-        var hasPemKey = !string.IsNullOrWhiteSpace(KeyPath);
+        CollectCaFailures(failures);
+        CollectCredentialFailures(failures);
+        CollectPortFailures(primaryListenPort, failures);
 
+        if (failures.Count > 0)
+            throw new InvalidOperationException(string.Join(' ', failures));
+    }
+
+    private void CollectCaFailures(List<string> failures)
+    {
+        // Validation is shape-only: confirm required files exist without loading certificates into memory.
         if (string.IsNullOrWhiteSpace(CaPath))
             failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CA_PATH when cluster peers are configured.");
         else if (!File.Exists(CaPath))
             failures.Add($"Cluster mTLS CA file was not found: '{CaPath}'.");
+    }
 
+    private void CollectCredentialFailures(List<string> failures)
+    {
+        var hasPfx = !string.IsNullOrWhiteSpace(CertPfxPath);
+        var hasPemCert = !string.IsNullOrWhiteSpace(CertPath);
+        var hasPemKey = !string.IsNullOrWhiteSpace(KeyPath);
+
+        // PFX bundles cert+key; PEM mode requires separate cert and key files.
         if (hasPfx && (hasPemCert || hasPemKey))
             failures.Add("Cluster mTLS must use either SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH or PEM cert/key paths, not both.");
 
+        // Operators must pick exactly one credential packaging mode when inter-node mTLS is required.
         if (!hasPfx && !hasPemCert && !hasPemKey)
         {
             failures.Add(
@@ -59,27 +75,27 @@ internal sealed record MtlsOptions
         {
             if (!File.Exists(CertPfxPath!))
                 failures.Add($"Cluster mTLS PFX file was not found: '{CertPfxPath}'.");
-        }
-        else
-        {
-            if (!hasPemCert)
-                failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PATH when PEM mode is used.");
-            else if (!File.Exists(CertPath!))
-                failures.Add($"Cluster mTLS certificate file was not found: '{CertPath}'.");
-
-            if (!hasPemKey)
-                failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_KEY_PATH when PEM mode is used.");
-            else if (!File.Exists(KeyPath!))
-                failures.Add($"Cluster mTLS private key file was not found: '{KeyPath}'.");
+            return;
         }
 
+        if (!hasPemCert)
+            failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PATH when PEM mode is used.");
+        else if (!File.Exists(CertPath!))
+            failures.Add($"Cluster mTLS certificate file was not found: '{CertPath}'.");
+
+        if (!hasPemKey)
+            failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_KEY_PATH when PEM mode is used.");
+        else if (!File.Exists(KeyPath!))
+            failures.Add($"Cluster mTLS private key file was not found: '{KeyPath}'.");
+    }
+
+    private void CollectPortFailures(int? primaryListenPort, List<string> failures)
+    {
         if (InternalListenPort <= 0)
             failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT when cluster peers are configured.");
 
+        // Internal cluster listener must not collide with the external client HTTPS port.
         if (primaryListenPort is > 0 && InternalListenPort == primaryListenPort)
             failures.Add("Cluster mTLS internal listen port must differ from the primary HTTPS listener port.");
-
-        if (failures.Count > 0)
-            throw new InvalidOperationException(string.Join(' ', failures));
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,7 +29,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
-    public async IAsyncEnumerable<(CacheKey Key, CacheEntry<T> Entry)> EnumerateLiveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    public async IAsyncEnumerable<(CacheKey Key, NodeCacheEntry<T> Entry)> EnumerateLiveAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
         const int yieldEvery = 256;
         var produced = 0;
@@ -46,19 +47,19 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(TryGetLive(key, out var stored) ? ToEntry(stored) : null);
     }
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new CacheValueResult<T>(true, stored.Value) : new CacheValueResult<T>(false, default));
+        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
-    public ValueTask InsertForDurableRecoveryAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
@@ -95,7 +96,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) =>
         (await RemoveAsync(key, cancellationToken).ConfigureAwait(false)).Removed;
 
-    public ValueTask SetAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
@@ -128,7 +129,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (TryGetLive(key, out _))
@@ -172,7 +173,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    private static CacheEntry<T> ToEntry(StoredEntry stored) => new()
+    private static NodeCacheEntry<T> ToEntry(StoredEntry stored) => new()
     {
         Value = stored.Value,
         ExpiresUtc = stored.ExpiresUtc,
@@ -193,14 +194,14 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    private CacheEntry<T> NormalizeEntry(CacheEntry<T> entry)
+    private NodeCacheEntry<T> NormalizeEntry(NodeCacheEntry<T> entry)
     {
         var version = entry.Version > 0 ? entry.Version : 1;
         var expires = entry.ExpiresUtc;
         if (expires is null && entry.Expiration is { } expiration)
             expires = UtcNow.Add(expiration);
 
-        return new CacheEntry<T>
+        return new NodeCacheEntry<T>
         {
             Value = entry.Value,
             ExpiresUtc = expires,
@@ -226,4 +227,135 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     }
 
     private readonly record struct StoredEntry(T? Value, DateTime? ExpiresUtc, long Version);
+
+    /// <summary>Tracks per-key ordering and frequency metadata used for capacity-based eviction (LRU, LFU, FIFO).</summary>
+    private sealed class LocalEvictionIndex
+    {
+        private readonly Lock _lock = new();
+        private readonly Dictionary<CacheKey, (LinkedListNode<CacheKey> Node, long Freq)> _meta = [];
+        private readonly EvictionOptions _options;
+        private readonly LinkedList<CacheKey> _order = [];
+
+        public LocalEvictionIndex(EvictionOptions options)
+        {
+            _options = options;
+        }
+
+        /// <summary>Gets the bounded capacity limit when configured.</summary>
+        internal int? BoundedCapacity => _options.Capacity;
+
+        internal void TouchExisting(CacheKey key)
+        {
+            if (_options.Capacity is null)
+                return;
+
+            lock (_lock)
+            {
+                if (!_meta.TryGetValue(key, out var m))
+                    return;
+
+                switch (_options.Policy)
+                {
+                    case EvictionPolicyType.Fifo:
+                        break;
+
+                    case EvictionPolicyType.Lru:
+                        _order.Remove(m.Node);
+                        var newNode = _order.AddFirst(key);
+                        _meta[key] = (newNode, m.Freq + 1);
+                        break;
+
+                    case EvictionPolicyType.Lfu:
+                        _meta[key] = (m.Node, m.Freq + 1);
+                        break;
+
+                    default:
+                        _order.Remove(m.Node);
+                        var nn = _order.AddFirst(key);
+                        _meta[key] = (nn, m.Freq + 1);
+                        break;
+                }
+            }
+        }
+
+        internal void TrackNew(CacheKey key)
+        {
+            if (_options.Capacity is null)
+                return;
+
+            lock (_lock)
+            {
+                if (_meta.ContainsKey(key))
+                    return;
+
+                var node = _order.AddFirst(key);
+                _meta[key] = (node, 1);
+            }
+        }
+
+        internal bool TryPopEvictionVictim([NotNullWhen(true)] out CacheKey? victim)
+        {
+            victim = null;
+            if (_options.Capacity is null)
+                return false;
+
+            lock (_lock)
+            {
+                if (_meta.Count is 0)
+                    return false;
+
+                var candidate = _options.Policy switch
+                {
+                    EvictionPolicyType.Fifo => _order.Last?.Value,
+                    EvictionPolicyType.Lru => _order.Last?.Value,
+                    EvictionPolicyType.Lfu => GetLeastFrequentlyUsedKey(),
+                    _ => throw new InvalidOperationException($"Unsupported eviction policy: {_options.Policy}."),
+                };
+
+                if (candidate is null)
+                    return false;
+
+                victim = candidate;
+
+                if (!_meta.TryGetValue(victim, out var metadata))
+                    return true;
+                _order.Remove(metadata.Node);
+                _ = _meta.Remove(victim);
+            }
+
+            return true;
+        }
+
+        internal void Untrack(CacheKey key)
+        {
+            if (_options.Capacity is null)
+                return;
+
+            lock (_lock)
+            {
+                if (!_meta.TryGetValue(key, out var m))
+                    return;
+
+                _order.Remove(m.Node);
+                _ = _meta.Remove(key);
+            }
+        }
+
+        private CacheKey? GetLeastFrequentlyUsedKey()
+        {
+            CacheKey? chosen = null;
+            var minFrequency = long.MaxValue;
+
+            foreach (var pair in _meta)
+            {
+                if (pair.Value.Freq >= minFrequency)
+                    continue;
+
+                minFrequency = pair.Value.Freq;
+                chosen = pair.Key;
+            }
+
+            return chosen;
+        }
+    }
 }

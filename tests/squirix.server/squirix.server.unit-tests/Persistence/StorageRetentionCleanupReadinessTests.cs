@@ -8,7 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>
-/// Unit tests for <see cref="StorageRetentionCleanupReadiness" /> degradation thresholds.
+/// Unit tests for <see cref="RetentionCleanupReadiness" /> degradation thresholds.
 /// </summary>
 public sealed class StorageRetentionCleanupReadinessTests
 {
@@ -80,13 +80,13 @@ public sealed class StorageRetentionCleanupReadinessTests
         readiness.RecordWriteOutcome(true);
         readiness.RecordWriteOutcome(true);
 
-        var check = new StorageRetentionCleanupReadinessHealthCheck(readiness);
+        var check = new RetentionCleanupReadinessCheck(readiness);
         var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
     }
 
-    private static StorageRetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) =>
+    private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) =>
         new(
             new PersistenceOptions
             {

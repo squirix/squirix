@@ -9,7 +9,7 @@ internal sealed class TestNode : IAsyncDisposable
 {
     private readonly TestNodeHost _host;
 
-    public TestNode(TestNodeHost host)
+    internal TestNode(TestNodeHost host)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
     }

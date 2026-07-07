@@ -87,8 +87,8 @@ public abstract class SmokeTestBase : IDisposable
     /// </remarks>
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) =>
+    /// <returns>ServerPeer entries for host startup.</returns>
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) =>
         MtlsTestContext.CreatePeers(ref _mtls, topology);
 
     [SuppressMessage(
@@ -98,18 +98,18 @@ public abstract class SmokeTestBase : IDisposable
     internal ValueTask<TestNodeHost> StartNodeAsync(
         string uri,
         string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         TestNodeSecurityOptions? security = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         uri,
@@ -136,18 +136,18 @@ public abstract class SmokeTestBase : IDisposable
     internal ValueTask<TestNodeHost> StartNodeAsync(
         Uri uri,
         string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         TestNodeSecurityOptions? security = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         uri,
@@ -173,19 +173,19 @@ public abstract class SmokeTestBase : IDisposable
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         Uri uri,
-        Peer[] peers,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        ServerPeer[] peers,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         TestNodeSecurityOptions? security = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default)
     {
@@ -193,12 +193,11 @@ public abstract class SmokeTestBase : IDisposable
         var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
         var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
-        var clusterConfig = new ClusterConfig
+        var clusterConfig = new ClusterConfig(peers)
         {
             NodeId = selfNodeId,
             Uri = canonicalUri,
             VirtualNodes = 128,
-            Peers = peers,
         };
 
         var scope = BuildTestScope(TestPersistenceScope.ResolvePersistenceScopeSegment(testName), extraScope);
@@ -211,7 +210,7 @@ public abstract class SmokeTestBase : IDisposable
         }
 
         (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
-        var app = await SquirixNodeHost.StartAsync(
+        var app = await NodeHost.StartAsync(
             clusterConfig,
             b =>
             {
@@ -248,8 +247,8 @@ public abstract class SmokeTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
-            MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-            MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+            MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
     /// <summary>
@@ -280,7 +279,7 @@ public abstract class SmokeTestBase : IDisposable
     }
 
     /// <summary>
-    /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.
+    /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
     /// </summary>
     /// <param name="value">
     /// The value to store. If a JsonDocument or JsonElement is supplied, it is cloned to detach from the
@@ -297,11 +296,11 @@ public abstract class SmokeTestBase : IDisposable
     /// using an ordinal string comparer to prevent external mutation.
     /// </param>
     /// <returns>
-    /// A new <see cref="CacheEntry{T}" /> containing the provided <paramref name="value" />,
+    /// A new <see cref="NodeCacheEntry{T}" /> containing the provided <paramref name="value" />,
     /// <paramref name="expiresUtc" />, <paramref name="version" />, and <paramref name="tags" /> (if any).
     /// The <c>Expiration</c> property is set to <see langword="null" />.
     /// </returns>
-    private protected static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
+    private protected static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
         var v = value switch
         {
@@ -310,14 +309,7 @@ public abstract class SmokeTestBase : IDisposable
             _ => value,
         };
 
-        return new CacheEntry<object?>
-        {
-            Value = v,
-            ExpiresUtc = expiresUtc,
-            Expiration = null,
-            Version = version,
-            Tags = tags?.ToFrozenDictionary(StringComparer.Ordinal),
-        };
+        return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     private static string BuildTestScope(string? testName, string? extra)
@@ -327,7 +319,7 @@ public abstract class SmokeTestBase : IDisposable
         return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    private static string? FindSelfNodeId(Peer[] peers, Uri uri)
+    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
         for (var index = 0; index < peers.Length; index++)
@@ -390,7 +382,7 @@ public abstract class SmokeTestBase : IDisposable
     }
 
     /// <summary>
-    /// Starts a new <see cref="SquirixNodeHost" /> instance configured for testing,
+    /// Starts a new <see cref="NodeHost" /> instance configured for testing,
     /// using the provided peers, persistence, snapshot and service options.
     /// </summary>
     /// <param name="uri">The URL this node should bind to.</param>
@@ -420,19 +412,19 @@ public abstract class SmokeTestBase : IDisposable
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(
         string uri,
-        Peer[] peers,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        ServerPeer[] peers,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         TestNodeSecurityOptions? security = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         new Uri(uri, UriKind.Absolute),

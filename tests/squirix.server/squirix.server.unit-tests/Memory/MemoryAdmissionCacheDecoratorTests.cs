@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -33,7 +32,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var entry = CreateEntry("v");
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
-        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(1, accounting.ReadEntryCount());
 
         var results = await RunSynchronizedConcurrentlyAsync(
             ConcurrentRaceWidth,
@@ -48,8 +47,8 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         }
 
         Assert.Equal(1, removedCount);
-        Assert.Equal(0, accounting.EntryCount);
-        Assert.Equal(0, accounting.EstimatedBytes);
+        Assert.Equal(0, accounting.ReadEntryCount());
+        Assert.Equal(0, accounting.ReadEstimatedBytes());
         Assert.False(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
     }
 
@@ -62,7 +61,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         await using var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var keyValue = new CacheKey(CacheName, key);
-        var entry = new CacheEntry<string>
+        var entry = new NodeCacheEntry<string>
         {
             Value = "v",
             Version = 1,
@@ -71,11 +70,11 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
-        var bytesWithExpiration = accounting.EstimatedBytes;
+        var bytesWithExpiration = accounting.ReadEstimatedBytes();
 
         Assert.True(await cache.RemoveExpirationAsync(TestOperationIds.Default, CacheName, key, DefaultCancellationToken));
-        Assert.Equal(bytesWithExpiration - expirationGrowth, accounting.EstimatedBytes);
-        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(bytesWithExpiration - expirationGrowth, accounting.ReadEstimatedBytes());
+        Assert.Equal(1, accounting.ReadEntryCount());
     }
 
     /// <summary>Ensures concurrent local-owner SetAsync misses account memory for one physical entry only.</summary>
@@ -90,8 +89,8 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
 
         await RunSynchronizedConcurrentVoidAsync(ConcurrentRaceWidth, _ => cache.SetEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken).AsTask(), DefaultCancellationToken);
 
-        Assert.Equal(1, accounting.EntryCount);
-        Assert.Equal(expectedBytes, accounting.EstimatedBytes);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
         Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
     }
 
@@ -106,13 +105,13 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var replacement = CreateEntry("much-longer-value");
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
-        var bytesBeforeReplace = accounting.EstimatedBytes;
+        var bytesBeforeReplace = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
         await cache.SetEntryAsync(TestOperationIds.Default, CacheName, key, replacement, DefaultCancellationToken);
 
-        Assert.Equal(1, accounting.EntryCount);
-        Assert.Equal(bytesBeforeReplace + expectedDelta, accounting.EstimatedBytes);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(bytesBeforeReplace + expectedDelta, accounting.ReadEstimatedBytes());
     }
 
     /// <summary>Ensures TouchAsync accounts for added expiration metadata on a previously non-expiring entry.</summary>
@@ -128,11 +127,11 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
-        var bytesBeforeTouch = accounting.EstimatedBytes;
+        var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
         Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
-        Assert.Equal(bytesBeforeTouch + expirationGrowth, accounting.EstimatedBytes);
-        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(bytesBeforeTouch + expirationGrowth, accounting.ReadEstimatedBytes());
+        Assert.Equal(1, accounting.ReadEntryCount());
     }
 
     /// <summary>Ensures TouchAsync does not change accounting when expiration metadata was already present.</summary>
@@ -143,7 +142,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var timeProvider = new FakeTimeProvider();
         await using var physical = new PhysicalCache<string>(timeProvider);
         var (cache, _, accounting, _) = CreateLocalOwnerCache(Self, physical);
-        var entry = new CacheEntry<string>
+        var entry = new NodeCacheEntry<string>
         {
             Value = "v",
             Version = 1,
@@ -151,11 +150,11 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         };
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
-        var bytesBeforeTouch = accounting.EstimatedBytes;
+        var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
         Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
-        Assert.Equal(bytesBeforeTouch, accounting.EstimatedBytes);
-        Assert.Equal(1, accounting.EntryCount);
+        Assert.Equal(bytesBeforeTouch, accounting.ReadEstimatedBytes());
+        Assert.Equal(1, accounting.ReadEntryCount());
     }
 
     /// <summary>Ensures concurrent local-owner TryAddAsync misses account memory for one physical entry only.</summary>
@@ -181,8 +180,8 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         }
 
         Assert.Equal(1, addedCount);
-        Assert.Equal(1, accounting.EntryCount);
-        Assert.Equal(expectedBytes, accounting.EstimatedBytes);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(expectedBytes, accounting.ReadEstimatedBytes());
         Assert.True(await KeyExistsAsync(inner, CacheName, key, DefaultCancellationToken));
     }
 
@@ -196,15 +195,15 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var initial = CreateEntry("a");
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
-        var bytesBeforeUpdate = accounting.EstimatedBytes;
+        var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
         Assert.True(await cache.UpdateAsync(TestOperationIds.Default, CacheName, key, updatedValue, DefaultCancellationToken));
 
-        Assert.Equal(1, accounting.EntryCount);
-        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.EstimatedBytes);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
     }
 
     /// <summary>Ensures concurrent local-owner UpdateAsync applies to replace accounting once for one physical entry.</summary>
@@ -219,7 +218,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var replacement = CreateEntry(updatedValue);
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
-        var bytesBeforeUpdate = accounting.EstimatedBytes;
+        var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
         var results = await RunSynchronizedConcurrentlyAsync(
@@ -228,11 +227,11 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
             DefaultCancellationToken);
 
         Assert.All(results, Assert.True);
-        Assert.Equal(1, accounting.EntryCount);
-        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.EstimatedBytes);
+        Assert.Equal(1, accounting.ReadEntryCount());
+        Assert.Equal(bytesBeforeUpdate + expectedDelta, accounting.ReadEstimatedBytes());
     }
 
-    private static CacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
+    private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     private static async Task<bool> KeyExistsAsync(ClientCache<string> cache, string cacheName, string key, CancellationToken cancellationToken) =>
         (await cache.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false)).Found;
@@ -248,34 +247,32 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         return (cache, inner, accounting, estimator);
     }
 
-    private static MemoryPressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId)
+    private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId)
     {
-        var options = Options.Create(
-            new MemoryPressureOptions
+        var options = Microsoft.Extensions.Options.Options.Create(
+            new PressureOptions
             {
                 MaxEstimatedCacheBytes = 10_000_000_000,
                 HighPressureThresholdPercent = 80,
                 CriticalPressureThresholdPercent = 95,
             });
-        return new MemoryPressureGate(new MemoryPressureStateEvaluator(options), accounting, nodeId);
+        return new PressureGate(new StateEvaluator(options), accounting, nodeId);
     }
 
-    private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, CacheEntry<string> entry) =>
+    private static long EstimateEntryBytes(CacheEntrySizeEstimator<string> estimator, string cacheName, string key, NodeCacheEntry<string> entry) =>
         estimator.EstimateBytes(new CacheKey(cacheName, key), entry, false);
 
-    private static long EstimateExpirationMetadataDelta(CacheEntrySizeEstimator<string> estimator, CacheKey keyValue, CacheEntry<string> entryWithoutExpiration)
+    private static long EstimateExpirationMetadataDelta(CacheEntrySizeEstimator<string> estimator, CacheKey keyValue, NodeCacheEntry<string> entryWithoutExpiration)
     {
         var withoutExpiration = estimator.EstimateBytes(keyValue, entryWithoutExpiration, false);
         var withExpiration = estimator.EstimateBytes(
             keyValue,
-            new CacheEntry<string>
-            {
-                Value = entryWithoutExpiration.Value,
-                Version = entryWithoutExpiration.Version,
-                Expiration = entryWithoutExpiration.Expiration,
-                Tags = entryWithoutExpiration.Tags,
-                ExpiresUtc = DateTime.UnixEpoch,
-            },
+            new NodeCacheEntry<string>(
+                entryWithoutExpiration.Value,
+                entryWithoutExpiration.Version,
+                DateTime.UnixEpoch,
+                entryWithoutExpiration.Expiration,
+                entryWithoutExpiration.Tags),
             false);
         return withExpiration - withoutExpiration;
     }

@@ -13,7 +13,7 @@ internal static class CacheKeySanitizer
     /// </summary>
     /// <param name="key">The cache key to sanitize.</param>
     /// <returns>A PII-safe hint string.</returns>
-    public static string Sanitize(string? key)
+    internal static string Sanitize(string? key)
     {
         if (string.IsNullOrEmpty(key))
             return "(empty)";

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.E2ETests.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
@@ -19,13 +20,6 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
 
     private Uri Uri { get; }
 
-    public static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
-    {
-        var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpUri());
-        await node.StartNodeAsync(cancellationToken);
-        return node;
-    }
-
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
         _client ??= await LoopbackConnect.ConnectAsync(Uri, cancellationToken);
@@ -39,6 +33,13 @@ internal sealed class EphemeralRestartableSingleNode : IAsyncDisposable
     }
 
     public ValueTask DisposeAsync() => StopNodeAsync();
+
+    internal static async ValueTask<EphemeralRestartableSingleNode> StartAsync(CancellationToken cancellationToken)
+    {
+        var node = new EphemeralRestartableSingleNode(ListenPortPool.EndToEndTests.NextHttpUri());
+        await node.StartNodeAsync(cancellationToken);
+        return node;
+    }
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
     {

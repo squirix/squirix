@@ -13,9 +13,9 @@ internal sealed class MemoryPressureMetricRegistration
         Evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
     }
 
-    public IMemoryUsageAccounting Accounting { get; }
+    internal IMemoryUsageAccounting Accounting { get; }
 
-    public IMemoryPressureStateEvaluator Evaluator { get; }
+    internal IMemoryPressureStateEvaluator Evaluator { get; }
 
-    public string NodeId { get; }
+    internal string NodeId { get; }
 }

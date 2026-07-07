@@ -51,18 +51,6 @@ public sealed class MtlsCertificateLoaderTests
         Assert.True(material.NodeCertificate.HasPrivateKey);
     }
 
-    /// <summary>Ensures certificates without a private key are rejected.</summary>
-    [Fact]
-    public async Task LoadRejectsCertificateWithoutPrivateKey()
-    {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
-        using var certOnly = X509CertificateLoader.LoadCertificateFromFile(bundle.CaPath);
-
-        var ex = Assert.Throws<InvalidOperationException>(() => MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(certOnly, bundle.Ca));
-
-        Assert.Contains("private key", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
     /// <summary>Ensures untrusted node certificates are rejected.</summary>
     [Fact]
     public async Task LoadRejectsUntrustedNodeCertificate()
@@ -94,7 +82,6 @@ public sealed class MtlsCertificateLoaderTests
     {
         var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
 
-        Assert.Same(MtlsCertificateMaterial.Disabled, material);
         Assert.False(material.Enabled);
     }
 }

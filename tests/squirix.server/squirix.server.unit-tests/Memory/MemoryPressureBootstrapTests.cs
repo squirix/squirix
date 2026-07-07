@@ -7,7 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>
-/// Tests for <see cref="MemoryPressureBootstrap" /> environment variable overrides.
+/// Tests for <see cref="PressureBootstrap" /> environment variable overrides.
 /// </summary>
 public sealed class MemoryPressureBootstrapTests : UnitTestBase
 {
@@ -19,7 +19,7 @@ public sealed class MemoryPressureBootstrapTests : UnitTestBase
         using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_HIGH_THRESHOLD_PERCENT", "70"))
         using (new TempEnvironmentVariable("SQUIRIX_MEMORY_PRESSURE_CRITICAL_THRESHOLD_PERCENT", "90"))
         {
-            var loaded = await MemoryPressureBootstrap.LoadAsync(DefaultCancellationToken);
+            var loaded = await PressureBootstrap.LoadAsync(DefaultCancellationToken);
             Assert.Equal(12345L, loaded.MaxEstimatedCacheBytes);
             Assert.Equal(70, loaded.HighPressureThresholdPercent);
             Assert.Equal(90, loaded.CriticalPressureThresholdPercent);

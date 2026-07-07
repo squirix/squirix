@@ -4,9 +4,9 @@ namespace Squirix.Server.Core;
 internal static class PersistedCacheNamespace
 {
     /// <summary>
-    /// Returns <see cref="CacheNames.DefaultNamespace" /> when the persisted value is null or empty; otherwise returns the persisted string unchanged.
+    /// Returns <see cref="ServerCacheNames.DefaultNamespace" /> when the persisted value is null or empty; otherwise returns the persisted string unchanged.
     /// </summary>
     /// <param name="cacheNamespace">Namespace from persisted storage.</param>
     /// <returns>Canonical namespace string for cache keys.</returns>
-    public static string Normalize(string? cacheNamespace) => string.IsNullOrEmpty(cacheNamespace) ? CacheNames.DefaultNamespace : cacheNamespace;
+    internal static string Normalize(string? cacheNamespace) => string.IsNullOrEmpty(cacheNamespace) ? ServerCacheNames.DefaultNamespace : cacheNamespace;
 }

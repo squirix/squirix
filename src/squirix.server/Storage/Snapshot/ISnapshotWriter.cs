@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Node.Services;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -17,7 +16,7 @@ internal interface ISnapshotWriter
     /// <returns>Path to the completed snapshot file.</returns>
     Task<string> WriteAsync(
         int index,
-        IReadOnlyList<(CacheKey Key, CacheEntry<object?> Entry)> items,
+        IReadOnlyList<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken);
 }

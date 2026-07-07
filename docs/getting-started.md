@@ -95,6 +95,7 @@ Use the HTTPS gRPC endpoint from the host output.
 ```csharp
 using System.Threading;
 using Squirix;
+using Squirix.Client;
 
 var cancellationToken = CancellationToken.None;
 

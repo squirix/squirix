@@ -62,10 +62,6 @@ public sealed class JournalWriteBatchBufferTests
     [Fact]
     public void NonPositiveCapacityThrows() => Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalWriteBatchBuffer(0));
 
-    private static JournalWorkItem MakeItem(byte[] frame) => new()
-    {
-        Kind = JournalWorkKind.Append,
-        FrameBytes = frame,
-        FrameLength = frame.Length,
-    };
+    private static JournalWorkItem MakeItem(byte[] frame) =>
+        new(JournalWorkKind.Append, frameBytes: frame, frameLength: frame.Length);
 }

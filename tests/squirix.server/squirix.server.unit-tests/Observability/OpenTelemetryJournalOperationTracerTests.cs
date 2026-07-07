@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -17,13 +17,13 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     {
         using var listener = CreateSquirixSamplingListener();
 
-        var tracer = new OpenTelemetryJournalOperationTracer();
+        IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
         {
             PayloadBytes = 128,
         };
 
-        using var scope = tracer.Begin(JournalOperationKind.Put, in context);
+        using var scope = journalTracer.Begin(JournalOperationKind.Put, in context);
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
@@ -37,13 +37,13 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     {
         using var listener = CreateSquirixSamplingListener();
 
-        var tracer = new OpenTelemetryJournalOperationTracer();
+        IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
         {
             GroupCommitEnabled = false,
         };
 
-        using var scope = tracer.Begin(JournalOperationKind.Put, in context);
+        using var scope = journalTracer.Begin(JournalOperationKind.Put, in context);
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
@@ -57,8 +57,8 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     {
         using var listener = CreateSquirixSamplingListener();
 
-        var tracer = new OpenTelemetryJournalOperationTracer();
-        using var scope = tracer.Begin(JournalOperationKind.Put, default);
+        IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
+        using var scope = journalTracer.Begin(JournalOperationKind.Put, null);
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");

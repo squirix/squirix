@@ -21,9 +21,16 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
         _manifestStore = manifestStore;
     }
 
-    public IJournalCoordinator Coordinator { get; }
+    internal IJournalCoordinator Coordinator { get; }
 
-    public static async Task<JournalBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options, CancellationToken cancellationToken = default)
+    public async ValueTask DisposeAsync()
+    {
+        await Coordinator.DisposeAsync().ConfigureAwait(false);
+        _manifestStore.Dispose();
+        _dataDir.Dispose();
+    }
+
+    internal static async Task<JournalBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(tempDirectoryPrefix);
         ArgumentNullException.ThrowIfNull(options);
@@ -35,12 +42,5 @@ internal sealed class JournalBenchmarkHost : IAsyncDisposable
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
         return new JournalBenchmarkHost(dataDir, coordinator, manifestStore);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await Coordinator.DisposeAsync().ConfigureAwait(false);
-        _manifestStore.Dispose();
-        _dataDir.Dispose();
     }
 }

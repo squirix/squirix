@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Squirix.Client;
 using Squirix.TestKit.IO;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -17,7 +18,6 @@ public sealed class ArchitectureTests
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
 
     private static readonly Lazy<string> RepositoryRoot = new(ResolveRepositoryRoot);
-
     private static readonly Lazy<XDocument> ClientProject = new(LoadClientProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ClientProjectIndex = new(static () => MsbuildProjectIndex.Parse(ClientProject.Value));
@@ -52,10 +52,10 @@ public sealed class ArchitectureTests
     [Fact]
     public void ClientProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
-        var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\transport\grpc\Protos\SquirixCache.proto");
+        var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
         Assert.Equal("Client", protobuf.Attribute("GrpcServices")?.Value);
-        Assert.Equal(@"..\shared\transport\grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
+        Assert.Equal(@"..\shared\Squirix\Transport\Grpc\Protos", protobuf.Attribute("ProtoRoot")?.Value);
         Assert.Equal("Internal", protobuf.Attribute("Access")?.Value);
         _ = typeof(SquirixCacheService.SquirixCacheServiceClient);
     }
@@ -68,12 +68,9 @@ public sealed class ArchitectureTests
 
         Assert.DoesNotContain(
             index.GetIncludes("PackageReference"),
-            static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal)
-                || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
+            static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
 
-        Assert.DoesNotContain(
-            index.GetIncludes("FrameworkReference"),
-            static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+        Assert.DoesNotContain(index.GetIncludes("FrameworkReference"), static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures the core project does not depend on the server project.</summary>
@@ -84,8 +81,8 @@ public sealed class ArchitectureTests
 
         Assert.DoesNotContain(
             references,
-            static reference => reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase)
-                || reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
+            static reference => reference.Contains("squirix.server", StringComparison.OrdinalIgnoreCase) ||
+                                reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -103,6 +100,13 @@ public sealed class ArchitectureTests
         }
     }
 
+    private static XDocument LoadClientProject()
+    {
+        var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(path));
+        return XDocument.Load(path);
+    }
+
     private static string ResolveRepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -117,32 +121,15 @@ public sealed class ArchitectureTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
-    private static XDocument LoadClientProject()
-    {
-        var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
-        return XDocument.Load(path);
-    }
-
     private sealed class MsbuildProjectIndex
     {
-        private readonly FrozenDictionary<string, List<string>> _includes;
         private readonly FrozenDictionary<string, List<XElement>> _includedElements;
+        private readonly FrozenDictionary<string, List<string>> _includes;
 
         private MsbuildProjectIndex(FrozenDictionary<string, List<string>> includes, FrozenDictionary<string, List<XElement>> includedElements)
         {
             _includes = includes;
             _includedElements = includedElements;
-        }
-
-        public static MsbuildProjectIndex Parse(XDocument project)
-        {
-            var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
-
-            CollectIncludes(project.Root, includes, includedElements);
-
-            return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
         }
 
         public List<string> GetIncludes(string itemName) => _includes.TryGetValue(itemName, out var list) ? list : [];
@@ -163,6 +150,16 @@ public sealed class ArchitectureTests
 
             Assert.True(match is not null, $"Expected MSBuild element '{localName}' with Include='{include}'.");
             return match;
+        }
+
+        internal static MsbuildProjectIndex Parse(XDocument project)
+        {
+            var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+
+            CollectIncludes(project.Root, includes, includedElements);
+
+            return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
         }
 
         private static void AddInclude(
@@ -189,10 +186,7 @@ public sealed class ArchitectureTests
             elementList.Add(element);
         }
 
-        private static void CollectIncludes(
-            XElement? root,
-            Dictionary<string, List<string>> includes,
-            Dictionary<string, List<XElement>> includedElements)
+        private static void CollectIncludes(XElement? root, Dictionary<string, List<string>> includes, Dictionary<string, List<XElement>> includedElements)
         {
             if (root is null)
                 return;

@@ -22,7 +22,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Protobuf Include="..\shared\transport\grpc\Protos\SquirixCache.proto" GrpcServices="Client" ProtoRoot="..\shared\transport\grpc\Protos" Access="Internal"/>
+        <Protobuf Include="..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto" GrpcServices="Client" ProtoRoot="..\shared\Squirix\Transport\Grpc\Protos" Access="Internal"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -33,7 +33,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Compile Include="..\shared\transport\grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\RpcOperationIdentity.cs"/>
+        <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Internal\Serialization\" />
     </ItemGroup>
 </Project>

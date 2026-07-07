@@ -13,9 +13,9 @@ internal static class ArchitectureRuleHelpers
     /// </summary>
     /// <param name="matchingTypes">The ArchUnitNET type predicate (for example name suffix <c>Options</c>).</param>
     /// <param name="exactNamespaces">Exact namespace names; a type passes if its namespace equals any entry.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="matchingTypes"/> or <paramref name="exactNamespaces"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="exactNamespaces"/> is empty.</exception>
-    public static void AssertResideInOneOfNamespaces(GivenTypesConjunction matchingTypes, IReadOnlyList<string> exactNamespaces)
+    /// <exception cref="ArgumentNullException"><paramref name="matchingTypes" /> or <paramref name="exactNamespaces" /> is <see langword="null" />.</exception>
+    /// <exception cref="ArgumentException"><paramref name="exactNamespaces" /> is empty.</exception>
+    internal static void AssertResideInOneOfNamespaces(GivenTypesConjunction matchingTypes, IReadOnlyList<string> exactNamespaces)
     {
         ArgumentNullException.ThrowIfNull(matchingTypes);
         ArgumentNullException.ThrowIfNull(exactNamespaces);

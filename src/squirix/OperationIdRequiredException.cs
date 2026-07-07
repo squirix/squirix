@@ -12,7 +12,7 @@ public sealed class OperationIdRequiredException : Exception
     /// <summary>
     /// Stable detail shared with the server gRPC contract.
     /// </summary>
-    public const string StableDetail = "operation_id is required for mutating cache RPCs.";
+    internal const string StableDetail = "operation_id is required for mutating cache RPCs.";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OperationIdRequiredException" /> class.

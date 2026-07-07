@@ -23,16 +23,16 @@ public sealed class ManifestStoreTests : UnitTestBase, IAsyncLifetime
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
         var currentPath = PathKit.Combine(Dir.Path, "man-current");
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken);
         Assert.Equal(12, pointerBytes.Length);
-        Assert.Equal(1, ManifestPointer.Read(pointerBytes));
+        Assert.Equal(1, Pointer.Read(pointerBytes));
 
         var manifestPath = PathKit.Combine(Dir.Path, "man-000001.bmqx");
         Assert.True(File.Exists(manifestPath));
-        var manifest = ManifestCodec.Decode(await File.ReadAllBytesAsync(manifestPath, DefaultCancellationToken));
+        var manifest = FileCodec.Decode(await File.ReadAllBytesAsync(manifestPath, DefaultCancellationToken));
         Assert.Equal(1, manifest.CurrentJournal);
         Assert.Equal(1UL, manifest.NextSequence);
     }
@@ -48,7 +48,7 @@ public sealed class ManifestStoreTests : UnitTestBase, IAsyncLifetime
         store.PublishRollBlocking(2, 2);
 
         var currentPath = PathKit.Combine(Dir.Path, "man-current");
-        Assert.Equal(2, ManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        Assert.Equal(2, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
     }
 
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
@@ -58,7 +58,7 @@ public sealed class ManifestStoreTests : UnitTestBase, IAsyncLifetime
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new ManifestState { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
 
         Assert.False(File.Exists(PathKit.Combine(Dir.Path, "man-current.tmp")));
         Assert.Equal(12, (await File.ReadAllBytesAsync(PathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);

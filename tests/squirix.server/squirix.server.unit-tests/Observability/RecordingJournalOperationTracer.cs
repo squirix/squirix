@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Squirix.Server.Storage.Journaling.Observability;
+using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.UnitTests.Observability;
 
@@ -8,10 +8,12 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 internal sealed class RecordingJournalOperationTracer : IJournalOperationTracer
 {
-    public List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
+    internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
 
-    public IJournalOperationTraceScope Begin(JournalOperationKind kind, in JournalOperationTraceContext context)
+    public IJournalOperationTraceScope? Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
     {
+        if (context is null)
+            return null;
         BeginCalls.Add((kind, context));
         return new RecordingScope();
     }

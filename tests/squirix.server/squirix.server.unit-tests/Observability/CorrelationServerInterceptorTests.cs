@@ -112,11 +112,10 @@ public sealed class CorrelationServerInterceptorTests
 
     private static Correlation.ServerInterceptor CreateInterceptor()
     {
-        var cluster = new ClusterConfig
+        var cluster = new ClusterConfig([])
         {
             ClusterId = "c",
             NodeId = "n1",
-            Peers = [],
             Uri = new Uri("https://localhost"),
         };
 

@@ -104,7 +104,7 @@ public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
             journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
-                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.ManifestState.SnapshotRef>(new IOException("simulated snapshot failure")),
+                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.State.SnapshotRef>(new IOException("simulated snapshot failure")),
                 DefaultCancellationToken).AsTask());
 
         await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);

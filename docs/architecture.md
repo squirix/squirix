@@ -31,10 +31,11 @@ Squirix.Server does not reference the Squirix client assembly.
 Wire compatibility is through gRPC/REST contracts and shared proto source, not a project reference from server to
 client.
 
-The v0.1 gRPC wire contract is the shared source file at `src/shared/transport/grpc/Protos/SquirixCache.proto`, not a
-separate NuGet package. `Squirix` generates internal client transport types from that file with `GrpcServices="Client"`.
+The v0.1 gRPC wire contract is the shared source file at
+`src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto`, not a separate NuGet package. `Squirix` generates
+internal client transport types from that file with `GrpcServices="Client"`.
 `Squirix.Server` generates internal server and cluster client transport types from the same file with
-`GrpcServices="Server;Client"`. Share-sourced transport under `src/shared/transport/grpc/Mappers/` is limited to
+`GrpcServices="Server;Client"`. Share-sourced transport under `src/shared/Squirix/Transport/Grpc/Mappers/` is limited to
 cluster routing signals such as stale-owner markers (`GrpcStaleOwnerMarkers.cs`). Extended-operation wire mappers are
 outside this repository. Generated transport CLR types use internal transport namespaces, remain assembly-local
 implementation details, and must not become exported product API.
@@ -44,10 +45,11 @@ KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycl
 health/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
-`Squirix` owns the exported v0.1 client surface (`SquirixClient`, `ISquirixClient`, `SquirixOptions`, `ICache<T>`,
-entry/result types, `ISquirixSerializer`), typed facade, serializer boundary, and server-backed client connection
-configuration with bootstrap failover. Applications connect to `Squirix.Server` over gRPC/REST; the client package does
-not host cache state or run the durability stack in the application process.
+`Squirix` owns cache value/result types (`ICache<T>`, entry/result types, `ISquirixSerializer`). The exported v0.1 client
+entry surface lives in `Squirix.Client` (`SquirixClient`, `ISquirixClient`, `SquirixClientOptions`), typed facade,
+serializer boundary, and server-backed client connection configuration with bootstrap failover. Applications connect to
+`Squirix.Server` over gRPC/REST; the client package does not host cache state or run the durability stack in the
+application process.
 
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,
 `UpdateAsync`, `GetValueAsync`, `GetEntryAsync`, `GetExpirationAsync`, `GetOrAddAsync`, `RemoveAsync`, `TouchAsync`,
@@ -82,7 +84,7 @@ Within `Squirix.Server`, **Cluster** and **Node** are separate namespace roots:
 | `Squirix.Server.Node` | Single-process orchestration: ASP.NET Core hosting, cache pipeline decorators, background services, observability, backpressure, and memory pressure. `Node` does not own a `Cluster/` subtree. |
 
 `Squirix.Server.Cluster` is the home for all cluster-domain types; `Squirix.Server.Node` wires them into the host via DI
-(`ClusterRuntimeServiceRegistration`, cache pipeline registration) but does not define cluster semantics.
+(`RuntimeServiceRegistration`, cache pipeline registration) but does not define cluster semantics.
 
 `Squirix` must not reference `Squirix.Server`. Product code must not use `InternalsVisibleTo("Squirix.Server")` or
 access-check bypasses to join the packages.

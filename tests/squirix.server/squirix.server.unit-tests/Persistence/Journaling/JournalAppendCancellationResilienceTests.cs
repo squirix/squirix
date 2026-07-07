@@ -104,7 +104,7 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
             }
 
             Assert.Equal(2, pipelined.CurrentSegmentIndex);
-            Assert.False(pipelined.IsDurabilityFlushPending);
+            Assert.False(pipelined.EventLoop.IsDurabilityFlushPending);
         }
         finally
         {
