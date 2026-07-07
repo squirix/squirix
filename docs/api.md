@@ -75,6 +75,17 @@ call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conform
 are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
 
+### Entry limits (v0.1)
+
+| Limit | Value |
+| :---- | :---- |
+| Encoded entry payload | 4 MiB |
+| Tags per entry | 32 |
+| Tag key UTF-8 size | 256 bytes |
+| Tag value UTF-8 size | 1024 bytes |
+
+Violations return gRPC `InvalidArgument` with stable `INVALID_ENTRY_TAGS` or `PAYLOAD_TOO_LARGE` details.
+
 In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
 instead of minting a new id. Idempotency records are per-node in memory; when a retry lands on a different entry node
 (bootstrap endpoint switch or transport failover), the owner node replays the cached outcome for the same

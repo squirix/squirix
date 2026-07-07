@@ -38,4 +38,7 @@ public enum SquirixErrorCode
 
     /// <summary>An operation identifier was reused with a different mutation fingerprint.</summary>
     OperationIdReuseMismatch = 11,
+
+    /// <summary>Cache entry tags exceed configured count or UTF-8 size limits.</summary>
+    InvalidEntryTags = 12,
 }

@@ -28,6 +28,21 @@ internal static class CacheOperationContract
         "PayloadTooLarge",
         $"Payload size limit is {maxBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
 
+    public static SquirixException EntryTagCountExceeded(int maxCount) => new(
+        SquirixErrorCode.InvalidEntryTags,
+        "InvalidEntryTags",
+        $"Entry tag count exceeds the maximum of {maxCount.ToString(CultureInfo.InvariantCulture)}.");
+
+    public static SquirixException EntryTagKeyTooLarge(int maxUtf8Bytes) => new(
+        SquirixErrorCode.InvalidEntryTags,
+        "InvalidEntryTags",
+        $"Entry tag key exceeds the maximum UTF-8 size of {maxUtf8Bytes.ToString(CultureInfo.InvariantCulture)} bytes.");
+
+    public static SquirixException EntryTagValueTooLarge(int maxUtf8Bytes) => new(
+        SquirixErrorCode.InvalidEntryTags,
+        "InvalidEntryTags",
+        $"Entry tag value exceeds the maximum UTF-8 size of {maxUtf8Bytes.ToString(CultureInfo.InvariantCulture)} bytes.");
+
     public static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 
     /// <summary>
