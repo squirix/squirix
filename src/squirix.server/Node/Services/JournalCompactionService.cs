@@ -74,17 +74,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         return RunLoopAsync(stoppingToken);
     }
 
-    private static string StateName(RunState state) => state switch
-    {
-        RunState.Idle => nameof(RunState.Idle),
-        RunState.Waiting => nameof(RunState.Waiting),
-        RunState.Running => nameof(RunState.Running),
-        RunState.BackingOff => nameof(RunState.BackingOff),
-        RunState.Failed => nameof(RunState.Failed),
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported enum value."),
-    };
-
-    private void ChangeState(RunState next)
+    private void ChangeState(CompactionState next)
     {
         var prev = State;
         if (prev == next)
@@ -130,7 +120,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
+    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
 
     private AttemptResult RecordCompactionFailure()
     {
@@ -166,7 +156,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
+            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
         }
 
         LastRunUtc = DateTime.UtcNow;
