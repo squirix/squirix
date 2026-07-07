@@ -42,6 +42,8 @@ internal static class SquirixNodeOptionsRegistration
         var unresolvedMemoryPressure = await MemoryPressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         var memoryPressure = memoryPressureOptionsOverride ?? MemoryPressureOptionsResolver.Resolve(unresolvedMemoryPressure, GcMemoryBudgetProvider.Instance);
         AddValidatedInstance<MemoryPressureOptions, SquirixOptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
+        var idempotency = await IdempotencyBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        AddValidatedInstance<IdempotencyOptions, SquirixOptionsValidators.IdempotencyOptionsValidator>(services, idempotency);
 
         if (persistence is not null)
         {

@@ -41,6 +41,13 @@ if (!options.IsValid)
     return 1;
 
 var repoRoot = ResolveRepoRoot();
+var dotnetPath = ResolveDotnetPath();
+if (dotnetPath is null)
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
 var repoRootResolved = Path.GetFullPath(repoRoot);
 var artifactsPath = Path.GetFullPath(Path.Combine(repoRootResolved, options.ArtifactsDirectory));
 var packageOutputPath = Path.Combine(artifactsPath, "packages");
@@ -130,6 +137,7 @@ try
         {
             await StepAsync("Run selected resiliency stress checks").ConfigureAwait(false);
             var code = await RunDotnetAsync(
+                dotnetPath,
                 repoRootResolved,
                 [
                     "run",
@@ -181,6 +189,7 @@ try
 
     await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
     var smokeRunCode = await RunDotnetAsync(
+        dotnetPath,
         Path.Combine(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
     if (smokeRunCode is not 0)
@@ -318,12 +327,48 @@ static Task StepAsync(string name)
 
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    var code = await RunDotnetAsync(workingDirectory, args).ConfigureAwait(false);
+    var code = await RunDotnetAsync(dotnetPath, workingDirectory, args).ConfigureAwait(false);
     if (code is not 0)
         throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
+static string? ResolveDotnetPath()
+{
+    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    {
+        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        if (File.Exists(dotnetRootCandidate))
+            return Path.GetFullPath(dotnetRootCandidate);
+    }
+
+    var processPath = Environment.ProcessPath;
+    if (!string.IsNullOrWhiteSpace(processPath))
+    {
+        var processFileName = Path.GetFileName(processPath);
+        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(processPath);
+        }
+    }
+
+    var pathValue = Environment.GetEnvironmentVariable("PATH");
+    if (string.IsNullOrWhiteSpace(pathValue))
+        return null;
+
+    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var pathCandidate = Path.Combine(segment, executableName);
+        if (File.Exists(pathCandidate))
+            return Path.GetFullPath(pathCandidate);
+    }
+
+    return null;
+}
+
+static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
 {
     var quotedArgs = new string[args.Count];
     for (var i = 0; i < args.Count; i++)
@@ -331,7 +376,7 @@ static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<str
 
     var processStartInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
         Arguments = string.Join(' ', quotedArgs),

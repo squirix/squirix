@@ -1,20 +1,46 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
 using Google.Protobuf;
 using Squirix.Server.Errors;
+using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Unified in-memory and durable idempotency store for mutating cache RPC outcomes.</summary>
 internal sealed class RpcMutationIdempotencyStore
 {
+    private readonly IdempotencyOptions _options;
     private readonly ConcurrentDictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
-    private readonly TimeSpan _retention;
+    private readonly Lock _capacityGate = new();
+    private readonly string _nodeId;
 
-    public RpcMutationIdempotencyStore(TimeSpan? retention = null)
+    public RpcMutationIdempotencyStore()
+        : this(new IdempotencyOptions(), "local")
     {
-        _retention = retention ?? TimeSpan.FromMinutes(15);
+    }
+
+    public RpcMutationIdempotencyStore(TimeSpan retention)
+        : this(new IdempotencyOptions { Retention = retention }, "local")
+    {
+    }
+
+    public RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+        _options = options;
+        _nodeId = string.IsNullOrWhiteSpace(nodeId) ? "local" : nodeId;
+    }
+
+    public int RecordCount
+    {
+        get
+        {
+            lock (_capacityGate)
+                return _records.Count;
+        }
     }
 
     public bool TryReplay<TResponse>(string operationId, string fingerprint, MessageParser<TResponse> parser, out TResponse? response)
@@ -24,18 +50,24 @@ internal sealed class RpcMutationIdempotencyStore
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(parser);
 
-        SweepExpired(DateTime.UtcNow);
-
-        if (!_records.TryGetValue(operationId, out var stored))
+        byte[] responseBytes;
+        lock (_capacityGate)
         {
-            response = default;
-            return false;
+            SweepExpiredLocked(DateTime.UtcNow);
+
+            if (!_records.TryGetValue(operationId, out var stored))
+            {
+                response = default;
+                return false;
+            }
+
+            if (!string.Equals(stored.Fingerprint, fingerprint, StringComparison.Ordinal))
+                throw new OperationIdReuseMismatchException();
+
+            responseBytes = stored.ResponseBytes;
         }
 
-        if (!string.Equals(stored.Fingerprint, fingerprint, StringComparison.Ordinal))
-            throw new OperationIdReuseMismatchException();
-
-        response = parser.ParseFrom(stored.ResponseBytes);
+        response = parser.ParseFrom(responseBytes);
         return true;
     }
 
@@ -45,13 +77,20 @@ internal sealed class RpcMutationIdempotencyStore
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(responseBytes);
 
-        _records[operationId] = new PersistedIdempotencyRecord
+        var utcNow = DateTime.UtcNow;
+        lock (_capacityGate)
         {
-            OperationId = operationId,
-            Fingerprint = fingerprint,
-            ResponseBytes = responseBytes,
-            CreatedUtc = DateTime.UtcNow,
-        };
+            SweepExpiredLocked(utcNow);
+            if (_records.TryGetValue(operationId, out var existing))
+            {
+                _ = existing.OperationId;
+                _records[operationId] = CreateRecord(operationId, fingerprint, responseBytes, utcNow);
+                return;
+            }
+
+            EnsureCapacityForNewRecordLocked(utcNow);
+            _records[operationId] = CreateRecord(operationId, fingerprint, responseBytes, utcNow);
+        }
     }
 
     public void RestoreRecord(string operationId, string fingerprint, ReadOnlyMemory<byte> responseBytes, DateTime createdUtc)
@@ -59,33 +98,38 @@ internal sealed class RpcMutationIdempotencyStore
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
-        // ZA0302: exact-size owned buffer escape; the store must outlive the borrowed frame buffer.
-#pragma warning disable ZA0302
-        var copy = new byte[responseBytes.Length];
-#pragma warning restore ZA0302
-        responseBytes.Span.CopyTo(copy);
-        _records[operationId] = new PersistedIdempotencyRecord
+        lock (_capacityGate)
         {
-            OperationId = operationId,
-            Fingerprint = fingerprint,
-            ResponseBytes = copy,
-            CreatedUtc = createdUtc,
-        };
+            SweepExpiredLocked(createdUtc);
+            if (_records.TryGetValue(operationId, out var existing))
+            {
+                _ = existing.OperationId;
+                _records[operationId] = CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc);
+                return;
+            }
+
+            EnsureCapacityForNewRecordLocked(createdUtc);
+            _records[operationId] = CreateRestoredRecord(operationId, fingerprint, responseBytes, createdUtc);
+        }
     }
 
     public void ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
     {
         ArgumentNullException.ThrowIfNull(destination);
         destination.Clear();
-        SweepExpired(utcNow);
 
-        foreach (var pair in _records)
-            destination.Add(pair.Value);
+        lock (_capacityGate)
+        {
+            SweepExpiredLocked(utcNow);
+
+            foreach (var pair in _records)
+                destination.Add(pair.Value);
+        }
     }
 
     public IReadOnlyList<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
     {
-        var snapshot = new List<PersistedIdempotencyRecord>(_records.Count);
+        var snapshot = new List<PersistedIdempotencyRecord>();
         ExportSnapshot(snapshot, utcNow);
         return snapshot;
     }
@@ -94,11 +138,30 @@ internal sealed class RpcMutationIdempotencyStore
     {
         ArgumentNullException.ThrowIfNull(records);
 
-        for (var i = 0; i < records.Count; i++)
+        lock (_capacityGate)
         {
-            var record = records[i] ?? throw new ArgumentException("Idempotency record must not be null.", nameof(records));
-            _records[record.OperationId] = record;
+            var utcNow = DateTime.UtcNow;
+            SweepExpiredLocked(utcNow);
+            for (var i = 0; i < records.Count; i++)
+            {
+                var record = records[i] ?? throw new ArgumentException("Idempotency record must not be null.", nameof(records));
+                if (_records.TryGetValue(record.OperationId, out var existing))
+                {
+                    _ = existing.OperationId;
+                    _records[record.OperationId] = record;
+                    continue;
+                }
+
+                EnsureCapacityForNewRecordLocked(utcNow);
+                _records[record.OperationId] = record;
+            }
         }
+    }
+
+    public void SweepExpired(DateTime utcNow)
+    {
+        lock (_capacityGate)
+            SweepExpiredLocked(utcNow);
     }
 
     internal static byte[] SerializeResponseBytes(IMessage response)
@@ -115,12 +178,70 @@ internal sealed class RpcMutationIdempotencyStore
         return bytes;
     }
 
-    private void SweepExpired(DateTime utcNow)
+    private static PersistedIdempotencyRecord CreateRecord(string operationId, string fingerprint, byte[] responseBytes, DateTime createdUtc) => new()
+    {
+        OperationId = operationId,
+        Fingerprint = fingerprint,
+        ResponseBytes = responseBytes,
+        CreatedUtc = createdUtc,
+    };
+
+    private static PersistedIdempotencyRecord CreateRestoredRecord(string operationId, string fingerprint, ReadOnlyMemory<byte> responseBytes, DateTime createdUtc)
+    {
+        // ZA0302: exact-size owned buffer escape; the store must outlive the borrowed frame buffer.
+#pragma warning disable ZA0302
+        var copy = new byte[responseBytes.Length];
+#pragma warning restore ZA0302
+        responseBytes.Span.CopyTo(copy);
+        return new PersistedIdempotencyRecord
+        {
+            OperationId = operationId,
+            Fingerprint = fingerprint,
+            ResponseBytes = copy,
+            CreatedUtc = createdUtc,
+        };
+    }
+
+    private void EnsureCapacityForNewRecordLocked(DateTime utcNow)
+    {
+        SweepExpiredLocked(utcNow);
+        while (_records.Count >= _options.MaxInFlightRecords)
+        {
+            if (!TryEvictOldestLocked())
+            {
+                IdempotencyMetrics.RecordRejection(_nodeId);
+                throw CacheOperationContract.TooManyRequests("idempotency_store_capacity");
+            }
+
+            IdempotencyMetrics.RecordEviction(_nodeId);
+        }
+    }
+
+    private void SweepExpiredLocked(DateTime utcNow)
     {
         foreach (var (key, value) in _records)
         {
-            if (utcNow - value.CreatedUtc > _retention)
+            if (utcNow - value.CreatedUtc > _options.Retention)
                 _ = _records.TryRemove(key, out _);
         }
+    }
+
+    private bool TryEvictOldestLocked()
+    {
+        string? oldestKey = null;
+        var oldestCreatedUtc = DateTime.MaxValue;
+        foreach (var pair in _records)
+        {
+            if (pair.Value.CreatedUtc >= oldestCreatedUtc)
+                continue;
+
+            oldestCreatedUtc = pair.Value.CreatedUtc;
+            oldestKey = pair.Key;
+        }
+
+        if (oldestKey is null)
+            return false;
+
+        return _records.TryRemove(oldestKey, out _);
     }
 }
