@@ -9,7 +9,7 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Unified in-memory and durable idempotency store for mutating cache RPC outcomes.</summary>
 internal sealed class RpcMutationIdempotencyStore
 {
-    private readonly ConcurrentDictionary<string, StoredOutcome> _records = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
     private readonly TimeSpan _retention;
 
     public RpcMutationIdempotencyStore(TimeSpan? retention = null)
@@ -45,7 +45,13 @@ internal sealed class RpcMutationIdempotencyStore
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
         ArgumentNullException.ThrowIfNull(responseBytes);
 
-        _records[operationId] = new StoredOutcome(fingerprint, responseBytes, DateTime.UtcNow);
+        _records[operationId] = new PersistedIdempotencyRecord
+        {
+            OperationId = operationId,
+            Fingerprint = fingerprint,
+            ResponseBytes = responseBytes,
+            CreatedUtc = DateTime.UtcNow,
+        };
     }
 
     public void RestoreRecord(string operationId, string fingerprint, ReadOnlyMemory<byte> responseBytes, DateTime createdUtc)
@@ -58,26 +64,29 @@ internal sealed class RpcMutationIdempotencyStore
         var copy = new byte[responseBytes.Length];
 #pragma warning restore ZA0302
         responseBytes.Span.CopyTo(copy);
-        _records[operationId] = new StoredOutcome(fingerprint, copy, createdUtc);
+        _records[operationId] = new PersistedIdempotencyRecord
+        {
+            OperationId = operationId,
+            Fingerprint = fingerprint,
+            ResponseBytes = copy,
+            CreatedUtc = createdUtc,
+        };
+    }
+
+    public void ExportSnapshot(List<PersistedIdempotencyRecord> destination, DateTime utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        destination.Clear();
+        SweepExpired(utcNow);
+
+        foreach (var pair in _records)
+            destination.Add(pair.Value);
     }
 
     public IReadOnlyList<PersistedIdempotencyRecord> ExportSnapshot(DateTime utcNow)
     {
-        SweepExpired(utcNow);
-
         var snapshot = new List<PersistedIdempotencyRecord>(_records.Count);
-        foreach (var pair in _records)
-        {
-            var persistedIdempotencyRecord = new PersistedIdempotencyRecord
-            {
-                OperationId = pair.Key,
-                Fingerprint = pair.Value.Fingerprint,
-                CreatedUtc = pair.Value.CreatedUtc,
-                ResponseBytes = pair.Value.ResponseBytes,
-            };
-            snapshot.Add(persistedIdempotencyRecord);
-        }
-
+        ExportSnapshot(snapshot, utcNow);
         return snapshot;
     }
 
@@ -88,7 +97,7 @@ internal sealed class RpcMutationIdempotencyStore
         for (var i = 0; i < records.Count; i++)
         {
             var record = records[i] ?? throw new ArgumentException("Idempotency record must not be null.", nameof(records));
-            _records[record.OperationId] = new StoredOutcome(record.Fingerprint, record.ResponseBytes, record.CreatedUtc);
+            _records[record.OperationId] = record;
         }
     }
 
@@ -114,6 +123,4 @@ internal sealed class RpcMutationIdempotencyStore
                 _ = _records.TryRemove(key, out _);
         }
     }
-
-    private sealed record StoredOutcome(string Fingerprint, byte[] ResponseBytes, DateTime CreatedUtc);
 }

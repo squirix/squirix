@@ -42,6 +42,8 @@ internal sealed class SnapshotCoordinator<T>
     private readonly string _nodeId;
     private readonly SnapshotTriggerOptions _opt;
     private readonly ISnapshotWriter _snapWriter;
+    private readonly List<(CacheKey Key, CacheEntry<object?> Entry)> _captureItems = [];
+    private readonly List<PersistedIdempotencyRecord> _captureIdempotency = [];
     private long _bytesAtLast;
     private DateTime _lastSnapshotUtc = DateTime.MinValue;
     private DateTime _latencyThrottledUntilUtc = DateTime.MinValue;
@@ -85,14 +87,19 @@ internal sealed class SnapshotCoordinator<T>
             return;
 
         using var activity = ActivitySourceHolder.StartInternal("snapshot.create");
-        var sw = Stopwatch.StartNew();
+        var started = Stopwatch.GetTimestamp();
         var result = "failure";
         try
         {
             var snapshotRef = await journal.ExecuteSnapshotCutAsync(
                 (Coordinator: this, Activity: activity, Journal: journal),
-                static (state, _, ct) => state.Coordinator.CaptureSnapshotViewAsync(state.Activity, ct),
-                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, state.Journal, ct),
+                static async (state, __, ct) =>
+                {
+                    var captured = await state.Coordinator.CaptureSnapshotBundleAsync(state.Journal, ct).ConfigureAwait(false);
+                    _ = state.Activity?.SetTag("snapshot.items_count", captured.Items.Count);
+                    return captured;
+                },
+                static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, ct),
                 cancellationToken).ConfigureAwait(false);
 
             SnapshotCompleted?.Invoke(this, new SnapshotCompletedEventArgs(snapshotRef));
@@ -102,37 +109,34 @@ internal sealed class SnapshotCoordinator<T>
         }
         finally
         {
-            sw.Stop();
-            try
-            {
-                SnapshotMetrics.DurationSeconds.WithLabels(_nodeId, result).Observe(sw.Elapsed.TotalSeconds);
-            }
-            catch (InvalidOperationException)
-            {
-                // Metrics emission is best-effort and must not affect snapshot completion.
-            }
+            var elapsed = Stopwatch.GetElapsedTime(started);
+            SnapshotMetrics.DurationSeconds.WithLabels(_nodeId, result).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("snapshot.result", result);
-            _ = activity?.SetTag("snapshot.duration_ms", sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("snapshot.duration_ms", elapsed.TotalMilliseconds);
 
             Volatile.Write(ref _snapshotInFlight, 0);
         }
     }
 
-    private async ValueTask<CapturedSnapshotView> CaptureSnapshotViewAsync(Activity? currentActivity, CancellationToken cancellationToken)
+    private async ValueTask<CapturedSnapshotBundle> CaptureSnapshotBundleAsync(IJournalCoordinator journal, CancellationToken cancellationToken)
     {
+        _captureItems.Clear();
+        var utcNow = DateTime.UtcNow;
         var capacity = _cache is ILocalCacheStats stats ? stats.EntryCount : 0;
-        var items = new List<(CacheKey Key, CacheEntry<object?> Entry)>(capacity);
+        if (_captureItems.Capacity < capacity)
+            _captureItems.Capacity = capacity;
+
         await foreach (var (key, entry) in _cache.EnumerateLiveAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (entry.ExpiresUtc is { } exp && exp <= DateTime.UtcNow)
+            if (entry.ExpiresUtc is { } exp && exp <= utcNow)
                 continue;
 
-            items.Add((key, ToSnapshotEntry(entry)));
+            _captureItems.Add((key, ToSnapshotEntry(entry)));
         }
 
-        _ = currentActivity?.SetTag("snapshot.items_count", items.Count);
-        return new CapturedSnapshotView(items);
+        _idempotency.ExportSnapshot(_captureIdempotency, utcNow);
+        return new CapturedSnapshotBundle(_captureItems, journal.CurrentSegmentIndex, journal.NextSequence, _captureIdempotency);
 
         static CacheEntry<object?> ToSnapshotEntry(CacheEntry<T> source)
         {
@@ -156,9 +160,8 @@ internal sealed class SnapshotCoordinator<T>
 
     private async ValueTask<ManifestState.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
-        CapturedSnapshotView captured,
+        CapturedSnapshotBundle captured,
         Activity? currentActivity,
-        IJournalCoordinator currentJournal,
         CancellationToken cancellationToken)
     {
         _ = currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
@@ -167,8 +170,7 @@ internal sealed class SnapshotCoordinator<T>
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
         _ = currentActivity?.SetTag("snapshot.index", nextIndex);
 
-        var idempotencyRecords = _idempotency.ExportSnapshot(DateTime.UtcNow);
-        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
+        var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
         _ = currentActivity?.SetTag("snapshot.path", path);
 
         var now = DateTime.UtcNow;
@@ -176,14 +178,14 @@ internal sealed class SnapshotCoordinator<T>
         {
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
-            NextSequence = currentJournal.NextSequence,
+            NextSequence = captured.NextSequenceAtFlush,
             LastSnapshot = new ManifestState.SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,
                 CreatedUtc = now,
                 LastAppliedSequence = seqAtFlush,
-                ReplayFromJournalSegment = currentJournal.CurrentSegmentIndex,
+                ReplayFromJournalSegment = captured.ReplayFromJournalSegmentAtFlush,
             },
         };
         await _manifestStore.WriteAsync(updated, cancellationToken).ConfigureAwait(false);
@@ -230,5 +232,9 @@ internal sealed class SnapshotCoordinator<T>
         return timeOk || opsOk || bytesOk;
     }
 
-    private sealed record CapturedSnapshotView(List<(CacheKey Key, CacheEntry<object?> Entry)> Items);
+    private sealed record CapturedSnapshotBundle(
+        List<(CacheKey Key, CacheEntry<object?> Entry)> Items,
+        int ReplayFromJournalSegmentAtFlush,
+        ulong NextSequenceAtFlush,
+        IReadOnlyList<PersistedIdempotencyRecord> IdempotencyRecordsAtFlush);
 }

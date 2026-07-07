@@ -33,6 +33,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
+    private CancellationToken _stoppingToken;
 
     public JournalCompactionService(
         ILogger<JournalCompactionService<T>> log,
@@ -63,15 +64,14 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
 
     public CompactionState State { get; private set; } = CompactionState.Idle;
 
-    public override Task StartAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_opt.Enabled)
-            SubscribeSnapshotCompleted();
-
-        return base.StartAsync(cancellationToken);
+        _stoppingToken = stoppingToken;
+        if (!_opt.Enabled)
+            return Task.CompletedTask;
+        SubscribeSnapshotCompleted();
+        return RunLoopAsync(stoppingToken);
     }
-
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) => !_opt.Enabled ? Task.CompletedTask : RunLoopAsync(stoppingToken);
 
     private void ChangeState(CompactionState next)
     {
@@ -115,7 +115,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, CancellationToken.None);
+    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
 
     private AttemptResult RecordCompactionFailure()
     {
@@ -136,7 +136,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         ChangeState(CompactionState.Running);
         LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
 
-        var sw = Stopwatch.StartNew();
+        var started = Stopwatch.GetTimestamp();
         var resultLabel = "failure";
         try
         {
@@ -147,18 +147,11 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         finally
         {
-            sw.Stop();
-            try
-            {
-                CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
-            }
-            catch (InvalidOperationException)
-            {
-                // Metrics emission is best-effort and must not fail compaction flow.
-            }
+            var elapsed = Stopwatch.GetElapsedTime(started);
+            CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
         }
 
         LastRunUtc = DateTime.UtcNow;
