@@ -153,16 +153,18 @@ public static class PathKit
 
     private static char[] BuildCrossPlatformInvalidFileNameChars()
     {
-        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
-        invalid.Add('<');
-        invalid.Add('>');
-        invalid.Add(':');
-        invalid.Add('"');
-        invalid.Add('/');
-        invalid.Add('\\');
-        invalid.Add('|');
-        invalid.Add('?');
-        invalid.Add('*');
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars())
+        {
+            '<',
+            '>',
+            ':',
+            '"',
+            '/',
+            '\\',
+            '|',
+            '?',
+            '*',
+        };
 
         var chars = new char[invalid.Count];
         invalid.CopyTo(chars);
