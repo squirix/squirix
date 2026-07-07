@@ -244,7 +244,7 @@ public sealed class MemoryAdmissionCacheDecoratorTests : UnitTestBase
         var accounting = new MemoryUsageAccounting();
         var estimator = new CacheEntrySizeEstimator<string>();
         var gate = CreatePermissiveGate(accounting, self);
-        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, self, new FixedOwnerLocator(self));
+        var cache = new MemoryAdmissionCacheDecorator<string>(inner, gate, estimator, accounting, new FixedOwnerLocator(self), self);
         return (cache, inner, accounting, estimator);
     }
 

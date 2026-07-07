@@ -39,8 +39,8 @@ internal static class SquirixCachePipelineRegistration
             sp.GetRequiredService<IMemoryPressureGate>(),
             sp.GetRequiredService<ICacheEntrySizeEstimator<object?>>(),
             sp.GetRequiredService<IMemoryUsageAccounting>(),
-            sp.GetRequiredService<ClusterConfig>().NodeId,
-            sp.GetRequiredService<INodeLocator>()));
+            sp.GetRequiredService<INodeLocator>(),
+            sp.GetRequiredService<ClusterConfig>().NodeId));
         _ = services.AddSingleton<MetricsCacheDecorator<object?>>(static sp => new MetricsCacheDecorator<object?>(sp.GetRequiredService<MemoryAdmissionCacheDecorator<object?>>()));
         _ = services.AddSingleton<BackpressureCacheDecorator<object?>>(static sp => new BackpressureCacheDecorator<object?>(
             sp.GetRequiredService<MetricsCacheDecorator<object?>>(),

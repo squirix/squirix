@@ -70,6 +70,23 @@ internal static class SquirixOptionsValidators
     }
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
+    internal sealed class IdempotencyOptionsValidator : IValidateOptions<IdempotencyOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, IdempotencyOptions options)
+        {
+            try
+            {
+                options.Validate();
+                return ValidateOptionsResult.Success;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ValidateOptionsResult.Fail(ex.Message);
+            }
+        }
+    }
+
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container.")]
     internal sealed class MemoryPressureOptionsValidator : IValidateOptions<MemoryPressureOptions>
     {
         public ValidateOptionsResult Validate(string? name, MemoryPressureOptions options)

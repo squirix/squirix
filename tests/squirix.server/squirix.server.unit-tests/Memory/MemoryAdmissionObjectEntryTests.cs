@@ -36,8 +36,8 @@ public sealed class MemoryAdmissionObjectEntryTests : UnitTestBase
             Self);
         var estimator = new ObjectCacheEntrySizeEstimator();
         var inner = new ClientCache<object?>(physical, physical);
-        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, Self, new FixedOwnerLocator(Self));
-        var entry = new CacheEntry<object?> { Value = new Payload { Data = new string('y', 250_000) }, Version = 1 };
+        var cache = new MemoryAdmissionCacheDecorator<object?>(inner, gate, estimator, accounting, new FixedOwnerLocator(Self), Self);
+        var entry = new CacheEntry<object?> { Value = new { Data = new string('y', 250_000) }, Version = 1 };
 
         Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, "a", entry, DefaultCancellationToken));
         _ = await Assert.ThrowsAsync<ResourceExhaustedException>(() =>
@@ -48,10 +48,5 @@ public sealed class MemoryAdmissionObjectEntryTests : UnitTestBase
     private sealed class FixedOwnerLocator(string owner) : INodeLocator
     {
         public string GetOwner(string cacheName, string key) => owner;
-    }
-
-    private sealed class Payload
-    {
-        public string Data { get; init; } = string.Empty;
     }
 }

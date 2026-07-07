@@ -28,8 +28,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,
         IMemoryUsageAccounting accounting,
-        string self,
-        INodeLocator ring)
+        INodeLocator ring,
+        string self)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));

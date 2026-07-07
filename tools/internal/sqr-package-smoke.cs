@@ -25,6 +25,13 @@ if (argv.Length > 0)
 }
 
 var repoRoot = ResolveRepoRoot();
+var dotnetPath = ResolveDotnetPath();
+if (dotnetPath is null)
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
 var packageDir = Path.Combine(repoRoot, "artifacts", "packages");
 var packageCacheRoot = Path.Combine(repoRoot, "artifacts", "package-smoke-nuget");
 var packageCacheDir = Path.Combine(packageCacheRoot, Guid.NewGuid().ToString("N"));
@@ -40,11 +47,11 @@ foreach (var packagePath in Directory.EnumerateFiles(packageDir, "squirix.*.snup
 
 var coreProject = Path.Combine(repoRoot, "src", "squirix", "Squirix.csproj");
 var serverProject = Path.Combine(repoRoot, "src", "squirix.server", "Squirix.Server.csproj");
-var corePackCode = await RunDotnetAsync(repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+var corePackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", coreProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (corePackCode is not 0)
     return corePackCode;
 
-var serverPackCode = await RunDotnetAsync(repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
+var serverPackCode = await RunDotnetAsync(dotnetPath, repoRoot, ["pack", serverProject, "-c", "Release", "-o", packageDir], CancellationToken.None).ConfigureAwait(false);
 if (serverPackCode is not 0)
     return serverPackCode;
 
@@ -75,7 +82,7 @@ try
         var json = BuildSettingsJson(url);
         await File.WriteAllTextAsync(settingsPath, json, CancellationToken.None).ConfigureAwait(false);
 
-        var exitCode = await RunDotnetAsync(sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
+        var exitCode = await RunDotnetAsync(dotnetPath, sampleDir, ["run", "-c", "Release", "-p:SmokeUsePackages=true"], CancellationToken.None).ConfigureAwait(false);
         if (exitCode is 0 || attempt == maxAttempts)
             return exitCode;
     }
@@ -172,11 +179,47 @@ static bool HasServerPackage(string directory)
     return enumerator.MoveNext();
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
+static string? ResolveDotnetPath()
+{
+    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    {
+        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        if (File.Exists(dotnetRootCandidate))
+            return Path.GetFullPath(dotnetRootCandidate);
+    }
+
+    var processPath = Environment.ProcessPath;
+    if (!string.IsNullOrWhiteSpace(processPath))
+    {
+        var processFileName = Path.GetFileName(processPath);
+        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(processPath);
+        }
+    }
+
+    var pathValue = Environment.GetEnvironmentVariable("PATH");
+    if (string.IsNullOrWhiteSpace(pathValue))
+        return null;
+
+    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var pathCandidate = Path.Combine(segment, executableName);
+        if (File.Exists(pathCandidate))
+            return Path.GetFullPath(pathCandidate);
+    }
+
+    return null;
+}
+
+static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
     var startInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
     };

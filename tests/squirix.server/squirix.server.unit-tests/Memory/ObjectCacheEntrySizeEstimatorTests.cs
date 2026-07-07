@@ -18,17 +18,12 @@ public sealed class ObjectCacheEntrySizeEstimatorTests : UnitTestBase
         var estimator = new ObjectCacheEntrySizeEstimator();
         var typedEstimator = new CacheEntrySizeEstimator<object?>();
         var key = new CacheKey(CacheName, Key);
-        var entry = new CacheEntry<object?> { Value = new Payload { Data = new string('x', 16_384) }, Version = 1 };
+        var entry = new CacheEntry<object?> { Value = new { Data = new string('x', 16_384) }, Version = 1 };
 
         var estimated = estimator.EstimateBytes(key, entry, false);
         var typedFallback = typedEstimator.EstimateBytes(key, entry, false);
 
         Assert.True(estimated > typedFallback);
         Assert.False(estimator.HasUnknownPayloadMagnitude(entry, false));
-    }
-
-    private sealed class Payload
-    {
-        public string Data { get; init; } = string.Empty;
     }
 }

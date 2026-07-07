@@ -41,13 +41,17 @@ internal static class SquirixRuntimeServiceRegistration
         _ = services.AddSingleton<ILocalCacheStats>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddHostedService(static sp => new ItemsGaugeReporterService(sp.GetRequiredService<ILocalCacheStats>()));
         _ = services.AddHostedService<MemoryPressureMetricsService>();
+        _ = services.AddHostedService<IdempotencyMetricsService>();
+        _ = services.AddHostedService<IdempotencyStoreSweepService>();
         _ = services.AddSingleton<ILocalCacheRecovery<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
         _ = services.AddSingleton<ILocalCacheSnapshotReader<object?>>(static sp => sp.GetRequiredService<PhysicalCache<object?>>());
 
         _ = services.AddSingleton<ICacheRuntime, CacheRuntime>();
         _ = services.AddSingleton<IInboundEndpointCacheOperations<object?>, InboundEndpointCacheOperations<object?>>();
         _ = services.AddSingleton<IGrpcCacheOperations<object?>, GrpcCacheOperations<object?>>();
-        _ = services.AddSingleton<RpcMutationIdempotencyStore>();
+        _ = services.AddSingleton(static sp => new RpcMutationIdempotencyStore(
+            sp.GetRequiredService<IdempotencyOptions>(),
+            sp.GetRequiredService<ClusterConfig>().NodeId));
         _ = services.AddSingleton<RpcMutationIdempotencyCoordinator>(static sp =>
         {
             var store = sp.GetRequiredService<RpcMutationIdempotencyStore>();
