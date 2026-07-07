@@ -18,6 +18,7 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.OperationIdInvalidFormat => "OPERATION_ID_INVALID_FORMAT",
         SquirixErrorCode.OperationIdTooLong => "OPERATION_ID_TOO_LONG",
         SquirixErrorCode.OperationIdReuseMismatch => "OPERATION_ID_REUSE_MISMATCH",
+        SquirixErrorCode.InvalidEntryTags => "INVALID_ENTRY_TAGS",
         _ => "INTERNAL_ERROR",
     };
 
@@ -35,6 +36,7 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.OperationIdInvalidFormat => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdTooLong => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdReuseMismatch => StatusCode.FailedPrecondition,
+        SquirixErrorCode.InvalidEntryTags => StatusCode.InvalidArgument,
         _ => StatusCode.Internal,
     };
 }

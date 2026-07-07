@@ -1,4 +1,6 @@
 using System;
+using Squirix.Server.Errors;
+using Squirix.Server.Limits;
 
 namespace Squirix.Server.Node.App.Decorators.Validation;
 
@@ -8,5 +10,10 @@ internal static class OperationInputValidator<T>
 {
     /// <summary>Validates a cache entry reference and its tags when present.</summary>
     /// <param name="entry">The entry to validate.</param>
-    public static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
+    /// <exception cref="SquirixException">Thrown when entry tags exceed limits.</exception>
+    public static void ValidateEntry(CacheEntry<T> entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        EntryTagsGuard.EnsureWithinLimits(entry.Tags);
+    }
 }

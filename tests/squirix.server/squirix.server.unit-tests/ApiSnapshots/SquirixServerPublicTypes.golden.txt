@@ -52,6 +52,7 @@ F:Squirix.Server.Errors.SquirixErrorCode::BadRequest
 F:Squirix.Server.Errors.SquirixErrorCode::Conflict
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheKey
 F:Squirix.Server.Errors.SquirixErrorCode::InvalidCacheName
+F:Squirix.Server.Errors.SquirixErrorCode::InvalidEntryTags
 F:Squirix.Server.Errors.SquirixErrorCode::MemoryPressure
 F:Squirix.Server.Errors.SquirixErrorCode::NotFound
 F:Squirix.Server.Errors.SquirixErrorCode::OperationIdInvalidFormat
