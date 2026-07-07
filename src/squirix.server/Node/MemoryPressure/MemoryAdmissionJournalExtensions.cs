@@ -27,8 +27,8 @@ internal static class MemoryAdmissionJournalExtensions
         out bool magnitudeUnknown)
     {
         ArgumentNullException.ThrowIfNull(proposed);
-        magnitudeUnknown = MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(proposed.Value) ||
-                           (existing is not null && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(existing.Value));
+        magnitudeUnknown = estimator.HasUnknownPayloadMagnitude(proposed, proposedPayloadIsCounter) ||
+                           (existing is not null && estimator.HasUnknownPayloadMagnitude(existing, existingPayloadIsCounter));
 
         var nextBytes = estimator.EstimateBytes(key, proposed, proposedPayloadIsCounter);
         if (existing is null)
