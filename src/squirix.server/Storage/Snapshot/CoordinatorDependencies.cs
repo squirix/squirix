@@ -1,5 +1,4 @@
 using System;
-using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -20,7 +19,7 @@ internal sealed class CoordinatorDependencies
         Idempotency = idempotency ?? throw new ArgumentNullException(nameof(idempotency));
         NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
         BackgroundSnapshotMemoryThrottle = backgroundSnapshotMemoryThrottle ?? throw new ArgumentNullException(nameof(backgroundSnapshotMemoryThrottle));
-        Telemetry = telemetry ?? NoOpSnapshotTelemetry.Instance;
+        Telemetry = telemetry ?? new NoOpSnapshotTelemetry();
     }
 
     internal ISnapshotEntryCapture EntryCapture { get; }
@@ -37,11 +36,8 @@ internal sealed class CoordinatorDependencies
 
     internal ISnapshotTelemetry Telemetry { get; }
 
-    internal sealed class NoOpSnapshotTelemetry : ISnapshotTelemetry
+    private sealed class NoOpSnapshotTelemetry : ISnapshotTelemetry
     {
-        /// <summary>Gets the shared no-op instance.</summary>
-        internal static NoOpSnapshotTelemetry Instance { get; } = new();
-
         /// <inheritdoc />
         public ISnapshotTraceScope? BeginCreate() => null;
 

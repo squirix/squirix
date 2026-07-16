@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 
 namespace Squirix.Server.Runtime.Contracts;
 

@@ -4,9 +4,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
-using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -15,7 +15,7 @@ namespace Squirix.Server.UnitTests.Cluster;
 /// <summary>
 /// Unit tests for deadline-aware retry and timeout handling in <see cref="ServerCallPolicy" />.
 /// </summary>
-public sealed class CallPolicyTests : UnitTestBase
+public sealed class CallPolicyTests : ServerUnitTestBase
 {
     /// <summary>Ensures the ambient request deadline caps the overall retry budget.</summary>
     [Fact]
@@ -46,7 +46,7 @@ public sealed class CallPolicyTests : UnitTestBase
     [Fact]
     public async Task BeginDrainRejectsNewCalls()
     {
-        using var sink = new MeasurementSink("Squirix");
+        using var sink = new NodeMeasurementSink("Squirix");
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
@@ -184,7 +184,7 @@ public sealed class CallPolicyTests : UnitTestBase
         await cts.CancelAsync();
 
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(pending.AsTask);
-        Assert.Equal(1, attempts.Value);
+        Assert.Equal(1, attempts.Count);
     }
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
@@ -207,7 +207,7 @@ public sealed class CallPolicyTests : UnitTestBase
             DefaultCancellationToken);
 
         Assert.Equal(42, value);
-        Assert.Equal(2, attempts.Value);
+        Assert.Equal(2, attempts.Count);
     }
 
     /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
@@ -215,7 +215,7 @@ public sealed class CallPolicyTests : UnitTestBase
     public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
     {
         var timeout = TimeSpan.FromSeconds(5);
-        using var sink = new MeasurementSink("Squirix");
+        using var sink = new NodeMeasurementSink("Squirix");
         await using var policy = CreatePolicy(timeout, maxConcurrentPerPeer: 1, peer: "peer-f", timeProvider: TimeProvider.System);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -250,7 +250,7 @@ public sealed class CallPolicyTests : UnitTestBase
     public async Task RetryAndBackoffMetricsAreRecorded()
     {
         var timeProvider = new FakeTimeProvider();
-        using var sink = new MeasurementSink("Squirix");
+        using var sink = new NodeMeasurementSink("Squirix");
         await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5), peer: "peer-d", timeProvider: timeProvider);
         var attempts = new InvocationCounter();
 
@@ -263,7 +263,7 @@ public sealed class CallPolicyTests : UnitTestBase
             },
             DefaultCancellationToken);
 
-        while (attempts.Value < 1)
+        while (attempts.Count < 1)
             await Task.Yield();
 
         timeProvider.Advance(TimeSpan.FromMinutes(1));
@@ -280,7 +280,7 @@ public sealed class CallPolicyTests : UnitTestBase
     [Fact]
     public async Task TimeoutMetricsAreRecordedAsFirstClassCategory()
     {
-        using var sink = new MeasurementSink("Squirix");
+        using var sink = new NodeMeasurementSink("Squirix");
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(100), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-b", timeProvider: TimeProvider.System);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
@@ -307,36 +307,55 @@ public sealed class CallPolicyTests : UnitTestBase
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
 
-    private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
+    private sealed class CancellationProbeState
     {
-        public TaskCompletionSource Entered { get; } = entered;
+        internal CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
+        {
+            Entered = entered;
+            Attempts = attempts;
+        }
 
-        internal InvocationCounter Attempts { get; } = attempts;
+        internal TaskCompletionSource Entered { get; }
+
+        internal InvocationCounter Attempts { get; }
     }
 
-    private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
+    private sealed class ConcurrencySyncState
     {
-        public TaskCompletionSource FirstEntered { get; } = firstEntered;
+        internal ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
+        {
+            FirstEntered = firstEntered;
+            Peak = peak;
+            ReleaseFirst = releaseFirst;
+        }
 
-        public PeakCounter Peak { get; } = peak;
+        internal TaskCompletionSource FirstEntered { get; }
 
-        public TaskCompletionSource ReleaseFirst { get; } = releaseFirst;
+        internal PeakCounter Peak { get; }
 
-        public RunningCounter Running { get; } = new();
+        internal TaskCompletionSource ReleaseFirst { get; }
+
+        internal RunningCounter Running { get; } = new();
     }
 
-    private sealed class EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+    private sealed class EnterReleaseGate
     {
-        public TaskCompletionSource Entered { get; } = entered;
+        internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+        {
+            Entered = entered;
+            Release = release;
+        }
 
-        public TaskCompletionSource Release { get; } = release;
+        internal TaskCompletionSource Entered { get; }
+
+        internal TaskCompletionSource Release { get; }
     }
 
     private sealed class InvocationCounter
     {
         private int _count;
 
-        internal int Value => Volatile.Read(ref _count);
+        internal int Count => Volatile.Read(ref _count);
 
         internal int Increment() => Interlocked.Increment(ref _count);
     }

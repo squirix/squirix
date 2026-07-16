@@ -2,14 +2,14 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>Verifies JWT authentication when the node is configured with an OIDC authority URL.</summary>
-public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
+public sealed class OidcJwtAuthIntegrationTests : NodeIntegrationTestBase
 {
     private const string Audience = "squirix-oidc-integration";
     private const string NodeId = "node-oidc-auth";
@@ -21,7 +21,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptionsWithoutAudience()).AsTask());
+            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptionsWithoutAudience() }).AsTask());
         Assert.Contains("SQUIRIX_JWT_AUTHORITY requires SQUIRIX_JWT_AUDIENCE", ex.Message, StringComparison.Ordinal);
     }
 
@@ -31,7 +31,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -52,7 +52,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -72,7 +72,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -89,7 +89,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -108,7 +108,7 @@ public sealed class OidcJwtAuthIntegrationTests : IntegrationTestBase
     {
         await using var authority = await MockOidcAuthority.StartAsync(DefaultCancellationToken);
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: authority.ToSecurityOptions(Audience));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = authority.ToSecurityOptions(Audience) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

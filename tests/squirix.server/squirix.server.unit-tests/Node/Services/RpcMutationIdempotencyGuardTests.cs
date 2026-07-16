@@ -6,8 +6,8 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -15,7 +15,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Coordinator and journal integration for durable idempotency.</summary>
-public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
+public sealed class RpcMutationIdempotencyGuardTests : ServerUnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
@@ -68,8 +68,10 @@ public sealed class RpcMutationIdempotencyGuardTests : UnitTestBase
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         var found = false;
-        foreach (var record in JournalReadPath.ReadAll(options.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
+        using var records = JournalReadPath.ReadAll(options.DataDir, manifest.CurrentJournal, DefaultCancellationToken);
+        while (records.MoveNext())
         {
+            var record = records.Current;
             if (record.Operation is not JournalOperationKind.IdempotencyOutcome)
                 continue;
 

@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -123,7 +122,7 @@ internal static class JournalCompactor
     private static async Task<(Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)>
         BuildCompactionStateAsync(
             PersistenceOptions options,
-            State.SnapshotRef? snapshotRef,
+            SnapshotRef? snapshotRef,
             int replayFromSegment,
             ISnapshotReader snapshotReader,
             CancellationToken cancellationToken)
@@ -149,8 +148,10 @@ internal static class JournalCompactor
 
         ulong lastSeq = 0;
         var fromSeg = Math.Max(1, replayFromSegment);
-        foreach (var record in JournalReadPath.ReadAll(options.DataDir, fromSeg, cancellationToken))
+        using var records = JournalReadPath.ReadAll(options.DataDir, fromSeg, cancellationToken);
+        while (records.MoveNext())
         {
+            var record = records.Current;
             lastSeq = Math.Max(lastSeq, record.Sequence);
             Apply(record, state, idempotencyState);
         }
@@ -326,7 +327,7 @@ internal static class JournalCompactor
 
     private sealed class CompactedIdempotencyRecord
     {
-        public CompactedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs)
+        internal CompactedIdempotencyRecord(string operationId, string fingerprint, byte[] responseBytes, long unixMs)
         {
             OperationId = operationId;
             Fingerprint = fingerprint;

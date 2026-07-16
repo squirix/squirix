@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage;
 
@@ -16,7 +17,7 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     private int _consecutiveWriteFailures;
     private DateTime? _lastFailureUtc;
 
-    public RetentionCleanupReadiness(PersistenceOptions options)
+    internal RetentionCleanupReadiness(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _consecutiveWriteFailureThreshold = options.RetentionCleanupDegradedConsecutiveWrites;

@@ -7,7 +7,7 @@ internal static class TypedValueFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 8, 15, 30, TimeSpan.Zero);
 
-    public static TypedCustomerProfile CreateProfile(string id) => new(
+    internal static TypedCustomerProfile CreateProfile(string id) => new(
         id,
         $"Customer {id}",
         $"{id}@example.test",
@@ -21,18 +21,18 @@ internal static class TypedValueFactory
         BaseInstant,
         TypedCustomerStatus.Active);
 
-    public static TypedCustomerProfile CreateProfileWithEmptyCollections(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithEmptyCollections(string id) => CreateProfile(id) with
     {
         Roles = [],
         Metadata = new Dictionary<string, string>(StringComparer.Ordinal),
     };
 
-    public static TypedCustomerProfile CreateProfileWithNullEmail(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithNullEmail(string id) => CreateProfile(id) with
     {
         Email = null,
     };
 
-    public static TypedCustomerProfile CreateProfileWithUnicodeText(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithUnicodeText(string id) => CreateProfile(id) with
     {
         DisplayName = "Customer 東京",
         Address = CreateAddress("東京", "千代田 1-1", "100-0001", "JP"),
@@ -43,7 +43,7 @@ internal static class TypedValueFactory
         },
     };
 
-    public static TypedMutableCart CreateUpdatedCart(string id) => new()
+    internal static TypedMutableCart CreateUpdatedCart(string id) => new()
     {
         Id = id,
         Items =
@@ -55,7 +55,7 @@ internal static class TypedValueFactory
         CouponCode = null,
     };
 
-    public static TypedCustomerProfile CreateUpdatedProfile(string id) => new(
+    internal static TypedCustomerProfile CreateUpdatedProfile(string id) => new(
         id,
         $"Updated Customer {id}",
         null,

@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 using Index = Squirix.Server.Storage.Manifest.Index;
@@ -30,21 +31,12 @@ internal sealed class ManifestStore : IDisposable
     private readonly RetentionWorker _retentionWorker;
     private bool _disposed;
 
-    public ManifestStore(
+    internal ManifestStore(
         PersistenceOptions options,
         ILogger<ManifestStore>? logger = null,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
-        IManifestRetentionFailureMetrics? failureMetrics = null)
-        : this(options, logger, retentionReadiness, new FileOperations(), failureMetrics)
-    {
-    }
-
-    public ManifestStore(
-        PersistenceOptions options,
-        ILogger<ManifestStore>? logger,
-        IRetentionCleanupReadinessStatus? retentionReadiness,
-        IStorageFileOperations fileOperations,
-        IManifestRetentionFailureMetrics? failureMetrics = null)
+        IManifestRetentionFailureMetrics? failureMetrics = null,
+        IStorageFileOperations? fileOperations = null)
     {
         var dataDir = options.DataDir;
         _currentPath = PathEx.Combine(dataDir, $"{FilePrefixes.Manifest}current");

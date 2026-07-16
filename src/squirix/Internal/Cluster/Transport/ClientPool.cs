@@ -32,7 +32,7 @@ internal sealed class ClientPool : IClientPool
     private readonly TimeProvider _timeProvider;
     private int _disposed;
 
-    public ClientPool(
+    internal ClientPool(
         Peer[] peers,
         Func<string, ICallPolicy> policyFactory,
         HttpMessageHandler? handler = null,

@@ -66,7 +66,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     protected async Task StartSharedCacheAsync(string cacheName)
     {
         await StartNodeAsync().ConfigureAwait(false);
-        _cacheSession = await BenchmarkCacheSession.OpenAsync(RequireNode(), cacheName, CancellationToken.None).ConfigureAwait(false);
+        _cacheSession = await BenchmarkCacheSession.OpenAsync(RequireNode().Uri, cacheName, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>

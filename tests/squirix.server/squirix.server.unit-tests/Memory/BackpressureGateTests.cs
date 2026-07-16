@@ -5,14 +5,14 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for node-level backpressure admission control.</summary>
-public sealed class BackpressureGateTests : UnitTestBase
+public sealed class BackpressureGateTests : ServerUnitTestBase
 {
     private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
     private const string BackpressureQueueDepthInstrumentName = "squirix_backpressure_queue_depth";
@@ -23,7 +23,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task AcquireBypassesWhenBackpressureIsDisabled()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -232,7 +232,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -260,7 +260,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -288,7 +288,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task PerClientRateLimitIsolatedByClient()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -318,7 +318,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueueFullRejectsImmediately()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -352,7 +352,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -407,7 +407,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueuedAcquireObservesCallerCancellation()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -435,7 +435,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {

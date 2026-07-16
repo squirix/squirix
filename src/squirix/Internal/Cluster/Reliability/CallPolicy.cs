@@ -22,7 +22,7 @@ internal sealed class CallPolicy : ICallPolicy
     private volatile bool _draining;
     private bool _semaphoreDisposed;
 
-    public CallPolicy(
+    internal CallPolicy(
         TimeSpan? timeoutPerAttempt = null,
         int maxAttempts = 3,
         TimeSpan? baseBackoff = null,
@@ -34,16 +34,13 @@ internal sealed class CallPolicy : ICallPolicy
         _peer = string.IsNullOrWhiteSpace(peer) ? "unknown" : peer;
         var cap = Math.Max(1, maxConcurrentPerPeer);
         _semaphore = new SemaphoreSlim(cap, cap);
-        _executor = new CallPolicyExecutor(
-            new CallPolicySettings(
-                _peer,
-                Math.Max(1, maxAttempts),
-                timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
-                baseBackoff ?? TimeSpan.FromMilliseconds(50),
-                maxBackoff ?? TimeSpan.FromMilliseconds(500)),
-            timeProvider ?? TimeProvider.System,
-            _semaphore,
-            () => _draining);
+        var settings = new CallPolicySettings(
+            _peer,
+            Math.Max(1, maxAttempts),
+            timeoutPerAttempt ?? TimeSpan.FromMilliseconds(600),
+            baseBackoff ?? TimeSpan.FromMilliseconds(50),
+            maxBackoff ?? TimeSpan.FromMilliseconds(500));
+        _executor = new CallPolicyExecutor(settings, timeProvider ?? TimeProvider.System, _semaphore, () => _draining);
     }
 
     public void BeginDrain() => _draining = true;
@@ -147,7 +144,7 @@ internal sealed class CallPolicy : ICallPolicy
         if (!_draining)
             return;
 
-        CallPolicyMetrics.DrainRejectsTotal.WithLabels(_peer).Inc(1);
+        CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
         throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
     }
 
@@ -183,7 +180,7 @@ internal sealed class CallPolicy : ICallPolicy
         {
             var queueWaitStarted = Stopwatch.GetTimestamp();
             await _semaphore.WaitAsync(effectiveToken).ConfigureAwait(false);
-            CallPolicyMetrics.QueueWaitSeconds.Observe(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
+            CallPolicyMetrics.ObserveQueueWaitSeconds(_peer, Stopwatch.GetElapsedTime(queueWaitStarted));
             try
             {
                 ThrowIfDraining();
@@ -199,8 +196,8 @@ internal sealed class CallPolicy : ICallPolicy
 
         private Task BackoffAsync(TimeSpan span, CancellationToken cancellationToken)
         {
-            CallPolicyMetrics.BackoffsTotal.WithLabels(_peer).Inc(1);
-            CallPolicyMetrics.BackoffSeconds.Observe(_peer, span);
+            CallPolicyMetrics.IncrementBackoffLabel(_peer, 1);
+            CallPolicyMetrics.ObserveBackoffSeconds(_peer, span);
             return Task.Delay(span, _timeProvider, cancellationToken);
         }
 
@@ -252,14 +249,14 @@ internal sealed class CallPolicy : ICallPolicy
                 if (cancelKind is not CancellationScenarioKind.PerAttemptTimedOut || attempt >= _maxAttempts)
                     return AttemptOutcome<T>.Stop(oce);
                 RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "operation_canceled").Inc();
-                CallPolicyMetrics.RetriesTotal.WithLabels(_peer, "operation_canceled").Inc(1);
+                CallPolicyMetrics.IncrementRetriesTotal(_peer, "operation_canceled");
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), oce, effectiveToken).ConfigureAwait(false));
             }
             catch (RpcException rx) when (rx.StatusCode is StatusCode.Cancelled or StatusCode.DeadlineExceeded && attempt < _maxAttempts &&
                                           OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
             {
                 RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc();
-                CallPolicyMetrics.RetriesTotal.WithLabels(_peer, rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled").Inc(1);
+                CallPolicyMetrics.IncrementRetriesTotal(_peer, rx.StatusCode is StatusCode.DeadlineExceeded ? "deadline_exceeded" : "Canceled");
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
             catch (RpcException rx) when (rx.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded or StatusCode.Internal or StatusCode.ResourceExhausted &&
@@ -268,12 +265,12 @@ internal sealed class CallPolicy : ICallPolicy
                 if (rx.StatusCode is StatusCode.DeadlineExceeded)
                     RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "attempt", "deadline_exceeded").Inc();
 
-                CallPolicyMetrics.RetriesTotal.WithLabels(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(rx)).Inc(1);
+                CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(rx));
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
             }
             catch (HttpRequestException ex) when (attempt < _maxAttempts && OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
             {
-                CallPolicyMetrics.RetriesTotal.WithLabels(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(ex)).Inc(1);
+                CallPolicyMetrics.IncrementRetriesTotal(_peer, CallPolicyRetryClassifier.ClassifyRetryReason(ex));
                 return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), ex, effectiveToken).ConfigureAwait(false));
             }
             catch (RpcException rx)
@@ -345,7 +342,7 @@ internal sealed class CallPolicy : ICallPolicy
             if (!_isDraining())
                 return;
 
-            CallPolicyMetrics.DrainRejectsTotal.WithLabels(_peer).Inc(1);
+            CallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
             throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
         }
 

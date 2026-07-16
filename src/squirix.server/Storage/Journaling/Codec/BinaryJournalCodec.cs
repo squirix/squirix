@@ -2,7 +2,6 @@ using System;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -12,7 +11,7 @@ namespace Squirix.Server.Storage.Journaling.Codec;
 /// <summary>Binary frame body codec for Pipelined journal (SJRN v1 file header).</summary>
 internal static class BinaryJournalCodec
 {
-    private const int FixedPrefixSize = 8 + 8 + 1 + 2 + 2 + 4;
+    internal const int FixedPrefixSize = 8 + 8 + 1 + 2 + 2 + 4;
 
     internal static int ComputeFrameBodyLength(JournalRecord record) => EncodeContext.From(record).BodyLength;
 
@@ -69,8 +68,7 @@ internal static class BinaryJournalCodec
 
     internal static int Encode(JournalRecord record, Span<byte> destination, in EncodeContext context)
     {
-        var keyUtf8 = context.KeyUtf8;
-        WriteFixedPrefix(destination, record, keyUtf8.NamespaceLength, keyUtf8.KeyLength, context.PayloadUtf8Length);
+        WriteFixedPrefix(destination, record, context.KeyNamespaceLength, context.KeyLength, context.PayloadUtf8Length);
 
         var offset = FixedPrefixSize;
         offset += Encoding.UTF8.GetBytes(record.Key.Namespace, destination[offset..]);
@@ -209,74 +207,6 @@ internal static class BinaryJournalCodec
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
                 throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
-        }
-    }
-
-    [StructLayout(LayoutKind.Auto)]
-    internal sealed record EncodeContext
-    {
-        private EncodeContext(Utf8KeyLengths keyUtf8, int payloadUtf8Length)
-        {
-            KeyUtf8 = keyUtf8;
-            PayloadUtf8Length = payloadUtf8Length;
-        }
-
-        internal int BodyLength => FixedPrefixSize + KeyUtf8.TotalLength + PayloadUtf8Length;
-
-        internal Utf8KeyLengths KeyUtf8 { get; }
-
-        internal int PayloadUtf8Length { get; }
-
-        internal static EncodeContext From(JournalRecord record)
-        {
-            var keyUtf8 = Utf8KeyLengths.FromKey(record.Key);
-            var payloadUtf8Length = GetOperationPayloadLength(record);
-            return new EncodeContext(keyUtf8, payloadUtf8Length);
-        }
-
-        private static int GetOperationPayloadLength(JournalRecord record)
-        {
-            switch (record.Operation)
-            {
-                case JournalOperationKind.Put:
-                    return record.PutEntryBytes.Length;
-
-                case JournalOperationKind.TouchExpiration:
-                    return 8;
-
-                case JournalOperationKind.Remove:
-                case JournalOperationKind.RemoveExpiration:
-                    return 0;
-
-                case JournalOperationKind.IdempotencyOutcome:
-                    return 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                           Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length;
-
-                case JournalOperationKind.AwaitDurabilityCommit:
-                case JournalOperationKind.WaitForStartup:
-                case JournalOperationKind.MaintenanceExclusive:
-                case JournalOperationKind.SnapshotCut:
-                case JournalOperationKind.UnderSnapshotBarrier:
-                default:
-                    throw new NotSupportedException($"the length of operation {record.Operation} cannot be determined.");
-            }
-        }
-
-        internal sealed record Utf8KeyLengths
-        {
-            private Utf8KeyLengths(int namespaceLength, int keyLength)
-            {
-                NamespaceLength = namespaceLength;
-                KeyLength = keyLength;
-            }
-
-            internal int KeyLength { get; }
-
-            internal int NamespaceLength { get; }
-
-            internal int TotalLength => NamespaceLength + KeyLength;
-
-            internal static Utf8KeyLengths FromKey(CacheKey key) => new(Encoding.UTF8.GetByteCount(key.Namespace), Encoding.UTF8.GetByteCount(key.Key));
         }
     }
 

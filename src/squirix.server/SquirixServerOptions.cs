@@ -33,7 +33,7 @@ public sealed class SquirixServerOptions
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
     /// <returns><see langword="true" /> when configuration is valid.</returns>
-    public bool TryValidate(out IReadOnlyList<string> errors) => ClusterTopologyValidator.TryValidate(this, out errors);
+    public bool TryValidate(out IReadOnlyList<string> errors) => SquirixServerOptionsValidator.TryValidate(this, out errors);
 
     /// <summary>Enables journal/snapshot persistence for this node.</summary>
     /// <param name="dataDirectory">Optional data directory override.</param>
@@ -46,5 +46,5 @@ public sealed class SquirixServerOptions
 
     /// <summary>Validates the current configuration and throws when a value is invalid.</summary>
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
-    public void Validate() => ClusterTopologyValidator.Validate(this);
+    public void Validate() => SquirixServerOptionsValidator.Validate(this);
 }

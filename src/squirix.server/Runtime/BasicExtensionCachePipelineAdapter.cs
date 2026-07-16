@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Runtime;
@@ -9,7 +10,7 @@ internal sealed class BasicExtensionCachePipelineAdapter<T> : ISquirixServerEntr
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    public BasicExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> inner)
+    internal BasicExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> inner)
     {
         _inner = inner;
     }

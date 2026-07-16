@@ -17,7 +17,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     private readonly ConcurrentDictionary<CacheKey, StoredEntry> _store = new();
     private readonly TimeProvider _timeProvider;
 
-    public PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null)
+    internal PhysicalCache(TimeProvider? timeProvider = null, EvictionOptions? eviction = null)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _evictionIndex = new LocalEvictionIndex(eviction ?? new EvictionOptions { Policy = EvictionPolicyType.Lru });
@@ -236,7 +236,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         private readonly EvictionOptions _options;
         private readonly LinkedList<CacheKey> _order = [];
 
-        public LocalEvictionIndex(EvictionOptions options)
+        internal LocalEvictionIndex(EvictionOptions options)
         {
             _options = options;
         }

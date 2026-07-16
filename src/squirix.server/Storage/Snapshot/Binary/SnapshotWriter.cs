@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot.Binary;
@@ -15,12 +16,12 @@ internal sealed class SnapshotWriter : ISnapshotWriter
     private readonly IStorageFileOperations _fileOperations;
     private byte[] _encodeBuffer = new byte[4096];
 
-    public SnapshotWriter(string dataDir)
+    internal SnapshotWriter(string dataDir)
         : this(dataDir, new FileOperations())
     {
     }
 
-    public SnapshotWriter(string dataDir, IStorageFileOperations fileOperations)
+    internal SnapshotWriter(string dataDir, IStorageFileOperations fileOperations)
     {
         _dataDir = dataDir;
         _fileOperations = fileOperations;

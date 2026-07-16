@@ -6,10 +6,10 @@ using System.Globalization;
 var runs = new[]
 {
     new ResiliencyRun("tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj", "FullyQualifiedName~Squirix.Server.UnitTests.Cluster.CallPolicyTests", "CallPolicy unit tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Reliability.TimeoutBehaviorIntegrationTests", "Timeout behavior integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Reliability.DrainAndShutdownIntegrationTests", "Drain and shutdown integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.TimeoutBehaviorIntegrationTests", "Timeout behavior integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.DrainAndShutdownIntegrationTests", "Drain and shutdown integration tests"),
     new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Metrics.CallPolicyContentionMetricsIntegrationTests", "Call-policy metrics integration tests"),
-    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.Reliability.ClientPoolLifecycleIntegrationTests", "Client-pool lifecycle integration tests"),
+    new ResiliencyRun("tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj", "FullyQualifiedName~Squirix.Server.IntegrationTests.ClientPoolLifecycleIntegrationTests", "Client-pool lifecycle integration tests"),
 };
 
 var output = Console.Out;

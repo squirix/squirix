@@ -84,7 +84,7 @@ internal static class SnapshotFileEncoder
         var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
         var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
         SnapshotCodec.WriteEntryBody(key, entry, body);
-        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), SnapshotCodec.RecordKind.Entry, body);
+        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), RecordKind.Entry, body);
         return recordLength;
     }
 
@@ -108,7 +108,7 @@ internal static class SnapshotFileEncoder
         var recordLength = SnapshotCodec.ComputeRecordLength(bodyLength);
         var body = encodeBuffer.AsSpan(SnapshotCodec.RecordHeaderSize, bodyLength);
         IdempotencyCodec.Write(record, body);
-        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), SnapshotCodec.RecordKind.Idempotency, body);
+        SnapshotCodec.WriteRecord(encodeBuffer.AsSpan(0, recordLength), RecordKind.Idempotency, body);
         return recordLength;
     }
 

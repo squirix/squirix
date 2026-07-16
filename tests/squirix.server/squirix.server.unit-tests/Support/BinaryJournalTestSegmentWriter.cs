@@ -4,26 +4,24 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
+using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
-using Squirix.Server.TestKit.Testing;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    public static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
+    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
-        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
         return WriteSegmentAsync(path, records);
     }
 
-    public static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
+    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
     {
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         JournalFraming.WriteFileHeader(stream);

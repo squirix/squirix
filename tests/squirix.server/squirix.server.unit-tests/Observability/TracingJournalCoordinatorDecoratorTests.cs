@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -14,7 +16,7 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>
 /// Verifies <see cref="TracingJournalCoordinatorDecorator" /> passes expected trace context to <see cref="IJournalOperationTracer" />.
 /// </summary>
-public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
+public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
 {
     /// <summary>Append put through the decorator begins a journal put trace scope.</summary>
     [Fact]
@@ -63,5 +65,28 @@ public sealed class TracingJournalCoordinatorDecoratorTests : UnitTestBase
 
         var (_, context) = Assert.Single(tracer.BeginCalls, static call => call.Kind is JournalOperationKind.Put);
         Assert.Equal(groupCommitMaxWaitMilliseconds > 0, context.GroupCommitEnabled);
+    }
+
+    /// <summary>
+    /// Captures <see cref="IJournalOperationTracer.Begin" /> calls for decorator unit tests.
+    /// </summary>
+    private sealed class RecordingJournalOperationTracer : IJournalOperationTracer
+    {
+        internal List<(JournalOperationKind Kind, JournalOperationTraceContext Context)> BeginCalls { get; } = [];
+
+        IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
+        {
+            if (context is null)
+                return null;
+            BeginCalls.Add((kind, context));
+            return new RecordingScope();
+        }
+
+        private sealed class RecordingScope : IJournalOperationTraceScope
+        {
+            public void Dispose()
+            {
+            }
+        }
     }
 }

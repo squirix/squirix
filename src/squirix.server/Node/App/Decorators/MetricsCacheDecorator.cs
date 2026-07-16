@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 
@@ -17,7 +16,7 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    public MetricsCacheDecorator(ILogicalNamespacedCache<T> inner)
+    internal MetricsCacheDecorator(ILogicalNamespacedCache<T> inner)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }

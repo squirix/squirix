@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Grpc;
-using Squirix.Server.Contracts;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.TestKit.Benchmarks;
@@ -19,7 +19,7 @@ public sealed class BenchmarkNodeReadSurface
     }
 
     /// <summary>
-    /// Resolves the same cache surface used by <see cref="Squirix.Server.Adapters.Grpc.SquirixServiceAdapter{T}" /> for inbound reads.
+    /// Resolves the same cache surface used by <see cref="SquirixServiceAdapter{T}" /> for inbound reads.
     /// </summary>
     /// <param name="host">A started in-process test node.</param>
     /// <param name="cacheName">Logical cache namespace.</param>

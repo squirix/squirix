@@ -122,7 +122,7 @@ internal static class BackpressureMetrics
 
     private sealed class ObserverEntry
     {
-        public ObserverEntry(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
+        internal ObserverEntry(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
         {
             ObserveInFlight = observeInFlight;
             ObserveQueueDepth = observeQueueDepth;
@@ -141,7 +141,7 @@ internal static class BackpressureMetrics
         private readonly long _observerId;
         private int _disposed;
 
-        public ObserverRegistration(long observerId)
+        internal ObserverRegistration(long observerId)
         {
             _observerId = observerId;
         }

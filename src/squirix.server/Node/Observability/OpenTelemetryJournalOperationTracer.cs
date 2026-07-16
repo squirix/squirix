@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -62,7 +64,7 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
     {
         private readonly Activity _activity;
 
-        public OpenTelemetryJournalOperationTraceScope(Activity activity)
+        internal OpenTelemetryJournalOperationTraceScope(Activity activity)
         {
             _activity = activity;
         }

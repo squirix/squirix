@@ -8,7 +8,7 @@ namespace Squirix.Server;
 
 /// <summary>
 /// Convenience entry point for starting and owning a Squirix server host in tests and samples.
-/// Production deployments typically use <see cref="SquirixServerAspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
+/// Production deployments typically use <see cref="AspNetCoreExtensions.AddSquirixServerAsync" /> or the standalone host tool.
 /// </summary>
 public sealed class SquirixServer : IAsyncDisposable
 {
@@ -50,7 +50,7 @@ public sealed class SquirixServer : IAsyncDisposable
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
         Configurator.ApplyRuntimeDefaults(options);
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
 
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -81,7 +81,7 @@ public sealed class SquirixServer : IAsyncDisposable
     {
         private readonly WebApplication _app;
 
-        public ApplicationHandle(WebApplication app)
+        internal ApplicationHandle(WebApplication app)
         {
             _app = app ?? throw new ArgumentNullException(nameof(app));
         }

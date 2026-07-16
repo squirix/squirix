@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Benchmarks;
 

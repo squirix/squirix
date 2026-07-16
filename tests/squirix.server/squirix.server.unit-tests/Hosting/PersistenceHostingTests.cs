@@ -12,7 +12,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers persistence opt-in hosting behavior.</summary>
-public sealed class PersistenceHostingTests : UnitTestBase
+public sealed class PersistenceHostingTests : ServerUnitTestBase
 {
     /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]

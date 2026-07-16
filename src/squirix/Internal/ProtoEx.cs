@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Squirix.Serialization;
 using Squirix.Transport.Grpc.Cache;
 
 namespace Squirix.Internal;

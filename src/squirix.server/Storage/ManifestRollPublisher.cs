@@ -15,7 +15,7 @@ internal sealed class ManifestRollPublisher : IDisposable
     private int _disposed;
     private int _inFlight;
 
-    public ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
+    internal ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
@@ -83,7 +83,7 @@ internal sealed class ManifestRollPublisher : IDisposable
         private readonly Action<Exception>? _captureFailure;
         private readonly Action? _onSuccess;
 
-        public ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
+        internal ManifestRollRequest(int currentJournal, ulong nextSequence, Action onSuccess, Action<Exception>? captureFailure = null)
         {
             CurrentJournal = currentJournal;
             NextSequence = nextSequence;

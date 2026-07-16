@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
-using static Squirix.Server.Adapters.Rest.Dtos;
 
 namespace Squirix.Server.Adapters.Rest;
 
@@ -25,8 +23,8 @@ internal static class SquirixExceptionHttpExtensions
             };
 
             return Results.Json(
-                new RestErrorResponse(exception.Error, SquirixErrorMapper.ToPublicCode(exception.Code), exception.Detail),
-                RestJsonSerializerContext.Default.RestErrorResponse,
+                new ErrorResponse(exception.Error, SquirixErrorMapper.ToPublicCode(exception.Code), exception.Detail),
+                RestJsonSerializerContext.Default.ErrorResponse,
                 statusCode: statusCode);
         }
     }

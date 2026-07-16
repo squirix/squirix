@@ -7,7 +7,7 @@ internal sealed class JournalStartupGate
 {
     private readonly TaskCompletionSource _ready = CreateCompletionSource();
 
-    public JournalStartupGate(bool isOpen = true)
+    internal JournalStartupGate(bool isOpen = true)
     {
         if (isOpen)
             Open();

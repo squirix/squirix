@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;

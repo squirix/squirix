@@ -7,7 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for <see cref="ObjectCacheEntrySizeEstimator" />.</summary>
-public sealed class ObjectCacheEntrySizeEstimatorTests : UnitTestBase
+public sealed class ObjectCacheEntrySizeEstimatorTests : ServerUnitTestBase
 {
     private const string CacheName = "orders";
     private const string Key = "item";

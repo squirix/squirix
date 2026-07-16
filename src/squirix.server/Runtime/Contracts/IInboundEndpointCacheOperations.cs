@@ -1,5 +1,3 @@
-using Squirix.Server.Contracts;
-
 namespace Squirix.Server.Runtime.Contracts;
 
 /// <summary>Node-side cache operations used by inbound REST/gRPC endpoints.</summary>

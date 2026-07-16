@@ -2,14 +2,16 @@ using System;
 using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Unit tests covering automatic retention cleanup of snapshots and journal segments.</summary>
-public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
+public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
 {
     private TempDirectory? _dir;
 
@@ -19,7 +21,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir);
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         CreateJournalSegment(1);
@@ -31,7 +33,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             new Storage.Manifest.State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.State.SnapshotRef
+                LastSnapshot = new Storage.Manifest.SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -43,7 +45,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
-        await ManifestStoreTestSupport.WaitUntilAsync(
+        await StoreTestSupport.WaitUntilAsync(
             staleJournalPaths,
             static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
             TimeSpan.FromSeconds(5),
@@ -72,7 +74,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         await store.WriteAsync(
             new Storage.Manifest.State
             {
-                LastSnapshot = new Storage.Manifest.State.SnapshotRef
+                LastSnapshot = new Storage.Manifest.SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
@@ -84,7 +86,7 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await ManifestStoreTestSupport.WaitUntilAsync(
+        await StoreTestSupport.WaitUntilAsync(
             staleSnapshotPath,
             static path => !FileKit.Exists(path),
             TimeSpan.FromSeconds(5),
@@ -122,12 +124,12 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
 
     private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{index.ToString(CultureInfo.InvariantCulture)}");
 
-    private string JournalPath(int index) => PathKit.Combine(
+    private string JournalPath(int index) => NodePathKit.Combine(
         false,
         Dir,
         $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => PathKit.Combine(
+    private string SnapshotPath(int index) => NodePathKit.Combine(
         false,
         Dir,
         $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");

@@ -19,6 +19,14 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     private EndpointFailover? _failover;
     private CallPolicy? _policy;
 
+    /// <summary>Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.</summary>
+    [Benchmark(OperationsPerInvoke = Batch)]
+    public static void QueueWaitMetricObserveBatched()
+    {
+        for (var i = 0; i < Batch; i++)
+            CallPolicyMetrics.ObserveQueueWaitSeconds("node-a", TimeSpan.Zero);
+    }
+
     /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
     public async Task BootstrapCallPolicyDoneVtBatchedAsync()
@@ -69,14 +77,6 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     {
         for (var i = 0; i < Batch; i++)
             _consumer.Consume(42);
-    }
-
-    /// <summary>Records the queue-wait metric alone, isolating metric tag overhead from timeout and semaphore costs.</summary>
-    [Benchmark(OperationsPerInvoke = Batch)]
-    public void QueueWaitMetricObserveBatched()
-    {
-        for (var i = 0; i < Batch; i++)
-            CallPolicyMetrics.QueueWaitSeconds.Observe("node-a", TimeSpan.Zero);
     }
 
     /// <summary>Creates reusable wrapper instances.</summary>

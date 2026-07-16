@@ -1,3 +1,5 @@
+using Squirix.Server.Storage.Journaling.Abstractions;
+
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Starts trace scopes for journal writer operations.</summary>

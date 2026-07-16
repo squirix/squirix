@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 
@@ -21,7 +22,7 @@ internal sealed class JournalCompactionController : IDisposable
     private readonly ISnapshotReader _snapshotReader;
     private bool _disposed;
 
-    public JournalCompactionController(
+    internal JournalCompactionController(
         PersistenceOptions opt,
         ManifestStore manifestStore,
         ISnapshotReader snapshotReader,

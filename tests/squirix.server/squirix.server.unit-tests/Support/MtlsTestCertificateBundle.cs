@@ -31,15 +31,15 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         PfxPath = pfxPath;
     }
 
-    public string CaPath { get; }
+    internal string CaPath { get; }
 
-    public string CertPath { get; }
+    internal string CertPath { get; }
 
-    public string KeyPath { get; }
+    internal string KeyPath { get; }
 
-    public string PfxPath { get; }
+    internal string PfxPath { get; }
 
-    public string RootDirectory { get; }
+    internal string RootDirectory { get; }
 
     internal X509Certificate2 Ca { get; }
 
@@ -53,10 +53,10 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
     internal static async Task<MtlsTestCertificateBundle> CreateAsync(X509Certificate2 ca, X509Certificate2 nodeCertificate, CancellationToken cancellationToken)
     {
         var rootDirectory = new TempDirectory("squirix-cluster-mtls-tests");
-        var caPath = PathKit.Combine(rootDirectory, "cluster-ca.crt");
-        var certPath = PathKit.Combine(rootDirectory, "node.crt");
-        var keyPath = PathKit.Combine(rootDirectory, "node.key");
-        var pfxPath = PathKit.Combine(rootDirectory, "node.pfx");
+        var caPath = NodePathKit.Combine(rootDirectory, "cluster-ca.crt");
+        var certPath = NodePathKit.Combine(rootDirectory, "node.crt");
+        var keyPath = NodePathKit.Combine(rootDirectory, "node.key");
+        var pfxPath = NodePathKit.Combine(rootDirectory, "node.pfx");
 
         FileKit.WriteAllText(caPath, ca.ExportCertificatePem());
         FileKit.WriteAllText(certPath, nodeCertificate.ExportCertificatePem());

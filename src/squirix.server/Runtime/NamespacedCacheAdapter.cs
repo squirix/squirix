@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Runtime;
@@ -11,7 +12,7 @@ internal sealed class NamespacedCacheAdapter<T> : ILogicalNamespacedCache<T>
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    public NamespacedCacheAdapter(ILogicalNamespacedCache<T> inner)
+    internal NamespacedCacheAdapter(ILogicalNamespacedCache<T> inner)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }

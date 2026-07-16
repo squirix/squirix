@@ -7,8 +7,9 @@ using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Node.Bootstrap;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server;
@@ -36,7 +37,7 @@ public static class Configurator
 
         ApplyRuntimeDefaults(options);
         AlignLocalPeerWithNodeUrl(options);
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
     }
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
@@ -93,7 +94,7 @@ public static class Configurator
 
         configure?.Invoke(options);
         ApplyRuntimeDefaults(options);
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
         return options;
     }
 
@@ -206,7 +207,7 @@ public static class Configurator
 
             var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
                           throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
-            if (ClusterTopologyValidator.TryValidate(options, out var failures))
+            if (SquirixServerOptionsValidator.TryValidate(options, out var failures))
                 return (true, options, null);
 
             return (false, null, string.Join(Environment.NewLine, failures));
@@ -241,18 +242,16 @@ public static class Configurator
 
         var failures = new List<string>();
         await UnifiedSettings.ValidateOptionalSectionsAsync(settingsFilePath, failures, cancellationToken).ConfigureAwait(false);
-        if (failures.Count is 0)
-            return (true, null);
 
-        return (false, string.Join(Environment.NewLine, failures));
+        return failures.Count is 0 ? (true, null) : (false, string.Join(Environment.NewLine, failures));
     }
 
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
+    internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
@@ -268,7 +267,7 @@ public static class Configurator
             }
         }
 
-        return new ClusterConfig(peers)
+        return new TopologyOptions(peers)
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,

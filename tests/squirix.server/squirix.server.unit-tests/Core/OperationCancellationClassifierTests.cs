@@ -1,9 +1,6 @@
-using System;
 using System.Threading;
-using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Node;
-using Squirix.Server.Node.App.Decorators;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -12,26 +9,8 @@ namespace Squirix.Server.UnitTests.Core;
 /// <summary>
 /// Characterization tests for <see cref="ServerCancelClassifier" /> precedence and transport helpers.
 /// </summary>
-public sealed class OperationCancellationClassifierTests : UnitTestBase
+public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
-    /// <summary>Domain transport mapper still maps gRPC Canceled plus caller token to caller cancellation.</summary>
-    [Fact]
-    public async Task DomainTransportErrorMapperStillMapsGrpcCanceledWithCallerTokenToOperationCanceled()
-    {
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-        var callerToken = cts.Token;
-        var ex = new RpcException(new Status(StatusCode.Cancelled, "call canceled"));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-        {
-            await Task.Factory.StartNew(
-                () => DomainTransportErrorMapper.Map(ex, callerToken),
-                CancellationToken.None,
-                TaskCreationOptions.DenyChildAttach,
-                TaskScheduler.Default);
-        });
-    }
-
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
     [Fact]
     public void IsCallerInitiatedGrpcCancellationRequiresCanceledStatusAndCallerToken()

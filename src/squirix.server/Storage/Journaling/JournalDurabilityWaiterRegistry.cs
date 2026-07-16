@@ -44,7 +44,7 @@ internal sealed class JournalDurabilityWaiterRegistry
                 return false;
             }
 
-            waiters = new List<JournalDurabilityWaiter>(_waiters);
+            waiters = [.. _waiters];
             _waiters.Clear();
             return true;
         }

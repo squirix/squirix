@@ -1,5 +1,4 @@
 using System;
-using Squirix.Server.Contracts;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Grpc;

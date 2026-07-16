@@ -20,7 +20,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private int _inFlight;
     private int _queueDepth;
 
-    public AdmissionGate(AdmissionOptions options, TimeProvider? timeProvider = null)
+    internal AdmissionGate(AdmissionOptions options, TimeProvider? timeProvider = null)
     {
         _options = options;
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -75,7 +75,17 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _slots.Dispose();
     }
 
-    internal void ReleaseLease(string clientId, ClientState client) => Release(clientId, client);
+    internal void ReleaseLease(string clientId)
+    {
+        if (_clients.TryGetValue(clientId, out var client))
+        {
+            Release(clientId, client);
+            return;
+        }
+
+        AdjustInFlight(-1);
+        _ = _slots.Release();
+    }
 
     private async ValueTask<(Decision Decision, Lease Lease)> AcquireFromSlotOrQueueAsync(
         string transport,
@@ -90,9 +100,9 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private Lease AcquireLease(string clientId, ClientState client)
     {
-        _ = Interlocked.Increment(ref _inFlight);
+        AdjustInFlight(1);
         _ = Interlocked.Increment(ref client.InFlightRef);
-        return new Lease(this, clientId, client);
+        return new Lease(this, clientId);
     }
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
@@ -173,10 +183,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
     private void Release(string clientId, ClientState client)
     {
         _ = Interlocked.Decrement(ref client.InFlightRef);
-        _ = Interlocked.Decrement(ref _inFlight);
+        AdjustInFlight(-1);
         _ = _slots.Release();
         RemoveIdleClient(clientId, client);
     }
+
+    private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {
@@ -235,13 +247,13 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         }
     }
 
-    internal sealed class ClientState
+    private sealed class ClientState
     {
         private readonly RateLimiter? _rateLimiter;
         private int _inFlight;
         private int _queueDepth;
 
-        public ClientState(AdmissionOptions options)
+        internal ClientState(AdmissionOptions options)
         {
             _rateLimiter = RateLimiter.Create(options.PerClientRateLimitPerSecond, options.PerClientRateLimitBurst);
         }

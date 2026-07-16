@@ -16,7 +16,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
-public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
+public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 {
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]

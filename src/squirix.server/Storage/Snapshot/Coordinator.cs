@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 
@@ -105,7 +104,7 @@ internal sealed class Coordinator
         return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
     }
 
-    private async ValueTask<State.SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotBundle captured,
         ISnapshotTraceScope? currentActivity,
@@ -126,7 +125,7 @@ internal sealed class Coordinator
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
             NextSequence = captured.NextSequenceAtFlush,
-            LastSnapshot = new State.SnapshotRef
+            LastSnapshot = new SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,

@@ -2,9 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Server.Limits;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -16,7 +16,7 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
     private readonly INodeLocator _ring;
     private readonly string _self;
 
-    public JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
+    internal JournalPayloadPrepareCacheDecorator(string self, INodeLocator ring, JournalLoggingCacheDecorator<T> journal)
     {
         _self = self ?? throw new ArgumentNullException(nameof(self));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));

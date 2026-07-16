@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
 
@@ -8,7 +9,7 @@ internal sealed record RetentionContext
 {
     internal RetentionContext(
         RetentionSettings settings,
-        IStorageFileOperations fileOperations,
+        IStorageFileOperations? fileOperations,
         ILogger? logger,
         Func<string, int> parseManifestIndex,
         IManifestRetentionFailureMetrics failureMetrics)
@@ -24,11 +25,11 @@ internal sealed record RetentionContext
     {
     }
 
-    internal RetentionContext(
+    private RetentionContext(
         string dataDir,
         int manifestRetention,
         int snapshotRetention,
-        IStorageFileOperations fileOperations,
+        IStorageFileOperations? fileOperations,
         ILogger? logger,
         string manifestFileGlob,
         Func<string, int> parseManifestIndex,
@@ -37,7 +38,7 @@ internal sealed record RetentionContext
         DataDir = dataDir;
         ManifestRetention = manifestRetention;
         SnapshotRetention = snapshotRetention;
-        FileOperations = fileOperations;
+        FileOperations = fileOperations ?? new FileOperations();
         Logger = logger;
         ManifestFileGlob = manifestFileGlob;
         ParseManifestIndex = parseManifestIndex;

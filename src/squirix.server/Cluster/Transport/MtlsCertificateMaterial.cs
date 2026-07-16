@@ -6,7 +6,7 @@ namespace Squirix.Server.Cluster.Transport;
 /// <summary>Loaded cluster mTLS certificate material for later transport wiring.</summary>
 internal sealed class MtlsCertificateMaterial : IDisposable
 {
-    internal MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+    private MtlsCertificateMaterial(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
     {
         Enabled = true;
         NodeCertificate = nodeCertificate;
@@ -40,6 +40,12 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         TrustAnchor?.Dispose();
     }
 
+    /// <summary>Creates enabled certificate material from an already-loaded node certificate and trust anchor.</summary>
+    /// <param name="nodeCertificate">The local node certificate including its private key.</param>
+    /// <param name="trustAnchor">The configured cluster trust root.</param>
+    /// <returns>Enabled certificate material.</returns>
+    internal static MtlsCertificateMaterial Create(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor) => new(nodeCertificate, trustAnchor);
+
     /// <summary>Loads node and trust-anchor certificates from validated options.</summary>
     /// <param name="options">Validated cluster mTLS options.</param>
     /// <param name="primaryListenPort">Primary external HTTPS listener port used to validate the internal listener port.</param>
@@ -63,12 +69,43 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         var nodeCertificate = MtlsCertificateLoader.LoadNodeCertificate(options);
         MtlsCertificateLoader.EnsureNodeCertificateChainsToTrustAnchor(nodeCertificate, trustAnchor);
         MtlsCertificateLoader.EnsureNodeCertificateMatchesNodeId(nodeCertificate, localNodeId);
-        return new MtlsCertificateMaterial(nodeCertificate, trustAnchor);
+        return Create(nodeCertificate, trustAnchor);
     }
 
     /// <summary>Loads cluster mTLS certificates from explicit file paths.</summary>
     private static class MtlsCertificateLoader
     {
+        /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
+        /// <param name="nodeCertificate">The node certificate.</param>
+        /// <param name="trustAnchor">The configured cluster CA.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key or does not chain to the trust root.</exception>
+        internal static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
+        {
+            ArgumentNullException.ThrowIfNull(nodeCertificate);
+            ArgumentNullException.ThrowIfNull(trustAnchor);
+
+            if (!nodeCertificate.HasPrivateKey)
+                throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
+
+            using var chain = new X509Chain();
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+            _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
+
+            if (chain.Build(nodeCertificate))
+                return;
+
+            var errorParts = new string[chain.ChainStatus.Length];
+            for (var i = 0; i < chain.ChainStatus.Length; i++)
+                errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
+
+            var errors = string.Join("; ", errorParts);
+            var chainFailureMessage = string.IsNullOrWhiteSpace(errors) ? "mTLS node certificate does not chain to the configured trust root."
+                : $"mTLS node certificate does not chain to the configured trust root. {errors}";
+            throw new InvalidOperationException(chainFailureMessage);
+        }
+
         /// <summary>Ensures the node certificate common name matches the configured cluster node identifier.</summary>
         /// <param name="nodeCertificate">The node certificate.</param>
         /// <param name="nodeId">Configured local cluster node identifier.</param>
@@ -109,36 +146,5 @@ internal sealed class MtlsCertificateMaterial : IDisposable
         /// <param name="caPath">Path to the PEM-encoded CA certificate.</param>
         /// <returns>The loaded trust anchor.</returns>
         internal static X509Certificate2 LoadTrustAnchor(string caPath) => X509CertificateLoader.LoadCertificateFromFile(caPath);
-
-        /// <summary>Ensures the node certificate chains to the configured cluster trust root.</summary>
-        /// <param name="nodeCertificate">The node certificate.</param>
-        /// <param name="trustAnchor">The configured cluster CA.</param>
-        /// <exception cref="ArgumentNullException">Thrown when <paramref name="nodeCertificate" /> or <paramref name="trustAnchor" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the node certificate is missing a private key or does not chain to the trust root.</exception>
-        internal static void EnsureNodeCertificateChainsToTrustAnchor(X509Certificate2 nodeCertificate, X509Certificate2 trustAnchor)
-        {
-            ArgumentNullException.ThrowIfNull(nodeCertificate);
-            ArgumentNullException.ThrowIfNull(trustAnchor);
-
-            if (!nodeCertificate.HasPrivateKey)
-                throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");
-
-            using var chain = new X509Chain();
-            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-            chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-            _ = chain.ChainPolicy.CustomTrustStore.Add(trustAnchor);
-
-            if (chain.Build(nodeCertificate))
-                return;
-
-            var errorParts = new string[chain.ChainStatus.Length];
-            for (var i = 0; i < chain.ChainStatus.Length; i++)
-                errorParts[i] = chain.ChainStatus[i].StatusInformation.Trim();
-
-            var errors = string.Join("; ", errorParts);
-            var chainFailureMessage = string.IsNullOrWhiteSpace(errors) ? "mTLS node certificate does not chain to the configured trust root."
-                : $"mTLS node certificate does not chain to the configured trust root. {errors}";
-            throw new InvalidOperationException(chainFailureMessage);
-        }
     }
 }

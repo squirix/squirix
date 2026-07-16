@@ -21,7 +21,7 @@ public static class RepositoryRootFinder
         var dir = new DirectoryInfo(startDirectory ?? AppContext.BaseDirectory);
         while (dir is not null)
         {
-            if (File.Exists(PathKit.Combine(dir.FullName, SolutionFileName)))
+            if (File.Exists(NodePathKit.Combine(dir.FullName, SolutionFileName)))
                 return Path.GetFullPath(dir.FullName);
 
             dir = dir.Parent;

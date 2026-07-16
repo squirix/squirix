@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
@@ -34,10 +34,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private int _snapshotSubscriptionState;
     private CancellationToken _stoppingToken;
 
-    internal JournalCompactionService(
-        ILogger<JournalCompactionService<T>> log,
-        IOptions<JournalCompactionOptions> opt,
-        JournalCompactionDependencies deps)
+    internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
     {
         _log = log ?? throw new ArgumentNullException(nameof(log));
         ArgumentNullException.ThrowIfNull(opt);
@@ -68,6 +65,16 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         return RunLoopAsync(stoppingToken);
     }
 
+    private static string StateName(RunState state) => state switch
+    {
+        RunState.Idle => nameof(RunState.Idle),
+        RunState.Waiting => nameof(RunState.Waiting),
+        RunState.Running => nameof(RunState.Running),
+        RunState.BackingOff => nameof(RunState.BackingOff),
+        RunState.Failed => nameof(RunState.Failed),
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported enum value."),
+    };
+
     private void ChangeState(RunState next)
     {
         var prev = State;
@@ -75,10 +82,14 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             return;
 
         State = next;
-        LogManager.CompactionStateChanged(_log, prev, next);
+        if (!_log.IsEnabled(LogLevel.Debug))
+            return;
+        var prevName = StateName(prev);
+        var nextName = StateName(next);
+        LogManager.CompactionStateChanged(_log, prevName, nextName);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(State.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip

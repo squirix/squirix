@@ -1,6 +1,7 @@
 using System;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.Observability;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
@@ -19,7 +20,7 @@ internal sealed class PressureGate : IMemoryPressureGate
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
-    public PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
+    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
     {
         _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
@@ -43,7 +44,7 @@ internal sealed class PressureGate : IMemoryPressureGate
 
         _accounting.RecordAdmissionRejection();
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
-        MemoryPressureMetrics.RecordRejection(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
+        RejectionCounter.Record(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
         throw new ResourceExhaustedException();
     }
 
@@ -57,5 +58,25 @@ internal sealed class PressureGate : IMemoryPressureGate
     {
         var classifyRejectionReason = boundedGrowth > 0 ? "estimated_limit" : "critical_pressure";
         return magnitudeUnknown ? "unknown_size" : classifyRejectionReason;
+    }
+
+    /// <summary>Low-cardinality memory admission rejection counter (hot path).</summary>
+    private static class RejectionCounter
+    {
+        private static readonly Counter<long> RejectionsTotal = new Meter("Squirix").CreateCounter<long>(
+            "squirix_memory_rejections_total",
+            "{rejection}",
+            "Memory admission rejections by operation and reason");
+
+        internal static void Record(string nodeId, string operation, string reason)
+        {
+            var tags = new TagList
+            {
+                { "node", nodeId },
+                { "operation", operation },
+                { "reason", reason },
+            };
+            RejectionsTotal.Add(1, in tags);
+        }
     }
 }

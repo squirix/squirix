@@ -9,7 +9,7 @@ internal sealed class JournalSegmentPolicy
     private readonly long _maxSegmentBytes;
     private readonly long _maxTotalBytes;
 
-    public JournalSegmentPolicy(PersistenceOptions options)
+    internal JournalSegmentPolicy(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _maxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
