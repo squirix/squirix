@@ -127,12 +127,20 @@ public sealed class CorrelationClientInterceptorTests
 
     private static List<string> CollectHeaderValues(Metadata headers, string key)
     {
-        var values = new List<string>();
-        for (var index = 0; index < headers.Count; index++)
+        return new AsyncUnaryCall<string>(
+            Task.FromResult(response),
+            Task.FromResult(Metadata.Empty),
+            static () => Status.DefaultSuccess,
+            static () => Metadata.Empty,
+            static () => { });
+    }
+
+    private static Correlation.ClientInterceptor CreateInterceptor()
+    {
+        var cluster = new ClusterConfig([])
         {
             ClusterId = "c",
             NodeId = "n1",
-            Peers = [],
             Uri = new Uri("https://localhost"),
         };
 

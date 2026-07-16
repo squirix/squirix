@@ -17,7 +17,7 @@ public sealed class CacheEntryCodecTests : UnitTestBase
     public void RoundTripsJsonElementValue()
     {
         using var document = JsonDocument.Parse("""{"id":42,"tags":["a","b"]}""");
-        var entry = new CacheEntry<object?> { Value = document.RootElement.Clone(), Version = 2 };
+        var entry = new NodeCacheEntry<object?> { Value = document.RootElement.Clone(), Version = 2 };
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
         BufferKit.WithBuffer(
             length,
@@ -36,14 +36,12 @@ public sealed class CacheEntryCodecTests : UnitTestBase
     [Fact]
     public void RoundTripsMetadataAndTags()
     {
-        var entry = new CacheEntry<object?>
-        {
-            Value = "payload",
-            ExpiresUtc = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
-            Expiration = TimeSpan.FromMinutes(5),
-            Version = 3,
-            Tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal),
-        };
+        var entry = new NodeCacheEntry<object?>(
+            "payload",
+            3,
+            new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
+            TimeSpan.FromMinutes(5),
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal));
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
         BufferKit.WithBuffer(
             length,
@@ -72,7 +70,7 @@ public sealed class CacheEntryCodecTests : UnitTestBase
     [InlineData(3.14d)]
     public void RoundTripsPrimitiveValues(object? value)
     {
-        var entry = new CacheEntry<object?> { Value = value, Version = 7 };
+        var entry = new NodeCacheEntry<object?> { Value = value, Version = 7 };
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
         BufferKit.WithBuffer(
             length,

@@ -4,9 +4,9 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Snapshot;
 
@@ -72,7 +72,7 @@ internal sealed class Coordinator
                 static async (state, _, ct) =>
                 {
                     var captured = await state.Coordinator.CaptureSnapshotBundleAsync(state.Journal, ct).ConfigureAwait(false);
-                    state.Activity?.SetTag("snapshot.items_count", InvariantDigitStrings.Format(captured.Items.Count));
+                    state.Activity?.SetTag("snapshot.items_count", captured.Items.Count);
                     return captured;
                 },
                 static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, ct),
@@ -89,7 +89,7 @@ internal sealed class Coordinator
             _telemetry.RecordDuration(_nodeId, result, elapsed);
 
             activity?.SetTag("snapshot.result", result);
-            activity?.SetTag("snapshot.duration_ms", InvariantDigitStrings.Format(elapsed.TotalMilliseconds));
+            activity?.SetTag("snapshot.duration_ms", elapsed.TotalMilliseconds);
 
             Volatile.Write(ref _snapshotInFlight, 0);
         }
@@ -105,17 +105,17 @@ internal sealed class Coordinator
         return new CapturedSnapshotBundle(_captureScratch.Items, journal.CurrentSegmentIndex, journal.NextSequence, _captureScratch.IdempotencyRecords);
     }
 
-    private async ValueTask<SnapshotRef> PublishSnapshotAsync(
+    private async ValueTask<State.SnapshotRef> PublishSnapshotAsync(
         ulong seqAtFlush,
         CapturedSnapshotBundle captured,
         ISnapshotTraceScope? currentActivity,
         CancellationToken cancellationToken)
     {
-        currentActivity?.SetTag("snapshot.seq_at_flush", InvariantDigitStrings.Format(seqAtFlush));
+        currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
 
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-        currentActivity?.SetTag("snapshot.index", InvariantDigitStrings.Format(nextIndex));
+        currentActivity?.SetTag("snapshot.index", nextIndex);
 
         var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
         currentActivity?.SetTag("snapshot.path", path);
@@ -126,7 +126,7 @@ internal sealed class Coordinator
             Format = prev.Format,
             CurrentJournal = prev.CurrentJournal,
             NextSequence = captured.NextSequenceAtFlush,
-            LastSnapshot = new SnapshotRef
+            LastSnapshot = new State.SnapshotRef
             {
                 Index = nextIndex,
                 Path = path,
@@ -197,7 +197,7 @@ internal sealed class Coordinator
         /// <summary>
         /// Returns <see langword="true" /> when conditions are met to start a new snapshot.
         /// </summary>
-        /// <param name="utcNow">Current UTC time used for all-time comparisons.</param>
+        /// <param name="utcNow">Current UTC time used for all time comparisons.</param>
         /// <param name="isInFlight">Whether a snapshot is already running on the coordinator.</param>
         /// <returns><see langword="true" /> if a snapshot should be triggered; otherwise <see langword="false" />.</returns>
         internal bool ShouldTrigger(DateTime utcNow, bool isInFlight)

@@ -11,7 +11,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 {
     private readonly JournalCoordinator _owner;
 
-    internal JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
+    public JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
     {
         _owner = owner;
     }
@@ -39,7 +39,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
                     _owner.BackgroundCancellation.Token,
                     TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                     TaskScheduler.Default).ConfigureAwait(false))
+            {
                 failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
+            }
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
@@ -73,7 +75,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         try
         {
             var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = new JournalWorkItem(JournalWorkKind.MaintenanceBegin, begin);
+            var beginItem = new JournalWorkItem(JournalWorkKind.MaintenanceBegin, completion: begin);
             await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
             await beginWaitTask.ConfigureAwait(false);
@@ -87,7 +89,11 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             try
             {
                 var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = new JournalWorkItem(JournalWorkKind.MaintenanceEnd, end, resetSegmentIndex: resetSegmentIndex, resetSequence: resetSequence);
+                var endItem = new JournalWorkItem(
+                    JournalWorkKind.MaintenanceEnd,
+                    completion: end,
+                    resetSegmentIndex: resetSegmentIndex,
+                    resetSequence: resetSequence);
                 await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
                 await endWaitTask.ConfigureAwait(false);
@@ -152,9 +158,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         while (true)
         {
-            await _owner.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
+            await WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
             await _owner.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!_owner.HasPendingMemoryApply())
+            if (!HasPendingMemoryApply())
                 return;
 
             _ = _owner.MutationGate.Release();
@@ -189,11 +195,32 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
+    private bool HasPendingMemoryApply()
+    {
+        lock (_owner.PendingMemoryApplyLock)
+            return _owner.PendingMemoryApplyCountField > 0;
+    }
+
     private void RemoveDurabilityWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         if (!_owner.DurabilityWaiters.Remove(waiter))
             return;
 
         _ = waiter.TrySetCanceled(cancellationToken);
+    }
+
+    private ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken)
+    {
+        Task waitTask;
+        lock (_owner.PendingMemoryApplyLock)
+        {
+            if (_owner.PendingMemoryApplyCountField is 0)
+                return ValueTask.CompletedTask;
+
+            _owner.PendingMemoryApplyDrainedField ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            waitTask = _owner.PendingMemoryApplyDrainedField.Task;
+        }
+
+        return new ValueTask(waitTask.WaitAsync(cancellationToken));
     }
 }

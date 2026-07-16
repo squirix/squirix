@@ -1,12 +1,27 @@
+using System;
+
 namespace Squirix.Server.Storage.Manifest;
 
 internal sealed class State
 {
-    internal int CurrentJournal { get; init; } = 1;
+    public int Format { get; init; } = 1;
 
-    internal int Format { get; init; } = 1;
+    public SnapshotRef? LastSnapshot { get; init; }
 
-    internal SnapshotRef? LastSnapshot { get; init; }
+    public ulong NextSequence { get; init; } = 1;
 
-    internal ulong NextSequence { get; init; } = 1;
+    public int CurrentJournal { get; init; } = 1;
+
+    internal sealed record SnapshotRef
+    {
+        public DateTime CreatedUtc { get; init; }
+
+        public int Index { get; init; }
+
+        public ulong LastAppliedSequence { get; init; }
+
+        public string? Path { get; init; }
+
+        public int ReplayFromJournalSegment { get; init; } = 1;
+    }
 }

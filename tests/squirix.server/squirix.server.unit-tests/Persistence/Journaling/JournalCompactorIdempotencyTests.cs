@@ -5,7 +5,6 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
@@ -31,7 +30,7 @@ public sealed class JournalCompactorIdempotencyTests : UnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         await WritePutAndIdempotencyAsync(persistence, manifestStore);
 
-        await JournalCompactor.CompactAsync(persistence, manifestStore, SnapshotStoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         var found = false;
@@ -54,7 +53,7 @@ public sealed class JournalCompactorIdempotencyTests : UnitTestBase
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-compact-idempotency-recovery");
         var persistence = CreatePersistence(scenario.DataDir);
         await WritePutAndIdempotencyAsync(persistence, scenario.ManifestStore);
-        await JournalCompactor.CompactAsync(persistence, scenario.ManifestStore, SnapshotStoreFactory.CreateReader(persistence), DefaultCancellationToken);
+        await JournalCompactor.CompactAsync(persistence, scenario.ManifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var idempotencyStore = new RpcMutationIdempotencyStore();
         await RunRecoveryAsync(scenario, persistence, idempotencyStore);
@@ -95,14 +94,15 @@ public sealed class JournalCompactorIdempotencyTests : UnitTestBase
         RpcMutationIdempotencyStore idempotencyStore)
     {
         var recovery = new RecoveryService<object?>(
-            persistence,
-            scenario.ManifestStore,
-            scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
-            new JournalStartupGate(false),
-            idempotencyStore,
-            SnapshotStoreFactory.CreateReader(persistence),
-            NullLogger<RecoveryService<object?>>.Instance);
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.ManifestStore,
+                scenario.Cache,
+                new JournalStartupGate(false),
+                idempotencyStore,
+                StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
     }
 }

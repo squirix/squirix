@@ -86,12 +86,27 @@ public sealed class StorageRetentionCleanupReadinessTests
         Assert.Equal(3, readiness.RecentFailureCount);
     }
 
-    private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) => new(
-        new PersistenceOptions
-        {
-            DataDir = "unused",
-            RetentionCleanupDegradedConsecutiveWrites = consecutiveWrites,
-            RetentionCleanupDegradedWindowMinutes = 15,
-            RetentionCleanupDegradedWindowFailures = windowFailures,
-        });
+    /// <summary>Ensures the readiness health check reports unhealthy when retention cleanup is degraded.</summary>
+    [Fact]
+    public async Task HealthCheckReportsUnhealthyWhenRetentionCleanupIsDegraded()
+    {
+        var readiness = CreateReadiness(2, 5);
+        readiness.RecordWriteOutcome(true);
+        readiness.RecordWriteOutcome(true);
+
+        var check = new RetentionCleanupReadinessCheck(readiness);
+        var result = await check.CheckHealthAsync(new HealthCheckContext(), CancellationToken.None);
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    private static RetentionCleanupReadiness CreateReadiness(int consecutiveWrites, int windowFailures) =>
+        new(
+            new PersistenceOptions
+            {
+                DataDir = "unused",
+                RetentionCleanupDegradedConsecutiveWrites = consecutiveWrites,
+                RetentionCleanupDegradedWindowMinutes = 15,
+                RetentionCleanupDegradedWindowFailures = windowFailures,
+            });
 }

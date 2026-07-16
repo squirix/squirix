@@ -11,7 +11,7 @@
           → LocalCache (in-memory owner cache)
           → Node.Backpressure / Node.MemoryPressure / Node.Observability / Serialization
             → Storage (journal, snapshot, manifest)
-              → Kernel: Errors, Logging, Utils, Core, Contracts, Runtime.Contracts
+              → Kernel: Errors, Limits, Utils, Core, Contracts, Runtime.Contracts
 
   Shared transport CLR: Squirix.Transport.Grpc.* (compiled from shared proto/mappers).
 
@@ -55,19 +55,18 @@
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Storage.*" />
 
+  <!-- Payload/tag guards are kernel policy; must not depend on journal entry shapes (today: EntryPayloadSizeGuard → Storage.Journaling.Entries). -->
+  <Disallowed From="Squirix.Server.Limits.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Limits.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Limits.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Limits.*" To="Squirix.Server.Cluster.*" />
+
   <!-- Low-level helpers (paths, CRC, buffers) must remain infrastructure-agnostic. -->
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Hosting.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Cluster.*" />
   <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Services.*" />
-
-  <!-- Logging must stay free of outer orchestration. -->
-  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Adapters.*" />
-  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Hosting.*" />
-  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Cluster.*" />
-  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Storage.*" />
-  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Services.*" />
 
   <!-- Public cache API contracts must not reference transport, hosting, or persistence implementations. -->
   <Disallowed From="Squirix.Server.Contracts.*" To="Squirix.Server.Adapters.*" />
@@ -85,7 +84,7 @@
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Node.Hosting.*" />
 
-  <!-- Core validators/limits are shared kernel; keep them free of node/cluster/storage orchestration. -->
+  <!-- Core validators are shared kernel; keep them free of node/cluster/storage orchestration. -->
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Storage.*" />
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Adapters.*" />
   <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Hosting.*" />

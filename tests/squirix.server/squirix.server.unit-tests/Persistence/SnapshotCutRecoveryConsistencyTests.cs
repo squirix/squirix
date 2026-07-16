@@ -9,8 +9,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Framing;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
@@ -55,7 +53,7 @@ public sealed class SnapshotCutRecoveryConsistencyTests : UnitTestBase
             new JournalStartupGate(),
             DefaultCancellationToken);
         var coordinator = Assert.IsType<JournalCoordinator>(journal);
-        var writer = SnapshotStoreFactory.CreateWriter(persistence);
+        var writer = StoreFactory.CreateWriter(persistence);
         var overflowPayload = JournalEntryPayloadKit.EncodePut(new string('y', RollOverflowChars));
         var overflowFrameLen = PutFrameLength(overflowPayload, OverflowKey);
 
@@ -70,7 +68,7 @@ public sealed class SnapshotCutRecoveryConsistencyTests : UnitTestBase
         await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
     }
 
-    private static async Task<ManifestState.SnapshotRef> CutSnapshotDuringSegmentRollAsync(
+    private static async Task<State.SnapshotRef> CutSnapshotDuringSegmentRollAsync(
         JournalCoordinator journal,
         ManifestStore manifestStore,
         ISnapshotWriter writer,
@@ -91,13 +89,13 @@ public sealed class SnapshotCutRecoveryConsistencyTests : UnitTestBase
 
                 var prev = await state.manifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-                var path = await state.writer.WriteAsync(nextIndex, [(BaseKey, new CacheEntry<object?> { Value = "base", Version = 1 })], [], ct).ConfigureAwait(false);
-                var updated = new ManifestState
+                var path = await state.writer.WriteAsync(nextIndex, [(BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 })], [], ct).ConfigureAwait(false);
+                var updated = new State
                 {
                     Format = prev.Format,
                     CurrentJournal = prev.CurrentJournal,
                     NextSequence = flushBoundary.NextSequence,
-                    LastSnapshot = new ManifestState.SnapshotRef
+                    LastSnapshot = new State.SnapshotRef
                     {
                         Index = nextIndex,
                         Path = path,
@@ -126,14 +124,15 @@ public sealed class SnapshotCutRecoveryConsistencyTests : UnitTestBase
         await using (cache.ConfigureAwait(false))
         {
             await new RecoveryService<object?>(
-                persistence,
-                manifestStore,
-                cache,
                 new RecoveryOptions { BlockOnStart = true },
-                new JournalStartupGate(false),
-                new RpcMutationIdempotencyStore(),
-                SnapshotStoreFactory.CreateReader(persistence),
-                NullLogger<RecoveryService<object?>>.Instance).StartAsync(cancellationToken);
+                NullLogger<RecoveryService<object?>>.Instance,
+                new RecoveryDependencies<object?>(
+                    persistence,
+                    manifestStore,
+                    cache,
+                    new JournalStartupGate(false),
+                    new RpcMutationIdempotencyStore(),
+                    StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
 
             Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
             var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);

@@ -12,7 +12,7 @@ using Squirix.E2EBenchmarks.Support.Harness;
 namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>Shared setup and cleanup for parameterized E2E benchmark classes.</summary>
-public abstract class CacheBenchmarkBase
+public abstract class BenchmarkBase
 {
     /// <summary>
     /// Number of cache operations performed per benchmark invocation.

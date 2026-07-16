@@ -6,7 +6,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for deterministic mixed workloads.</summary>
 [BenchmarkCategory("e2e", "mixed")]
-public class CacheMixedWorkloadBenchmarks : CacheBenchmarkBase
+public class MixedWorkloadBenchmarks : BenchmarkBase
 {
     /// <summary>Measures a hot-key read-mostly workload.</summary>
     /// <returns>A task that completes when the batch has finished.</returns>

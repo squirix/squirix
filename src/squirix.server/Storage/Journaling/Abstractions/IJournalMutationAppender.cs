@@ -8,8 +8,6 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 /// <summary>Append-only journal mutation surface for durable cache operations.</summary>
 internal interface IJournalMutationAppender
 {
-    ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken);
-
     ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
 
     ValueTask AppendPutAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken);
@@ -19,4 +17,6 @@ internal interface IJournalMutationAppender
     ValueTask AppendRemoveExpirationAsync(CacheKey key, CancellationToken cancellationToken);
 
     ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken);
+
+    ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken);
 }

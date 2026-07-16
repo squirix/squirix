@@ -1,25 +1,69 @@
 using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Hosting;
+using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.Storage;
+using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
+    internal static async Task<WebApplication> StartAsync(
+        ClusterConfig cluster,
+        Action<ILoggingBuilder>? configureLogging = null,
+        bool waitForRecovery = true,
+        TriggerOptions? snapshotOptions = null,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
+        Action<GrpcServiceOptions>? configureGrpc = null,
+        Action<IServiceCollection>? servicesConfigure = null,
+        PersistenceOptions? persistenceOptionsOverride = null,
+        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
+        SecurityOptions? securityOptionsOverride = null,
+        Action<SquirixServerExtensionOptions>? configureExtensions = null,
+        MtlsOptions? mtlsOptionsOverride = null,
+        MtlsCertificateMaterial? mtlsMaterialOverride = null,
+        CancellationToken cancellationToken = default)
     {
-        options ??= new NodeHostStartOptions();
-        var builder = CreateBuilder(options.ConfigureLogging);
-        var configureArgs = new CompositionArgsConfigurer(options);
+        var builder = CreateBuilder(configureLogging);
+        SquirixServerExtensionOptions? extensions = null;
+        if (configureExtensions is not null)
+        {
+            extensions = new SquirixServerExtensionOptions();
+            configureExtensions(extensions);
+        }
 
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
             cluster,
-            configureArgs.Configure,
+            new CompositionArgs
+            {
+                WaitForRecovery = waitForRecovery,
+                SnapshotOptions = snapshotOptions,
+                CallPolicyFactory = callPolicyFactory,
+                ConfigureGrpc = configureGrpc,
+                ServicesConfigure = servicesConfigure,
+                PersistenceOptions = persistenceOptionsOverride,
+                PeerHandlerFactory = peerHandlerFactory,
+                BackpressureOptions = backpressureOptions,
+                MemoryPressureOptions = memoryPressureOptions,
+                SecurityOptions = securityOptionsOverride,
+                Extensions = extensions,
+                MtlsOptions = mtlsOptionsOverride,
+                MtlsMaterial = mtlsMaterialOverride,
+            },
             cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
@@ -50,26 +94,5 @@ internal static class NodeHost
         _ = builder.Logging.ClearProviders();
         (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
         return builder;
-    }
-
-    private sealed class CompositionArgsConfigurer
-    {
-        private readonly NodeHostStartOptions _options;
-
-        internal CompositionArgsConfigurer(NodeHostStartOptions options) => _options = options;
-
-        internal void Configure(ICompositionArgs args)
-        {
-            args.WaitForRecovery = _options.WaitForRecovery;
-            args.ConfigureGrpc = _options.ConfigureGrpc;
-            args.ServicesConfigure = _options.ServicesConfigure;
-            args.PersistenceOptions = _options.PersistenceOptions;
-            args.PeerHandlerFactory = _options.PeerHandlerFactory;
-            args.BackpressureOptions = _options.BackpressureOptions;
-            args.MemoryPressureOptions = _options.MemoryPressureOptions;
-            args.SecurityOptions = _options.SecurityOptions;
-            args.MtlsOptions = _options.MtlsOptions;
-            args.MtlsMaterial = _options.MtlsMaterial;
-        }
     }
 }

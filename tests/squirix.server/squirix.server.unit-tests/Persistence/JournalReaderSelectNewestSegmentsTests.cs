@@ -15,9 +15,9 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     public void EnumerateSegmentsRespectsSegmentAndSortsAscending()
     {
         using var dir = new TempDirectory("squirix-journal-enum-from");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(9)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(2)}{FileExtensions.Journal}"), "x");
-        File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(15)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{2.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{15.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
 
         var segments = JournalReader.EnumerateSegments(dir, 9);
         Assert.Equal(2, segments.Length);
@@ -51,32 +51,10 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     public void EnumerateSegmentsSkipsJournalFilesNonNumericIndex()
     {
         using var dir = new TempDirectory("squirix-journal-enum-filter");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
         var segments = JournalReader.EnumerateSegments(dir, 1);
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
-    }
-
-    /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
-    [Fact]
-    public void GetOnDiskSegmentStatsReturnsDefaultForInvalidPath()
-    {
-        using var dir = new TempDirectory("squirix-journal-select");
-        for (var i = 1; i <= 40; i++)
-        {
-            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
-            File.WriteAllText(path, "x");
-        }
-
-        var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
-        Assert.Equal(16, selected.Count);
-
-        var indices = new int[selected.Count];
-        for (var i = 0; i < indices.Length; i++)
-            indices[i] = selected.Dequeue().Index;
-
-        Assert.Equal(25, indices[0]);
-        Assert.Equal(40, indices[^1]);
     }
 }

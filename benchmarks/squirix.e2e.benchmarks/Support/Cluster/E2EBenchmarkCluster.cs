@@ -15,9 +15,9 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
-    private readonly FrozenDictionary<string, TestNodeHost> _nodes;
     private readonly TempDirectory? _dataDir;
-    private BenchmarkClientLease? _client;
+    private readonly FrozenDictionary<string, TestNodeHost> _nodes;
+    private E2EBenchmarkClientLease? _client;
     private int _disposed;
 
     private E2EBenchmarkCluster(FrozenDictionary<string, TestNodeHost> nodes, TempDirectory? dataDir)
@@ -44,6 +44,8 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
     {
         var nodeIds = topology is BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
         var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
+
+        // Allocate listener URIs up front so every node advertises the same peer topology during startup.
         foreach (var nodeId in nodeIds)
             addresses[nodeId] = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
 
@@ -88,7 +90,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     internal async Task<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
-        _client ??= await BenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
+        _client ??= await E2EBenchmarkClientLease.ConnectAsync(_nodes["nodeA"].Uri, cancellationToken).ConfigureAwait(false);
         return await _client.Client.GetCacheAsync<T>(cacheName, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -8,7 +8,7 @@ internal sealed class RecoveryReplayDelaySignal
 {
     private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    internal void Release() => _release.TrySetResult();
+    public ValueTask WaitAsync(CancellationToken cancellationToken) => new(_release.Task.WaitAsync(cancellationToken));
 
-    internal ValueTask WaitAsync(CancellationToken cancellationToken) => new(_release.Task.WaitAsync(cancellationToken));
+    internal void Release() => _release.TrySetResult();
 }

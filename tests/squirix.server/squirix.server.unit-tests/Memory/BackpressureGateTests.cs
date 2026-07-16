@@ -24,7 +24,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task AcquireBypassesWhenBackpressureIsDisabled()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -87,13 +87,17 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         var observedMax = new int[1];
         var clients = new Task[24];
         for (var i = 0; i < clients.Length; i++)
+        {
             clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
+        }
 
         var runClients = Task.WhenAll(clients);
 
         await runClients;
 
-        Assert.True(observedMax[0] <= maxInFlight);
+        Assert.True(
+            observedMax[0] <= maxInFlight,
+            $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
     }
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
@@ -110,7 +114,24 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = CreateBackpressureGaugeListener(measurements);
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = static (instrument, meterListener) =>
+        {
+            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (IsBackpressureGauge(instrument.Name))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+
+        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
+        {
+            if (measurements.TryGetValue(instrument.Name, out var target))
+                target.Add(measurement);
+        });
+
+        listener.Start();
+
         var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -144,7 +165,24 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = CreateBackpressureGaugeListener(measurements);
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = static (instrument, meterListener) =>
+        {
+            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (IsBackpressureGauge(instrument.Name))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+
+        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
+        {
+            if (measurements.TryGetValue(instrument.Name, out var target))
+                target.Add(measurement);
+        });
+
+        listener.Start();
+
         var options = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -195,7 +233,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -223,7 +261,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task PerClientConcurrencyRejectsNodeCapacityIsExhausted()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -251,7 +289,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task PerClientRateLimitIsolatedByClient()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -281,7 +319,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task QueueFullRejectsImmediately()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -315,7 +353,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -368,7 +406,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task QueuedAcquireObservesCallerCancellation()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -396,7 +434,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     [Fact]
     public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
     {
-        using var sink = new NodeMeasurementSink(MeterName);
+        using var sink = new MeasurementSink(MeterName);
         using var gate = new AdmissionGate(
             new AdmissionOptions
             {
@@ -423,6 +461,12 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         return false;
     }
+
+    private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
+                                                            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
+                                                                name,
+                                                                BackpressureTrackedClientsInstrumentName,
+                                                                StringComparison.Ordinal);
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {

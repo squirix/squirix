@@ -20,7 +20,7 @@ public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeli
     /// <param name="key">Cache key.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The value lookup result.</returns>
-    ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
+    ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
 
     /// <summary>Creates or overwrites an entry.</summary>
     /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
@@ -29,7 +29,7 @@ public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeli
     /// <param name="entry">Entry to store.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the entry is stored.</returns>
-    ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
     /// <summary>Attempts to add an entry.</summary>
     /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
@@ -38,7 +38,7 @@ public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeli
     /// <param name="entry">Entry to add.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when the entry was added.</returns>
-    ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
     /// <summary>Removes an entry.</summary>
     /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>

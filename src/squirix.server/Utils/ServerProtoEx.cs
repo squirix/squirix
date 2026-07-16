@@ -13,7 +13,7 @@ namespace Squirix.Server.Utils;
 
 internal static class ServerProtoEx
 {
-    public static async ValueTask<CacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
+    internal static async ValueTask<NodeCacheEntry<T>> MapFromProtoAsync<T>(this RpcEntry e)
     {
         var value = await FromStructAsync<T>(e.Value).ConfigureAwait(false);
         DateTime? expires = null;
@@ -23,7 +23,7 @@ internal static class ServerProtoEx
         if (typeof(T) == typeof(object))
             value = Coerce<T>(value);
 
-        return new CacheEntry<T>
+        return new NodeCacheEntry<T>
         {
             Value = value,
             ExpiresUtc = expires,
@@ -31,24 +31,12 @@ internal static class ServerProtoEx
         };
     }
 
-    public static RpcEntry MapToProto<T>(this CacheEntry<T> e) => new()
+    internal static RpcEntry MapToProto<T>(this NodeCacheEntry<T> e) => new()
     {
         Value = ToStruct(e.Value),
         ExpiresUtc = e.ExpiresUtc is null ? null : Timestamp.FromDateTime(DateTime.SpecifyKind(e.ExpiresUtc.Value, DateTimeKind.Utc)),
         Expiration = e.Expiration is null ? null : Duration.FromTimeSpan(e.Expiration.Value),
     };
-
-    internal static async ValueTask<CacheEntry<T>> CacheValueFromGrpcValueAsync<T>(CacheValue value, Timestamp? expiresUtc, Duration? expiration)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-
-        return new CacheEntry<T>
-        {
-            Value = await MapCacheValueAsync<T>(value).ConfigureAwait(false),
-            ExpiresUtc = expiresUtc?.ToDateTime().ToUniversalTime(),
-            Expiration = expiration?.ToTimeSpan(),
-        };
-    }
 
     /// <summary>Maps a cache value to the compact value-only gRPC wire form.</summary>
     /// <typeparam name="T">Logical cache value type.</typeparam>
@@ -130,8 +118,8 @@ internal static class ServerProtoEx
 
     private static async ValueTask<T?> DeserializeFromProtoValueAsync<T>(Value value)
     {
-        var buffer = WriteValueToBuffer(value);
-        return SerializationProvider.Deserialize<T>(buffer.WrittenSpan);
+        var buffer = await WriteValueToBufferAsync(value).ConfigureAwait(false);
+        return ServerSerializationProvider.Deserialize<T>(buffer.WrittenSpan);
     }
 
     private static async ValueTask<T?> FromStructAsync<T>(Struct s)
@@ -252,8 +240,8 @@ internal static class ServerProtoEx
                 return WrapAsStruct("value", Value.ForBool(boolean));
         }
 
-        // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-        var root = SerializationProvider.Instance.SerializeToElement(value);
+        // SerializeToElement uses the same JsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
+        var root = ServerSerializationProvider.Instance.SerializeToElement(value);
         return root.ValueKind is JsonValueKind.Object ? StructFromJson(root) : WrapAsStruct("value", ValueFromJson(root));
     }
 
@@ -358,9 +346,6 @@ internal static class ServerProtoEx
                 w.WriteStartArray();
                 for (var index = 0; index < v.ListValue.Values.Count; index++)
                     WriteValue(w, v.ListValue.Values[index]);
-
-                w.WriteEndArray();
-                break;
 
                 w.WriteEndArray();
                 break;

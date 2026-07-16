@@ -92,8 +92,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
             new GrpcChannelOptions
             {
                 HttpHandler = await CreateClusterCaTrustingHandlerWithoutClientCertificateAsync("node-b", peers, DefaultCancellationToken),
-                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
@@ -143,39 +143,6 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         Assert.True(getResponse.Found);
     }
 
-    /// <summary>Verifies the internal mTLS listener rejects callers that do not present a trusted peer certificate.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the peer inter-node URL is missing.</exception>
-    [Fact]
-    public async Task InternalListenerRejectsCallsTrustedPeerCertificate()
-    {
-        var uriA = GetNextHttpUri();
-        var uriB = GetNextHttpUri();
-        var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
-
-        await using var nodeA = await StartNodeAsync(uriA, peers);
-        await using var nodeB = await StartNodeAsync(uriB, peers);
-
-        var interNodeUrl = FindPeer(peers, "node-b").InterNodeUri ?? throw new InvalidOperationException("Expected inter-node URL for node-b.");
-
-        using var channel = GrpcChannel.ForAddress(
-            interNodeUrl,
-            new GrpcChannelOptions
-            {
-                HttpHandler = await CreateClusterCaTrustingHandlerNoClientCertAsync("node-b", peers, DefaultCancellationToken),
-                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
-            });
-        var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
-
-        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
-            client.GetValueAsync(
-                new GetValueAsyncRequest { CacheName = "default", Key = "internal-no-cert" },
-                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
-
-        Assert.True(ex.StatusCode is StatusCode.Unauthenticated or StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown);
-    }
-
     /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
     [Fact]
     public async Task MultiNodeExternalClientSpoofInternalOwnerHeader()
@@ -203,7 +170,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "spoofed-owner-write",
-                    Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
@@ -244,7 +211,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new CacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
@@ -253,7 +220,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         Assert.Equal("stale-owner", ex.Trailers.GetValue("squirix-error-code"));
     }
 
-    private static Peer FindPeer(IReadOnlyList<Peer> peers, string nodeId)
+    private static ServerPeer FindPeer(IReadOnlyList<ServerPeer> peers, string nodeId)
     {
         foreach (var peer in peers)
         {

@@ -9,7 +9,7 @@ internal sealed class JournalEventLoopDrainScheduler
     private readonly JournalEventLoop _owner;
     private readonly JournalEventLoopSegmentWriter _segmentWriter;
 
-    internal JournalEventLoopDrainScheduler(JournalEventLoop owner, JournalEventLoopSegmentWriter segmentWriter)
+    public JournalEventLoopDrainScheduler(JournalEventLoop owner, JournalEventLoopSegmentWriter segmentWriter)
     {
         _owner = owner;
         _segmentWriter = segmentWriter;
@@ -66,14 +66,15 @@ internal sealed class JournalEventLoopDrainScheduler
         return true;
     }
 
-    /// <summary>Drains due group-commit batches during a journal segment roll without the queued-append gate.</summary>
-    /// <remarks>
-    /// During a roll the write batch is empty and previously written bytes are already fsynced.
-    /// Queued appends are the deferred frame plus not-yet-staged frames whose producers are still blocked
-    /// on their Completion waiter and therefore cannot have registered a durability waiter yet.
-    /// Every pending group-commit waiter thus maps to an already-durable append.
-    /// </remarks>
-    private void DrainDueGroupCommitBatchesDuringRoll() => _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
+    private void DrainDueGroupCommitBatchesDuringRoll()
+    {
+        // The queued-append gate is intentionally skipped here: during a roll the write batch is empty
+        // and the previously written bytes are already fsynced, and the only queued appends are the
+        // deferred frame plus any not-yet-staged frames whose producers are still blocked on their
+        // Completion waiter and therefore cannot have registered a durability waiter yet. Every pending
+        // group-commit waiter thus maps to an already-durable append.
+        _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
+    }
 
     private bool DrainJournalRing(ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
     {

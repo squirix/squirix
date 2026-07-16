@@ -4,7 +4,7 @@ using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Storage.Journaling.Framing;
+namespace Squirix.Server.Storage.Journaling;
 
 internal static class JournalFrameReader
 {
@@ -20,16 +20,6 @@ internal static class JournalFrameReader
             0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
             < JournalFrameEnvelope.HeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
             _ => ReadNextFromValidStreamHeader(stream, frameOffset, lengthBytes, out rentedBuffer, out payloadLength),
-        };
-    }
-
-    internal static JournalFrameReadResult ReadNext(ReadOnlySpan<byte> data, long frameOffset)
-    {
-        return data.Length switch
-        {
-            0 => new JournalFrameReadResult(JournalFrameReadStatus.EndOfFile, frameOffset),
-            < JournalFrameEnvelope.HeaderSize => new JournalFrameReadResult(JournalFrameReadStatus.TruncatedHeader, frameOffset),
-            _ => ReadNextFromValidSpanHeader(data, frameOffset),
         };
     }
 
@@ -49,33 +39,6 @@ internal static class JournalFrameReader
         }
 
         return read;
-    }
-
-    private static JournalFrameReadResult ReadNextFromValidSpanHeader(ReadOnlySpan<byte> data, long frameOffset)
-    {
-        var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(data[..JournalFrameEnvelope.HeaderSize]);
-        if (payloadLength < 0)
-            return new JournalFrameReadResult(JournalFrameReadStatus.OversizedFrame, frameOffset);
-
-        if (data.Length - JournalFrameEnvelope.HeaderSize < payloadLength)
-            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedPayload, frameOffset);
-
-        var checksumOffset = JournalFrameEnvelope.HeaderSize + payloadLength;
-        if (data.Length - checksumOffset < JournalFrameEnvelope.FooterSize)
-        {
-            return new JournalFrameReadResult(JournalFrameReadStatus.TruncatedChecksum, frameOffset);
-        }
-
-        var payload = data.Slice(JournalFrameEnvelope.HeaderSize, payloadLength);
-        var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(data.Slice(checksumOffset, JournalFrameEnvelope.FooterSize));
-        var actualChecksum = Crc32C.Compute(payload);
-        if (actualChecksum != expectedChecksum)
-        {
-            return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
-        }
-
-        var nextFrameOffset = frameOffset + JournalFrameEnvelope.TotalLength(payloadLength);
-        return new JournalFrameReadResult(JournalFrameReadStatus.Success, nextFrameOffset);
     }
 
     private static JournalFrameReadResult ReadNextFromValidStreamHeader(

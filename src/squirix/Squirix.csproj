@@ -36,4 +36,8 @@
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Internal\Cluster\Transport\Grpc\RpcOperationIdentity.cs"/>
         <None Include="..\..\README.md" Pack="true" PackagePath="/"/>
     </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Internal\Serialization\" />
+    </ItemGroup>
 </Project>

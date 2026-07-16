@@ -42,10 +42,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
-            "squirix_journal_size_bytes",
-            ObserveSize,
-            description: "Total size of journal segment files currently present on disk");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -106,7 +103,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             return;
         }
 
-        var files = Directory.GetFiles(dir, JournalSegmentSearchPattern, SearchOption.TopDirectoryOnly);
+        var files = Directory.GetFiles(dir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)

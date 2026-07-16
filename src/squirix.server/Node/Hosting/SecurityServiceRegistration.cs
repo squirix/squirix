@@ -120,6 +120,21 @@ internal static class SecurityServiceRegistration
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
     }
 
+    private static byte[]? DecodeSymmetricKey(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        try
+        {
+            return Convert.FromBase64String(value);
+        }
+        catch (FormatException)
+        {
+            return Encoding.UTF8.GetBytes(value);
+        }
+    }
+
     private static void ValidateSecurityConfiguration(ResolvedSecurityConfiguration configuration)
     {
         if (!string.IsNullOrWhiteSpace(configuration.JwtIssuer) && configuration.SigningKeyBytes is null && string.IsNullOrWhiteSpace(configuration.JwtAuthority))

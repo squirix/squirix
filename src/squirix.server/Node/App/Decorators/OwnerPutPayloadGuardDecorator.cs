@@ -2,9 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
-using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -16,15 +15,14 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
     private readonly INodeLocator _ring;
     private readonly string _self;
 
-    internal OwnerPutPayloadGuardDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner)
+    public OwnerPutPayloadGuardDecorator(string self, INodeLocator ring, ILogicalNamespacedCache<T> inner)
     {
         _self = self ?? throw new ArgumentNullException(nameof(self));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
@@ -63,14 +61,15 @@ internal sealed class OwnerPutPayloadGuardDecorator<T> : ILogicalNamespacedCache
         if (existing is null)
             return false;
 
-        var entry = new NodeCacheEntry<T>
-        {
-            Value = value,
-            ExpiresUtc = existing.ExpiresUtc,
-            Expiration = existing.Expiration,
-            Version = existing.Version,
-        };
-        JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry);
+        JournalEntryPayload.EnsureEncodedLengthWithinLimit(
+            new NodeCacheEntry<T>
+            {
+                Value = value,
+                ExpiresUtc = existing.ExpiresUtc,
+                Expiration = existing.Expiration,
+                Version = existing.Version,
+            });
+
         return await _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken).ConfigureAwait(false);
     }
 

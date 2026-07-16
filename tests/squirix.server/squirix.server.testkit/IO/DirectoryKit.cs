@@ -158,7 +158,7 @@ public static class DirectoryKit
                 for (var fi = 0; fi < files.Length; fi++)
                 {
                     var f = files[fi];
-                    TryMakeWritable(f);
+                    ClearReadOnlyAttributes(f);
                     File.Delete(f);
                 }
 
@@ -381,7 +381,7 @@ public static class DirectoryKit
         return baseFull;
     }
 
-    private static void TryMakeWritable(string file)
+    private static void ClearReadOnlyAttributes(string file)
     {
         try
         {

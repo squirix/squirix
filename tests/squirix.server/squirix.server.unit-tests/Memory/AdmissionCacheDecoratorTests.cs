@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
@@ -31,7 +30,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var (cache, inner, accounting, _) = CreateLocalOwnerCache(Self, physical);
         var entry = CreateEntry("v");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         Assert.Equal(1, accounting.ReadEntryCount());
 
         var remove = new ConcurrentCacheOp(cache, key);
@@ -68,10 +67,10 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         };
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, CreateEntry("v"));
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesWithExpiration = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.RemoveExpirationAsync(UnitMutationOpIds.Default, CacheName, key, DefaultCancellationToken));
+        Assert.True(await cache.RemoveExpirationAsync(TestOperationIds.Default, CacheName, key, DefaultCancellationToken));
         Assert.Equal(bytesWithExpiration - expirationGrowth, accounting.ReadEstimatedBytes());
         Assert.Equal(1, accounting.ReadEntryCount());
     }
@@ -107,7 +106,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var initial = CreateEntry("a");
         var replacement = CreateEntry("much-longer-value");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeReplace = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
@@ -129,10 +128,10 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var entry = CreateEntry("v");
         var expirationGrowth = EstimateExpirationMetadataDelta(estimator, keyValue, entry);
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
+        Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
         Assert.Equal(bytesBeforeTouch + expirationGrowth, accounting.ReadEstimatedBytes());
         Assert.Equal(1, accounting.ReadEntryCount());
     }
@@ -152,10 +151,10 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
             ExpiresUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10),
         };
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, entry, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, entry, DefaultCancellationToken));
         var bytesBeforeTouch = accounting.ReadEstimatedBytes();
 
-        Assert.True(await cache.TouchAsync(UnitMutationOpIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
+        Assert.True(await cache.TouchAsync(TestOperationIds.Default, CacheName, key, TimeSpan.FromMinutes(5), DefaultCancellationToken));
         Assert.Equal(bytesBeforeTouch, accounting.ReadEstimatedBytes());
         Assert.Equal(1, accounting.ReadEntryCount());
     }
@@ -196,7 +195,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var (cache, _, accounting, estimator) = CreateLocalOwnerCache(Self, physical);
         var initial = CreateEntry("a");
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
@@ -219,7 +218,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         const string updatedValue = "much-longer-value";
         var replacement = CreateEntry(updatedValue);
 
-        Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, key, initial, DefaultCancellationToken));
+        Assert.True(await cache.TryAddEntryAsync(TestOperationIds.Default, CacheName, key, initial, DefaultCancellationToken));
         var bytesBeforeUpdate = accounting.ReadEstimatedBytes();
         var expectedDelta = EstimateEntryBytes(estimator, CacheName, key, replacement) - EstimateEntryBytes(estimator, CacheName, key, initial);
 
@@ -236,6 +235,9 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
+    private static async Task<bool> KeyExistsAsync(ClientCache<string> cache, string cacheName, string key, CancellationToken cancellationToken) =>
+        (await cache.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false)).Found;
+
     private static (MemoryAdmissionCacheDecorator<string> Cache, ClientCache<string> Inner, MemoryUsageAccounting Accounting, CacheEntrySizeEstimator<string> Estimator)
         CreateLocalOwnerCache(string self, PhysicalCache<string> physical)
     {
@@ -249,7 +251,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
     private static PressureGate CreatePermissiveGate(IMemoryUsageAccounting accounting, string nodeId)
     {
-        var options = Options.Create(
+        var options = Microsoft.Extensions.Options.Options.Create(
             new PressureOptions
             {
                 MaxEstimatedCacheBytes = 10_000_000_000,

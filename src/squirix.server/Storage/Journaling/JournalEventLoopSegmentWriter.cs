@@ -2,8 +2,6 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
-using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -13,7 +11,7 @@ internal sealed class JournalEventLoopSegmentWriter
 {
     private readonly JournalEventLoop _owner;
 
-    internal JournalEventLoopSegmentWriter(JournalEventLoop owner)
+    public JournalEventLoopSegmentWriter(JournalEventLoop owner)
     {
         _owner = owner;
     }
@@ -45,7 +43,7 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.SetDirty(true);
 
         for (var i = 0; i < _owner.WriteBatch.PendingAppends.Count; i++)
-            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i]);
+            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i].Item);
 
         _owner.WriteBatch.Clear();
 
@@ -91,45 +89,35 @@ internal sealed class JournalEventLoopSegmentWriter
 
                 // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
                 // (used by the hot roll path) from the new on-disk layout.
-                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-                _owner.SetJournalTotalBytes(totalBytes);
-                _owner.SetJournalSegmentCount(segmentCount);
+                var postMaintenanceStats = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
+                _owner.SetJournalTotalBytes(postMaintenanceStats.TotalBytes);
+                _owner.SetJournalSegmentCount(postMaintenanceStats.SegmentCount);
                 CompleteJournalWorkItem(item);
                 return false;
 
             default:
-                throw new InvalidOperationException("Unknown journal work kind.");
+                throw new InvalidOperationException($"unknown journal work kind {item.Kind}.");
         }
     }
 
     internal bool TryAcceptAppendIntoBatch(JournalWorkItem item, out bool rollDeferred)
     {
         rollDeferred = false;
-        try
+        EnsureSegmentOpen();
+        _owner.Policy.EnsureAppendCapacityOrThrow(_owner.JournalTotalBytes, item.FrameLength);
+        if (ShouldRollSegmentForAppend(item.FrameLength))
         {
-            EnsureSegmentOpen();
-            var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
-            var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
-            _owner.Policy.EnsureAppendCapacityOrThrow(GetEffectiveJournalTotalBytes(), requiredBytes);
-            if (needsRoll)
-            {
-                FlushWriteBatch();
-                BeginSegmentRollOnJournalThread();
-                rollDeferred = true;
-                return false;
-            }
-
-            if (_owner.WriteBatch.TryStageAppend(in item))
-                return true;
-
             FlushWriteBatch();
-            return _owner.WriteBatch.TryStageAppend(in item);
+            BeginSegmentRollOnJournalThread();
+            rollDeferred = true;
+            return false;
         }
-        catch (JournalCapacityExceededException ex)
-        {
-            FailAppendWorkItem(item, ex);
+
+        if (_owner.WriteBatch.TryStageAppend(in item))
             return true;
-        }
+
+        FlushWriteBatch();
+        return _owner.WriteBatch.TryStageAppend(in item);
     }
 
     internal bool TryCompletePendingSegmentRoll()
@@ -195,10 +183,11 @@ internal sealed class JournalEventLoopSegmentWriter
     private void EnsureSegmentOpen()
     {
         if (_owner.ActiveSegmentPath is not null)
-
+        {
             // _activeSegmentWrittenBytes is authoritative: the journal thread is the sole writer and
             // advances it after every Write. No per-call stat/lseek of the writer length is needed.
             return;
+        }
 
         var segmentPath = JournalReadPath.BuildSegmentPath(_owner.Options.DataDir, _owner.CurrentSegmentIndex);
         _owner.SetActiveSegmentPath(segmentPath);
@@ -209,51 +198,26 @@ internal sealed class JournalEventLoopSegmentWriter
             Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
             JournalFraming.WriteFileHeader(header);
             _owner.SegmentWriter.Write(header, 0);
-
-            // Mirror CompleteSegmentRollOnJournalThread: header bytes must enter JournalTotalBytes so
-            // EnsureAppendCapacityOrThrow / UsedBytes see the same on-disk size as ActiveSegmentWrittenBytes.
-            _owner.AddJournalTotalBytes(JournalFraming.FileHeaderSize);
-            if (!append)
-                _owner.IncrementJournalSegmentCount();
         }
 
         _owner.SetActiveSegmentWrittenBytes(_owner.SegmentWriter.Length);
     }
 
-    private void FailAppendWorkItem(JournalWorkItem item, Exception error)
-    {
-        ReleaseQueuedAppendResources(item);
-        item.Completion?.SetException(error);
-        _ = item.DurabilityWaiter?.TrySetException(error);
-    }
-
     private long GetEffectiveActiveSegmentBytes() => _owner.ActiveSegmentWrittenBytes + _owner.WriteBatch.StagedByteLength;
-
-    private long GetEffectiveJournalTotalBytes() => _owner.JournalTotalBytes + _owner.WriteBatch.StagedByteLength;
 
     private void ProcessAppend(JournalWorkItem item, JournalEventLoopDrainScheduler drainScheduler)
     {
+        var frameBytes = item.FrameBytes;
         try
         {
             WriteAppendFrame(item);
         }
-        catch (JournalCapacityExceededException ex)
+        finally
         {
-            FailAppendWorkItem(item, ex);
-            return;
+            _owner.Host.DecrementQueuedAppends();
+            if (frameBytes is not null)
+                ArrayPool<byte>.Shared.Return(frameBytes);
         }
-        catch (IOException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-        catch (ObjectDisposedException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-
-        ReleaseQueuedAppendResources(item);
 
         if (_owner.Options.IsJournalGroupCommitEnabled)
             drainScheduler.DrainDueGroupCommitBatches();
@@ -263,6 +227,7 @@ internal sealed class JournalEventLoopSegmentWriter
 
     private void ProcessAppendWithDurability(JournalWorkItem item)
     {
+        var frameBytes = item.FrameBytes;
         var waiter = item.DurabilityWaiter ?? throw new InvalidOperationException("AppendWithDurability work item is missing a durability waiter.");
         try
         {
@@ -270,34 +235,9 @@ internal sealed class JournalEventLoopSegmentWriter
             _owner.FsyncOnJournalThread();
             _ = waiter.TrySetResult();
         }
-        catch (JournalCapacityExceededException ex)
-        {
-            FailAppendWorkItem(item, ex);
-            return;
-        }
-        catch (IOException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-        catch (ObjectDisposedException)
-        {
-            ReleaseQueuedAppendResources(item);
-            throw;
-        }
-
-        ReleaseQueuedAppendResources(item);
-    }
-
-    private void ReleaseQueuedAppendResources(JournalWorkItem item)
-    {
-        var frameBytes = item.FrameBytes;
-        try
-        {
-            _owner.Host.DecrementQueuedAppends();
-        }
         finally
         {
+            _owner.Host.DecrementQueuedAppends();
             if (frameBytes is not null)
                 ArrayPool<byte>.Shared.Return(frameBytes);
         }
@@ -316,10 +256,8 @@ internal sealed class JournalEventLoopSegmentWriter
     {
         var frameBytes = item.FrameBytes ?? throw new InvalidOperationException("Append work item is missing frame bytes.");
         EnsureSegmentOpen();
-        var needsRoll = ShouldRollSegmentForAppend(item.FrameLength);
-        var requiredBytes = needsRoll ? item.FrameLength + JournalFraming.FileHeaderSize : item.FrameLength;
-        _owner.Policy.EnsureAppendCapacityOrThrow(GetEffectiveJournalTotalBytes(), requiredBytes);
-        if (needsRoll)
+        _owner.Policy.EnsureAppendCapacityOrThrow(_owner.JournalTotalBytes, item.FrameLength);
+        if (ShouldRollSegmentForAppend(item.FrameLength))
             throw new InvalidOperationException("append requires a segment roll; use the journal thread deferral path.");
         var offset = _owner.ActiveSegmentWrittenBytes;
         try

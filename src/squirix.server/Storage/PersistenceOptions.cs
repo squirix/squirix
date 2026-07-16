@@ -3,88 +3,35 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Limits;
 
 namespace Squirix.Server.Storage;
 
 internal sealed record PersistenceOptions
 {
-    public PersistenceOptions()
-    {
-        FlushIntervalMs = 10;
-        ManifestRetentionCount = 3;
-        SnapshotRetentionCount = 3;
-        JournalMaxSegmentMb = JournalSegmentLimits.DefaultMaxSegmentMb;
-        JournalMaxSegmentCount = JournalSegmentLimits.DefaultMaxSegmentCount;
-        JournalMaxTotalBytesMb = JournalSegmentLimits.DefaultMaxTotalBytesMb;
-        JournalGroupCommitMaxBatch = 32;
-        JournalGroupCommitMaxWait = TimeSpan.Zero;
-        JournalWriteBatchBytes = JournalWriteBatchBuffer.DefaultCapacityBytes;
-    }
+    public string DataDir { get; init; } = string.Empty;
 
-    [JsonInclude]
-    internal int FlushIntervalMs { get; init; } = 10;
-
-    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
-    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
+    public int FlushIntervalMs { get; init; } = 10;
 
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     [JsonPropertyName("groupCommitMaxBatch")]
-    internal int JournalGroupCommitMaxBatch { get; init; } = 32;
+    public int JournalGroupCommitMaxBatch { get; init; } = 32;
 
     /// <summary>
     /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
     /// When zero, group commit is disabled and each durable mutation flushes independently.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     [JsonPropertyName("groupCommitMaxWait")]
     [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
-    public TimeSpan JournalGroupCommitMaxWait
-    {
-        get;
-        init
-        {
-            if (value < TimeSpan.Zero)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWait cannot be negative.");
-
-            field = value;
-        }
-    }
+    public TimeSpan JournalGroupCommitMaxWait { get; init; } = TimeSpan.Zero;
 
     [JsonPropertyName("journalMaxSegmentCount")]
-    public int JournalMaxSegmentCount
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentCount must be greater than zero.");
-
-    [JsonPropertyName("journalMaxSegmentCount")]
-    [JsonInclude]
-    internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
+    public int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
 
     [JsonPropertyName("journalMaxSegmentMb")]
-    [JsonInclude]
-    internal int JournalMaxSegmentMb { get; init; } = JournalSegmentLimits.DefaultMaxSegmentMb;
+    public int JournalMaxSegmentMb { get; init; } = JournalSegmentLimits.DefaultMaxSegmentMb;
 
     [JsonPropertyName("journalMaxTotalBytesMb")]
-    [JsonInclude]
-    internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
-
-    [JsonPropertyName("journalMaxTotalBytesMb")]
-    public int JournalMaxTotalBytesMb
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxTotalBytesMb must be greater than zero.");
-
-            field = value;
-        }
-    }
+    public int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
 
     [JsonPropertyName("journalPlatformBackend")]
     public JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
@@ -94,31 +41,10 @@ internal sealed record PersistenceOptions
     /// allocated lazily on first staged append. Frames larger than this value bypass coalescing and
     /// are written directly.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
     [JsonPropertyName("journalWriteBatchBytes")]
-    public int JournalWriteBatchBytes
-    {
-        get;
-        private init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalWriteBatchBytes must be greater than zero.");
+    public int JournalWriteBatchBytes { get; init; } = JournalWriteBatchBuffer.DefaultCapacityBytes;
 
-            field = value;
-        }
-    }
-
-    public int ManifestRetentionCount
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "ManifestRetentionCount must be greater than zero.");
-
-            field = value;
-        }
-    }
+    public int ManifestRetentionCount { get; init; } = 3;
 
     /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
     public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
@@ -129,15 +55,51 @@ internal sealed record PersistenceOptions
     /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
     public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
 
-    public int SnapshotRetentionCount
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotRetentionCount must be greater than zero.");
+    public int SnapshotRetentionCount { get; init; } = 3;
 
-            field = value;
+    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
+    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
+
+    /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
+    internal void Validate()
+    {
+        if (FlushIntervalMs <= 0)
+            throw new InvalidOperationException("Persistence FlushIntervalMs must be greater than zero.");
+        if (JournalGroupCommitMaxBatch <= 0)
+            throw new InvalidOperationException("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
+        if (JournalGroupCommitMaxWait < TimeSpan.Zero)
+            throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
+        if (JournalMaxSegmentCount <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxSegmentCount must be greater than zero.");
+        if (JournalMaxSegmentMb <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxSegmentMb must be greater than zero.");
+        if (JournalMaxTotalBytesMb <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxTotalBytesMb must be greater than zero.");
+        if (JournalWriteBatchBytes <= 0)
+            throw new InvalidOperationException("Persistence JournalWriteBatchBytes must be greater than zero.");
+        if (ManifestRetentionCount <= 0)
+            throw new InvalidOperationException("Persistence ManifestRetentionCount must be greater than zero.");
+        if (SnapshotRetentionCount <= 0)
+            throw new InvalidOperationException("Persistence SnapshotRetentionCount must be greater than zero.");
+    }
+
+    private sealed class MillisecondsTimeSpanJsonConverter : JsonConverter<TimeSpan>
+    {
+        public override TimeSpan Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.Number && reader.TryGetInt64(out var milliseconds))
+                return TimeSpan.FromMilliseconds(milliseconds);
+
+            if (reader.TokenType is not JsonTokenType.String)
+                throw new JsonException("Expected a millisecond count or TimeSpan string.");
+            var text = reader.GetString();
+            if (text is not null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed))
+                return parsed;
+
+            throw new JsonException("Expected a millisecond count or TimeSpan string.");
         }
+
+        public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options) => writer.WriteNumberValue(Convert.ToInt64(value.TotalMilliseconds));
     }
 }

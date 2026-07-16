@@ -40,10 +40,15 @@ namespace Squirix.Server.Storage.Snapshot;
 /// </remarks>
 internal sealed class TriggerOptions
 {
-    [JsonConstructor]
-    internal TriggerOptions()
-        : this(0L, 0d, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), 128L * 1024 * 1024, 250_000L, TimeSpan.FromMinutes(5))
+    public TriggerOptions()
     {
+        LatencyThrottleDuration = TimeSpan.FromSeconds(10);
+        MinGapBetweenSnapshots = TimeSpan.FromMinutes(1);
+        SnapshotEveryNBytes = 128L * 1024 * 1024;
+        SnapshotEveryNOps = 250_000L;
+        SnapshotInterval = TimeSpan.FromMinutes(5);
+        LatencySloMilliseconds = 0d;
+        JournalGrowthThrottleBytes = 0L;
     }
 
     /// <summary>

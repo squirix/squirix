@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -7,7 +8,6 @@ using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
-using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -19,16 +19,16 @@ public abstract class WireAllocBenchmarkBase<T>
 {
     private const int Batch = 512;
     private const int KeyCount = 512;
+
+    private readonly TimeSpan _longExpiration = TimeSpan.FromHours(1);
     private readonly string[] _expiringKeys = new string[KeyCount];
     private readonly string[] _hitKeys = new string[KeyCount];
 
-    private readonly TimeSpan _longExpiration = TimeSpan.FromHours(1);
+    private GetOrAddMissFactory? _getOrAddMissFactory;
 
     private E2EBenchmarkClientLease? _client;
-
-    private GetOrAddMissFactory? _getOrAddMissFactory;
-    private int _getOrAddMissOffset;
     private E2EBenchmarkNodeScope? _node;
+    private int _getOrAddMissOffset;
     private int _removeExpirationOffset;
     private int _removeOffset;
     private int _uniqueKeyOffset;
@@ -52,7 +52,7 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
         for (var i = 0; i < Batch; i++)
-            await cache.AddAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.AddAsync(FormatUniqueKey(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Stops benchmark dependencies.</summary>
@@ -98,7 +98,7 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         for (var i = 0; i < Batch; i++)
         {
-            var result = await cache.GetOrAddAsync(_hitKeys[i], Keys.GetOrAddHitFactoryAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var result = await cache.GetOrAddAsync(_hitKeys[i], GetOrAddHitFactoryAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             ConsumeValue(result.Value);
         }
     }
@@ -111,9 +111,9 @@ public abstract class WireAllocBenchmarkBase<T>
         var offset = Interlocked.Add(ref _getOrAddMissOffset, Batch);
         for (var i = 0; i < Batch; i++)
         {
-            var factory = _getOrAddMissFactory ??= new GetOrAddMissFactory(CreateValue);
+            var factory = GetOrAddMissFactoryInstance();
             factory.ValueIndex = offset + i;
-            var result = await cache.GetOrAddAsync(Keys.FormatUnique(offset + i), factory.ValueFactory, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var result = await cache.GetOrAddAsync(FormatUniqueKey(offset + i), factory.ValueFactory, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             ConsumeValue(result.Value);
         }
     }
@@ -155,7 +155,7 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
         for (var i = 0; i < Batch; i++)
-            await cache.SetAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(FormatUniqueKey(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Starts a single-node server, opens a typed cache session, and seeds hit and expiring keys.</summary>
@@ -164,8 +164,8 @@ public abstract class WireAllocBenchmarkBase<T>
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _hitKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("hit", i, "D5", 5);
-            _expiringKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("exp", i, "D5", 5);
+            _hitKeys[i] = $"hit:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _expiringKeys[i] = $"exp:{i.ToString("D5", CultureInfo.InvariantCulture)}";
         }
 
         _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
@@ -176,7 +176,11 @@ public abstract class WireAllocBenchmarkBase<T>
         for (var i = 0; i < KeyCount; i++)
         {
             await cache.SetAsync(_hitKeys[i], CreateValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await cache.SetAsync(_expiringKeys[i], CreateValue(i), new CacheEntryOptions { Expiration = _longExpiration }, CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(
+                _expiringKeys[i],
+                CreateValue(i),
+                new CacheEntryOptions { Expiration = _longExpiration },
+                CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -206,7 +210,7 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         var offset = Interlocked.Add(ref _uniqueKeyOffset, Batch);
         for (var i = 0; i < Batch; i++)
-            Consumer.Consume(await cache.TryAddAsync(Keys.FormatUnique(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false));
+            Consumer.Consume(await cache.TryAddAsync(FormatUniqueKey(offset + i), CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Updates a pre-seeded value via <see cref="ICache{T}.UpdateAsync" />.</summary>
@@ -218,18 +222,18 @@ public abstract class WireAllocBenchmarkBase<T>
             Consumer.Consume(await cache.UpdateAsync(_hitKeys[i], CreateValue(i), CancellationToken.None).ConfigureAwait(false));
     }
 
-    /// <summary>Consumes a value so BenchmarkDotNet does not eliminate the read path.</summary>
-    /// <param name="value">The value returned from the cache.</param>
-    protected abstract void ConsumeValue(T? value);
+    /// <summary>Gets the cache name used by the derived benchmark class.</summary>
+    /// <returns>The cache name opened during global setup.</returns>
+    protected abstract string GetCacheName();
 
     /// <summary>Creates a deterministic value for the given index.</summary>
     /// <param name="index">The value index.</param>
     /// <returns>A value for the active benchmark shape.</returns>
     protected abstract T CreateValue(int index);
 
-    /// <summary>Gets the cache name used by the derived benchmark class.</summary>
-    /// <returns>The cache name opened during global setup.</returns>
-    protected abstract string GetCacheName();
+    /// <summary>Consumes a value so BenchmarkDotNet does not eliminate the read path.</summary>
+    /// <param name="value">The value returned from the cache.</param>
+    protected abstract void ConsumeValue(T? value);
 
     /// <summary>Re-seeds expiring entries outside the measured body for <see cref="RemoveExpirationAsync" />.</summary>
     protected async Task SeedRemoveExpirationIterationCoreAsync()
@@ -237,7 +241,13 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         var offset = Interlocked.Add(ref _removeExpirationOffset, Batch);
         for (var i = 0; i < Batch; i++)
-            await cache.SetAsync(_expiringKeys[i], CreateValue(offset + i), new CacheEntryOptions { Expiration = _longExpiration }, CancellationToken.None).ConfigureAwait(false);
+        {
+            await cache.SetAsync(
+                _expiringKeys[i],
+                CreateValue(offset + i),
+                new CacheEntryOptions { Expiration = _longExpiration },
+                CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Re-seeds hit keys outside the measured body for <see cref="RemoveAsync" />.</summary>
@@ -249,17 +259,17 @@ public abstract class WireAllocBenchmarkBase<T>
             await cache.SetAsync(_hitKeys[i], CreateValue(offset + i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static class Keys
+    private static Task<T?> GetOrAddHitFactoryAsync(string key, CancellationToken cancellationToken)
     {
-        internal static string FormatUnique(int index) => InvariantIndexStrings.FormatPrefixedPadded("unique", index, "D8", 8);
-
-        internal static Task<T?> GetOrAddHitFactoryAsync(string key, CancellationToken cancellationToken)
-        {
-            _ = key;
-            _ = cancellationToken;
-            return Task.FromResult<T?>(default);
-        }
+        _ = key;
+        _ = cancellationToken;
+        return Task.FromResult<T?>(default);
     }
+
+    private static string FormatUniqueKey(int index) => $"unique:{index.ToString("D8", CultureInfo.InvariantCulture)}";
+
+    private GetOrAddMissFactory GetOrAddMissFactoryInstance() =>
+        _getOrAddMissFactory ??= new GetOrAddMissFactory(CreateValue);
 
     private sealed class GetOrAddMissFactory
     {
@@ -271,9 +281,9 @@ public abstract class WireAllocBenchmarkBase<T>
             ValueFactory = CreateValueAsync;
         }
 
-        internal Func<string, CancellationToken, Task<T?>> ValueFactory { get; }
+        internal int ValueIndex { get; set; }
 
-        internal int ValueIndex { private get; set; }
+        internal Func<string, CancellationToken, Task<T?>> ValueFactory { get; }
 
         private Task<T?> CreateValueAsync(string key, CancellationToken cancellationToken)
         {

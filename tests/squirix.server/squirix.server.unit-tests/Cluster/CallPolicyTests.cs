@@ -6,7 +6,7 @@ using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Diagnostics;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -31,7 +31,8 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
         var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            static async token =>
+            0,
+            static async (_, token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
                 return 1;
@@ -49,7 +50,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
@@ -151,7 +152,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             await policy.DisposeAsync();
 
             Assert.Equal(7, await inFlight);
-            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(static _ => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
         }
         finally
         {
@@ -315,7 +316,8 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
         var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            static async token =>
+            0,
+            static async (_, token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
                 return 1;
@@ -337,9 +339,9 @@ public sealed class CallPolicyTests : ServerUnitTestBase
 
     private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
     {
-        public InvocationCounter Attempts { get; } = attempts;
-
         public TaskCompletionSource Entered { get; } = entered;
+
+        internal InvocationCounter Attempts { get; } = attempts;
     }
 
     private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)

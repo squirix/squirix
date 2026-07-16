@@ -10,6 +10,10 @@ internal static class ClientPoolMetrics
     private static readonly Counter<long> DisposalsTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_client_pool_disposals_total");
     private static readonly Counter<long> WarmupsTotalCtr = MeterRegistry.Meter.CreateCounter<long>("squirix_client_pool_warmups_total");
 
+    internal static void AddDisposal() => DisposalsTotalCtr.Add(1);
+
+    internal static void AddWarmup() => WarmupsTotalCtr.Add(1);
+
     /// <summary>Records that a configured bootstrap peer was unreachable during warm-up while another peer succeeded.</summary>
     /// <param name="nodeId">Bootstrap peer node id.</param>
     /// <param name="reason">Failure classification (<c>connect_timeout</c> or <c>connect_failed</c>).</param>
@@ -22,8 +26,4 @@ internal static class ClientPoolMetrics
         };
         BootstrapWarmupSkippedTotalCtr.Add(1, in tags);
     }
-
-    internal static void AddDisposal() => DisposalsTotalCtr.Add(1);
-
-    internal static void AddWarmup() => WarmupsTotalCtr.Add(1);
 }

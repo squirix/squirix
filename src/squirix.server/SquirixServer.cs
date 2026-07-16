@@ -73,11 +73,49 @@ public sealed class SquirixServer : IAsyncDisposable
         return new SquirixServer(handle);
     }
 
+    /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
+    /// <param name="configure">Optional callback applied to server options before startup.</param>
+    /// <param name="cancellationToken">Cancellation token for server startup.</param>
+    /// <returns>A lifetime handle for the started application.</returns>
+    private static async ValueTask<ApplicationHandle> BuildAppHandleAsync(
+        Action<SquirixServerOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
+        configure?.Invoke(options);
+        Configurator.ApplyRuntimeDefaults(options);
+        ClusterTopologyValidator.Validate(options);
+
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                Args = [],
+                ApplicationName = ApplicationAssemblyName,
+            });
+
+        _ = builder.Logging.ClearProviders();
+        _ = builder.Logging.AddConsole();
+        _ = builder.Logging.AddDebug();
+        _ = builder.Logging.AddFilter("Grpc", LogLevel.Information);
+        _ = builder.Logging.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
+        _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
+
+        _ = await builder.AddSquirixServerAsync(
+            target => Configurator.CopyOptions(options, target),
+            loadDiscoveredSettings: false,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        var app = builder.Build();
+        _ = app.MapSquirixServer();
+
+        await app.StartAsync(cancellationToken).ConfigureAwait(false);
+        return new ApplicationHandle(app);
+    }
+
     private sealed class ApplicationHandle : IAsyncDisposable
     {
         private readonly WebApplication _app;
 
-        internal ApplicationHandle(WebApplication app)
+        public ApplicationHandle(WebApplication app)
         {
             _app = app ?? throw new ArgumentNullException(nameof(app));
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -67,8 +68,8 @@ internal static class Program
             await Console.Out.WriteLineAsync($"  URL: {options.Uri}").ConfigureAwait(false);
             await Console.Out.WriteLineAsync($"  Peers: {(options.Peers.Count is 0 ? 1 : options.Peers.Count).ToString(CultureInfo.InvariantCulture)} configured")
                          .ConfigureAwait(false);
-            await Console.Out.WriteLineAsync(Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)")
-                         .ConfigureAwait(false);
+            await Console.Out.WriteLineAsync(
+                Configurator.IsListenPortAvailable(options.Uri) ? "  Listen port: available" : "  Listen port: NOT available (already in use)").ConfigureAwait(false);
             await WritePersistenceStatusAsync(options, CancellationToken.None).ConfigureAwait(false);
             await Console.Out.WriteLineAsync("  Configuration: valid").ConfigureAwait(false);
             return 0;
@@ -82,13 +83,13 @@ internal static class Program
 
         private static async Task<int> InitializeAsync(SquirixServerCommand command)
         {
-            var path = Configurator.ResolveSettingsPath(command.SettingsPath ?? "Squirix.settings.json")!;
+            var path = command.SettingsPath ?? "Squirix.settings.json";
             if (File.Exists(path))
-                throw new InvalidOperationException($"Settings file already exists: {path}");
+                throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
 
             File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
             _ = await LoadSettingsAsync(path, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}").ConfigureAwait(false);
             return 0;
         }
 
@@ -109,8 +110,10 @@ internal static class Program
         {
             var options = await LoadOptionsAsync(command, CancellationToken.None).ConfigureAwait(false);
             var builder = WebApplication.CreateBuilder();
-            _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: CancellationToken.None)
-                             .ConfigureAwait(false);
+            _ = await builder.AddSquirixServerAsync(
+                target => Configurator.CopyOptions(options, target),
+                loadDiscoveredSettings: false,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
             var app = builder.Build();
             await using (app.ConfigureAwait(false))
             {
@@ -127,7 +130,8 @@ internal static class Program
             if (command.SettingsPath is null)
                 throw new InvalidOperationException("validate-config requires --settings PATH.");
 
-            var (success, error) = await Configurator.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None).ConfigureAwait(false);
+            var (success, error) = await Configurator.TryValidateSettingsFileAsync(command.SettingsPath, command.Strict, CancellationToken.None)
+                                                                   .ConfigureAwait(false);
             if (!success)
                 throw new InvalidOperationException(error);
 
@@ -155,11 +159,11 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
                 return;
 
-            var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
+            var dataDirectoryPath = options.DataDirectory;
             try
             {
                 _ = Directory.CreateDirectory(dataDirectoryPath);
-                var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectoryPath, ".squirix-doctor-probe"));
+                var probe = Path.Join(dataDirectoryPath, ".squirix-doctor-probe");
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);
                 await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);
@@ -190,100 +194,54 @@ internal static class Program
             await Console.Out.WriteLineAsync("Waiting for shutdown (Ctrl+C)...").ConfigureAwait(false);
         }
 
-        /// <summary>Parsed CLI command and option flags for the standalone server host.</summary>
-        /// <param name="Name">Command name such as <c>run</c>, <c>init</c>, or <c>help</c>.</param>
-        /// <param name="Strict">Whether strict configuration validation is requested.</param>
-        /// <param name="Uri">Optional listen URL override from <c>--urls</c>.</param>
-        /// <param name="DataDirectory">Optional data directory override from <c>--data-dir</c>.</param>
-        /// <param name="Persist">Whether persistence was requested via <c>--persist</c>.</param>
-        /// <param name="SettingsPath">Optional settings file path from <c>--settings</c>.</param>
         private sealed record SquirixServerCommand(string Name, bool Strict, Uri? Uri, string? DataDirectory, bool Persist, string? SettingsPath)
         {
             internal static SquirixServerCommand Parse(string[] args)
             {
-                var name = ResolveName(args);
-                return ApplyFlags(args, ResolveFlagStart(args, name), name);
-            }
+                var name = args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
+                var start = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal)) ? 0 : 1;
+                var strict = false;
+                var persist = false;
+                Uri? uri = null;
+                string? dataDir = null;
+                string? settings = null;
 
-            private static SquirixServerCommand ApplyFlags(string[] args, int start, string name)
-            {
-                var state = new FlagState();
                 for (var i = start; i < args.Length; i++)
                 {
-                    if (!TryApplyFlag(args, ref i, state))
-                        return HelpCommand();
+                    switch (args[i])
+                    {
+                        case "--strict":
+                            strict = true;
+                            break;
+                        case "--persist":
+                            persist = true;
+                            break;
+                        case "--urls":
+                            uri = new Uri(ReadValue(args, ref i), UriKind.Absolute);
+                            break;
+                        case "--data-dir":
+                            dataDir = ReadValue(args, ref i);
+                            break;
+                        case "--settings":
+                            settings = ReadValue(args, ref i);
+                            break;
+                        case "--help":
+                        case "-h":
+                            return new SquirixServerCommand("help", false, null, null, false, null);
+                        default:
+                            throw new InvalidOperationException($"Unknown argument '{args[i]}'.");
+                    }
                 }
 
-                return new SquirixServerCommand(name, state.Strict, state.Uri, state.DataDirectory, state.Persist, state.SettingsPath);
+                return new SquirixServerCommand(name, strict, uri, dataDir, persist, settings);
             }
-
-            private static SquirixServerCommand HelpCommand() => new("help", false, null, null, false, null);
 
             private static string ReadValue(string[] args, ref int index)
             {
                 index++;
                 if (index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal))
                     throw new InvalidOperationException($"Argument '{args[index - 1]}' requires a value.");
-
                 return args[index];
-            }
-
-            private static int ResolveFlagStart(string[] args, string name)
-            {
-                var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal));
-                return isImplicitRun ? 0 : 1;
-            }
-
-            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
-
-            private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
-            {
-                switch (args[index])
-                {
-                    case "--strict":
-                        state.SetStrict();
-                        return true;
-                    case "--persist":
-                        state.SetPersist();
-                        return true;
-                    case "--urls":
-                        state.SetUri(new Uri(ReadValue(args, ref index), UriKind.Absolute));
-                        return true;
-                    case "--data-dir":
-                        state.SetDataDirectory(ReadValue(args, ref index));
-                        return true;
-                    case "--settings":
-                        state.SetSettingsPath(ReadValue(args, ref index));
-                        return true;
-                    case "--help":
-                    case "-h":
-                        return false;
-                    default:
-                        throw new InvalidOperationException($"Unknown argument '{args[index]}'.");
-                }
-            }
-
-            private sealed class FlagState
-            {
-                internal string? DataDirectory { get; private set; }
-
-                internal bool Persist { get; private set; }
-
-                internal string? SettingsPath { get; private set; }
-
-                internal bool Strict { get; private set; }
-
-                internal Uri? Uri { get; private set; }
-
-                internal void SetDataDirectory(string value) => DataDirectory = value;
-
-                internal void SetPersist() => Persist = true;
-
-                internal void SetSettingsPath(string value) => SettingsPath = value;
-
-                internal void SetStrict() => Strict = true;
-
-                internal void SetUri(Uri value) => Uri = value;
             }
         }
     }

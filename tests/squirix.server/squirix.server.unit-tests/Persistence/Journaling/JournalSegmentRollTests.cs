@@ -9,8 +9,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Framing;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -128,7 +126,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         if (!File.Exists(path))
             return false;
 
-        using var enumerator = new BinaryJournalSegmentReader.Enumerator(path, true, CancellationToken.None);
+        using IJournalRecordEnumerator enumerator = new BinaryJournalSegmentReader.Enumerator(path, true, CancellationToken.None);
         while (enumerator.MoveNext())
         {
             var record = enumerator.Current;
@@ -140,7 +138,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     }
 
     private static int CountManifestDataFiles(string dataDir) =>
-        Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{StorageFilePrefixes.Manifest}*{StorageFileExtensions.Manifest}").Length : 0;
+        Directory.Exists(dataDir) ? Directory.GetFiles(dataDir, $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}").Length : 0;
 
     private static PersistenceOptions CreateOptions(string dataDir) => new()
     {
@@ -197,5 +195,5 @@ public sealed class JournalSegmentRollTests : UnitTestBase
 
     private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
         dataDir,
-        $"{StorageFilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 }

@@ -31,9 +31,7 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         PfxPath = pfxPath;
     }
 
-    internal X509Certificate2 Ca { get; }
-
-    internal string CaPath { get; }
+    public string CaPath { get; }
 
     internal string CertPath { get; }
 
@@ -42,6 +40,8 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
     internal string PfxPath { get; }
 
     internal string RootDirectory { get; }
+
+    internal X509Certificate2 Ca { get; }
 
     public void Dispose()
     {

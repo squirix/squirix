@@ -22,8 +22,6 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         _dataDir = dataDir;
     }
 
-    internal Uri Uri { get; }
-
     internal TestNodeHost Host { get; }
 
     internal Uri Uri { get; }

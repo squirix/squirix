@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
+using Squirix.Internal;
 using Squirix.Serialization;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;

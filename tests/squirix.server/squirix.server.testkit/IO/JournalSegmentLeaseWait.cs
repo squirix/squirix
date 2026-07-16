@@ -8,6 +8,7 @@ namespace Squirix.Server.TestKit.IO;
 /// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
 public static class JournalSegmentLeaseWait
 {
+    private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const int BufferSize = 64 * 1024;
     private const string JournalSegmentGlob = "jrn-*.jsqx";
 

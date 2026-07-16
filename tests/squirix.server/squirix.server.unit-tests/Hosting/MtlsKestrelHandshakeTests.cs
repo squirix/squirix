@@ -64,6 +64,8 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
 
         private X509Certificate2 ClientCertificate { get; }
 
+        private X509Certificate2 TrustAnchor { get; }
+
         private X509Certificate2 ServerCertificate { get; }
 
         private string ServerNodeId { get; }
@@ -137,26 +139,9 @@ public sealed class MtlsKestrelHandshakeTests : ServerUnitTestBase
         }
 
         private bool ValidateInboundClient(X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, TrustAnchor, ExpectedInboundPeerNodeIds);
+            MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, TrustAnchor, ["node-a"]);
 
         private bool ValidateRemoteServer(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors) =>
-            TestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
-
-        private sealed class KestrelListenConfigurer
-        {
-            private readonly MtlsInternalListenerHost _host;
-            private readonly int _port;
-
-            internal KestrelListenConfigurer(int port, MtlsInternalListenerHost host)
-            {
-                _port = port;
-                _host = host;
-                Apply = ApplyCore;
-            }
-
-            internal Action<KestrelServerOptions> Apply { get; }
-
-            private void ApplyCore(KestrelServerOptions kestrel) => kestrel.ListenLocalhost(_port, _host.ConfigureListenOptions);
-        }
+            MtlsTestCertificates.ValidatePeerServerCertificate(certificate, TrustAnchor, ServerNodeId);
     }
 }

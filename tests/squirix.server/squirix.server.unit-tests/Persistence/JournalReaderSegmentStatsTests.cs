@@ -26,7 +26,7 @@ public sealed class JournalReaderSegmentStatsTests : UnitTestBase
 
         Assert.Equal(3, stats.SegmentCount);
         Assert.Equal(42, stats.TotalBytes);
-        Assert.Equal(stats.TotalBytes, JournalReader.GetOnDiskTotalBytes(dir));
+        Assert.Equal(stats.TotalBytes, JournalReader.GetOnDiskSegmentStats(dir).TotalBytes);
     }
 
     /// <summary>GetOnDiskSegmentStats returns an empty result when the directory does not exist.</summary>
@@ -42,7 +42,7 @@ public sealed class JournalReaderSegmentStatsTests : UnitTestBase
     }
 
     private static Task WriteSegmentAsync(string dir, int index, int byteCount) => File.WriteAllBytesAsync(
-        PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"),
+        PathKit.Combine(dir, $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"),
         new byte[byteCount],
         DefaultCancellationToken);
 }

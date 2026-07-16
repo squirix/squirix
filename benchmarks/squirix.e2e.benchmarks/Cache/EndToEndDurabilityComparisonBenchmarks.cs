@@ -2,13 +2,14 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.E2EBenchmarks.Cache;
 using Squirix.E2EBenchmarks.Scenarios;
 
-namespace Squirix.E2EBenchmarks.Cache;
+namespace Squirix.E2EBenchmarks.Durability;
 
 /// <summary>Focused durability comparison benchmarks on a fixed single-node scenario.</summary>
 [BenchmarkCategory("e2e", "durability")]
-public class DurabilityComparisonBenchmarks : CacheBenchmarkBase
+public class EndToEndDurabilityComparisonBenchmarks : BenchmarkBase
 {
     /// <inheritdoc />
     public override IEnumerable<BenchmarkScenario> Scenarios => BenchmarkScenario.CreateDurabilityComparisonMatrix();

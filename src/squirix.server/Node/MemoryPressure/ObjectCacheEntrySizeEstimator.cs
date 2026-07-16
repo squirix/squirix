@@ -1,6 +1,6 @@
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Node.MemoryPressure;
 

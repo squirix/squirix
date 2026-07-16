@@ -9,6 +9,21 @@ namespace Squirix.Server.UnitTests.Support;
 
 internal static class MtlsTestCertificateFactory
 {
+    public static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
+    {
+        ArgumentNullException.ThrowIfNull(ca);
+        ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
+
+        var effectiveNotBefore = notBefore ?? new DateTimeOffset(ca.NotBefore.ToUniversalTime());
+        var effectiveNotAfter = notAfter ?? new DateTimeOffset(ca.NotAfter.ToUniversalTime());
+
+        using var peerKey = RSA.Create(2048);
+        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        peerRequest.AddClusterNodeExtensions();
+        var peerPublic = peerRequest.Create(ca, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
+        return peerPublic.CopyWithPrivateKey(peerKey);
+    }
+
     internal static async Task<MtlsTestCertificateBundle> CreateAsync(CancellationToken cancellationToken = default)
     {
         using var caKey = RSA.Create(2048);
@@ -29,20 +44,5 @@ internal static class MtlsTestCertificateFactory
         var nodeCertificate = nodePublic.HasPrivateKey ? nodePublic : nodePublic.CopyWithPrivateKey(nodeKey);
 
         return await MtlsTestCertificateBundle.CreateAsync(ca, nodeCertificate, cancellationToken);
-    }
-
-    internal static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
-    {
-        ArgumentNullException.ThrowIfNull(ca);
-        ArgumentException.ThrowIfNullOrWhiteSpace(commonName);
-
-        var effectiveNotBefore = notBefore ?? new DateTimeOffset(ca.NotBefore.ToUniversalTime());
-        var effectiveNotAfter = notAfter ?? new DateTimeOffset(ca.NotAfter.ToUniversalTime());
-
-        using var peerKey = RSA.Create(2048);
-        var peerRequest = new CertificateRequest($"CN={commonName}", peerKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        peerRequest.AddClusterNodeExtensions();
-        var peerPublic = peerRequest.Create(ca, effectiveNotBefore, effectiveNotAfter, Guid.NewGuid().ToByteArray());
-        return peerPublic.CopyWithPrivateKey(peerKey);
     }
 }

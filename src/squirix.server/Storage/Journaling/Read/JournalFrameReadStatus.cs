@@ -1,4 +1,4 @@
-namespace Squirix.Server.Storage.Journaling.Framing;
+namespace Squirix.Server.Storage.Journaling;
 
 internal enum JournalFrameReadStatus
 {

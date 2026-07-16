@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
@@ -9,7 +9,7 @@ internal sealed class BackgroundSnapshotMemoryThrottle : IBackgroundSnapshotMemo
     private readonly IMemoryUsageAccounting _accounting;
     private readonly IMemoryPressureStateEvaluator _evaluator;
 
-    internal BackgroundSnapshotMemoryThrottle(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting)
+    public BackgroundSnapshotMemoryThrottle(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting)
     {
         _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));

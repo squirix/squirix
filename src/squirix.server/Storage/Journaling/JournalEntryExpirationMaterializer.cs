@@ -5,15 +5,16 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Normalizes cache entry expiration for durable journal write and recovery replay.</summary>
 internal static class JournalEntryExpirationMaterializer
 {
-    public static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
+    internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
     {
-        if (expiresUtc is not null || expiration is null)
-            return (expiresUtc, expiration);
+        if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
+            return entry;
 
-        return (DateTime.UtcNow.Add(expiration.Value), null);
+        var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
+        return new NodeCacheEntry<T>(entry.Value, entry.Version, time.Add(entry.Expiration.Value), tags: entry.Tags);
     }
 
-    public static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
+    internal static bool IsExpiredForRecovery(DateTime? expiresUtc, TimeSpan? expiration, long writtenUnixMs)
     {
         if (expiresUtc is { } utc && utc <= DateTime.UtcNow)
             return true;
@@ -31,18 +32,11 @@ internal static class JournalEntryExpirationMaterializer
         return writtenAt.Add(relative) <= DateTime.UtcNow;
     }
 
-    public static CacheEntry<T> ForRecoveryInsert<T>(CacheEntry<T> entry, long writtenUnixMs)
+    internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
     {
-        if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
-            return entry;
+        if (expiresUtc is not null || expiration is null)
+            return (expiresUtc, expiration);
 
-        var time = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
-        return new CacheEntry<T>
-        {
-            Value = entry.Value,
-            ExpiresUtc = time.Add(entry.Expiration.Value),
-            Version = entry.Version,
-            Tags = entry.Tags,
-        };
+        return (DateTime.UtcNow.Add(expiration.Value), null);
     }
 }

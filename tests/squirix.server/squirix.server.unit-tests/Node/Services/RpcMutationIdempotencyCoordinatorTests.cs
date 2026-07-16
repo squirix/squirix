@@ -1,10 +1,10 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Contracts;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -22,12 +22,10 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store);
         var ctx = new ExecutionCounter();
-        var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
-        var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "k", entry);
 
         var first = await coordinator.ExecuteAsync(
             ValidOperationId,
-            fingerprint,
+            "fingerprint",
             ctx,
             static (state, _) =>
             {
@@ -38,7 +36,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
 
         var second = await coordinator.ExecuteAsync(
             ValidOperationId,
-            fingerprint,
+            "fingerprint",
             ctx,
             static (state, _) =>
             {
@@ -60,20 +58,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
         store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
         await Task.Delay(100, DefaultCancellationToken);
-
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.False(replayed);
-        Assert.Null(response);
-    }
-
-    /// <summary>Ensures RestoreRecord honors CreatedUtc for retention sweeps after recovery replay.</summary>
-    [Fact]
-    public void RestoredExpiredRecordIsNotReplayed()
-    {
-        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMinutes(15));
-        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
-        store.RestoreRecord("op-1", "fp-1", responseBytes, DateTime.UtcNow.AddMinutes(-20));
 
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
 
@@ -146,6 +130,20 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
     }
 
+    /// <summary>Ensures RestoreRecord honors CreatedUtc for retention sweeps after recovery replay.</summary>
+    [Fact]
+    public void RestoredExpiredRecordIsNotReplayed()
+    {
+        var store = new RpcMutationIdempotencyStore(TimeSpan.FromMinutes(15));
+        var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
+        store.RestoreRecord("op-1", "fp-1", responseBytes, DateTime.UtcNow.AddMinutes(-20));
+
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
     /// <summary>Ensures reusing an operation id with a different fingerprint throws a typed exception.</summary>
     [Fact]
     public void ReuseWithDifferentFingerprintThrowsTypedException()
@@ -153,13 +151,13 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
         var store = new RpcMutationIdempotencyStore();
         store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
-        var ex = Assert.Throws<OperationIdReuseMismatchException>(() =>
+        var ex = Assert.Throws<ServerOpIdMismatchException>(() =>
         {
             var replayed = store.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
             Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
         });
 
-        Assert.Equal(OperationIdReuseMismatchException.StableDetail, ex.Message);
+        Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
     }
 
     /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>

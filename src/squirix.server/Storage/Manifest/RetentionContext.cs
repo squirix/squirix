@@ -1,6 +1,5 @@
 using System;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
 
@@ -9,19 +8,38 @@ internal sealed record RetentionContext
 {
     internal RetentionContext(
         RetentionSettings settings,
-        IStorageFileOperations? fileOperations,
+        IStorageFileOperations fileOperations,
         ILogger? logger,
         Func<string, int> parseManifestIndex,
         IManifestRetentionFailureMetrics failureMetrics)
+        : this(
+            settings.DataDir,
+            settings.ManifestRetention,
+            settings.SnapshotRetention,
+            fileOperations,
+            logger,
+            settings.ManifestFileGlob,
+            parseManifestIndex,
+            failureMetrics ?? throw new ArgumentNullException(nameof(failureMetrics)))
     {
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(failureMetrics);
-        DataDir = settings.DataDir;
-        ManifestRetention = settings.ManifestRetention;
-        SnapshotRetention = settings.SnapshotRetention;
-        FileOperations = fileOperations ?? new FileOperations();
+    }
+
+    internal RetentionContext(
+        string dataDir,
+        int manifestRetention,
+        int snapshotRetention,
+        IStorageFileOperations fileOperations,
+        ILogger? logger,
+        string manifestFileGlob,
+        Func<string, int> parseManifestIndex,
+        IManifestRetentionFailureMetrics failureMetrics)
+    {
+        DataDir = dataDir;
+        ManifestRetention = manifestRetention;
+        SnapshotRetention = snapshotRetention;
+        FileOperations = fileOperations;
         Logger = logger;
-        ManifestFileGlob = settings.ManifestFileGlob;
+        ManifestFileGlob = manifestFileGlob;
         ParseManifestIndex = parseManifestIndex;
         FailureMetrics = failureMetrics;
     }

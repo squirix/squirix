@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using Squirix.Server.Core;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Limits;
+using Squirix.Server.Storage.Journaling.Entries;
 
-namespace Squirix.Server.TestKit;
+namespace Squirix.Server.TestKit.Journaling;
 
 /// <summary>Helpers for constructing entry payloads near fixed size limits in tests.</summary>
 public static class EntryLimitKit

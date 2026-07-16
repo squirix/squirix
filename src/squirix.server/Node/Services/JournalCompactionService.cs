@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -27,35 +26,30 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
-    private readonly SnapshotCoordinator<T> _snap;
+    private readonly Coordinator _snap;
     private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
-    private readonly EventHandler<SnapshotCompletedEventArgs> _onSnapshotCompleted;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
     private CancellationToken _stoppingToken;
 
-    public JournalCompactionService(
+    internal JournalCompactionService(
         ILogger<JournalCompactionService<T>> log,
         IOptions<JournalCompactionOptions> opt,
-        SnapshotCoordinator<T> snap,
-        IExclusiveMaintenanceExecutor journalMaintenance,
-        ManifestStore manifest,
-        ISnapshotReader snapshotReader,
-        IOptions<PersistenceOptions> persistence,
-        ClusterConfig cluster,
-        TimeProvider? timeProvider = null)
+        JournalCompactionDependencies deps)
     {
-        _log = log;
-        _snap = snap;
-        _journalMaintenance = journalMaintenance;
-        _manifest = manifest;
-        _snapshotReader = snapshotReader;
-        _nodeId = cluster.NodeId;
+        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(opt);
         _opt = opt.Value;
-        _persistence = persistence.Value;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentNullException.ThrowIfNull(deps);
+        _snap = deps.Snapshot;
+        _journalMaintenance = deps.JournalMaintenance;
+        _manifest = deps.Manifest;
+        _snapshotReader = deps.SnapshotReader;
+        _nodeId = deps.Cluster.NodeId;
+        _persistence = deps.Persistence;
+        _timeProvider = deps.TimeProvider;
         _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
@@ -74,7 +68,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         return RunLoopAsync(stoppingToken);
     }
 
-    private void ChangeState(CompactionState next)
+    private void ChangeState(RunState next)
     {
         var prev = State;
         if (prev == next)
@@ -88,7 +82,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         LogManager.CompactionStateChanged(_log, prevName, nextName);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(ManifestState.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(State.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip
@@ -120,7 +114,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
+    private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
 
     private AttemptResult RecordCompactionFailure()
     {

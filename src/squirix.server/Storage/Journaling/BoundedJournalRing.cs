@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,7 +28,13 @@ internal sealed class BoundedJournalRing : IDisposable
         _availableSlots = new SemaphoreSlim(capacity, capacity);
     }
 
-    public async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken)
+    public void Dispose()
+    {
+        _workSignal.Dispose();
+        _availableSlots.Dispose();
+    }
+
+    internal async ValueTask EnqueueAsync(JournalWorkItem item, CancellationToken cancellationToken)
     {
         await _availableSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -44,9 +51,9 @@ internal sealed class BoundedJournalRing : IDisposable
         }
     }
 
-    public void NotifyWorkAvailable() => _ = _workSignal.Set();
+    internal void NotifyWorkAvailable() => _ = _workSignal.Set();
 
-    public bool TryDequeue(out JournalWorkItem item)
+    internal bool TryDequeue([NotNullWhen(true)] out JournalWorkItem? item)
     {
         if (!TryDequeueCore(out item))
             return false;
@@ -55,7 +62,7 @@ internal sealed class BoundedJournalRing : IDisposable
         return true;
     }
 
-    public void WaitForWork(int timeoutMs, CancellationToken cancellationToken)
+    internal void WaitForWork(int timeoutMs, CancellationToken cancellationToken)
     {
         if (HasQueuedWork() || cancellationToken.IsCancellationRequested || timeoutMs is 0)
             return;
@@ -74,12 +81,6 @@ internal sealed class BoundedJournalRing : IDisposable
         _ = _workSignal.WaitOne(waitMs);
     }
 
-    public void Dispose()
-    {
-        _workSignal.Dispose();
-        _availableSlots.Dispose();
-    }
-
     private static int ComputeRemainingWaitMs(long deadline)
     {
         var remaining = deadline - Environment.TickCount64;
@@ -91,20 +92,20 @@ internal sealed class BoundedJournalRing : IDisposable
 
     private bool HasQueuedWork() => Volatile.Read(ref _tail) > Volatile.Read(ref _head);
 
-    private bool TryDequeueCore(out JournalWorkItem item)
+    private bool TryDequeueCore([NotNullWhen(true)] out JournalWorkItem? item)
     {
         var head = Volatile.Read(ref _head);
         var tail = Volatile.Read(ref _tail);
         if (head >= tail)
         {
-            item = default;
+            item = null;
             return false;
         }
 
         var index = Convert.ToInt32(head & _mask);
         if (Volatile.Read(ref _published[index]) is 0)
         {
-            item = default;
+            item = null;
             return false;
         }
 

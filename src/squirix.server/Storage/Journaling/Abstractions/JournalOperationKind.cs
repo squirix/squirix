@@ -1,4 +1,4 @@
-namespace Squirix.Server.Storage.Journaling.Observability;
+namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Identifies a journal writer operation for distributed tracing.</summary>
 internal enum JournalOperationKind

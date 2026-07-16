@@ -11,7 +11,6 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Entries;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -39,25 +38,21 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    public RecoveryService(
-        PersistenceOptions opt,
-        ManifestStore manifestStore,
-        ILocalCacheRecovery<T> localCache,
+    internal RecoveryService(
         RecoveryOptions options,
-        JournalStartupGate journalStartupGate,
-        RpcMutationIdempotencyStore idempotency,
-        ISnapshotReader snapshotReader,
         ILogger<RecoveryService<T>> log,
+        RecoveryDependencies<T> deps,
         IHostApplicationLifetime? applicationLifetime = null)
     {
-        _opt = opt;
-        _manifestStore = manifestStore;
-        _localCache = localCache;
-        _options = options;
-        _journalStartupGate = journalStartupGate;
-        _idempotency = idempotency;
-        _snapshotReader = snapshotReader;
-        _log = log;
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(deps);
+        _opt = deps.Persistence;
+        _manifestStore = deps.ManifestStore;
+        _localCache = deps.LocalCache;
+        _journalStartupGate = deps.JournalStartupGate;
+        _idempotency = deps.Idempotency;
+        _snapshotReader = deps.SnapshotReader;
         _applicationLifetime = applicationLifetime;
     }
 
@@ -97,7 +92,7 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private static InvalidDataException CreateJournalReplayBoundaryFailure() => new("journal recovery cannot determine a valid replay start.");
 
-    private static int DetermineJournalOnlyReplayStart(ManifestState manifest, int firstAvailableSegment, int lastAvailableSegment)
+    private static int DetermineJournalOnlyReplayStart(State manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
         var manifestCurrentJournal = NormalizeSegmentIndex(manifest.CurrentJournal);
         var missingInitialSegment = firstAvailableSegment is 0 && manifestCurrentJournal is not 1;
@@ -354,7 +349,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        ManifestState.SnapshotRef? SnapshotReference,
+        State.SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

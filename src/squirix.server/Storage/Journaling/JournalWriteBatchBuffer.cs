@@ -26,15 +26,21 @@ internal sealed class JournalWriteBatchBuffer
         _capacityBytes = capacityBytes;
     }
 
-    public bool IsEmpty => StagedByteLength is 0;
+    internal ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
 
-    public int StagedByteLength { get; private set; }
+    internal bool IsEmpty => StagedByteLength is 0;
 
-    public ReadOnlySpan<byte> ActiveSpan => _buffer is null ? ReadOnlySpan<byte>.Empty : _buffer.AsSpan(0, StagedByteLength);
+    internal IReadOnlyList<PendingAppend> PendingAppends => _pending;
 
-    public IReadOnlyList<PendingAppend> PendingAppends => _pending;
+    internal int StagedByteLength { get; private set; }
 
-    public bool TryStageAppend(in JournalWorkItem item)
+    internal void Clear()
+    {
+        StagedByteLength = 0;
+        _pending.Clear();
+    }
+
+    internal bool TryStageAppend(in JournalWorkItem item)
     {
         var frameLength = item.FrameLength;
         if (frameLength <= 0 || StagedByteLength + frameLength > _capacityBytes)
@@ -46,12 +52,6 @@ internal sealed class JournalWriteBatchBuffer
         _pending.Add(new PendingAppend(item));
         StagedByteLength += frameLength;
         return true;
-    }
-
-    public void Clear()
-    {
-        StagedByteLength = 0;
-        _pending.Clear();
     }
 
     internal readonly record struct PendingAppend(JournalWorkItem Item);

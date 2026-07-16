@@ -3,7 +3,14 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Server.Node.Observability;
 
-internal sealed record ServerLabelBinding(Counter<long> Counter, string Key1, string Value1, string Key2, string Value2, string Key3, string Value3)
+internal sealed record ServerLabelBinding(
+    Counter<long> Counter,
+    string Key1,
+    string Value1,
+    string Key2,
+    string Value2,
+    string Key3,
+    string Value3)
 {
     internal void Inc() => Inc(1);
 

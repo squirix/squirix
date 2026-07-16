@@ -17,7 +17,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     private readonly TestNodeHost _host;
     private int _disposed;
 
-    private BenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
+    private E2EBenchmarkNodeScope(TestNodeHost host, Uri uri, TempDirectory? dataDir)
     {
         _host = host;
         Uri = uri;
@@ -38,7 +38,7 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     internal static Task<E2EBenchmarkNodeScope> StartAsync(CancellationToken cancellationToken, E2EBenchmarkDurabilityMode durabilityMode = E2EBenchmarkDurabilityMode.Ephemeral) =>
         StartAsync(Guid.NewGuid().ToString("N"), durabilityMode, cancellationToken);
 
-    internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
+    internal Task<E2EBenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => E2EBenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
 
     private static Task<E2EBenchmarkNodeScope> StartAsync(string scopeId, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
@@ -71,12 +71,12 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
         try
         {
             if (!warmUpClient)
-                return new BenchmarkNodeScope(host, host.Uri, dataDir);
+                return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
 
-            var unused = await BenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
+            var unused = await E2EBenchmarkClientLease.ConnectAsync(host.Uri, cancellationToken).ConfigureAwait(false);
             await unused.DisposeAsync().ConfigureAwait(false);
 
-            return new BenchmarkNodeScope(host, host.Uri, dataDir);
+            return new E2EBenchmarkNodeScope(host, host.Uri, dataDir);
         }
         catch (InvalidOperationException)
         {

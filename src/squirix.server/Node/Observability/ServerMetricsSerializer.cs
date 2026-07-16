@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using Squirix.Server.Runtime;
+using Squirix.Server.Serialization;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -12,7 +12,7 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
     private readonly string _impl;
     private readonly IServerSerializer _inner;
 
-    internal ServerMetricsSerializer(IServerSerializer inner)
+    public ServerMetricsSerializer(IServerSerializer inner)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _impl = _inner.GetType().Name;
@@ -151,26 +151,5 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
             default:
                 return false;
         }
-    }
-
-    /// <summary>Metrics for serialization operations.</summary>
-    private static class ServerSerializerMetrics
-    {
-        internal const string OpDeserialize = "deserialize";
-
-        internal const string OpSerialize = "serialize";
-
-        internal static readonly ServerCounter3Labels FailuresTotal = new(
-            ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_failures_total"),
-            "op",
-            "exception_type",
-            "impl");
-
-        internal static readonly ServerHistogram2Labels OpDurationSeconds = new(
-            ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_serializer_op_duration_seconds"),
-            "op",
-            "impl");
-
-        internal static readonly ServerCounter3Labels OpsTotal = new(ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_ops_total"), "op", "result", "impl");
     }
 }

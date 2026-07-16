@@ -17,30 +17,9 @@ internal static class FileCodec
 
     private const int RollSnapshotSectionFixedLength = 4 + 8 + 4 + 8 + 2;
 
-    private const string SnapshotPathExceedsMaxEncodedLength = "Manifest snapshot path exceeds maximum encoded length.";
-
     private const byte Version = 1;
 
     private static ReadOnlySpan<byte> Magic => "SQMF"u8;
-
-    internal static int ComputeEncodedLength(State manifest)
-    {
-        var pathByteCount = GetSnapshotPathUtf8ByteCount(manifest.LastSnapshot?.Path);
-        if (pathByteCount > ushort.MaxValue)
-            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
-
-        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
-        return FileHeaderSize + bodyLength + FooterSize;
-    }
-
-    internal static int ComputeRollEncodedLength(SnapshotRef? snapshot, int snapshotPathUtf8Length)
-    {
-        if (snapshotPathUtf8Length > ushort.MaxValue)
-            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
-
-        var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
-        return FileHeaderSize + bodyLength + FooterSize;
-    }
 
     internal static State Decode(ReadOnlySpan<byte> fileBytes)
     {
@@ -73,7 +52,7 @@ internal static class FileCodec
         var path = manifest.LastSnapshot?.Path;
         var pathByteCount = GetSnapshotPathUtf8ByteCount(path);
         if (pathByteCount > ushort.MaxValue)
-            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
 
         if (destination.Length < ComputeEncodedLength(manifest))
             throw new ArgumentException("Destination span is too small for the encoded manifest.", nameof(destination));
@@ -127,6 +106,25 @@ internal static class FileCodec
         BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], Crc32C.Compute(crcPayload));
     }
 
+    internal static int ComputeEncodedLength(State manifest)
+    {
+        var pathByteCount = GetSnapshotPathUtf8ByteCount(manifest.LastSnapshot?.Path);
+        if (pathByteCount > ushort.MaxValue)
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+
+        var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
+        return FileHeaderSize + bodyLength + FooterSize;
+    }
+
+    internal static int ComputeRollEncodedLength(State.SnapshotRef? snapshot, int snapshotPathUtf8Length)
+    {
+        if (snapshotPathUtf8Length > ushort.MaxValue)
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+
+        var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
+        return FileHeaderSize + bodyLength + FooterSize;
+    }
+
     /// <summary>Encodes a segment-roll manifest update on the journal hot path (no snapshot path allocations).</summary>
     /// <param name="format">Manifest format field.</param>
     /// <param name="currentJournal">Updated current journal segment index.</param>
@@ -137,10 +135,16 @@ internal static class FileCodec
     /// <returns>Total encoded byte length written to <paramref name="destination" />.</returns>
     /// <exception cref="InvalidDataException">Thrown when <paramref name="snapshotPathUtf8" /> exceeds the maximum encoded length.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="destination" /> is too small for the encoded roll manifest.</exception>
-    internal static int WriteRollEncoded(int format, int currentJournal, ulong nextSequence, SnapshotRef? snapshot, ReadOnlySpan<byte> snapshotPathUtf8, Span<byte> destination)
+    internal static int WriteRollEncoded(
+        int format,
+        int currentJournal,
+        ulong nextSequence,
+        State.SnapshotRef? snapshot,
+        ReadOnlySpan<byte> snapshotPathUtf8,
+        Span<byte> destination)
     {
         if (snapshotPathUtf8.Length > ushort.MaxValue)
-            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
+            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
 
         var encodedLength = ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
         if (destination.Length < encodedLength)
@@ -194,7 +198,7 @@ internal static class FileCodec
         return encodedLength;
     }
 
-    private static SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)
+    private static State.SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)
     {
         if (body.Length < offset + 4 + 8 + 4 + 8 + 2)
             throw new InvalidDataException("Manifest snapshot section is truncated.");
@@ -217,7 +221,7 @@ internal static class FileCodec
             path = Encoding.UTF8.GetString(body.Slice(offset, pathLen));
 
         offset += pathLen;
-        return new SnapshotRef
+        return new State.SnapshotRef
         {
             Index = snapshotIndex,
             LastAppliedSequence = lastAppliedSequence,

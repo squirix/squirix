@@ -1,11 +1,9 @@
-using Squirix.Server.Storage.Journaling.Platform;
-
 namespace Squirix.Server.Storage.Journaling;
 
-/// <summary>Creates <see cref="IJournalSegmentWriter"/> instances for Pipelined.</summary>
+/// <summary>Creates <see cref="IJournalSegmentWriter" /> instances for Pipelined.</summary>
 internal static class JournalSegmentWriterFactory
 {
-    public static IJournalSegmentWriter Create(JournalPlatformBackend backend)
+    internal static IJournalSegmentWriter Create(JournalPlatformBackend backend)
     {
         // PERF note (Linux): segment writes and fsync can be made faster with io_uring batching - stage
         // the submission entries and issue one ring-enter per group commit instead of one flush per op.

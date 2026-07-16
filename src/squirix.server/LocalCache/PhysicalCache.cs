@@ -47,16 +47,16 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         }
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(TryGetLive(key, out var stored) ? ToEntry(stored) : null);
     }
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(CacheKey key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new CacheValueResult<T>(true, stored.Value) : new CacheValueResult<T>(false, default));
+        return ValueTask.FromResult(TryGetLive(key, out var stored) ? new NodeCacheValueResult<T>(true, stored.Value) : new NodeCacheValueResult<T>(false, default));
     }
 
     public ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
@@ -96,7 +96,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
     public async ValueTask<bool> RemoveForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken) =>
         (await RemoveAsync(key, cancellationToken).ConfigureAwait(false)).Removed;
 
-    public ValueTask SetAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = NormalizeEntry(entry);
@@ -129,7 +129,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask<bool> TryAddAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (TryGetLive(key, out _))
@@ -236,7 +236,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         private readonly EvictionOptions _options;
         private readonly LinkedList<CacheKey> _order = [];
 
-        internal LocalEvictionIndex(EvictionOptions options)
+        public LocalEvictionIndex(EvictionOptions options)
         {
             _options = options;
         }
@@ -309,7 +309,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                     EvictionPolicyType.Fifo => _order.Last?.Value,
                     EvictionPolicyType.Lru => _order.Last?.Value,
                     EvictionPolicyType.Lfu => GetLeastFrequentlyUsedKey(),
-                    _ => throw new InvalidOperationException("Unsupported eviction policy."),
+                    _ => throw new InvalidOperationException($"Unsupported eviction policy: {_options.Policy}."),
                 };
 
                 if (candidate is null)

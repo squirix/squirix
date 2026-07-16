@@ -12,6 +12,6 @@ internal enum CacheNameValidationError
     /// <summary>Cache name contains characters outside the supported ASCII set.</summary>
     InvalidCharacters = 2,
 
-    /// <summary>Cache name is reserved for internal semantics.</summary>
-    Reserved = 3,
+    /// <summary>Cache name is the single-dot or double-dot relative segment.</summary>
+    ForbiddenDotSegment = 3,
 }

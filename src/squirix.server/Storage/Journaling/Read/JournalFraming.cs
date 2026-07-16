@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Storage.Journaling.Read;
+namespace Squirix.Server.Storage.Journaling;
 
 internal static class JournalFraming
 {
@@ -20,10 +20,6 @@ internal static class JournalFraming
 
     /// <summary>Gets the on-disk segment file magic (four ASCII bytes).</summary>
     private static ReadOnlySpan<byte> Magic => "SJRN"u8;
-
-    internal static InvalidDataException CreateTruncatedHeaderException() => new("journal segment has a truncated file header.");
-
-    internal static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
 
     internal static int FrameTotalLength(int bodyLength) => FrameHeaderSize + bodyLength + FrameFooterSize;
 

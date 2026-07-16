@@ -7,7 +7,7 @@ namespace Squirix.Server.Node.Services;
 internal sealed class JournalMetricsExporterOptions
 {
     [JsonConstructor]
-    internal JournalMetricsExporterOptions()
+    public JournalMetricsExporterOptions()
     {
         Interval = TimeSpan.FromSeconds(5);
     }

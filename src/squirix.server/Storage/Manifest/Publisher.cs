@@ -10,18 +10,15 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>Encodes and durably writes manifest files and the fixed-size CURRENT pointer.</summary>
 [SuppressMessage(
     "AsyncUsage",
-    "MA0045:Do not use blocking calls in a sync method",
-    Justification = "Blocking manifest file I/O runs on the dedicated journal I/O thread without a synchronization context.")]
+    "MA0045:Use await instead of GetResult()",
+    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
+[SuppressMessage(
+    "Usage",
+    "VSTHRD002:Avoid problematic synchronous waits",
+    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class Publisher : IDisposable
 {
     private const int DefaultEncodeBufferCapacity = 256;
-
-    private static readonly Action<object?> WritePublishedManifestBlockingCallback = static state =>
-    {
-        if (state is Publisher publisher)
-            publisher.WritePublishedManifestBlocking();
-    };
-
     private readonly IndexAllocator _allocator;
     private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
     private readonly PersistentPointerWriter _currentPointerWriter;
@@ -70,13 +67,7 @@ internal sealed class Publisher : IDisposable
 
         _publishWork = new PublishWork(targetPath, encodedLength, nextIndex);
 
-        await Task.Factory.StartNew(
-                         WritePublishedManifestBlockingCallback,
-                         this,
-                         cancellationToken,
-                         TaskCreationOptions.DenyChildAttach,
-                         TaskScheduler.Default)
-                     .ConfigureAwait(false);
+        await Task.Factory.StartNew(WritePublishedManifestBlocking, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
 
         _setCache(manifest, nextIndex);
     }
@@ -96,7 +87,7 @@ internal sealed class Publisher : IDisposable
 
         var targetPath = _allocator.BuildManifestFilePath(nextIndex);
         Pointer.Write(_currentPointerBuffer, nextIndex);
-        FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
+        Durability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
 
         var manifest = new State
         {
@@ -129,7 +120,7 @@ internal sealed class Publisher : IDisposable
     private void UpdateCurrentPointerBlocking(int manifestIndex)
     {
         Pointer.Write(_currentPointerBuffer, manifestIndex);
-        FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
+        Durability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
     }
 
     private void WritePublishedManifestBlocking()
@@ -137,7 +128,7 @@ internal sealed class Publisher : IDisposable
         if (_publishWork is not { } publishWork)
             throw new InvalidOperationException("Publish work was not initialized.");
 
-        FileDurability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
+        Durability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
         UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
     }
 

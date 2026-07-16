@@ -6,7 +6,6 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
@@ -42,43 +41,38 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
         try
         {
             var executor = new DurableMutationExecutor(journal);
-            var applyCalls = 0;
+            var applyState = new ApplyCounter();
 
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(
-                EvaluateAsync,
-                AppendJournalAsync,
-                ApplyMemoryAsync,
+                null,
+                static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
+                new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, byte[] Payload), ApplyCounter, int>(
+                    journal,
+                    (CacheKey.Default("k"), JournalEntryPayloadKit.EncodePut("v")),
+                    static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
+                    applyState,
+                    static (_, state, ct) => state.ApplyAsync(ct)),
                 DefaultCancellationToken).AsTask());
 
             Assert.Equal("memory apply failed", error.Message);
-            Assert.Equal(1, applyCalls);
+            Assert.Equal(1, applyState.Calls);
             Assert.Equal(1, journal.AppendedOps);
-            return;
-
-            static ValueTask<DurableMutationCondition<int>> EvaluateAsync(CancellationToken cancellationToken)
-            {
-                _ = cancellationToken;
-                return new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply());
-            }
-
-            ValueTask AppendJournalAsync(CancellationToken cancellationToken)
-            {
-                return journal.AppendPutAsync(
-                    CacheKey.Default("k"),
-                    JournalEntryPayloadKit.EncodePut("v"),
-                    cancellationToken);
-            }
-
-            ValueTask<int> ApplyMemoryAsync(CancellationToken cancellationToken)
-            {
-                _ = cancellationToken;
-                applyCalls++;
-                throw new InvalidOperationException("memory apply failed");
-            }
         }
         finally
         {
             await journal.DisposeAsync();
+        }
+    }
+
+    private sealed class ApplyCounter
+    {
+        internal int Calls { get; private set; }
+
+        internal ValueTask<int> ApplyAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            Calls++;
+            throw new InvalidOperationException("memory apply failed");
         }
     }
 }

@@ -3,10 +3,11 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Read;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Journaling;
+using Squirix.Server.TestKit.Testing;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -72,11 +73,9 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     [Fact]
     public void OversizedFrameIsClassifiedConsistently()
     {
-        var length = BufferKit.ToOwnedBytes(
-            JournalFraming.FrameHeaderSize,
-            0x8000_0000u,
-            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
-        AssertConsistentStatus(length, JournalFrameReadStatus.OversizedFrame);
+        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(length, 0x8000_0000u);
+        AssertConsistentStatus([.. length], JournalFrameReadStatus.OversizedFrame);
     }
 
     /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>

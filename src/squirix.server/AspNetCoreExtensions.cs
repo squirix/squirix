@@ -50,18 +50,9 @@ public static class AspNetCoreExtensions
         CancellationToken cancellationToken)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
-        var extensions = new ExtensionOptions();
+        var extensions = new SquirixServerExtensionOptions();
         configureExtensions?.Invoke(extensions);
-        await ServerHostingComposition.ConfigureBuilderAsync(
-            builder,
-            Configurator.ToClusterConfig(options),
-            args =>
-            {
-                args.WaitForRecovery = options.WaitForRecovery;
-                args.PersistenceOptions = ResolvePersistenceOptions(options);
-                args.Extensions = extensions;
-            },
-            cancellationToken).ConfigureAwait(false);
+        await ServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
         return builder;
     }
 

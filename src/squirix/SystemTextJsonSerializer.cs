@@ -7,16 +7,24 @@ using System.Text.Json.Serialization.Metadata;
 namespace Squirix;
 
 /// <summary>
-/// <see cref="ISquirixSerializer" /> implementation backed by <see cref="System.Text.Json" />.
+/// <see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.
 /// </summary>
 /// <remarks>
 /// Intentional reflection fallback for arbitrary application payload types.
 /// Persistence and REST DTOs use dedicated <see cref="JsonSerializerContext" /> types at call sites.
 /// </remarks>
 #pragma warning disable ZA1001 // Generic serializer boundary; reflection fallback is required for unknown T.
-internal sealed class SystemTextJsonSerializer : ISquirixSerializer
+internal sealed class ServerJsonSerializer : IServerSerializer
 {
-    private readonly JsonSerializerOptions _options = CreateDefaultOptions();
+    private readonly JsonSerializerOptions _options;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ServerJsonSerializer" /> class.
+    /// </summary>
+    public ServerJsonSerializer()
+    {
+        _options = CreateDefaultOptions();
+    }
 
     /// <inheritdoc />
     public T? Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload, _options);

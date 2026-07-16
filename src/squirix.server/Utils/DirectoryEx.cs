@@ -73,7 +73,7 @@ internal static class DirectoryEx
     /// <param name="forbidSymlinks">When <see langword="true" />, forbids symbolic links/junctions in the path chain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The normalized absolute path of the created (or already existing) directory.</returns>
-    public static Task<string> CreateDirectoryAsync(
+    internal static Task<string> CreateDirectoryAsync(
         string path,
         string? baseDir = null,
         bool ensureEmpty = false,
@@ -97,7 +97,7 @@ internal static class DirectoryEx
                 for (var i = 0; i < files.Length; i++)
                 {
                     var f = files[i];
-                    TryMakeWritable(f);
+                    ClearReadOnlyAttributes(f);
                     File.Delete(f);
                 }
 
@@ -189,8 +189,7 @@ internal static class DirectoryEx
         throw new IOException(created ? $"Created directory resolved to a symlink/junction: '{full}'." : $"Target directory is a symlink/junction: '{full}'.");
     }
 
-    private static bool IsDirectorySeparator(char value) =>
-        value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
+    private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
@@ -317,6 +316,24 @@ internal static class DirectoryEx
         return full;
     }
 
+    private static void ClearReadOnlyAttributes(string file)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(file);
+            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
+                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
+        }
+    }
+
     private static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
     {
         while (path.Length > 0 && IsDirectorySeparator(path[0]))
@@ -341,25 +358,7 @@ internal static class DirectoryEx
         return !segment.IsEmpty;
     }
 
-    private static void TryMakeWritable(string file)
-    {
-        try
-        {
-            var attrs = File.GetAttributes(file);
-            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
-                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
-        }
-        catch (IOException)
-        {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
-        }
-    }
-
-    private static void EnsureDirectoryExistsAndIsRegular(string full, bool forbidSymlinks)
+    private static void ValidateNoInvalidChars(string path)
     {
         if (path.AsSpan().IndexOfAny(InvalidPathChars) >= 0)
             throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));

@@ -28,7 +28,12 @@ public sealed class NodeCacheEntry<T>
     /// <param name="expiration">The relative expiration.</param>
     /// <param name="tags">Optional user-defined tags.</param>
     [SetsRequiredMembers]
-    public NodeCacheEntry(T? value, long version = 1, DateTime? expiresUtc = null, TimeSpan? expiration = null, FrozenDictionary<string, string>? tags = null)
+    public NodeCacheEntry(
+        T? value,
+        long version = 1,
+        DateTime? expiresUtc = null,
+        TimeSpan? expiration = null,
+        FrozenDictionary<string, string>? tags = null)
     {
         Value = value;
         Version = version;

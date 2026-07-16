@@ -97,6 +97,19 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             _consumer.Consume(await cache.GetValueFoundAsync(_keys[i], CancellationToken.None).ConfigureAwait(false));
     }
 
+    /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
+    public async Task SquirixGrpcFoundOnlyReusedBatchedAsync()
+    {
+        var cache = _rawGrpc!;
+        var request = _reusedRequest!;
+        for (var i = 0; i < ReadBatch; i++)
+        {
+            request.Key = _keys[i];
+            _consumer.Consume(await cache.GetValueFoundAsync(request, CancellationToken.None).ConfigureAwait(false));
+        }
+    }
+
     /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC transport + server pipeline, no SDK")]
     public async Task SquirixGrpcTransportReadBatchedAsync()

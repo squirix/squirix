@@ -19,7 +19,7 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         await using var physical = new PhysicalCache<string>(timeProvider);
         var clientCache = new ClientCache<string>(physical, physical);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(10);
-        await clientCache.SetEntryAsync(TestOperationIds.Default, "orders", "k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await clientCache.SetEntryAsync(TestOperationIds.Default, "orders", "k", new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await clientCache.UpdateAsync(TestOperationIds.Default, "orders", "k", "new", DefaultCancellationToken);
 
@@ -37,12 +37,12 @@ public sealed class CacheDerivedMutationTests : ServerUnitTestBase
         var timeProvider = new FakeTimeProvider();
         await using var cache = new PhysicalCache<string>(timeProvider);
         var expires = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(5);
-        await cache.SetAsync("k", new CacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
+        await cache.SetAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "old", ExpiresUtc = expires }, DefaultCancellationToken);
 
         var updated = await cache.UpdateAsync(CacheKey.Default("k"), "new", DefaultCancellationToken);
 
         Assert.True(updated);
-        var entry = await cache.GetEntryAsync("k", DefaultCancellationToken);
+        var entry = await cache.GetEntryAsync(CacheKey.Default("k"), DefaultCancellationToken);
         Assert.NotNull(entry);
         Assert.Equal("new", entry.Value);
         Assert.Equal(expires, entry.ExpiresUtc);

@@ -4,8 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage.Journaling.Framing;
-using Squirix.Server.Storage.Journaling.Platform;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
@@ -19,26 +17,14 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal static class JournalRecoveryScan
 {
-    internal static ulong DetermineNextSequence(ManifestState manifest, PersistenceOptions options)
+    internal static ulong DetermineNextSequence(State manifest, PersistenceOptions options)
     {
-        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
-        if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
-            next = lastApplied + 1UL;
-
+        var next = ResolveBaselineNextSequence(manifest);
+        var (firstAvailableSegment, lastAvailableSegment) = ProbeAvailableSegments(options.DataDir);
         var manifestCurrentJournal = manifest.CurrentJournal > 0 ? manifest.CurrentJournal : 1;
-        var firstAvailableSegment = 0;
-        var lastAvailableSegment = 0;
-        foreach (var segment in JournalReadPath.EnumerateSegments(options.DataDir, 1))
-        {
-            if (firstAvailableSegment is 0)
-                firstAvailableSegment = segment.Index;
-
-            lastAvailableSegment = segment.Index;
-        }
-
         ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
-        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
 
+        var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
         foreach (var record in JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None))
         {
             if (record.Sequence >= next)
@@ -48,7 +34,7 @@ internal static class JournalRecoveryScan
         return next;
     }
 
-    internal static async Task PrepareActiveSegmentForSequenceScanAsync(ManifestState manifest, PersistenceOptions options, CancellationToken cancellationToken)
+    internal static async Task PrepareActiveSegmentForSequenceScanAsync(State manifest, PersistenceOptions options, CancellationToken cancellationToken)
     {
         var segmentIndex = manifest.CurrentJournal <= 0 ? 1 : manifest.CurrentJournal;
         var path = JournalReadPath.BuildSegmentPath(options.DataDir, segmentIndex);
@@ -96,6 +82,21 @@ internal static class JournalRecoveryScan
     private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment) => new(
         $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent=False.");
 
+    private static (int FirstAvailableSegment, int LastAvailableSegment) ProbeAvailableSegments(string dataDir)
+    {
+        var firstAvailableSegment = 0;
+        var lastAvailableSegment = 0;
+        foreach (var segment in JournalReadPath.EnumerateSegments(dataDir, 1))
+        {
+            if (firstAvailableSegment is 0)
+                firstAvailableSegment = segment.Index;
+
+            lastAvailableSegment = segment.Index;
+        }
+
+        return (firstAvailableSegment, lastAvailableSegment);
+    }
+
     private static async Task<long> ReadValidSegmentLengthAsync(string path, CancellationToken cancellationToken)
     {
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -130,6 +131,15 @@ internal static class JournalRecoveryScan
             WriteFreshFileHeader(writer);
             writer.Fsync();
         }
+    }
+
+    private static ulong ResolveBaselineNextSequence(State manifest)
+    {
+        var next = manifest.NextSequence is 0UL ? 1UL : manifest.NextSequence;
+        if (manifest.LastSnapshot?.LastAppliedSequence is { } lastApplied && lastApplied >= next)
+            next = lastApplied + 1UL;
+
+        return next;
     }
 
     private static void ThrowIfJournalOnlyTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment)

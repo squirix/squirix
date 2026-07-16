@@ -20,7 +20,7 @@ internal sealed class PressureGate : IMemoryPressureGate
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
-    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
+    public PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
     {
         _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
@@ -31,9 +31,9 @@ internal sealed class PressureGate : IMemoryPressureGate
     public void ThrowIfMemoryGrowingWriteRejected(long estimatedNetGrowthBytes, bool magnitudeUnknown, string operation)
     {
         var boundedGrowth = estimatedNetGrowthBytes < 0 ? 0 : estimatedNetGrowthBytes;
-        var currentBytes = _accounting.EstimatedBytes;
-        if (_evaluator.Evaluate(currentBytes) is not MemoryPressureState.Critical && (magnitudeUnknown || boundedGrowth <= 0 ||
-                                                                                      _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) is not MemoryPressureState
+        var currentBytes = _accounting.ReadEstimatedBytes();
+        if (_evaluator.Evaluate(currentBytes) is not PressureLevel.Critical && (magnitudeUnknown || boundedGrowth <= 0 ||
+                                                                                      _evaluator.Evaluate(AddSaturating(currentBytes, boundedGrowth)) is not PressureLevel
                                                                                          .Critical))
         {
             return;
@@ -44,7 +44,7 @@ internal sealed class PressureGate : IMemoryPressureGate
 
         _accounting.RecordAdmissionRejection();
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
-        RejectionCounter.Record(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
+        MemoryPressureMetrics.RecordRejection(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
         throw new ResourceExhaustedException();
     }
 

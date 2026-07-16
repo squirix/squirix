@@ -13,17 +13,6 @@ namespace Squirix.Internal;
 /// </summary>
 internal static class ProtoEx
 {
-    public static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
-    {
-        ArgumentNullException.ThrowIfNull(serializer);
-        return new CacheEntry<T>
-        {
-            Value = await FromStructAsync<T>(entry.Value, serializer).ConfigureAwait(false),
-            ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
-            Expiration = entry.Expiration?.ToTimeSpan(),
-        };
-    }
-
     internal static async ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -86,17 +75,18 @@ internal static class ProtoEx
         };
     }
 
-    private static T? Coerce<T>(object? value) => value is T result ? result : default;
-
-    private static TTarget ReinterpretReference<TTarget, TValue>(TValue value)
-        where TValue : class?
+    internal static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
     {
-        var reference = value;
-        return Unsafe.As<TValue, TTarget>(ref reference);
+        ArgumentNullException.ThrowIfNull(serializer);
+        return new CacheEntry<T>
+        {
+            Value = await FromStructAsync<T>(entry.Value, serializer).ConfigureAwait(false),
+            ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
+            Expiration = entry.Expiration?.ToTimeSpan(),
+        };
     }
 
-    private static TTarget ReinterpretScalar<TTarget, TValue>(TValue value)
-        where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
+    private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
     private static async ValueTask<T?> DeserializeAsync<T>(Value value, ISquirixSerializer serializer)
     {
@@ -287,6 +277,8 @@ internal static class ProtoEx
             {
                 writer.WriteStartObject();
                 var fields = value.StructValue.Fields;
+
+                // Index-based loop avoids foreach enumerator allocations while writing nested structs.
                 using var fieldEnumerator = fields.GetEnumerator();
                 for (var index = 0; index < fields.Count; index++)
                 {
@@ -303,6 +295,8 @@ internal static class ProtoEx
             case Value.KindOneofCase.ListValue:
                 writer.WriteStartArray();
                 var values = value.ListValue.Values;
+
+                // Lists recurse through WriteValue so mixed scalar and structured elements round-trip.
                 for (var index = 0; index < values.Count; index++)
                     WriteValue(writer, values[index]);
 

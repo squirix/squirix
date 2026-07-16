@@ -44,7 +44,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         await using var node = await StartNodeAsync(uri, "node_health_A", usePersistence: true);
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, ServerCacheNames.DefaultNamespace, "health:k1", BuildEntry("v", version: 1), DefaultCancellationToken);
 
         var json = await FetchReadyDetailsAsync(node.Uri);
 

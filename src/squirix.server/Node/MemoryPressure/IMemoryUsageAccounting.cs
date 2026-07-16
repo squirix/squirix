@@ -3,6 +3,18 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// <summary>Thread-safe approximate aggregate memory usage counters for cache admission heuristics (v0.7.x).</summary>
 internal interface IMemoryUsageAccounting
 {
+    /// <summary>Gets the running count of accounted live entries.</summary>
+    /// <returns>The current entry count.</returns>
+    long ReadEntryCount();
+
+    /// <summary>Gets the running sum of estimated bytes for accounted live entries.</summary>
+    /// <returns>The current estimated byte total.</returns>
+    long ReadEstimatedBytes();
+
+    /// <summary>Gets the number of memory admission rejections recorded for this accounting scope.</summary>
+    /// <returns>The cumulative rejection count.</returns>
+    long ReadRejectedWriteCount();
+
     /// <summary>Applies one additional live entry with the given estimated size.</summary>
     /// <param name="estimatedBytes">Non-negative estimated footprint.</param>
     void AddEntry(long estimatedBytes);

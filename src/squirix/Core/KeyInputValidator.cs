@@ -10,8 +10,6 @@ internal static class KeyInputValidator
     /// </summary>
     internal const int MaxLength = 1024;
 
-    private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
-
     /// <summary>
     /// Validates a key, or throws <see cref="ArgumentException" /> when invalid.
     /// </summary>
@@ -28,7 +26,7 @@ internal static class KeyInputValidator
     /// <param name="error">The validation failure.</param>
     /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="error" /> is not a known validation failure.</exception>
-    internal static string GetMessage(CacheKeyValidationError error) => error switch
+    private static string GetMessage(CacheKeyValidationError error) => error switch
     {
         CacheKeyValidationError.Required => "Cache key is required.",
         CacheKeyValidationError.TooLong => TooLongMessage,
@@ -39,8 +37,10 @@ internal static class KeyInputValidator
     private static bool IsWhiteSpaceOnly(string key)
     {
         for (var i = 0; i < key.Length; i++)
+        {
             if (!char.IsWhiteSpace(key[i]))
                 return false;
+        }
 
         return true;
     }
@@ -49,7 +49,7 @@ internal static class KeyInputValidator
     /// <param name="key">The key to validate.</param>
     /// <param name="error">The failure reason when validation fails.</param>
     /// <returns><see langword="true" /> if the key is valid; otherwise <see langword="false" />.</returns>
-    internal static bool TryValidate(string? key, out CacheKeyValidationError error)
+    private static bool TryValidate(string? key, out CacheKeyValidationError error)
     {
         if (string.IsNullOrEmpty(key) || IsWhiteSpaceOnly(key))
         {
@@ -72,29 +72,6 @@ internal static class KeyInputValidator
         }
 
         error = default;
-        return true;
-    }
-
-    /// <summary>
-    /// Validates a key, or throws <see cref="ArgumentException" /> when invalid.
-    /// </summary>
-    /// <param name="key">The key to validate.</param>
-    /// <param name="parameterName">The caller parameter name for exceptions.</param>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
-    internal static void Validate(string? key, string parameterName)
-    {
-        if (!TryValidate(key, out var error))
-            throw new ArgumentException(GetMessage(error), parameterName);
-    }
-
-    private static bool IsWhiteSpaceOnly(string key)
-    {
-        for (var i = 0; i < key.Length; i++)
-        {
-            if (!char.IsWhiteSpace(key[i]))
-                return false;
-        }
-
         return true;
     }
 }

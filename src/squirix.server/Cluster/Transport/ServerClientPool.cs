@@ -10,7 +10,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Squirix.Server.Core;
+using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Limits;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc.Cache;
 
@@ -97,12 +99,14 @@ internal sealed class ServerClientPool : IServerClientPool
         MtlsCertificateMaterial? mtlsMaterial,
         Func<string, HttpMessageHandler>? peerHandlerFactory)
     {
-        var peerHandler = interNodeMtlsEnabled switch
+        HttpMessageHandler? peerHandler = null;
+        if (interNodeMtlsEnabled)
         {
-            true when mtlsMaterial is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport."),
-            true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId),
-            _ => null,
-        };
+            if (mtlsMaterial is not { Enabled: true })
+                throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport.");
+
+            peerHandler = peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId);
+        }
 
         return new GrpcChannelOptions
         {
@@ -160,7 +164,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
             var primaryUri = peer.Uri;
             if (!primaryUri.IsAbsoluteUri)
-                throw new InvalidOperationException("Cluster peer URL is invalid.");
+                throw new InvalidOperationException($"Cluster peer URL is invalid: '{primaryUri}'.");
 
             return new UriBuilder(primaryUri.Scheme, primaryUri.Host, mtlsOptions.InternalListenPort).Uri;
         }
@@ -169,8 +173,6 @@ internal sealed class ServerClientPool : IServerClientPool
     /// <summary>Validates and configures gRPC transport endpoints for server-to-server transport.</summary>
     private static class ServerGrpcEndpoints
     {
-        private static readonly List<SslApplicationProtocol> Http2PreferredProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11];
-
         /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>
         /// <returns>A handler suitable for secure gRPC transport.</returns>
         internal static SocketsHttpHandler CreateChannelHandler() => new();
@@ -191,6 +193,20 @@ internal sealed class ServerClientPool : IServerClientPool
             return CreateMtlsHandler(material.NodeCertificate, material.TrustAnchor, expectedPeerNodeId);
         }
 
+        /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
+        /// <param name="serverCertificate">The presented peer server certificate.</param>
+        /// <param name="trustAnchor">Configured cluster trust root.</param>
+        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+        /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
+        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+        {
+            if (serverCertificate is null)
+                return false;
+
+            using var certificate = new X509Certificate2(serverCertificate);
+            return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
+        }
+
         /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
         /// <param name="clientCertificate">Client certificate presented to the peer.</param>
         /// <param name="trustAnchor">Configured cluster trust root.</param>
@@ -209,24 +225,10 @@ internal sealed class ServerClientPool : IServerClientPool
                 SslOptions = new SslClientAuthenticationOptions
                 {
                     ClientCertificates = [clientCertificate],
-                    ApplicationProtocols = Http2PreferredProtocols,
+                    ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
                     RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
                 },
             };
-        }
-
-        /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
-        /// <param name="serverCertificate">The presented peer server certificate.</param>
-        /// <param name="trustAnchor">Configured cluster trust root.</param>
-        /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-        /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-        private static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-        {
-            if (serverCertificate is null)
-                return false;
-
-            using var certificate = new X509Certificate2(serverCertificate);
-            return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
         }
     }
 }

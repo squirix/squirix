@@ -1,9 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -13,75 +11,22 @@ using Microsoft.Extensions.Hosting;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.Endpoint;
-using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
 
 internal static class ServerHostingComposition
 {
-    /// <summary>Configures the node web host builder from cluster topology and optional composition overrides.</summary>
-    /// <param name="builder">The web application builder.</param>
-    /// <param name="cluster">Cluster topology configuration.</param>
-    /// <param name="configure">Optional composition overrides callback.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when builder configuration finishes.</returns>
-    internal static Task ConfigureBuilderAsync(
-        WebApplicationBuilder builder,
-        TopologyOptions cluster,
-        Action<ICompositionArgs>? configure = null,
-        CancellationToken cancellationToken = default)
-    {
-        var args = new CompositionArgs();
-        configure?.Invoke(args);
-        return ConfigureBuilderCoreAsync(builder, cluster, args, cancellationToken);
-    }
-
-    internal static WebApplication MapServer(WebApplication app)
-    {
-        ArgumentNullException.ThrowIfNull(app);
-
-        _ = app.Use(static async (context, next) =>
-        {
-            try
-            {
-                await next().ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-            catch (SquirixException ex)
-            {
-                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
-            }
-        });
-
-        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
-        if (!options.AuthEnabled)
-            return MapEndpoints(app, options.AuthEnabled);
-        _ = app.UseAuthentication();
-        _ = app.UseAuthorization();
-
-        return MapEndpoints(app, options.AuthEnabled);
-    }
-
     [SuppressMessage(
         "Microsoft.Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
-    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
+    internal static async Task ConfigureBuilderAsync(WebApplicationBuilder builder, ClusterConfig cluster, CompositionArgs args, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
@@ -101,6 +46,7 @@ internal static class ServerHostingComposition
             cluster,
             new ValidatedOptionsArgs
             {
+                SnapshotOptions = args.SnapshotOptions,
                 BackpressureOptions = args.BackpressureOptions,
                 PersistenceOptions = persistence,
                 MemoryPressureOptions = args.MemoryPressureOptions,
@@ -109,9 +55,9 @@ internal static class ServerHostingComposition
             },
             cancellationToken).ConfigureAwait(false);
         _ = builder.Services.AddSquirixRuntimeServices();
-        _ = builder.Services.AddSquirixClusterServices(cluster, null, args.PeerHandlerFactory);
+        _ = builder.Services.AddSquirixClusterServices(cluster, args.CallPolicyFactory, args.PeerHandlerFactory);
         if (persistenceEnabled)
-            _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
+            _ = await builder.Services.AddSquirixPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 
         _ = builder.Services.AddSquirixCachePipeline(args.Extensions, persistenceEnabled);
         _ = builder.Services.AddSquirixNodeEndpointServices(persistenceEnabled);
@@ -126,13 +72,77 @@ internal static class ServerHostingComposition
         _ = builder.Services.AddSingleton(new SquirixServerEndpointMappingOptions(authEnabled));
     }
 
+    internal static WebApplication MapServer(WebApplication app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        _ = app.Use(static async (context, next) =>
+        {
+            try
+            {
+                await next().ConfigureAwait(false);
+            }
+            catch (ResourceExhaustedException ex)
+            {
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+            }
+            catch (SquirixException ex)
+            {
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+            }
+        });
+
+        var options = app.Services.GetRequiredService<SquirixServerEndpointMappingOptions>();
+        if (!options.AuthEnabled)
+            return MapEndpoints(app, options.AuthEnabled);
+        _ = app.UseAuthentication();
+        _ = app.UseAuthorization();
+
+        return MapEndpoints(app, options.AuthEnabled);
+    }
+
+    internal static Task ConfigureBuilderAsync(
+        WebApplicationBuilder builder,
+        SquirixServerOptions options,
+        SquirixServerExtensionOptions? extensions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var cluster = Configurator.ToClusterConfig(options);
+        return ConfigureBuilderAsync(
+            builder,
+            cluster,
+            new CompositionArgs
+            {
+                WaitForRecovery = options.WaitForRecovery,
+                PersistenceOptions = ResolvePersistenceOptions(options),
+                Extensions = extensions,
+            },
+            cancellationToken);
+    }
+
     private static WebApplication MapEndpoints(WebApplication app, bool authEnabled)
     {
         _ = app.MapSquirixEndpoints(authEnabled);
-        var extensions = app.Services.GetService<ExtensionOptions>();
+        var extensions = app.Services.GetService<SquirixServerExtensionOptions>();
         extensions?.MapEndpoints?.Invoke(app);
         extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
         return app;
+    }
+
+    private static PersistenceOptions? ResolvePersistenceOptions(SquirixServerOptions options)
+    {
+        if (!options.PersistenceEnabled)
+            return null;
+
+        var resolvePersistenceOptions = new PersistenceOptions
+        {
+            JournalMaxSegmentMb = 64,
+            FlushIntervalMs = 10,
+        };
+        return string.IsNullOrWhiteSpace(options.DataDirectory) ? resolvePersistenceOptions : new PersistenceOptions { DataDir = options.DataDirectory };
     }
 
     private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
@@ -149,7 +159,7 @@ internal static class ServerHostingComposition
         /// <param name="cluster">Cluster topology configuration.</param>
         /// <param name="mtlsOptions">Cluster mTLS options.</param>
         /// <param name="mtlsMaterial">Loaded cluster mTLS certificate material.</param>
-        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+        internal static void ConfigureKestrel(WebApplicationBuilder builder, Uri uri, ClusterConfig cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(uri);
@@ -183,11 +193,13 @@ internal static class ServerHostingComposition
         /// <summary>Ensures the node URL uses HTTPS gRPC transport.</summary>
         /// <param name="cluster">Cluster configuration including the node URL.</param>
         /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
-        internal static void EnsureHttpsTransport(TopologyOptions cluster)
+        internal static void EnsureHttpsTransport(ClusterConfig cluster)
         {
             ArgumentNullException.ThrowIfNull(cluster);
             if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext 'http://' is not supported.");
+            {
+                throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Uri}");
+            }
         }
 
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] nodeIds)
@@ -209,58 +221,5 @@ internal static class ServerHostingComposition
             listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
             _ = listenOptions.UseHttps();
         }
-    }
-
-    private static class PersistenceOptionsResolver
-    {
-        internal static PersistenceOptions Resolve(TopologyOptions cluster, PersistenceOptions source)
-        {
-            ArgumentNullException.ThrowIfNull(cluster);
-            ArgumentNullException.ThrowIfNull(source);
-
-            var dataDir = string.IsNullOrWhiteSpace(source.DataDir) ? GetDefaultDataDir(cluster.ClusterId, cluster.NodeId) : source.DataDir;
-            return source with { DataDir = dataDir };
-        }
-
-        private static string GetDefaultDataDir(string clusterId, string nodeId)
-        {
-            var testRoot = EnvVariables.ReadString("SQUIRIX_TEST_ROOT");
-            if (!string.IsNullOrWhiteSpace(testRoot))
-                return PathEx.Combine(testRoot, clusterId, nodeId);
-
-            var dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrWhiteSpace(dir) && !OperatingSystem.IsWindows())
-                dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
-
-            return string.IsNullOrWhiteSpace(dir) ? throw new InvalidOperationException(
-                    "Cannot determine default data directory: LocalApplicationData is not available. Set PersistenceOptions.DataDir explicitly or define the HOME / XDG_DATA_HOME environment variable.")
-                : PathEx.Combine(dir, "squirix", clusterId, nodeId);
-        }
-    }
-
-    /// <summary>Optional overrides for hosting composition.</summary>
-    private sealed class CompositionArgs : ICompositionArgs
-    {
-        public AdmissionOptions? BackpressureOptions { get; set; }
-
-        public Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
-
-        public ExtensionOptions? Extensions { get; set; }
-
-        public PressureOptions? MemoryPressureOptions { get; set; }
-
-        public MtlsCertificateMaterial? MtlsMaterial { get; set; }
-
-        public MtlsOptions? MtlsOptions { get; set; }
-
-        public Func<string, HttpMessageHandler>? PeerHandlerFactory { get; set; }
-
-        public PersistenceOptions? PersistenceOptions { get; set; }
-
-        public SecurityOptions? SecurityOptions { get; set; }
-
-        public Action<IServiceCollection>? ServicesConfigure { get; set; }
-
-        public bool WaitForRecovery { get; set; } = true;
     }
 }

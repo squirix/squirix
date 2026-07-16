@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Squirix.Server.Cluster.Transport;
+namespace Squirix.Server.Cluster.Reliability;
 
 internal interface IServerCallPolicy : IAsyncDisposable
 {

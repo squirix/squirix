@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
@@ -14,14 +15,16 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
 
-/// <summary>Validation coverage for hosted option validators registered during node options composition.</summary>
-public sealed class OptionsValidatorTests : ServerUnitTestBase
+/// <summary>
+/// Validation coverage for hosted option validators registered under <see cref="OptionsValidators" />.
+/// </summary>
+public sealed class OptionsValidatorsTests : UnitTestBase
 {
     /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>
     [Fact]
     public void BackpressureValidatorAcceptsThresholdBoundaries()
     {
-        var v = new AdmissionOptionsValidator();
+        var v = new OptionsValidators.BackpressureOptionsValidator();
         var options = new AdmissionOptions
         {
             MaxInFlight = 10,
@@ -41,7 +44,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void BackpressureValidatorRejectsBurstWithoutRate()
     {
-        var v = new AdmissionOptionsValidator();
+        var v = new OptionsValidators.BackpressureOptionsValidator();
         var bad = new AdmissionOptions
         {
             NodeRateLimitBurst = 3,
@@ -56,7 +59,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void BackpressureValidatorRejectsNonPositiveQueueWait()
     {
-        var v = new AdmissionOptionsValidator();
+        var v = new OptionsValidators.BackpressureOptionsValidator();
         var bad = new AdmissionOptions { MaxQueueWait = TimeSpan.Zero };
 
         var result = v.Validate(Options.DefaultName, bad);
@@ -68,7 +71,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void BackpressureValidatorRejectsPerFlightAboveNodeCap()
     {
-        var v = new AdmissionOptionsValidator();
+        var v = new OptionsValidators.BackpressureOptionsValidator();
         var bad = new AdmissionOptions
         {
             MaxInFlight = 8,
@@ -84,14 +87,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void ConfigValidatorAcceptsWellFormedCluster()
     {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
+        var v = new OptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig([new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") }])
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
-            Peers = [new Peer { NodeId = "n1", Uri = new Uri("https://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -103,22 +105,17 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void ConfigValidatorRejectsDuplicatePeerIds()
     {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(
-        [
-            new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
-            new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6002") },
-        ])
+        var v = new OptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig(
+            [
+                new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+                new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6002") },
+            ])
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
-            Peers =
-            [
-                new Peer { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
-                new Peer { NodeId = "n1", Uri = new Uri("https://localhost:6002") },
-            ],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -130,14 +127,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void ConfigValidatorRejectsEmptyNodeId()
     {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(new ServerPeer { NodeId = "x", Uri = new Uri("https://localhost:6001") })
+        var v = new OptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig([new ServerPeer { NodeId = "x", Uri = new Uri("https://localhost:6001") }])
         {
             ClusterId = "c1",
             NodeId = " ",
             Uri = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
-            Peers = [new Peer { NodeId = "x", Uri = new Uri("https://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -149,14 +145,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void ConfigValidatorRejectsInvalidPeerUrls()
     {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") })
+        var v = new OptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig([new ServerPeer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") }])
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
-            Peers = [new Peer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -168,14 +163,13 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void ConfigValidatorRejectsPlaintextHttpPeerUrls()
     {
-        var v = new ConfigValidator();
-        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
+        var v = new OptionsValidators.ClusterConfigValidator();
+        var cfg = new ClusterConfig([new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") }])
         {
             ClusterId = "c1",
             NodeId = "n1",
             Uri = new Uri("https://localhost:6001"),
             VirtualNodes = 128,
-            Peers = [new Peer { NodeId = "n1", Uri = new Uri("http://localhost:6001") }],
         };
 
         var result = v.Validate(Options.DefaultName, cfg);
@@ -187,7 +181,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void JournalCompactionValidatorAcceptsValidTailSegments()
     {
-        var v = new JournalCompactionOptionsValidator();
+        var v = new OptionsValidators.JournalCompactionOptionsValidator();
         var options = new JournalCompactionOptions { MinTailSegments = 0 };
 
         var result = v.Validate(Options.DefaultName, options);
@@ -199,7 +193,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void JournalMetricsExporterAcceptsValidInterval()
     {
-        var v = new JournalMetricsExporterOptionsValidator();
+        var v = new OptionsValidators.JournalMetricsExporterOptionsValidator();
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
 
         var result = v.Validate(Options.DefaultName, options);
@@ -211,7 +205,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void MemoryPressureValidatorThresholdBelowCritical()
     {
-        var v = new PressureOptionsValidator();
+        var v = new OptionsValidators.MemoryPressureOptionsValidator();
         var bad = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
@@ -228,7 +222,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void PersistenceValidatorRejectsEmptyDataDir()
     {
-        var v = new PersistenceOptionsValidator();
+        var v = new OptionsValidators.PersistenceOptionsValidator();
         var bad = new PersistenceOptions
         {
             DataDir = " ",
@@ -247,8 +241,8 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     [Fact]
     public void SnapshotTriggerValidatorAcceptsValidCadence()
     {
-        var v = new TriggerOptionsValidator();
-        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>("""{"snapshotEveryNOps":0}""")!;
+        var v = new OptionsValidators.SnapshotTriggerOptionsValidator();
+        var options = new TriggerOptions { SnapshotEveryNOps = 0 };
 
         var result = v.Validate(Options.DefaultName, options);
 

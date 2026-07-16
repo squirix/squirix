@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot.Entries;
 
-/// <summary>Unit tests for <see cref="BinaryJsonTreeCodec" />.</summary>
+/// <summary>Unit tests for <see cref="JsonTreeCodec" />.</summary>
 public sealed class BinaryJsonTreeCodecTests : UnitTestBase
 {
     /// <summary>Nested object and array values round-trip through the binary tree codec.</summary>
@@ -15,15 +15,15 @@ public sealed class BinaryJsonTreeCodecTests : UnitTestBase
     {
         using var document = JsonDocument.Parse("""{"name":"alice","scores":[1,2,3],"active":true}""");
         var element = document.RootElement;
-        var length = BinaryJsonTreeCodec.ComputeEncodedLength(element);
+        var length = JsonTreeCodec.ComputeEncodedLength(element);
         BufferKit.WithBuffer(
             length,
             element,
             static (e, buffer) =>
             {
-                var written = BinaryJsonTreeCodec.Write(e, buffer);
+                var written = JsonTreeCodec.Write(e, buffer);
                 Assert.Equal(buffer.Length, written);
-                Assert.True(BinaryJsonTreeCodec.TryRead(buffer, out var roundTrip, out var bytesRead));
+                Assert.True(JsonTreeCodec.TryRead(buffer, out var roundTrip, out var bytesRead));
                 Assert.Equal(written, bytesRead);
                 Assert.Equal("alice", roundTrip.GetProperty("name").GetString());
                 Assert.Equal(3, roundTrip.GetProperty("scores").GetArrayLength());

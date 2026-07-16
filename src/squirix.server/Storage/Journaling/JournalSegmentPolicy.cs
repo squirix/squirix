@@ -1,47 +1,32 @@
 using System;
-using Squirix.Server.Errors;
+using System.Globalization;
 
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>Enforces Pipelined segment count and total byte caps.</summary>
 internal sealed class JournalSegmentPolicy
 {
-    private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";
-    private const string TotalBytesExceededMessage = "journal total bytes exceed configured limit.";
-
     private readonly long _maxSegmentBytes;
+    private readonly long _maxTotalBytes;
 
-    internal JournalSegmentPolicy(PersistenceOptions options)
+    public JournalSegmentPolicy(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _maxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
-        MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
-        HighWaterBytes = MaxTotalBytes * JournalSegmentLimits.HighWaterPercent / 100L;
+        _maxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
     }
-
-    internal long HighWaterBytes { get; }
-
-    internal long MaxTotalBytes { get; }
 
     private int SegmentCountProbeLimit { get; }
-
-    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes)
-    {
-        if (usedBytes >= maxBytes)
-            return "critical";
-
-        if (usedBytes >= highWaterBytes)
-            return "high";
-
-        return "normal";
-    }
 
     internal void EnsureAppendCapacityOrThrow(long onDiskTotalBytes, int incomingFrameBytes)
     {
         var totalAfterAppend = onDiskTotalBytes + incomingFrameBytes;
-        if (totalAfterAppend > MaxTotalBytes)
-            throw new JournalCapacityExceededException(TotalBytesExceededMessage);
+        if (totalAfterAppend > _maxTotalBytes)
+        {
+            throw new JournalCapacityExceededException(
+                $"journal total bytes {totalAfterAppend.ToString(CultureInfo.InvariantCulture)} exceed limit {_maxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
+        }
     }
 
     internal void EnsureRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) => EnsureCapacityOrThrow(onDiskSegmentCount + 1, onDiskTotalBytes);
@@ -65,9 +50,15 @@ internal sealed class JournalSegmentPolicy
     private void EnsureCapacityOrThrow(int segmentCount, long totalBytes)
     {
         if (segmentCount > SegmentCountProbeLimit)
-            throw new JournalCapacityExceededException(SegmentCountExceededMessage);
+        {
+            throw new JournalCapacityExceededException(
+                $"journal segment count {segmentCount.ToString(CultureInfo.InvariantCulture)} exceeds limit {SegmentCountProbeLimit.ToString(CultureInfo.InvariantCulture)}.");
+        }
 
-        if (totalBytes > MaxTotalBytes)
-            throw new JournalCapacityExceededException(TotalBytesExceededMessage);
+        if (totalBytes > _maxTotalBytes)
+        {
+            throw new JournalCapacityExceededException(
+                $"journal total bytes {totalBytes.ToString(CultureInfo.InvariantCulture)} exceed limit {_maxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
+        }
     }
 }

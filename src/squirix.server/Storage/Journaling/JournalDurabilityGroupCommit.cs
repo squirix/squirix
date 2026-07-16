@@ -16,8 +16,8 @@ internal sealed class JournalDurabilityGroupCommit
     private readonly Action _notifyJournalThread;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
+    private readonly BatchDeadline _batchDeadline = new();
     private readonly TimeProvider _timeProvider;
-    private long _batchDeadlineTicks;
 
     private List<JournalDurabilityWaiter> _waiters;
     private List<JournalDurabilityWaiter> _waitersSpare;
@@ -37,7 +37,7 @@ internal sealed class JournalDurabilityGroupCommit
     /// <summary>Waits until appended journal bytes through the caller's append are covered by a durability flush.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when durability is established for the caller's batch.</returns>
-    public async ValueTask AwaitCommitAsync(CancellationToken cancellationToken)
+    internal async ValueTask AwaitCommitAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -50,7 +50,7 @@ internal sealed class JournalDurabilityGroupCommit
             {
                 if (_waiters.Count is 0)
                 {
-                    _batchDeadlineTicks = _timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks;
+                    _batchDeadline.Arm(_timeProvider.GetUtcNow().Add(_opt.JournalGroupCommitMaxWait).Ticks);
                     signalJournal = true;
                 }
 
@@ -81,14 +81,14 @@ internal sealed class JournalDurabilityGroupCommit
     /// <summary>Fails any pending commit waiters during shutdown or journal pipeline failure.</summary>
     /// <param name="reason">Failure reason propagated to pending waiters.</param>
     /// <returns>A completed task once pending waiters are failed.</returns>
-    public ValueTask CancelPendingAsync(Exception reason)
+    internal ValueTask CancelPendingAsync(Exception reason)
     {
         CancelPendingCore(reason);
         return ValueTask.CompletedTask;
     }
 
     /// <summary>Drains due batches on the journal thread.</summary>
-    public void DrainDueBatchesOnJournalThread()
+    internal void DrainDueBatchesOnJournalThread()
     {
         while (TryTakeDueBatch(out var batch))
             CompleteBatchOnJournalThread(batch);
@@ -96,14 +96,14 @@ internal sealed class JournalDurabilityGroupCommit
 
     /// <summary>Milliseconds until the active batch deadline, or <see cref="Timeout.Infinite" /> when idle.</summary>
     /// <returns>Wait timeout in milliseconds for the journal thread idle loop.</returns>
-    public int GetJournalThreadWaitTimeoutMs()
+    internal int GetJournalThreadWaitTimeoutMs()
     {
         lock (_sync)
         {
-            if (_waiters.Count is 0 || _batchDeadlineTicks is 0)
+            if (_waiters.Count is 0 || !_batchDeadline.IsArmed)
                 return Timeout.Infinite;
 
-            var remaining = TimeSpan.FromTicks(_batchDeadlineTicks - _timeProvider.GetUtcNow().Ticks);
+            var remaining = TimeSpan.FromTicks(_batchDeadline.Ticks - _timeProvider.GetUtcNow().Ticks);
             if (remaining <= TimeSpan.Zero)
                 return 0;
 
@@ -116,7 +116,7 @@ internal sealed class JournalDurabilityGroupCommit
         ArgumentNullException.ThrowIfNull(reason);
         lock (_sync)
         {
-            _batchDeadlineTicks = 0;
+            _batchDeadline.Clear();
             for (var i = 0; i < _waiters.Count; i++)
                 _waiters[i].SetException(reason);
 
@@ -126,32 +126,6 @@ internal sealed class JournalDurabilityGroupCommit
         // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
     }
 
-    private bool TryTakeDueBatch(out List<JournalDurabilityWaiter> batch)
-    {
-        lock (_sync)
-        {
-            if (_waiters.Count is 0)
-            {
-                batch = _waiters;
-                return false;
-            }
-
-            var now = _timeProvider.GetUtcNow().Ticks;
-            var due = _waiters.Count >= _opt.JournalGroupCommitMaxBatch || now >= _batchDeadlineTicks;
-            if (!due)
-            {
-                batch = _waiters;
-                return false;
-            }
-
-            batch = _waiters;
-            _waiters = _waitersSpare;
-            _waitersSpare = batch;
-            _batchDeadlineTicks = 0;
-            return true;
-        }
-    }
-
     private bool CancelWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
@@ -159,7 +133,7 @@ internal sealed class JournalDurabilityGroupCommit
         {
             removed = _waiters.Remove(waiter);
             if (removed && _waiters.Count is 0)
-                _batchDeadlineTicks = 0;
+                _batchDeadline.Clear();
         }
 
         if (removed)
@@ -172,6 +146,7 @@ internal sealed class JournalDurabilityGroupCommit
     {
         try
         {
+            // One journal-thread fsync covers every waiter captured in this due batch.
             _journalThreadFlush();
         }
         catch (IOException ex)
@@ -193,6 +168,8 @@ internal sealed class JournalDurabilityGroupCommit
         for (var i = 0; i < batch.Count; i++)
         {
             var waiter = batch[i];
+
+            // Callers that canceled before the flush still own returning their waiter to the pool.
             if (!waiter.IsAbandonedByCaller())
                 waiter.SetResult();
         }
@@ -208,6 +185,7 @@ internal sealed class JournalDurabilityGroupCommit
 
         void FailBatch(Exception ex)
         {
+            // Flush failures fail the whole batch so no waiter observes partial durability.
             for (var i = 0; i < batch.Count; i++)
             {
                 var waiter = batch[i];
@@ -222,6 +200,32 @@ internal sealed class JournalDurabilityGroupCommit
             }
 
             batch.Clear();
+        }
+    }
+
+    private bool TryTakeDueBatch(out List<JournalDurabilityWaiter> batch)
+    {
+        lock (_sync)
+        {
+            if (_waiters.Count is 0)
+            {
+                batch = _waiters;
+                return false;
+            }
+
+            var now = _timeProvider.GetUtcNow().Ticks;
+            var due = _waiters.Count >= _opt.JournalGroupCommitMaxBatch || now >= _batchDeadline.Ticks;
+            if (!due)
+            {
+                batch = _waiters;
+                return false;
+            }
+
+            batch = _waiters;
+            _waiters = _waitersSpare;
+            _waitersSpare = batch;
+            _batchDeadline.Clear();
+            return true;
         }
     }
 

@@ -4,7 +4,8 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
-using NodeCacheEntry = Squirix.Server.Core.NodeCacheEntry<string>;
+using Squirix.Server.TestKit.Journaling;
+using NodeCacheEntry = Squirix.Server.NodeCacheEntry<string>;
 
 namespace Squirix.Benchmarks.Payload;
 

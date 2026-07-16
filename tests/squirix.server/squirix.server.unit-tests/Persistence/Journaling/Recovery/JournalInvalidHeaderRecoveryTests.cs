@@ -7,7 +7,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -28,9 +27,9 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-journal-invalid-header-repair");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new ManifestStore(persistence);
-        var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
-        await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
+        var journalSegmentPath = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
+        await manifestStore.WriteAsync(new Storage.Manifest.State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
@@ -53,11 +52,11 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     public async Task RecoveryFailsOnInvalidJournalHeader()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
-        var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, DefaultCancellationToken);
+        var journalSegmentPath = PathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        await File.WriteAllBytesAsync(journalSegmentPath, [.. "NOPE!"u8], DefaultCancellationToken);
 
         await scenario.ManifestStore.WriteAsync(
-            new State
+            new Storage.Manifest.State
             {
                 Format = 1,
                 CurrentJournal = 1,
@@ -69,14 +68,15 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var gate = new JournalStartupGate(false);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            persistence,
-            scenario.ManifestStore,
-            scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
-            gate,
-            new RpcMutationIdempotencyStore(),
-            SnapshotStoreFactory.CreateReader(persistence),
-            NullLogger<RecoveryService<object?>>.Instance);
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.ManifestStore,
+                scenario.Cache,
+                gate,
+                new RpcMutationIdempotencyStore(),
+                StoreFactory.CreateReader(persistence)));
 
         var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(DefaultCancellationToken));
 

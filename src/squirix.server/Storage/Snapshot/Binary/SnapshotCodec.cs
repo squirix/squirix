@@ -22,6 +22,15 @@ internal static class SnapshotCodec
 
     private const int RecordFooterSize = 4;
 
+    internal enum RecordKind
+    {
+        /// <summary>Cache entry record.</summary>
+        Entry = 1,
+
+        /// <summary>Idempotency record.</summary>
+        Idempotency = 2,
+    }
+
     private static ReadOnlySpan<byte> Magic => "SQSS"u8;
 
     internal static int ComputeEntryBodyLength(CacheKey key, NodeCacheEntry<object?> entry)
@@ -54,10 +63,11 @@ internal static class SnapshotCodec
         return true;
     }
 
-    internal static bool TryReadRecord(ReadOnlySpan<byte> source, out RecordKind kind, out ReadOnlySpan<byte> body)
+    internal static bool TryReadRecord(ReadOnlySpan<byte> source, out RecordKind kind, out ReadOnlySpan<byte> body, out int bytesRead)
     {
         kind = default;
         body = default;
+        bytesRead = 0;
         if (source.Length < RecordHeaderSize + RecordFooterSize)
             return false;
 
@@ -75,6 +85,7 @@ internal static class SnapshotCodec
         if (Crc32C.Compute(body) != expectedCrc)
             throw new InvalidDataException("Binary snapshot record CRC mismatch.");
 
+        bytesRead = total;
         return true;
     }
 

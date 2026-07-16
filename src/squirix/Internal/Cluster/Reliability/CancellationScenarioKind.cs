@@ -3,7 +3,7 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// <summary>
 /// Classifies which cancellation source is authoritative for an <see cref="System.OperationCanceledException" /> path.
 /// </summary>
-internal enum CancellationScenarioKind
+internal enum ServerCancelScenarioKind
 {
     /// <summary>The outer caller token is canceled.</summary>
     CallerCanceled = 0,

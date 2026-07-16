@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Server.Contracts;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
@@ -9,18 +11,18 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Coordinates replay-or-execute semantics for mutating cache RPC handlers.</summary>
 internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotencyCoordinator
 {
-    private readonly RpcMutationIdempotencyStore _store;
     private readonly IJournalCoordinator? _journal;
-
-    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
-    {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
-    }
+    private readonly RpcMutationIdempotencyStore _store;
 
     public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
         : this(store)
     {
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+    }
+
+    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
     public async Task<TResponse> ExecuteAsync<TState, TResponse>(
@@ -59,6 +61,6 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     private static class DefaultParser<T>
         where T : IMessage<T>, new()
     {
-        public static readonly MessageParser<T> Instance = new(static () => new T());
+        internal static readonly MessageParser<T> Instance = new(static () => new T());
     }
 }

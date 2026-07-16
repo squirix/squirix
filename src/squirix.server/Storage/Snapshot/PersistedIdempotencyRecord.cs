@@ -13,11 +13,11 @@ internal sealed class PersistedIdempotencyRecord
         CreatedUtc = createdUtc;
     }
 
-    internal DateTime CreatedUtc { get; }
-
     internal string Fingerprint { get; }
 
     internal string OperationId { get; }
 
     internal byte[] ResponseBytes { get; }
+
+    internal DateTime CreatedUtc { get; }
 }

@@ -15,7 +15,7 @@ internal sealed class EndpointFailover
     private readonly IReadOnlyList<string> _bootstrapNodeIds;
     private int _activeIndex;
 
-    public BootstrapEndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
+    public EndpointFailover(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         ArgumentNullException.ThrowIfNull(bootstrapNodeIds);
         if (bootstrapNodeIds.Count is 0)

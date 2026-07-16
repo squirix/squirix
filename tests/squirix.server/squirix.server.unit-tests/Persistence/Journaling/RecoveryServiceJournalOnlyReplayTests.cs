@@ -24,7 +24,7 @@ public sealed class RecoveryServiceJournalOnlyReplayTests : UnitTestBase
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [seg1A, seg1B]);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 2, [seg2C]);
         await scenario.ManifestStore.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
                 Format = 1,
                 CurrentJournal = 2,
@@ -36,14 +36,15 @@ public sealed class RecoveryServiceJournalOnlyReplayTests : UnitTestBase
         var gate = new JournalStartupGate(false);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            persistence,
-            scenario.ManifestStore,
-            scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
-            gate,
-            new RpcMutationIdempotencyStore(),
-            SnapshotStoreFactory.CreateReader(persistence),
-            NullLogger<RecoveryService<object?>>.Instance);
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.ManifestStore,
+                scenario.Cache,
+                gate,
+                new RpcMutationIdempotencyStore(),
+                StoreFactory.CreateReader(persistence)));
         await recovery.StartAsync(DefaultCancellationToken);
 
         Assert.True((await scenario.Cache.GetValueAsync(CacheKey.Default("seg1-a"), DefaultCancellationToken)).Found);

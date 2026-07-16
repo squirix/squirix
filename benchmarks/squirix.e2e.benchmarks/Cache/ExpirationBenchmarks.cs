@@ -7,7 +7,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>End-to-end public API benchmarks for expiration operations.</summary>
 [BenchmarkCategory("e2e", "expiration", "mutation")]
-public class CacheExpirationBenchmarks : CacheBenchmarkBase
+public class ExpirationBenchmarks : BenchmarkBase
 {
     private const int DestructiveExpirationBatchSize = 512;
     private static readonly TimeSpan LongExpiration = TimeSpan.FromHours(1);

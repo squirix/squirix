@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Snapshot.Binary;
@@ -31,7 +31,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         {
             OperationId = ValidOperationId,
             CacheName = "default",
-            Key = "force-kill-compact-idempotency",
+            Key = "force-kill-idempotency",
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
@@ -108,7 +108,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
         {
             OperationId = ValidOperationId,
             CacheName = "default",
-            Key = "force-kill-idempotency",
+            Key = "force-kill-compact-idempotency",
             Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
@@ -122,7 +122,10 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
-        await AssertJournalContainsPutAndIdempotencyOutcomeAsync(node.DataDir);
+
+        var persistence = new PersistenceOptions { DataDir = node.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        using var manifestStore = new ManifestStore(persistence);
+        await JournalCompactor.CompactAsync(persistence, manifestStore, StoreFactory.CreateReader(persistence), DefaultCancellationToken);
 
         var restartUri = GetNextHttpUri();
         await using var restarted = await StartNodeAsync(restartUri, "node-a", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope });

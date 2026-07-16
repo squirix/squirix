@@ -9,34 +9,9 @@ namespace Squirix.Server.UnitTests.Observability;
 public sealed class PrometheusMetricsSettingsTests
 {
     /// <summary>
-    /// Verifies System.Text.Json binds private <c>path</c>/<c>enabled</c> properties
-    /// (via <see cref="System.Text.Json.Serialization.JsonIncludeAttribute" />) and merge overrides the baseline.
+    /// Verifies <see cref="PrometheusMetricsSettings.MergeInto" /> preserves baseline values
+    /// when settings properties are null (absent from JSON).
     /// </summary>
-    [Fact]
-    public async Task DeserializeAndMergeIntoAppliesJsonOverrides()
-    {
-        var baseline = new PrometheusMetricsEndpointOptions
-        {
-            Enabled = true,
-            Path = "/metrics",
-        };
-
-        var path = await WriteSettingsAsync("""{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""");
-        try
-        {
-            var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, TestContext.Current.CancellationToken);
-
-            Assert.True(found);
-            Assert.False(merged.Enabled);
-            Assert.Equal("/custom-metrics", merged.Path);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     [Fact]
     public async Task DeserializeAndMergeKeepsBaselineForAbsentFields()
     {

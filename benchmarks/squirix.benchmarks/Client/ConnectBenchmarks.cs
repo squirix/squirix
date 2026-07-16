@@ -6,7 +6,7 @@ namespace Squirix.Benchmarks.Client;
 
 /// <summary>Phase-1 remote client benchmark: connect and dispose per iteration.</summary>
 [MemoryDiagnoser]
-public class ClientConnectBenchmarks : RemoteBenchmarkLifecycleBase
+public class ConnectBenchmarks : RemoteBenchmarkLifecycleBase
 {
     /// <summary>Measures client bootstrap and teardown against a node started in global setup.</summary>
     /// <returns>A task that completes after the client is disposed.</returns>

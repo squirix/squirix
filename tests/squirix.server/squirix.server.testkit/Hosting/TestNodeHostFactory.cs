@@ -87,12 +87,7 @@ public static class TestNodeHostFactory
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
-            persistenceOptions = new PersistenceOptions { DataDir = dataDir };
-        }
-
-        var peers = ClusterTls.CreatePeers(ref sharedMtls, topology);
-
-        var clusterConfig = new TopologyOptions(peers)
+        var clusterConfig = new ClusterConfig(peers)
         {
             NodeId = nodeId,
             Uri = uri,

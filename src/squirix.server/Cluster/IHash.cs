@@ -14,12 +14,4 @@ internal interface IHash
     /// <param name="index">The virtual node index.</param>
     /// <returns>The 64-bit hash value.</returns>
     ulong HashVNode(string node, int index);
-
-    /// <summary>
-    /// Computes a 64-bit hash for the specified text encoded as UTF-8.
-    /// Hot path: implementations must avoid allocations.
-    /// </summary>
-    /// <param name="text">The text to hash.</param>
-    /// <returns>The 64-bit hash value.</returns>
-    ulong HashVNode(string node, int index);
 }

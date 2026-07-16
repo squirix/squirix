@@ -1,7 +1,7 @@
 namespace Squirix.Server.Storage.Journaling.Codec;
 
 /// <summary>Binary journal frame opcodes.</summary>
-internal enum JournalOpcode : byte
+internal enum JournalOpcode
 {
     /// <summary>Put operation.</summary>
     Put = 1,

@@ -17,7 +17,7 @@ internal sealed class RetentionCleanupReadiness : IRetentionCleanupReadinessStat
     private int _consecutiveWriteFailures;
     private DateTime? _lastFailureUtc;
 
-    internal RetentionCleanupReadiness(PersistenceOptions options)
+    public RetentionCleanupReadiness(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _consecutiveWriteFailureThreshold = options.RetentionCleanupDegradedConsecutiveWrites;

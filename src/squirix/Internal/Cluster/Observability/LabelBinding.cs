@@ -3,7 +3,14 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Internal.Cluster.Observability;
 
-internal sealed record LabelBinding(Counter<long> Counter, string Key1, string Value1, string Key2, string Value2, string Key3, string Value3)
+internal sealed record LabelBinding(
+    Counter<long> Counter,
+    string Key1,
+    string Value1,
+    string Key2,
+    string Value2,
+    string Key3,
+    string Value3)
 {
     internal void Inc() => Inc(1);
 
@@ -15,6 +22,6 @@ internal sealed record LabelBinding(Counter<long> Counter, string Key1, string V
             { Key2, Value2 },
             { Key3, Value3 },
         };
-        _c.Add(value, in tags);
+        Counter.Add(value, in tags);
     }
 }

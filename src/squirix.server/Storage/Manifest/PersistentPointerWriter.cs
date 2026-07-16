@@ -10,7 +10,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
     private readonly string _currentPath;
     private SafeFileHandle? _handle;
 
-    internal PersistentPointerWriter(string currentPath)
+    public PersistentPointerWriter(string currentPath)
     {
         _currentPath = currentPath;
     }
@@ -24,7 +24,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
 
         EnsureOpen();
         RandomAccess.Write(_handle!, pointerBuffer, 0);
-        FileDurability.FlushPointerIfNeeded(_handle!);
+        Durability.FlushPointerIfNeeded(_handle!);
         if (!OperatingSystem.IsLinux())
             ReleaseHandle();
     }
@@ -38,7 +38,7 @@ internal sealed class PersistentPointerWriter : IManifestPointerWriter
         // SafeFileHandle leaks.
         ReleaseHandle();
 
-        var options = FileDurability.GetPointerFileOptions();
+        var options = Durability.GetPointerFileOptions();
         _handle = File.OpenHandle(_currentPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete, options);
         if (RandomAccess.GetLength(_handle) != Pointer.Size)
             RandomAccess.SetLength(_handle, Pointer.Size);

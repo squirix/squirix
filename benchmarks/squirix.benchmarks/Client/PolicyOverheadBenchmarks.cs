@@ -12,7 +12,7 @@ namespace Squirix.Benchmarks.Client;
 /// <summary>Isolates client-side reliability and bootstrap wrappers without gRPC transport.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
+public class PolicyOverheadBenchmarks : IAsyncDisposable
 {
     private const int Batch = 16_384;
     private static readonly string[] SingleBootstrapNode = ["node-a"];
@@ -30,7 +30,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
 
     /// <summary>Runs through bootstrap failover and call policy, matching the public SDK wrapper shape without gRPC.</summary>
     [Benchmark(OperationsPerInvoke = Batch)]
-    public async Task BootstrapAndCallPolicyCompletedValueTaskBatchedAsync()
+    public async Task BootstrapCallPolicyDoneVtBatchedAsync()
     {
         var failover = _failover!;
         var policy = _policy!;
@@ -84,7 +84,7 @@ public class ClientPolicyOverheadBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public void Setup()
     {
-        _failover = new EndpointFailover(SingleBootstrapNode, "node-a");
+        _failover = new EndpointFailover(["node-a"], "node-a");
         _policy = new CallPolicy(peer: "node-a");
     }
 

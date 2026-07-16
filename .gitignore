@@ -73,5 +73,9 @@ nunit-*.xml
 #BenchmarkDotNet
 **/BenchmarkDotNet.Artifacts/*
 
+# NDepend
+NDependOut/
+*.ndar
+
 # C# DevKit
 *.lscache

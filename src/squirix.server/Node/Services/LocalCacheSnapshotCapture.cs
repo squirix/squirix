@@ -15,7 +15,7 @@ internal sealed class LocalCacheSnapshotCapture<T> : ISnapshotEntryCapture
 {
     private readonly ILocalCacheSnapshotReader<T> _reader;
 
-    internal LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader)
+    public LocalCacheSnapshotCapture(ILocalCacheSnapshotReader<T> reader)
     {
         _reader = reader ?? throw new ArgumentNullException(nameof(reader));
     }

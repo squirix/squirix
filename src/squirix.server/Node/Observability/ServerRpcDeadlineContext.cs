@@ -9,15 +9,6 @@ internal static class ServerRpcDeadlineContext
 
     private static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
 
-    internal static DateTime? EffectiveDeadline(DateTime? existingDeadlineUtc)
-    {
-        var existing = Normalize(existingDeadlineUtc);
-        var current = CurrentDeadlineUtc;
-        var deadline = existing <= current ? existing : current;
-        var time = current is null ? existing : deadline;
-        return existing is null ? current : time;
-    }
-
     internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
     {
         var deadline = CurrentDeadlineUtc;
@@ -29,6 +20,15 @@ internal static class ServerRpcDeadlineContext
         var previous = DeadlineUtc.Value;
         DeadlineUtc.Value = Normalize(deadlineUtc);
         return new Scope(previous);
+    }
+
+    internal static DateTime? EffectiveDeadline(DateTime? existingDeadlineUtc)
+    {
+        var existing = Normalize(existingDeadlineUtc);
+        var current = CurrentDeadlineUtc;
+        var deadline = existing <= current ? existing : current;
+        var time = current is null ? existing : deadline;
+        return existing is null ? current : time;
     }
 
     private static DateTime? Normalize(DateTime? deadlineUtc)
