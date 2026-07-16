@@ -21,7 +21,16 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetValueAsync(cacheName, key, cancellationToken);
+
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+    {
+        EnsureLocalOwner(cacheName, key);
+        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+    }
 
     public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
     {
@@ -29,7 +38,7 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         return _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
     }
 
-    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
@@ -41,19 +50,10 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         return _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
     }
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         EnsureLocalOwner(cacheName, key);
         return _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
-    }
-
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetValueAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-    {
-        EnsureLocalOwner(cacheName, key);
-        return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
     }
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken)
@@ -66,6 +66,10 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     {
         var owner = _locator.GetOwner(cacheName, key);
         if (!string.Equals(owner, _self, StringComparison.Ordinal))
-            throw new OwnershipMismatchException("logical", cacheName, key, owner, _self);
+        {
+            throw new InvalidOperationException(
+                $"Ownership mismatch for local physical cache operation 'logical' on cache '{cacheName}' and key '{key}'. " +
+                $"Expected owner '{owner}', current node '{_self}'.");
+        }
     }
 }

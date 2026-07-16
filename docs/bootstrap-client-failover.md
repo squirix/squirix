@@ -1,7 +1,7 @@
 # Bootstrap client failover
 
 Remote applications connect with `SquirixClient.ConnectAsync` and one or more bootstrap URLs in
-`SquirixOptions.Endpoints`.
+`SquirixClientOptions.Endpoints`.
 
 ## What bootstrap endpoints are
 

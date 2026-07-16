@@ -26,8 +26,8 @@ public static class MtlsInterNodeGrpcProbe
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),
-                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var headers = new Metadata();
         if (!string.IsNullOrWhiteSpace(bearerToken))

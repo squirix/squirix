@@ -12,7 +12,7 @@ internal sealed class IdempotencyMetricRegistration
         Store = store ?? throw new ArgumentNullException(nameof(store));
     }
 
-    public string NodeId { get; }
+    internal string NodeId { get; }
 
-    public RpcMutationIdempotencyStore Store { get; }
+    internal RpcMutationIdempotencyStore Store { get; }
 }

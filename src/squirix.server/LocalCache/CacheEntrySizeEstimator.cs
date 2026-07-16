@@ -1,7 +1,6 @@
 using System.Collections.Frozen;
 using System.Text;
 using Squirix.Server.Core;
-using Squirix.Server.Node.MemoryPressure;
 
 namespace Squirix.Server.LocalCache;
 
@@ -20,7 +19,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />
-    public long EstimateBytes(CacheKey key, CacheEntry<T> entry, bool payloadIsCounter)
+    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter)
     {
         long n = FixedPerEntryOverheadBytes;
         n += Encoding.UTF8.GetByteCount(key.Namespace);
@@ -33,7 +32,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     }
 
     /// <inheritdoc />
-    public bool HasUnknownPayloadMagnitude(CacheEntry<T> entry, bool payloadIsCounter)
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter)
     {
         if (payloadIsCounter)
             return false;

@@ -11,7 +11,7 @@ internal static class IdempotencyBootstrap
     /// <summary>Loads idempotency settings with environment overrides applied.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Resolved idempotency options.</returns>
-    public static Task<IdempotencyOptions> LoadAsync(CancellationToken cancellationToken = default)
+    internal static Task<IdempotencyOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(ApplyEnvironment(new IdempotencyOptions()));

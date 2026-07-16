@@ -18,7 +18,7 @@ public sealed class MemoryPressureErrorContractTests : UnitTestBase
     [Fact]
     public void MemoryPressureMapsToPublicCodeHttp429AndGrpcResourceExhausted()
     {
-        var contract = CacheOperationContract.MemoryPressure();
+        var contract = ServerOpContract.MemoryPressure();
 
         Assert.Equal(SquirixErrorCode.MemoryPressure, contract.Code);
         Assert.Equal("MEMORY_PRESSURE", SquirixErrorMapper.ToPublicCode(contract.Code));
@@ -36,7 +36,7 @@ public sealed class MemoryPressureErrorContractTests : UnitTestBase
     [Fact]
     public async Task MemoryPressureRestPayloadUsesStableFields()
     {
-        var contract = CacheOperationContract.MemoryPressure();
+        var contract = ServerOpContract.MemoryPressure();
         var http = contract.ToHttpResult();
         var context = new DefaultHttpContext
         {

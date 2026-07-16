@@ -13,10 +13,10 @@ internal static class ResourceExhaustedExceptionExtensions
         /// Maps memory-pressure rejection to gRPC <see cref="StatusCode.ResourceExhausted" /> with bounded detail.
         /// </summary>
         /// <returns>A <see cref="RpcException" /> for the failure.</returns>
-        public RpcException ToRpcException()
+        internal RpcException ToRpcException()
         {
             _ = exception;
-            return CacheOperationContract.MemoryPressure().ToRpcException();
+            return ServerOpContract.MemoryPressure().ToRpcException();
         }
     }
 }

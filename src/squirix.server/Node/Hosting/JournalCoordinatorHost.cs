@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -12,20 +13,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 {
     private IJournalCoordinator? _coordinator;
 
-    public IJournalCoordinator Coordinator => _coordinator ?? throw new InvalidOperationException("Journal coordinator is not initialized.");
-
-    public async Task InitializeAsync(
-        PersistenceOptions persistence,
-        Storage.Manifest.ManifestState manifest,
-        ManifestStore manifestStore,
-        JournalStartupGate gate,
-        CancellationToken cancellationToken)
-    {
-        if (_coordinator is not null)
-            return;
-
-        _coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
-    }
+    internal IJournalCoordinator Coordinator => _coordinator ?? throw new InvalidOperationException("Journal coordinator is not initialized.");
 
     public async ValueTask DisposeAsync()
     {
@@ -34,5 +22,18 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
 
         await _coordinator.DisposeAsync().ConfigureAwait(false);
         _coordinator = null;
+    }
+
+    internal async Task InitializeAsync(
+        PersistenceOptions persistence,
+        State manifest,
+        ManifestStore manifestStore,
+        JournalStartupGate gate,
+        CancellationToken cancellationToken)
+    {
+        if (_coordinator is not null)
+            return;
+
+        _coordinator = await JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, gate, cancellationToken).ConfigureAwait(false);
     }
 }

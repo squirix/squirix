@@ -8,6 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
@@ -64,11 +65,12 @@ public class DurableMutationGroupCommitBenchmarks
                     await executor.ExecuteAsync(
                         key,
                         static _ => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
-                        coordinator,
-                        append,
-                        static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, ct),
-                        0,
-                        static (_, _, _) => new ValueTask<int>(1),
+                        new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, ReadOnlyMemory<byte> Payload), int, int>(
+                            coordinator,
+                            append,
+                            static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, ct),
+                            0,
+                            static (_, _, _) => new ValueTask<int>(1)),
                         cancellationToken).ConfigureAwait(false);
                 }
             });

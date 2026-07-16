@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.E2ETests.Support.Cluster;
 
 namespace Squirix.E2ETests.Support.Stress;

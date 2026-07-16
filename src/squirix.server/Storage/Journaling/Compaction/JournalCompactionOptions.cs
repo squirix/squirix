@@ -11,8 +11,6 @@ internal sealed class JournalCompactionOptions
         MinTailSegments = 2;
     }
 
-    public bool Enabled { get; init; } = true;
-
     public TimeSpan MinGap
     {
         get;
@@ -48,4 +46,6 @@ internal sealed class JournalCompactionOptions
             field = value;
         }
     }
+
+    public bool Enabled { get; init; } = true;
 }

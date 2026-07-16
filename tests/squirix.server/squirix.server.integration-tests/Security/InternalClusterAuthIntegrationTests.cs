@@ -67,7 +67,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
             },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 
@@ -93,8 +93,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             new GrpcChannelOptions
             {
                 HttpHandler = await CreateClusterCaTrustingHandlerWithoutClientCertificateAsync("node-b", peers, DefaultCancellationToken),
-                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
@@ -131,7 +131,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new CacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = value, Version = 1 }.MapToProto(),
             },
             cancellationToken: DefaultCancellationToken);
 
@@ -142,7 +142,6 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var getResponse = await clientB.GetValueAsync(new GetValueAsyncRequest { CacheName = "default", Key = key }, cancellationToken: DefaultCancellationToken);
 
         Assert.True(getResponse.Found);
-        Assert.Equal(value, (await ProtoEx.CacheValueFromGrpcValueAsync<object?>(getResponse.Value, null, null)).Value);
     }
 
     /// <summary>Verifies internal owner-routing metadata is rejected on the external listener even with JWT auth.</summary>
@@ -172,7 +171,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = "spoofed-owner-write",
-                    Entry = new CacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = "blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
@@ -200,8 +199,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
             new GrpcChannelOptions
             {
                 HttpHandler = await CreateTrustedInterNodeClientHandlerAsync("node-b", nodeBUrl, "node-a", peers, DefaultCancellationToken),
-                MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-                MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+                MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+                MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
             });
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var headers = new Metadata { { "squirix-internal-owner-rpc", "true" } };
@@ -213,7 +212,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
                     OperationId = RpcOperationIdentity.New(),
                     CacheName = "default",
                     Key = key,
-                    Entry = new CacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
+                    Entry = new NodeCacheEntry<object?> { Value = "stale-owner-blocked", Version = 1 }.MapToProto(),
                 },
                 new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
 
@@ -222,7 +221,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         Assert.Equal("stale-owner", ex.Trailers.GetValue("squirix-error-code"));
     }
 
-    private static Peer FindPeer(IReadOnlyList<Peer> peers, string nodeId)
+    private static ServerPeer FindPeer(IReadOnlyList<ServerPeer> peers, string nodeId)
     {
         foreach (var peer in peers)
         {

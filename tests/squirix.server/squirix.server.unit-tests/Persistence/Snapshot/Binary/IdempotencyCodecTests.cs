@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using Google.Protobuf;
-using Squirix.Server.Node.Services;
+using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
@@ -17,13 +17,11 @@ public sealed class IdempotencyCodecTests : UnitTestBase
     public void WriteAndReadRoundTripsResponseBytes()
     {
         var response = new TryAddAsyncResponse { Added = true };
-        var record = new PersistedIdempotencyRecord
-        {
-            OperationId = "0123456789abcdef0123456789abcdef",
-            Fingerprint = "try-add-entry-async|default|k|abc123",
-            CreatedUtc = new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc),
-            ResponseBytes = response.ToByteArray(),
-        };
+        var record = new PersistedIdempotencyRecord(
+            "0123456789abcdef0123456789abcdef",
+            "try-add-entry-async|default|k|abc123",
+            response.ToByteArray(),
+            new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
 
         var length = IdempotencyCodec.ComputeEncodedLength(record);
         Span<byte> buffer = stackalloc byte[length];

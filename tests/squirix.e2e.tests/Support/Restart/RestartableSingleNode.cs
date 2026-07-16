@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.E2ETests.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
@@ -20,17 +21,9 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
         Uri = uri;
     }
 
-    private Uri Uri { get; }
-
     private string DataDir => _dataDir.Path;
 
-    public static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
-    {
-        var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
-        var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri());
-        await node.StartNodeAsync(cancellationToken);
-        return node;
-    }
+    private Uri Uri { get; }
 
     public async ValueTask<ICache<T>> GetCacheAsync<T>(string cacheName, CancellationToken cancellationToken)
     {
@@ -48,6 +41,14 @@ internal sealed class RestartableSingleNode : IAsyncDisposable
     {
         await StopNodeAsync().ConfigureAwait(false);
         _dataDir.Dispose();
+    }
+
+    internal static async ValueTask<RestartableSingleNode> StartAsync(string testName, CancellationToken cancellationToken)
+    {
+        var dataDir = new TempDirectory("squirix-e2e-restartable", testName);
+        var node = new RestartableSingleNode(dataDir, ListenPortPool.EndToEndTests.NextHttpUri());
+        await node.StartNodeAsync(cancellationToken);
+        return node;
     }
 
     private async ValueTask StartNodeAsync(CancellationToken cancellationToken)

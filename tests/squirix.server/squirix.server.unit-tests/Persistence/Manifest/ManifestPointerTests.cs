@@ -12,9 +12,9 @@ public sealed class ManifestPointerTests
     [Fact]
     public void WriteReadRoundTripsIndex()
     {
-        Span<byte> buffer = stackalloc byte[ManifestPointer.Size];
-        ManifestPointer.Write(buffer, 42);
-        Assert.Equal(42, ManifestPointer.Read(buffer));
+        Span<byte> buffer = stackalloc byte[Pointer.Size];
+        Pointer.Write(buffer, 42);
+        Assert.Equal(42, Pointer.Read(buffer));
     }
 
     /// <summary>Verifies corrupted CRC bytes are rejected on read.</summary>
@@ -23,10 +23,10 @@ public sealed class ManifestPointerTests
     {
         _ = Assert.Throws<InvalidDataException>(static () =>
         {
-            Span<byte> buffer = stackalloc byte[ManifestPointer.Size];
-            ManifestPointer.Write(buffer, 1);
+            Span<byte> buffer = stackalloc byte[Pointer.Size];
+            Pointer.Write(buffer, 1);
             buffer[^1] ^= 0xFF;
-            _ = ManifestPointer.Read(buffer);
+            _ = Pointer.Read(buffer);
         });
     }
 }

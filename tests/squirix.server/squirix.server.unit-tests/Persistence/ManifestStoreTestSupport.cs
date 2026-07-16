@@ -11,14 +11,14 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>Helpers for manifest store tests.</summary>
 internal static class ManifestStoreTestSupport
 {
-    internal const string JournalSegment000001 = $"{StorageFilePrefixes.Journal}000001{StorageFileExtensions.Journal}";
-    internal const string JournalSegment000002 = $"{StorageFilePrefixes.Journal}000002{StorageFileExtensions.Journal}";
-    internal const string JournalSegment000003 = $"{StorageFilePrefixes.Journal}000003{StorageFileExtensions.Journal}";
-    internal const string Snapshot000001 = $"{StorageFilePrefixes.Snapshot}000001{StorageFileExtensions.Snapshot}";
-    internal const string Snapshot000002 = $"{StorageFilePrefixes.Snapshot}000002{StorageFileExtensions.Snapshot}";
-    internal const string Manifest000001 = $"{StorageFilePrefixes.Manifest}000001{StorageFileExtensions.Manifest}";
-    internal const string Manifest000003 = $"{StorageFilePrefixes.Manifest}000003{StorageFileExtensions.Manifest}";
-    internal const string ManifestCurrentPointer = $"{StorageFilePrefixes.Manifest}current";
+    internal const string JournalSegment000001 = $"{FilePrefixes.Journal}000001{FileExtensions.Journal}";
+    internal const string JournalSegment000002 = $"{FilePrefixes.Journal}000002{FileExtensions.Journal}";
+    internal const string JournalSegment000003 = $"{FilePrefixes.Journal}000003{FileExtensions.Journal}";
+    internal const string Snapshot000001 = $"{FilePrefixes.Snapshot}000001{FileExtensions.Snapshot}";
+    internal const string Snapshot000002 = $"{FilePrefixes.Snapshot}000002{FileExtensions.Snapshot}";
+    internal const string Manifest000001 = $"{FilePrefixes.Manifest}000001{FileExtensions.Manifest}";
+    internal const string Manifest000003 = $"{FilePrefixes.Manifest}000003{FileExtensions.Manifest}";
+    internal const string ManifestCurrentPointer = $"{FilePrefixes.Manifest}current";
 
     internal static PersistenceOptions CreateOptions(string dataDir) => new()
     {
@@ -43,9 +43,9 @@ internal static class ManifestStoreTestSupport
     {
         var currentPath = Path.Join(dataDir, ManifestCurrentPointer);
         var pointerBytes = await File.ReadAllBytesAsync(currentPath, cancellationToken).ConfigureAwait(false);
-        return ManifestPointer.Read(pointerBytes);
+        return Pointer.Read(pointerBytes);
     }
 
     internal static string ManifestDataFileName(int index) =>
-        $"{StorageFilePrefixes.Manifest}{index.ToString("D6", CultureInfo.InvariantCulture)}{StorageFileExtensions.Manifest}";
+        $"{FilePrefixes.Manifest}{index.ToString("D6", CultureInfo.InvariantCulture)}{FileExtensions.Manifest}";
 }

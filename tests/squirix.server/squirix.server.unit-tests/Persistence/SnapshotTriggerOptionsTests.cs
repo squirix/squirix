@@ -6,7 +6,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>
-/// Unit tests for <see cref="SnapshotTriggerOptions" /> scalar validation.
+/// Unit tests for <see cref="TriggerOptions" /> scalar validation.
 /// </summary>
 public sealed class SnapshotTriggerOptionsTests
 {
@@ -14,7 +14,7 @@ public sealed class SnapshotTriggerOptionsTests
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
     {
-        var options = new SnapshotTriggerOptions
+        var options = new TriggerOptions
         {
             SnapshotInterval = TimeSpan.FromTicks(1),
             SnapshotEveryNOps = 0,
@@ -37,13 +37,13 @@ public sealed class SnapshotTriggerOptionsTests
     /// <summary>Verifies invalid scalar values fail at assignment time.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
-    [InlineData(nameof(SnapshotTriggerOptions.SnapshotInterval))]
-    [InlineData(nameof(SnapshotTriggerOptions.SnapshotEveryNOps))]
-    [InlineData(nameof(SnapshotTriggerOptions.SnapshotEveryNBytes))]
-    [InlineData(nameof(SnapshotTriggerOptions.MinGapBetweenSnapshots))]
-    [InlineData(nameof(SnapshotTriggerOptions.JournalGrowthThrottleBytes))]
-    [InlineData(nameof(SnapshotTriggerOptions.LatencySloMilliseconds))]
-    [InlineData(nameof(SnapshotTriggerOptions.LatencyThrottleDuration))]
+    [InlineData(nameof(TriggerOptions.SnapshotInterval))]
+    [InlineData(nameof(TriggerOptions.SnapshotEveryNOps))]
+    [InlineData(nameof(TriggerOptions.SnapshotEveryNBytes))]
+    [InlineData(nameof(TriggerOptions.MinGapBetweenSnapshots))]
+    [InlineData(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
+    [InlineData(nameof(TriggerOptions.LatencySloMilliseconds))]
+    [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
         ArgumentOutOfRangeException? ex = null;
@@ -68,7 +68,7 @@ public sealed class SnapshotTriggerOptionsTests
         const string json =
             """{"enabled":true,"snapshotInterval":"00:03:00","snapshotEveryNOps":100,"snapshotEveryNBytes":2048,"minGapBetweenSnapshots":"00:00:05","journalGrowthThrottleBytes":1024,"latencySloMilliseconds":5.5,"latencyThrottleDuration":"00:00:02"}""";
 
-        var options = new SystemTextJsonSerializer().Deserialize<SnapshotTriggerOptions>(json);
+        var options = new ServerJsonSerializer().Deserialize<TriggerOptions>(json);
 
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromMinutes(3), options.SnapshotInterval);
@@ -80,15 +80,15 @@ public sealed class SnapshotTriggerOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(2), options.LatencyThrottleDuration);
     }
 
-    private static SnapshotTriggerOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
+    private static TriggerOptions CreateWithInvalidScalar(string propertyName) => propertyName switch
     {
-        nameof(SnapshotTriggerOptions.SnapshotInterval) => new SnapshotTriggerOptions { SnapshotInterval = TimeSpan.Zero },
-        nameof(SnapshotTriggerOptions.SnapshotEveryNOps) => new SnapshotTriggerOptions { SnapshotEveryNOps = -1 },
-        nameof(SnapshotTriggerOptions.SnapshotEveryNBytes) => new SnapshotTriggerOptions { SnapshotEveryNBytes = -1 },
-        nameof(SnapshotTriggerOptions.MinGapBetweenSnapshots) => new SnapshotTriggerOptions { MinGapBetweenSnapshots = TimeSpan.FromTicks(-1) },
-        nameof(SnapshotTriggerOptions.JournalGrowthThrottleBytes) => new SnapshotTriggerOptions { JournalGrowthThrottleBytes = -1 },
-        nameof(SnapshotTriggerOptions.LatencySloMilliseconds) => new SnapshotTriggerOptions { LatencySloMilliseconds = double.NaN },
-        nameof(SnapshotTriggerOptions.LatencyThrottleDuration) => new SnapshotTriggerOptions { LatencyThrottleDuration = TimeSpan.FromTicks(-1) },
+        nameof(TriggerOptions.SnapshotInterval) => new TriggerOptions { SnapshotInterval = TimeSpan.Zero },
+        nameof(TriggerOptions.SnapshotEveryNOps) => new TriggerOptions { SnapshotEveryNOps = -1 },
+        nameof(TriggerOptions.SnapshotEveryNBytes) => new TriggerOptions { SnapshotEveryNBytes = -1 },
+        nameof(TriggerOptions.MinGapBetweenSnapshots) => new TriggerOptions { MinGapBetweenSnapshots = TimeSpan.FromTicks(-1) },
+        nameof(TriggerOptions.JournalGrowthThrottleBytes) => new TriggerOptions { JournalGrowthThrottleBytes = -1 },
+        nameof(TriggerOptions.LatencySloMilliseconds) => new TriggerOptions { LatencySloMilliseconds = double.NaN },
+        nameof(TriggerOptions.LatencyThrottleDuration) => new TriggerOptions { LatencyThrottleDuration = TimeSpan.FromTicks(-1) },
         _ => throw new ArgumentOutOfRangeException(nameof(propertyName), propertyName, "Unsupported property name."),
     };
 }

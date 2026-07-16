@@ -8,13 +8,13 @@ namespace Squirix.Server.Contracts;
 /// <typeparam name="T">The cache value type.</typeparam>
 internal interface ICacheApi<T>
 {
-    ValueTask<CacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken);
+    ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken);
 
-    ValueTask<CacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken);
+    ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken);
 
-    ValueTask SetEntryAsync(string operationId, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask SetEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
-    ValueTask<bool> TryAddEntryAsync(string operationId, string key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask<bool> TryAddEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken);
 

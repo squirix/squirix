@@ -81,7 +81,7 @@ Or include both modes in the full matrix:
 SQUIRIX_E2E_BENCHMARK_DURABILITY=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks
 ```
 
-Client SDK benchmarks (`Squirix.Benchmarks`) expose the same modes through `DurabilityComparisonBenchmarks`.
+Client SDK benchmarks (`Squirix.Benchmarks`) expose the same modes through `ComparisonBenchmarks`.
 
 ## Wire allocation matrix
 
@@ -90,8 +90,8 @@ Use this matrix to compare `develop` against wire-encoding changes (for example 
 
 Benchmark classes:
 
-- `CacheWireScalarAllocBenchmarks` — `string` values (scalar wire path)
-- `CacheWireStructuredAllocBenchmarks` — `BenchmarkUserProfile` values (structured payload path)
+- `WireScalarAllocBenchmarks` — `string` values (scalar wire path)
+- `WireStructuredAllocBenchmarks` — `BenchmarkUserProfile` values (structured payload path)
 
 Each class runs 13 benchmark methods (`Batch = 512`, `[MemoryDiagnoser]`) covering all happy-path `ICache<T>` APIs.
 BenchmarkDotNet parametrizes `DurabilityMode` (`Ephemeral` vs `Persistence` / `UsePersistence()`), producing **52 rows**

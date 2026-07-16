@@ -35,7 +35,16 @@ internal sealed class JournalCompactionController : IDisposable
         _log = log;
     }
 
-    public async Task<bool> TryTriggerNowAsync(CancellationToken cancellationToken)
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _mutex.Dispose();
+    }
+
+    internal async Task<bool> TryTriggerNowAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -56,14 +65,5 @@ internal sealed class JournalCompactionController : IDisposable
         {
             _ = _mutex.Release();
         }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _disposed = true;
-        _mutex.Dispose();
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
+using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
@@ -9,8 +10,6 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
 internal sealed class RpcMutationIdempotencyExecutionScope : IDisposable
 {
-    private static readonly AsyncLocal<RpcMutationIdempotencyExecutionScope?> ActiveScope = new();
-
     private readonly Func<object, CancellationToken, ValueTask> _completeAsync;
 
     private RpcMutationIdempotencyExecutionScope(Func<object, CancellationToken, ValueTask> completeAsync)
@@ -18,9 +17,9 @@ internal sealed class RpcMutationIdempotencyExecutionScope : IDisposable
         _completeAsync = completeAsync ?? throw new ArgumentNullException(nameof(completeAsync));
     }
 
-    public static RpcMutationIdempotencyExecutionScope? Current => ActiveScope.Value;
+    void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
 
-    public static RpcMutationIdempotencyExecutionScope Begin<TResponse>(
+    internal static RpcMutationIdempotencyExecutionScope Begin<TResponse>(
         RpcMutationIdempotencyStore store,
         string operationId,
         string fingerprint,
@@ -35,7 +34,7 @@ internal sealed class RpcMutationIdempotencyExecutionScope : IDisposable
         ArgumentNullException.ThrowIfNull(serializeResponse);
 
         var scope = new RpcMutationIdempotencyExecutionScope(CompleteAsync);
-        ActiveScope.Value = scope;
+        RpcMutationIdempotencyExecutionAmbient.Activate(scope);
         return scope;
 
         ValueTask CompleteAsync(object response, CancellationToken cancellationToken)
@@ -49,16 +48,10 @@ internal sealed class RpcMutationIdempotencyExecutionScope : IDisposable
         }
     }
 
-    public ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
+    internal ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
         where TResponse : IMessage<TResponse>
     {
         ArgumentNullException.ThrowIfNull(response);
         return _completeAsync(response, cancellationToken);
-    }
-
-    public void Dispose()
-    {
-        if (ReferenceEquals(ActiveScope.Value, this))
-            ActiveScope.Value = null;
     }
 }

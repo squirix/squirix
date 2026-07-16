@@ -16,12 +16,7 @@ namespace Squirix.Serialization;
 #pragma warning disable ZA1001 // ISquirixSerializer must support arbitrary T; reflection fallback is the public contract.
 internal sealed class SystemTextJsonSerializer : ISquirixSerializer
 {
-    private readonly JsonSerializerOptions _options;
-
-    internal SystemTextJsonSerializer()
-    {
-        _options = CreateDefaultOptions();
-    }
+    private readonly JsonSerializerOptions _options = CreateDefaultOptions();
 
     /// <inheritdoc />
     public T? Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload, _options);

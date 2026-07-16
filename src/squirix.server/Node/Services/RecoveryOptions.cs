@@ -7,5 +7,5 @@ internal sealed class RecoveryOptions
     /// Gets a value indicating whether if true (default), RecoveryService.StartAsync awaits the recovery work.
     /// If false, recovery runs in the background and StartAsync returns immediately.
     /// </summary>
-    public bool BlockOnStart { get; init; } = true;
+    internal bool BlockOnStart { get; init; } = true;
 }

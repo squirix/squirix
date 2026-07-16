@@ -28,10 +28,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(4);
 
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -70,9 +70,9 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         CreateSnapshot(3);
 
         await store.WriteAsync(
-            new Storage.Manifest.ManifestState
+            new Storage.Manifest.State
             {
-                LastSnapshot = new Storage.Manifest.ManifestState.SnapshotRef
+                LastSnapshot = new Storage.Manifest.State.SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
@@ -95,18 +95,27 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
         Assert.True(FileKit.Exists(SnapshotPath(3)));
     }
 
-    /// <summary>Cleans up the temporary storage directory after each test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        _dir?.Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Creates a fresh temporary storage directory before each test.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Cleans up the temporary storage directory after each test.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _dir?.Dispose();
+
+        base.Dispose(disposing);
     }
 
     private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{index.ToString(CultureInfo.InvariantCulture)}");
@@ -116,10 +125,10 @@ public sealed class RetentionPolicyTests : UnitTestBase, IAsyncLifetime
     private string JournalPath(int index) => PathKit.Combine(
         false,
         Dir,
-        $"{StorageFilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 
     private string SnapshotPath(int index) => PathKit.Combine(
         false,
         Dir,
-        $"{StorageFilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
+        $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
 }

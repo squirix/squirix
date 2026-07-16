@@ -12,11 +12,10 @@ namespace Squirix.Server.Node.Services;
 
 internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotReadinessStatus
 {
-    private readonly SnapshotCoordinator<T> _coordinator;
+    private readonly Coordinator _coordinator;
 
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
-    private readonly TimeProvider _timeProvider;
 
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
@@ -26,13 +25,11 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
             SingleWriter = false,
         });
 
+    private readonly TimeProvider _timeProvider;
+
     private int _fatalFailure;
 
-    public SnapshotTriggerService(
-        ILogger<SnapshotTriggerService<T>> log,
-        SnapshotCoordinator<T> coordinator,
-        IJournalCoordinator journal,
-        TimeProvider? timeProvider = null)
+    public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _log = log ?? throw new ArgumentNullException(nameof(log));

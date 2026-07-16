@@ -16,9 +16,12 @@ internal static class ArchitectureAllowlists
         $"{ServerArchitectureNamespaces.Node}.Hosting",
         $"{ServerArchitectureNamespaces.Node}.Hosting.Security",
         $"{ServerArchitectureNamespaces.Node}.Observability.Metrics",
+        $"{ServerArchitectureNamespaces.Node}.App.Decorators",
         ServerArchitectureNamespaces.Storage,
         $"{ServerArchitectureNamespaces.Storage}.Snapshot",
         $"{ServerArchitectureNamespaces.Storage}.Journaling",
+        $"{ServerArchitectureNamespaces.Storage}.Journaling.Compaction",
+        $"{ServerArchitectureNamespaces.Cluster}.Transport",
     ];
 
     /// <summary>
@@ -41,7 +44,9 @@ internal static class ArchitectureAllowlists
         ServerArchitectureNamespaces.Root,
         "Squirix.Server.Core",
         $"{ServerArchitectureNamespaces.Node}.Hosting",
+        $"{ServerArchitectureNamespaces.Node}.Bootstrap",
         $"{ServerArchitectureNamespaces.Node}.App",
         $"{ServerArchitectureNamespaces.Node}.App.Decorators.Validation",
+        $"{ServerArchitectureNamespaces.Cluster}.Transport",
     ];
 }

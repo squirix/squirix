@@ -17,7 +17,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Cluster.Reliability;
-using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Contracts;
 using Squirix.Server.Limits;
 using Squirix.Server.Node.Backpressure;
@@ -72,7 +71,7 @@ public abstract class IntegrationTestBase : IDisposable
     }
 
     /// <summary>
-    /// Convenience builder for a <see cref="CacheEntry{T}" /> with optional expiration, version, and tags.
+    /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
     /// </summary>
     /// <param name="value">
     /// The value to store. If a <see cref="JsonDocument" /> or <see cref="JsonElement" /> is supplied,
@@ -86,10 +85,10 @@ public abstract class IntegrationTestBase : IDisposable
     /// </param>
     /// <param name="tags">Optional set of user-defined tags. When provided, the collection is frozen using an ordinal string comparer.</param>
     /// <returns>
-    /// A new <see cref="CacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
+    /// A new <see cref="NodeCacheEntry{T}" /> instance with the provided <paramref name="value" />, <paramref name="expiresUtc" />,
     /// <paramref name="version" />, and <paramref name="tags" />; <c>Expiration</c> is set to <see langword="null" />.
     /// </returns>
-    internal static CacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
+    internal static NodeCacheEntry<object?> BuildEntry(object? value, DateTime? expiresUtc = null, long version = 1, IDictionary<string, string>? tags = null)
     {
         var v = value switch
         {
@@ -98,14 +97,7 @@ public abstract class IntegrationTestBase : IDisposable
             _ => value,
         };
 
-        return new CacheEntry<object?>
-        {
-            Value = v,
-            ExpiresUtc = expiresUtc,
-            Expiration = null,
-            Version = version,
-            Tags = tags?.ToFrozenDictionary(StringComparer.Ordinal),
-        };
+        return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
     /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
@@ -118,8 +110,8 @@ public abstract class IntegrationTestBase : IDisposable
 
     /// <summary>Builds cluster peer entries, provisioning inter-node mTLS URLs for multi-node topologies.</summary>
     /// <param name="topology">Cluster members for peer configuration.</param>
-    /// <returns>Peer entries for host startup.</returns>
-    internal Peer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
+    /// <returns>ServerPeer entries for host startup.</returns>
+    internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => MtlsTestContext.CreatePeers(ref _mtls, topology);
 
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="targetPeerNodeId">Configured node identifier for the peer being contacted.</param>
@@ -128,17 +120,16 @@ public abstract class IntegrationTestBase : IDisposable
     /// <returns>A handler for negative mTLS inter-node auth tests.</returns>
     internal async Task<SocketsHttpHandler> CreateClusterCaTrustingHandlerWithoutClientCertificateAsync(
         string targetPeerNodeId,
-        Peer[] peers,
+        ServerPeer[] peers,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
         var bootstrapPeer = peers[0];
-        var cluster = new ClusterConfig
+        var cluster = new ClusterConfig(peers)
         {
             NodeId = bootstrapPeer.NodeId,
             Uri = bootstrapPeer.Uri,
             VirtualNodes = 128,
-            Peers = peers,
         };
         (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
@@ -156,21 +147,22 @@ public abstract class IntegrationTestBase : IDisposable
         string callerNodeId,
         Uri callerPrimaryUrl,
         string targetPeerNodeId,
-        Peer[] peers,
+        ServerPeer[] peers,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(callerNodeId);
         ArgumentNullException.ThrowIfNull(callerPrimaryUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetPeerNodeId);
-        var cluster = new ClusterConfig
+        var cluster = new ClusterConfig(peers)
         {
             NodeId = callerNodeId,
             Uri = callerPrimaryUrl,
             VirtualNodes = 128,
-            Peers = peers,
         };
         (_mtls, _, var material) = await MtlsTestContext.ResolveForNodeAsync(_mtls, cluster, callerPrimaryUrl, cancellationToken).ConfigureAwait(false);
-        return material is not { Enabled: true } ? LoopbackHttp.CreateHandler() : GrpcTransportEndpoints.CreateMtlsHandler(material, targetPeerNodeId);
+        return material is not { Enabled: true }
+            ? LoopbackHttp.CreateHandler()
+            : MtlsTestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
 
     [SuppressMessage(
@@ -180,18 +172,18 @@ public abstract class IntegrationTestBase : IDisposable
     internal ValueTask<TestNodeHost> StartNodeAsync(
         string uri,
         string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
@@ -220,18 +212,18 @@ public abstract class IntegrationTestBase : IDisposable
     internal ValueTask<TestNodeHost> StartNodeAsync(
         Uri uri,
         string nodeId,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(
@@ -259,19 +251,19 @@ public abstract class IntegrationTestBase : IDisposable
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(
         Uri uri,
-        Peer[] peers,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        ServerPeer[] peers,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null)
@@ -280,12 +272,11 @@ public abstract class IntegrationTestBase : IDisposable
         var canonicalUri = new Uri(ListenUris.CanonicalAuthority(uri), UriKind.Absolute);
         var selfNodeId = FindSelfNodeId(peers, canonicalUri) ?? throw new ArgumentException("The peers list must contain an entry for the node being started", nameof(peers));
 
-        var clusterConfig = new ClusterConfig
+        var clusterConfig = new ClusterConfig(peers)
         {
             NodeId = selfNodeId,
             Uri = canonicalUri,
             VirtualNodes = 128,
-            Peers = peers,
         };
 
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
@@ -304,7 +295,7 @@ public abstract class IntegrationTestBase : IDisposable
 
         (_mtls, var mtlsOptions, var mtlsMaterial) = await MtlsTestContext.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, DefaultCancellationToken);
 
-        var application = await SquirixNodeHost.StartAsync(
+        var application = await NodeHost.StartAsync(
             clusterConfig,
             b =>
             {
@@ -345,8 +336,8 @@ public abstract class IntegrationTestBase : IDisposable
         new GrpcChannelOptions
         {
             HttpHandler = LoopbackHttp.CreateHandler(),
-            MaxReceiveMessageSize = SquirixEntryLimits.GrpcMaxReceiveMessageSizeBytes,
-            MaxSendMessageSize = SquirixEntryLimits.GrpcMaxSendMessageSizeBytes,
+            MaxReceiveMessageSize = EntryLimits.GrpcMaxReceiveMessageSizeBytes,
+            MaxSendMessageSize = EntryLimits.GrpcMaxSendMessageSizeBytes,
         });
 
     /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
@@ -378,7 +369,7 @@ public abstract class IntegrationTestBase : IDisposable
         return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
     }
 
-    private static string? FindSelfNodeId(Peer[] peers, Uri uri)
+    private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
         for (var index = 0; index < peers.Length; index++)
@@ -420,17 +411,17 @@ public abstract class IntegrationTestBase : IDisposable
     }
 
     /// <summary>
-    /// Starts a new <see cref="SquirixNodeHost" /> for integration testing with configurable peers,
+    /// Starts a new <see cref="NodeHost" /> for integration testing with configurable peers,
     /// persistence, gRPC configuration, and extra services.
     /// </summary>
     /// <param name="uri">
     /// The node’s listen URL (HTTP or HTTPS). Must correspond to one of the <paramref name="peers" /> entries.
     /// </param>
     /// <param name="peers">
-    /// The cluster peer set, including the node being started (its <see cref="Peer.Uri" /> must equal <paramref name="uri" />).
+    /// The cluster peer set, including the node being started (its <see cref="ServerPeer.Uri" /> must equal <paramref name="uri" />).
     /// </param>
     /// <param name="callPolicyFactory">
-    /// Optional factory used to create a <see cref="CallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
+    /// Optional factory used to create a <see cref="ServerCallPolicy" /> for outbound peer calls. If <see langword="null" />, a default policy is used.
     /// The factory receives the peer URL and should return a configured policy instance.
     /// </param>
     /// <param name="configureGrpc">
@@ -452,7 +443,7 @@ public abstract class IntegrationTestBase : IDisposable
     /// If <see langword="true" />, the per-test data directory is cleaned before startup. If <see langword="false" />, it is reused.
     /// </param>
     /// <param name="extraScope">Optional additional path segment appended to the test scope to isolate data directories between logical scenarios.</param>
-    /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
+    /// <param name="peerHandlerFactory">Optional HTTP message handler used by the ServerClientPool for outbound gRPC calls in tests (enables chaos/fault injection).</param>
     /// <param name="backpressureOptions">Optional backpressure options for inbound admission control.</param>
     /// <param name="memoryPressureOptions">
     /// Optional memory pressure options; when <see langword="null" />, the host loads defaults merged from <c>Squirix.settings.json</c> and environment variables.
@@ -478,19 +469,19 @@ public abstract class IntegrationTestBase : IDisposable
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(
         string uri,
-        Peer[] peers,
-        Func<string, CallPolicy>? callPolicyFactory = null,
+        ServerPeer[] peers,
+        Func<string, ServerCallPolicy>? callPolicyFactory = null,
         Action<GrpcServiceOptions>? configureGrpc = null,
         Action<IServiceCollection>? servicesConfigure = null,
-        SnapshotTriggerOptions? snapshotOptions = null,
+        TriggerOptions? snapshotOptions = null,
         PersistenceOptions? persistenceOptions = null,
         bool usePersistence = false,
         ITestOutputHelper? output = null,
         bool cleanTestDir = true,
         string? extraScope = null,
         Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        BackpressureOptions? backpressureOptions = null,
-        MemoryPressureOptions? memoryPressureOptions = null,
+        AdmissionOptions? backpressureOptions = null,
+        PressureOptions? memoryPressureOptions = null,
         TestNodeSecurityOptions? security = null,
         bool waitForRecovery = true,
         [CallerMemberName] string? testName = null) => StartNodeAsync(

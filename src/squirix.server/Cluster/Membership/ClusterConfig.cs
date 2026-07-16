@@ -5,18 +5,25 @@ namespace Squirix.Server.Cluster.Membership;
 
 internal sealed class ClusterConfig
 {
-    [method: SetsRequiredMembers]
+    [SetsRequiredMembers]
     public ClusterConfig()
     {
+        Peers = [];
     }
 
-    public required string ClusterId { get; init; } = "cluster";
+    [SetsRequiredMembers]
+    public ClusterConfig(ServerPeer[] peers)
+    {
+        Peers = peers;
+    }
 
-    public required string NodeId { get; init; } = "node";
+    internal required string ClusterId { get; init; } = "cluster";
 
-    public required Peer[] Peers { get; init; } = [];
+    internal required string NodeId { get; init; } = "node";
 
-    public required Uri Uri { get; init; } = new("https://localhost:6001");
+    internal ServerPeer[] Peers { get; }
 
-    public int VirtualNodes { get; init; } = 128;
+    internal required Uri Uri { get; init; } = new("https://localhost:6001");
+
+    internal int VirtualNodes { get; init; } = 128;
 }

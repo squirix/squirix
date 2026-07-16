@@ -16,7 +16,7 @@ internal sealed class ManifestBenchmarkHost : IAsyncDisposable
         Store = manifestStore;
     }
 
-    public ManifestStore Store { get; }
+    internal ManifestStore Store { get; }
 
     public static Task<ManifestBenchmarkHost> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)
     {

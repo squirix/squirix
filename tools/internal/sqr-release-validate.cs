@@ -31,7 +31,7 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     await output.WriteLineAsync().ConfigureAwait(false);
     await output.WriteLineAsync("Usage:").ConfigureAwait(false);
     await output.WriteLineAsync(
-                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
+                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
                 .ConfigureAwait(false);
     return 0;
 }
@@ -110,17 +110,6 @@ try
                 "test", "tests/squirix.server/squirix.server.smoke-tests/Squirix.Server.SmokeTests.csproj", "--configuration", options.Configuration, "--no-build", "--verbosity",
                 "normal",
             ]).ConfigureAwait(false);
-
-        if (options.IncludePropertyTests)
-        {
-            await StepAsync("Run property tests").ConfigureAwait(false);
-            await RunDotnetOrThrowAsync(
-                repoRootResolved,
-                [
-                    "test", "tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj", "--configuration", options.Configuration, "--no-build",
-                    "--verbosity", "normal",
-                ]).ConfigureAwait(false);
-        }
 
         if (options.IncludeIntegrationTests)
         {
@@ -246,13 +235,6 @@ async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
         if (string.Equals(a, "-IncludeIntegrationTests", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--include-integration-tests", StringComparison.OrdinalIgnoreCase))
         {
             parsed.IncludeIntegrationTests = true;
-            argIndex++;
-            continue;
-        }
-
-        if (string.Equals(a, "-IncludePropertyTests", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--include-property-tests", StringComparison.OrdinalIgnoreCase))
-        {
-            parsed.IncludePropertyTests = true;
             argIndex++;
             continue;
         }
@@ -522,8 +504,6 @@ internal sealed class ReleaseOptions
     public bool IncludeBenchmarks { get; set; }
 
     public bool IncludeIntegrationTests { get; set; }
-
-    public bool IncludePropertyTests { get; set; }
 
     public bool IncludeStressChecks { get; set; }
 

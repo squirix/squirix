@@ -25,12 +25,22 @@ internal sealed class MtlsTestBundle : IDisposable
         FileKit.WriteAllText(GetClusterCertificateAuthorityPath(), _ca.ExportCertificatePem());
     }
 
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _ca.Dispose();
+        _rootDirectory.Dispose();
+    }
+
     /// <summary>Creates validated cluster mTLS options and loaded material for a test node.</summary>
     /// <param name="nodeId">Local node identifier.</param>
     /// <param name="internalListenPort">Dedicated internal HTTPS listener port.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material suitable for host startup overrides.</returns>
-    public async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeAsync(string nodeId, int internalListenPort, CancellationToken cancellationToken = default)
+    internal async Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeAsync(
+        string nodeId,
+        int internalListenPort,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
 
@@ -39,27 +49,6 @@ internal sealed class MtlsTestBundle : IDisposable
 
         using var nodeCertificate = CreateNodeCertificate(nodeId);
         return await CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        _ca.Dispose();
-        _rootDirectory.Dispose();
-    }
-
-    internal Task<(MtlsOptions Options, MtlsCertificateMaterial Material)> CreateNodeFromCertificateAsync(
-        string nodeId,
-        int internalListenPort,
-        X509Certificate2 nodeCertificate,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentNullException.ThrowIfNull(nodeCertificate);
-
-        var nodeDirectory = PathKit.Combine(_rootDirectory, nodeId);
-        DirectoryKit.CreateDirectory(nodeDirectory);
-        return CreateNodeFromCertificateAsync(nodeId, internalListenPort, nodeDirectory, nodeCertificate, cancellationToken);
     }
 
     internal X509Certificate2 GetClusterCertificateAuthority() => _ca;
@@ -106,7 +95,7 @@ internal sealed class MtlsTestBundle : IDisposable
             InternalListenPort = internalListenPort,
         };
 
-        var material = MtlsCertificateMaterial.FromCertificates(exportableCertificate, _ca);
+        var material = MtlsCertificateMaterial.Load(options, null, true, nodeId);
         return (options, material);
     }
 

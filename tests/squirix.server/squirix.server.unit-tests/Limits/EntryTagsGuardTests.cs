@@ -24,45 +24,45 @@ public sealed class EntryTagsGuardTests : UnitTestBase
     [Fact]
     public void TagCountAboveLimitThrowsInvalidEntryTags()
     {
-        var tags = CreateTags(SquirixEntryLimits.MaxEntryTagCount + 1);
+        var tags = CreateTags(EntryLimits.MaxEntryTagCount + 1);
 
         var ex = Assert.Throws<SquirixException>(() => EntryTagsGuard.EnsureWithinLimits(tags));
 
         Assert.Equal(SquirixErrorCode.InvalidEntryTags, ex.Code);
-        Assert.Contains(SquirixEntryLimits.MaxEntryTagCount.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntryTagCount.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>Oversized tag keys are rejected by UTF-8 byte length.</summary>
     [Fact]
     public void TagKeyAboveLimitThrowsInvalidEntryTags()
     {
-        var key = new string('k', SquirixEntryLimits.MaxEntryTagKeyUtf8Bytes + 1);
+        var key = new string('k', EntryLimits.MaxEntryTagKeyUtf8Bytes + 1);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { [key] = "v" }.ToFrozenDictionary(StringComparer.Ordinal);
 
         var ex = Assert.Throws<SquirixException>(() => EntryTagsGuard.EnsureWithinLimits(tags));
 
         Assert.Equal(SquirixErrorCode.InvalidEntryTags, ex.Code);
-        Assert.Contains(SquirixEntryLimits.MaxEntryTagKeyUtf8Bytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntryTagKeyUtf8Bytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>Oversized tag values are rejected by UTF-8 byte length.</summary>
     [Fact]
     public void TagValueAboveLimitThrowsInvalidEntryTags()
     {
-        var value = new string('v', SquirixEntryLimits.MaxEntryTagValueUtf8Bytes + 1);
+        var value = new string('v', EntryLimits.MaxEntryTagValueUtf8Bytes + 1);
         var tags = new Dictionary<string, string>(StringComparer.Ordinal) { ["k"] = value }.ToFrozenDictionary(StringComparer.Ordinal);
 
         var ex = Assert.Throws<SquirixException>(() => EntryTagsGuard.EnsureWithinLimits(tags));
 
         Assert.Equal(SquirixErrorCode.InvalidEntryTags, ex.Code);
-        Assert.Contains(SquirixEntryLimits.MaxEntryTagValueUtf8Bytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntryTagValueUtf8Bytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>Tags within limits pass validation.</summary>
     [Fact]
     public void TagsWithinLimitsDoNotThrow()
     {
-        var tags = CreateTags(SquirixEntryLimits.MaxEntryTagCount);
+        var tags = CreateTags(EntryLimits.MaxEntryTagCount);
 
         Assert.Null(Record.Exception(() => EntryTagsGuard.EnsureWithinLimits(tags)));
     }

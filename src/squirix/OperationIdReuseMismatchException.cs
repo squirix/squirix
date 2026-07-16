@@ -12,7 +12,7 @@ public sealed class OperationIdReuseMismatchException : Exception
     /// <summary>
     /// Stable detail shared with the server gRPC contract.
     /// </summary>
-    public const string StableDetail = "operation_id was reused with a different mutation fingerprint.";
+    internal const string StableDetail = "operation_id was reused with a different mutation fingerprint.";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OperationIdReuseMismatchException" /> class.

@@ -6,7 +6,7 @@ namespace Squirix.Server.Node.Observability.Metrics;
 
 internal static class PrometheusMetricsBootstrap
 {
-    public static async Task<PrometheusMetricsEndpointOptions> LoadAsync(CancellationToken cancellationToken = default)
+    internal static async Task<PrometheusMetricsEndpointOptions> LoadAsync(CancellationToken cancellationToken = default)
     {
         var baseline = Default();
         var (found, merged) = await UnifiedSettings.TryMergePrometheusMetricsFromFileAsync(baseline, cancellationToken).ConfigureAwait(false);

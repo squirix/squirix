@@ -3,7 +3,8 @@ using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.Server.Errors;
 using Squirix.Server.Limits;
-using Squirix.Server.TestKit.Limits;
+using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -19,25 +20,25 @@ public sealed class EntryPayloadSizeGuardTests : UnitTestBase
     public async Task EntryJustAboveLimitThrowsPayloadTooLarge()
     {
         var value = await EntryLimitKit.CreateStringValueExceedingEntryLimitAsync();
-        var entry = new CacheEntry<object?> { Value = value, Version = 1 };
+        var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
-        var ex = Assert.Throws<SquirixException>(() => EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry));
+        var ex = Assert.Throws<SquirixException>(() => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
 
         Assert.Equal(SquirixErrorCode.PayloadTooLarge, ex.Code);
         Assert.Equal("PayloadTooLarge", ex.Error);
-        Assert.Contains(SquirixEntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
+        Assert.Contains(EntryLimits.MaxEntrySizeBytes.ToString(CultureInfo.InvariantCulture), ex.Detail, StringComparison.Ordinal);
     }
 
     /// <summary>Checks if an entry below the limit doesn't throw.</summary>
     [Fact]
     public async Task EntryJustBelowLimitDoesNotThrow()
     {
-        var value = await EntryLimitKit.CreateStringValueAtMostSerializedBytesAsync(SquirixEntryLimits.MaxEntrySizeBytes);
-        var entry = new CacheEntry<object?> { Value = value, Version = 1 };
+        var value = await EntryLimitKit.CreateStringValueAtMostSerializedBytesAsync(EntryLimits.MaxEntrySizeBytes);
+        var entry = new NodeCacheEntry<object?> { Value = value, Version = 1 };
 
-        var ex = Record.Exception(() => EntryPayloadSizeGuard.EnsureEncodedLengthWithinLimit(entry));
+        var ex = Record.Exception(() => JournalEntryPayload.EnsureEncodedLengthWithinLimit(entry));
 
         Assert.Null(ex);
-        Assert.True(EntryPayloadSizeGuard.MeasureSerializedBytes(entry) <= SquirixEntryLimits.MaxEntrySizeBytes);
+        Assert.True(JournalEntryPayload.MeasureSerializedBytes(entry) <= EntryLimits.MaxEntrySizeBytes);
     }
 }

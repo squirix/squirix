@@ -9,5 +9,5 @@ internal interface IJournalCompactionStatus
 
     DateTime LastRunUtc { get; }
 
-    CompactionState State { get; }
+    RunState State { get; }
 }

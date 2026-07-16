@@ -41,7 +41,7 @@ public sealed class JournalCompactionOptionsTests
     public void JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"enabled":true,"minTailSegments":3,"minTailBytes":4096,"minGap":"00:00:30"}""";
-        var options = new SystemTextJsonSerializer().Deserialize<JournalCompactionOptions>(json);
+        var options = new ServerJsonSerializer().Deserialize<JournalCompactionOptions>(json);
         Assert.NotNull(options);
         Assert.True(options.Enabled);
         Assert.Equal(3, options.MinTailSegments);

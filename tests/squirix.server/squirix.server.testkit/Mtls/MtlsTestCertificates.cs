@@ -10,6 +10,48 @@ namespace Squirix.Server.TestKit.Mtls;
 /// <summary>Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.</summary>
 public static class MtlsTestCertificates
 {
+    /// <summary>Creates the default HTTP handler for HTTPS gRPC channels in tests.</summary>
+    /// <returns>A handler suitable for secure gRPC transport.</returns>
+    public static SocketsHttpHandler CreateDefaultChannelHandler() => new();
+
+    /// <summary>Creates an outbound cluster mTLS HTTP handler with explicit client certificate material.</summary>
+    /// <param name="clientCertificate">Client certificate presented to the peer.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+    /// <returns>A handler configured for inter-node mutual TLS.</returns>
+    public static SocketsHttpHandler CreateMtlsHandler(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(clientCertificate);
+        ArgumentNullException.ThrowIfNull(trustAnchor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
+
+        return new SocketsHttpHandler
+        {
+            UseProxy = false,
+            EnableMultipleHttp2Connections = true,
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                ClientCertificates = [clientCertificate],
+                ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
+                RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
+            },
+        };
+    }
+
+    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
+    /// <param name="serverCertificate">The presented peer server certificate.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
+    public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    {
+        if (serverCertificate is null)
+            return false;
+
+        using var certificate = new X509Certificate2(serverCertificate);
+        return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
+    }
+
     /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
     /// <param name="trustAnchor">Configured cluster trust root.</param>
     /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
@@ -26,14 +68,21 @@ public static class MtlsTestCertificates
             SslOptions = new SslClientAuthenticationOptions
             {
                 ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
-                RemoteCertificateValidationCallback = (_, certificate, _, _) => GrpcTransportEndpoints.ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
+                RemoteCertificateValidationCallback = (_, certificate, _, _) =>
+                {
+                    if (certificate is null)
+                        return false;
+
+                    using var peerCertificate = new X509Certificate2(certificate);
+                    return MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, trustAnchor, expectedPeerNodeId);
+                },
             },
         };
     }
 
     /// <summary>Creates a peer certificate signed by the provided test CA.</summary>
     /// <param name="issuer">Issuing test certificate authority.</param>
-    /// <param name="commonName">Peer certificate common name.</param>
+    /// <param name="commonName">ServerPeer certificate common name.</param>
     /// <param name="notBefore">Optional validity start.</param>
     /// <param name="notAfter">Optional validity end.</param>
     /// <returns>A peer certificate with a private key.</returns>

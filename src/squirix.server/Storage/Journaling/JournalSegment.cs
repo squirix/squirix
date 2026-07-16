@@ -1,8 +1,8 @@
 namespace Squirix.Server.Storage.Journaling;
 
-internal readonly struct JournalSegment
+internal sealed record JournalSegment
 {
-    public int Index { get; init; }
+    internal string Path { get; init; } = string.Empty;
 
-    public string Path { get; init; }
+    internal int Index { get; init; }
 }

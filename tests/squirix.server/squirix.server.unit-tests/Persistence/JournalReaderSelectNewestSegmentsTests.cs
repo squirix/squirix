@@ -15,9 +15,9 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     public void EnumerateSegmentsRespectsFromSegmentAndSortsAscending()
     {
         using var dir = new TempDirectory("squirix-journal-enum-from");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{2.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{15.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{2.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{15.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
 
         var segments = JournalReader.EnumerateSegments(dir, 9);
         Assert.Equal(2, segments.Length);
@@ -39,32 +39,10 @@ public sealed class JournalReaderSelectNewestSegmentsTests
     public void EnumerateSegmentsSkipsJournalFilesWithNonNumericIndex()
     {
         using var dir = new TempDirectory("squirix-journal-enum-filter");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}abcdef{StorageFileExtensions.Journal}"), "x");
-        File.WriteAllText(PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
+        File.WriteAllText(PathKit.Combine(dir, $"{FilePrefixes.Journal}{42.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
         var segments = JournalReader.EnumerateSegments(dir, 1);
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
-    }
-
-    /// <summary>Verifies only the newest segments are retained when many exist on disk.</summary>
-    [Fact]
-    public void SelectNewestSegmentsKeepsOnlyNewestByIndex()
-    {
-        using var dir = new TempDirectory("squirix-journal-select");
-        for (var i = 1; i <= 40; i++)
-        {
-            var path = PathKit.Combine(dir, $"{StorageFilePrefixes.Journal}{i.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Journal}");
-            File.WriteAllText(path, "x");
-        }
-
-        var selected = JournalReader.SelectNewestSegments(dir, 1, 16);
-        Assert.Equal(16, selected.Count);
-
-        var indices = new int[selected.Count];
-        for (var i = 0; i < indices.Length; i++)
-            indices[i] = selected.Dequeue().Index;
-
-        Assert.Equal(25, indices[0]);
-        Assert.Equal(40, indices[^1]);
     }
 }

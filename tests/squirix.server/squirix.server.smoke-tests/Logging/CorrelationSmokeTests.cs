@@ -62,7 +62,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
                 OperationId = RpcOperationIdentity.New(),
                 CacheName = "default",
                 Key = key,
-                Entry = new CacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "value", Version = 1 }.MapToProto(),
             },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
 

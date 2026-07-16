@@ -11,7 +11,7 @@ internal sealed class KeyOwnerHelper
 {
     private readonly (ulong Hash, string Node)[] _ring;
 
-    public KeyOwnerHelper(HashSet<string> uniqueNodes, int virtualNodes = 128)
+    internal KeyOwnerHelper(HashSet<string> uniqueNodes, int virtualNodes = 128)
     {
         if (uniqueNodes.Count is 0)
             throw new ArgumentException("At least one node is required.", nameof(uniqueNodes));

@@ -11,7 +11,7 @@ internal static class ClientPoolBootstrapWarmupDiagnostics
     /// <summary>Emits metrics and an activity event when warm-up succeeds on another peer but this peer failed.</summary>
     /// <param name="nodeId">Bootstrap peer node id that was skipped.</param>
     /// <param name="failure">Connection failure observed for the peer.</param>
-    public static void RecordBootstrapPeerSkipped(string nodeId, Exception failure)
+    internal static void RecordBootstrapPeerSkipped(string nodeId, Exception failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
         ArgumentNullException.ThrowIfNull(failure);

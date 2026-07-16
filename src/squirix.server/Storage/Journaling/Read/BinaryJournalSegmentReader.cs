@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Framing;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Read;
@@ -13,7 +12,7 @@ namespace Squirix.Server.Storage.Journaling.Read;
 /// <summary>Reads <see cref="JournalRecord" /> from a binary journal segment.</summary>
 internal static class BinaryJournalSegmentReader
 {
-    public sealed class Enumerator : IDisposable
+    internal sealed class Enumerator : IJournalRecordEnumerator
     {
         private readonly CancellationToken _cancellationToken;
         private readonly long _length;
@@ -25,7 +24,7 @@ internal static class BinaryJournalSegmentReader
         private byte[]? _rentedFrameBuffer;
         private bool _valid;
 
-        public Enumerator(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken)
+        internal Enumerator(string path, bool tolerateTruncatedTail, CancellationToken cancellationToken)
         {
             _tolerateTruncatedTail = tolerateTruncatedTail;
             _cancellationToken = cancellationToken;
@@ -49,19 +48,9 @@ internal static class BinaryJournalSegmentReader
             }
         }
 
-        public JournalRecord Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+        JournalRecord IJournalRecordEnumerator.Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
 
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-
-            ReturnRentedFrameBuffer();
-            _stream?.Dispose();
-            _disposed = true;
-        }
-
-        public bool MoveNext()
+        bool IJournalRecordEnumerator.MoveNext()
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_valid || _stream is null)
@@ -72,6 +61,16 @@ internal static class BinaryJournalSegmentReader
                 return false;
 
             return MoveNextFrame();
+        }
+
+        void IDisposable.Dispose()
+        {
+            if (_disposed)
+                return;
+
+            ReturnRentedFrameBuffer();
+            _stream?.Dispose();
+            _disposed = true;
         }
 
         private bool MoveNextFrame()

@@ -1,15 +1,12 @@
 using System;
-using System.Runtime.InteropServices;
 
 namespace Squirix.Internal.Cluster.Transport;
 
-[StructLayout(LayoutKind.Auto)]
-internal readonly struct BootstrapConnectOptions
+internal sealed record BootstrapConnectOptions
 {
-    public static readonly TimeSpan DefaultOverallDeadline = TimeSpan.FromSeconds(30);
-    public static readonly TimeSpan DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5);
-
-    public static readonly BootstrapConnectOptions SecondaryPeerAfterPrimary = new(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
+    internal static readonly TimeSpan DefaultOverallDeadline = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5);
+    internal static readonly BootstrapConnectOptions SecondaryPeerAfterPrimary = new(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
 
     public BootstrapConnectOptions(TimeSpan perAttemptTimeout, TimeSpan overallDeadline, TimeSpan? baseBackoff = null, TimeSpan? maxBackoff = null)
     {

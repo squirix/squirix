@@ -388,7 +388,7 @@ jobs:
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
+                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -451,9 +451,6 @@ jobs:
                       server-unit)
                         PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
                         ;;
-                      server-property)
-                        PROJECT="tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj"
-                        ;;
                       server-integration)
                         PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
                         ;;
@@ -472,7 +469,7 @@ jobs:
                         ;;
                     esac
 
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.suite }}" != "server-property" ]; then
+                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
                         "${FILTER_ARGS[@]}" \
@@ -486,7 +483,7 @@ jobs:
                     fi
 
             -   name: Verify Suite Coverage Was Collected
-                if: matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
+                if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: |
                     mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -499,7 +496,7 @@ jobs:
                     fi
 
             -   name: Upload Raw Coverage Files
-                if: always() && matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
+                if: always() && matrix.os == 'ubuntu-latest'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}

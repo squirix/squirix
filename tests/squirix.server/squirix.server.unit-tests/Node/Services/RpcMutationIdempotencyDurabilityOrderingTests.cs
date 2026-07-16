@@ -8,12 +8,10 @@ using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
-using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -58,21 +56,24 @@ public sealed class RpcMutationIdempotencyDurabilityOrderingTests : UnitTestBase
         var store = new RpcMutationIdempotencyStore();
         var coordinator = new RpcMutationIdempotencyCoordinator(store, journal);
         var executor = new DurableMutationExecutor(journal);
-        var entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto();
-        var fingerprint = RpcMutationFingerprints.TryAddEntry("default", "durability-order-key", entry);
         var key = CacheKey.Default("durability-order-key");
         var payload = JournalEntryPayloadKit.EncodePut("v");
 
         _ = await coordinator.ExecuteAsync(
             OperationId,
-            fingerprint,
+            "fingerprint",
             (Executor: executor, Journal: journal, Key: key, Payload: payload),
             static async (state, cancellationToken) =>
             {
                 var added = await state.Executor.ExecuteAsync(
+                    null,
                     static _ => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
-                    ct => state.Journal.AppendPutAsync(state.Key, state.Payload, ct),
-                    static _ => new ValueTask<bool>(true),
+                    new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, byte[] Payload), byte, bool>(
+                        state.Journal,
+                        (state.Key, state.Payload),
+                        static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
+                        0,
+                        static (_, _, _) => new ValueTask<bool>(true)),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
             },
@@ -167,6 +168,14 @@ public sealed class RpcMutationIdempotencyDurabilityOrderingTests : UnitTestBase
 
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
 
+        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
+        {
+            var trace = Trace;
+            trace.Record(OrderingStep.IdempotencyOutcome);
+            Trace = trace;
+            return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
+        }
+
         public ValueTask AppendPutAndAwaitDurabilityAsync(CacheKey key, ReadOnlyMemory<byte> entryBytes, CancellationToken cancellationToken) =>
             _inner.AppendPutAndAwaitDurabilityAsync(key, entryBytes, cancellationToken);
 
@@ -185,14 +194,6 @@ public sealed class RpcMutationIdempotencyDurabilityOrderingTests : UnitTestBase
         public ValueTask AppendTouchExpirationAsync(CacheKey key, DateTime expiresUtc, CancellationToken cancellationToken) =>
             _inner.AppendTouchExpirationAsync(key, expiresUtc, cancellationToken);
 
-        public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
-        {
-            var trace = Trace;
-            trace.Record(OrderingStep.IdempotencyOutcome);
-            Trace = trace;
-            return _inner.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
-        }
-
         public ValueTask AwaitDurabilityCommitAsync(CancellationToken cancellationToken)
         {
             var trace = Trace;
@@ -204,6 +205,8 @@ public sealed class RpcMutationIdempotencyDurabilityOrderingTests : UnitTestBase
         public void BeginPendingMemoryApply() => _inner.BeginPendingMemoryApply();
 
         public void CompletePendingMemoryApply() => _inner.CompletePendingMemoryApply();
+
+        public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
         public ValueTask ExecuteMaintenanceExclusiveAsync(Func<CancellationToken, ValueTask> action, CancellationToken cancellationToken) =>
             _inner.ExecuteMaintenanceExclusiveAsync(action, cancellationToken);
@@ -223,7 +226,5 @@ public sealed class RpcMutationIdempotencyDurabilityOrderingTests : UnitTestBase
             CancellationToken cancellationToken) => _inner.ExecuteUnderSnapshotBarrierAsync(state, action, cancellationToken);
 
         public ValueTask WaitForStartupAsync(CancellationToken cancellationToken) => _inner.WaitForStartupAsync(cancellationToken);
-
-        public ValueTask DisposeAsync() => _inner.DisposeAsync();
     }
 }

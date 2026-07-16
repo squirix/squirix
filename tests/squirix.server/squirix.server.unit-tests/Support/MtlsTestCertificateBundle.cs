@@ -31,8 +31,6 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         PfxPath = pfxPath;
     }
 
-    public X509Certificate2 Ca { get; }
-
     public string CaPath { get; }
 
     public string CertPath { get; }
@@ -43,6 +41,8 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
 
     public string RootDirectory { get; }
 
+    internal X509Certificate2 Ca { get; }
+
     public void Dispose()
     {
         _nodeCertificate.Dispose();
@@ -50,10 +50,7 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         _rootDirectory.Dispose();
     }
 
-    internal static async Task<MtlsTestCertificateBundle> CreateAsync(
-        X509Certificate2 ca,
-        X509Certificate2 nodeCertificate,
-        CancellationToken cancellationToken)
+    internal static async Task<MtlsTestCertificateBundle> CreateAsync(X509Certificate2 ca, X509Certificate2 nodeCertificate, CancellationToken cancellationToken)
     {
         var rootDirectory = new TempDirectory("squirix-cluster-mtls-tests");
         var caPath = PathKit.Combine(rootDirectory, "cluster-ca.crt");

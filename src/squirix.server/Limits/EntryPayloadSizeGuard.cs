@@ -1,31 +1,20 @@
 using System;
 using Squirix.Server.Errors;
-using Squirix.Server.Storage.Journaling.Entries;
 
 namespace Squirix.Server.Limits;
 
-/// <summary>
-/// Validates journal entry payload size against <see cref="SquirixEntryLimits.MaxEntrySizeBytes" />.
-/// </summary>
+/// <summary>Validates journal entry payload size against <see cref="EntryLimits.MaxEntrySizeBytes" />.</summary>
 internal static class EntryPayloadSizeGuard
 {
-    public static void EnsureEncodedLengthWithinLimit<T>(CacheEntry<T> entry)
+    internal static void EnsureEntryBytesWithinLimit(ReadOnlySpan<byte> entryBytes)
     {
-        EntryTagsGuard.EnsureWithinLimits(entry.Tags);
-        EnsureLengthWithinLimit(JournalEntryPayload.ComputeEncodedLength(entry));
+        if (entryBytes.Length > EntryLimits.MaxEntrySizeBytes)
+            throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
     }
 
-    public static void EnsureLengthWithinLimit(int encodedLength)
+    internal static void EnsureLengthWithinLimit(int encodedLength)
     {
-        if (encodedLength > SquirixEntryLimits.MaxEntrySizeBytes)
-            throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
+        if (encodedLength > EntryLimits.MaxEntrySizeBytes)
+            throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
     }
-
-    public static void EnsureEntryBytesWithinLimit(ReadOnlySpan<byte> entryBytes)
-    {
-        if (entryBytes.Length > SquirixEntryLimits.MaxEntrySizeBytes)
-            throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
-    }
-
-    public static int MeasureSerializedBytes<T>(CacheEntry<T> entry) => JournalEntryPayload.ComputeEncodedLength(entry);
 }

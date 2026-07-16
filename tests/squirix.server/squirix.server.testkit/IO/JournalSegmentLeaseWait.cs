@@ -2,13 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.IO;
 
 /// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
 public static class JournalSegmentLeaseWait
 {
+    private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const int BufferSize = 64 * 1024;
 
     /// <summary>
@@ -43,7 +43,7 @@ public static class JournalSegmentLeaseWait
         if (!Directory.Exists(dataDir))
             return true;
 
-        var files = Directory.GetFiles(dataDir, StorageFilePrefixes.JournalSegmentGlob);
+        var files = Directory.GetFiles(dataDir, JournalSegmentGlob);
         if (files.Length is 0)
             return true;
 

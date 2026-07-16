@@ -9,7 +9,7 @@ internal static class RpcDeadlineContext
 
     private static DateTime? CurrentDeadlineUtc => DeadlineUtc.Value;
 
-    public static TimeSpan? GetRemainingBudget(DateTime nowUtc)
+    internal static TimeSpan? GetRemainingBudget(DateTime nowUtc)
     {
         var deadline = CurrentDeadlineUtc;
         return deadline is null ? null : deadline.Value - nowUtc;

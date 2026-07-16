@@ -11,11 +11,7 @@ internal sealed class KeyedSingleFlight<TResult>
 {
     private readonly ConcurrentDictionary<string, Task<TResult>> _concurrent = new(StringComparer.Ordinal);
 
-    public Task<TResult> RunAsync<TState>(
-        string key,
-        TState state,
-        Func<TState, CancellationToken, Task<TResult>> action,
-        CancellationToken cancellationToken)
+    internal Task<TResult> RunAsync<TState>(string key, TState state, Func<TState, CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -25,11 +21,7 @@ internal sealed class KeyedSingleFlight<TResult>
             new RunAsyncState<TState>(this, state, action, cancellationToken));
     }
 
-    private async Task<TResult> ExecuteAndCleanupAsync<TState>(
-        string key,
-        TState state,
-        Func<TState, CancellationToken, Task<TResult>> action,
-        CancellationToken cancellationToken)
+    private async Task<TResult> ExecuteAndCleanupAsync<TState>(string key, TState state, Func<TState, CancellationToken, Task<TResult>> action, CancellationToken cancellationToken)
     {
         try
         {

@@ -23,10 +23,10 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-binary-snapshot");
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
-        var writer = SnapshotStoreFactory.CreateWriter(persistence);
+        var writer = StoreFactory.CreateWriter(persistence);
         var snapshotPath = await writer.WriteAsync(
             1,
-            [(CacheKey.Default("base"), new CacheEntry<object?> { Value = "from-snapshot", Version = 1 })],
+            [(CacheKey.Default("base"), new NodeCacheEntry<object?> { Value = "from-snapshot", Version = 1 })],
             [],
             DefaultCancellationToken);
 
@@ -36,12 +36,12 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [baseRecord, tailRecord]);
 
         await scenario.ManifestStore.WriteAsync(
-            new ManifestState
+            new State
             {
                 Format = 1,
                 CurrentJournal = 1,
                 NextSequence = 12,
-                LastSnapshot = new ManifestState.SnapshotRef
+                LastSnapshot = new State.SnapshotRef
                 {
                     Index = 1,
                     Path = snapshotPath,
@@ -70,18 +70,18 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
         var missingSnapshotPath = PathKit.Combine(
             scenario.DataDir,
-            $"{StorageFilePrefixes.Snapshot}{1.ToString("000000", CultureInfo.InvariantCulture)}{StorageFileExtensions.Snapshot}");
+            $"{FilePrefixes.Snapshot}{1.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
 
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [record]);
 
         await scenario.ManifestStore.WriteAsync(
-            new ManifestState
+            new State
             {
                 Format = 1,
                 CurrentJournal = 1,
                 NextSequence = 2,
-                LastSnapshot = new ManifestState.SnapshotRef
+                LastSnapshot = new State.SnapshotRef
                 {
                     Index = 1,
                     Path = missingSnapshotPath,
@@ -104,14 +104,15 @@ public sealed class RecoveryServiceSnapshotRecoveryTests : UnitTestBase
         var gate = new JournalStartupGate(false);
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         var recovery = new RecoveryService<object?>(
-            persistence,
-            scenario.ManifestStore,
-            scenario.Cache,
             new RecoveryOptions { BlockOnStart = true },
-            gate,
-            new RpcMutationIdempotencyStore(),
-            SnapshotStoreFactory.CreateReader(persistence),
-            NullLogger<RecoveryService<object?>>.Instance);
+            NullLogger<RecoveryService<object?>>.Instance,
+            new RecoveryDependencies<object?>(
+                persistence,
+                scenario.ManifestStore,
+                scenario.Cache,
+                gate,
+                new RpcMutationIdempotencyStore(),
+                StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
     }
 }

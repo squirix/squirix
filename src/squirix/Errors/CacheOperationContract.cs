@@ -1,21 +1,10 @@
 using System;
-using System.Globalization;
 
 namespace Squirix.Errors;
 
 internal static class CacheOperationContract
 {
-    internal const string CounterOverflowDetail = "Overflow.";
-
     private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
-
-    /// <summary>
-    /// Builds the stable <see cref="InvalidOperationException" /> message for rejecting an explicit insert version that is not greater than the current entry version.
-    /// </summary>
-    /// <param name="currentVersion">The current stored version.</param>
-    /// <param name="providedVersion">The caller-provided explicit version.</param>
-    /// <returns>The message text shared by local mutation and the gRPC contract detail.</returns>
-    public static string InsertVersionMustExceedCurrentMessage(long currentVersion, long providedVersion) => $"{InsertVersionMustExceedCurrentMessagePrefix}{currentVersion.ToString(CultureInfo.InvariantCulture)}, provided={providedVersion.ToString(CultureInfo.InvariantCulture)})";
 
     /// <summary>
     /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),

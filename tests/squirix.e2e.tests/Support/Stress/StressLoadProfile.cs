@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.Support.Stress;
 [StructLayout(LayoutKind.Auto)]
 internal readonly struct StressLoadProfile
 {
-    public StressLoadProfile(int writers, TimeSpan budget)
+    internal StressLoadProfile(int writers, TimeSpan budget)
     {
         Writers = writers;
         Budget = budget;

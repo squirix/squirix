@@ -5,24 +5,6 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 
 internal static class TypedValueAssertions
 {
-    public static void AssertCartEquals(TypedMutableCart expected, TypedMutableCart actual)
-    {
-        Assert.Equal(expected.Id, actual.Id);
-        Assert.Equal(expected.Total, actual.Total);
-        Assert.Equal(expected.UpdatedAt, actual.UpdatedAt);
-        Assert.Equal(expected.CouponCode, actual.CouponCode);
-        Assert.Equal(expected.Items.Count, actual.Items.Count);
-
-        for (var i = 0; i < expected.Items.Count; i++)
-        {
-            var expectedItem = expected.Items[i];
-            var actualItem = actual.Items[i];
-            Assert.Equal(expectedItem.Sku, actualItem.Sku);
-            Assert.Equal(expectedItem.Quantity, actualItem.Quantity);
-            Assert.Equal(expectedItem.Price, actualItem.Price);
-        }
-    }
-
     public static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
     {
         Assert.Equal(expected.Id, actual.Id);
@@ -40,6 +22,24 @@ internal static class TypedValueAssertions
 
         Assert.Equal(expected.CreatedAt, actual.CreatedAt);
         Assert.Equal(expected.Status, actual.Status);
+    }
+
+    internal static void AssertCartEquals(TypedMutableCart expected, TypedMutableCart actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Total, actual.Total);
+        Assert.Equal(expected.UpdatedAt, actual.UpdatedAt);
+        Assert.Equal(expected.CouponCode, actual.CouponCode);
+        Assert.Equal(expected.Items.Count, actual.Items.Count);
+
+        for (var i = 0; i < expected.Items.Count; i++)
+        {
+            var expectedItem = expected.Items[i];
+            var actualItem = actual.Items[i];
+            Assert.Equal(expectedItem.Sku, actualItem.Sku);
+            Assert.Equal(expectedItem.Quantity, actualItem.Quantity);
+            Assert.Equal(expectedItem.Price, actualItem.Price);
+        }
     }
 
     private static void AssertAddressEquals(TypedCustomerAddress expected, TypedCustomerAddress actual)

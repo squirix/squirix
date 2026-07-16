@@ -1,8 +1,8 @@
 using System;
 using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
-using Squirix.Server.Storage.Journaling.Observability;
 using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.TestKit.Testing;
 using Xunit;

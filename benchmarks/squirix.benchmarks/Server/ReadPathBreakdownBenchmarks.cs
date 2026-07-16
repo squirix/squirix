@@ -97,7 +97,7 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
-    public async Task SquirixGrpcTransportFoundOnlyReusedRequestBatchedAsync()
+    public async Task SquirixGrpcFoundOnlyReusedBatchedAsync()
     {
         var cache = _rawGrpc!;
         var request = _reusedRequest!;

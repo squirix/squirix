@@ -1,31 +1,44 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.Hosting;
 
 /// <summary>Groups persistence singleton instances for dependency injection registration.</summary>
-internal sealed class PersistenceRuntime
+internal sealed class PersistenceRuntime : IDisposable
 {
+    private bool _disposed;
+
     private PersistenceRuntime(PersistenceOptions persistence)
     {
-        Retention = new StorageRetentionCleanupReadiness(persistence);
-        ManifestStore = new ManifestStore(persistence, retentionReadiness: Retention);
+        Retention = new RetentionCleanupReadiness(persistence);
+        ManifestStore = new ManifestStore(persistence, retentionReadiness: Retention, failureMetrics: new OtelManifestRetentionMetrics());
         Gate = new JournalStartupGate(false);
         JournalCoordinator = new JournalCoordinatorHost();
     }
 
-    public StorageRetentionCleanupReadiness Retention { get; }
+    internal JournalStartupGate Gate { get; }
 
-    public ManifestStore ManifestStore { get; }
+    internal JournalCoordinatorHost JournalCoordinator { get; }
 
-    public JournalStartupGate Gate { get; }
+    internal ManifestStore ManifestStore { get; }
 
-    public JournalCoordinatorHost JournalCoordinator { get; }
+    internal RetentionCleanupReadiness Retention { get; }
 
-    public static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        ManifestStore.Dispose();
+        _disposed = true;
+    }
+
+    internal static async Task<PersistenceRuntime> CreateAsync(PersistenceOptions persistence, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(persistence);
         var runtime = new PersistenceRuntime(persistence);

@@ -65,20 +65,19 @@ public sealed class PersistenceOptionsTests
         Assert.Equal(1, options.SnapshotRetentionCount);
     }
 
-    /// <summary>Verifies local scalar validation rejects non-positive values at assignment time.</summary>
+    /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
     /// <param name="propertyName">Property being validated.</param>
     [Theory]
     [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
     [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
     [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
     [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
-    public void FieldBackedValidationRejectsNonPositiveScalars(string propertyName)
+    public void ValidateRejectsNonPositiveScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => _ = CreateWithInvalidScalar(propertyName));
+        var options = CreateWithInvalidScalar(propertyName);
+        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
 
-        Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
-        Assert.Contains("0", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
@@ -87,7 +86,7 @@ public sealed class PersistenceOptionsTests
     {
         const string json =
             """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
-        var options = new SystemTextJsonSerializer().Deserialize<PersistenceOptions>(json);
+        var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);
         Assert.Equal(64, options.JournalMaxSegmentMb);

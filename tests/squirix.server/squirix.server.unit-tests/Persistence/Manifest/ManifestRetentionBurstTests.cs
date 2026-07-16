@@ -38,15 +38,8 @@ public sealed class ManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var currentPath = PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestCurrentPointer);
-        Assert.Equal(20, ManifestPointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+        Assert.Equal(20, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
         Assert.True(File.Exists(PathKit.Combine(Dir.Path, ManifestStoreTestSupport.ManifestDataFileName(20))));
-    }
-
-    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
-    public ValueTask DisposeAsync()
-    {
-        _dir?.Dispose();
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>Creates a temporary directory for test storage.</summary>
@@ -54,5 +47,21 @@ public sealed class ManifestRetentionBurstTests : UnitTestBase, IAsyncLifetime
     {
         _dir = new TempDirectory("manifest-burst");
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _dir?.Dispose();
+
+        base.Dispose(disposing);
     }
 }

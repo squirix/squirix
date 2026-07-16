@@ -15,7 +15,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidBackpressureOptionsFailOnStart()
     {
-        var invalidBackpressure = new BackpressureOptions
+        var invalidBackpressure = new AdmissionOptions
         {
             MaxInFlight = 8,
             SlowdownThreshold = 7,
@@ -36,7 +36,7 @@ public sealed class ConfigValidationTests : SmokeTestBase
     [Fact]
     public async Task InvalidMemoryPressureOptionsFailOnStart()
     {
-        var invalid = new MemoryPressureOptions
+        var invalid = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,

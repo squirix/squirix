@@ -20,10 +20,10 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         _mutation = mutation ?? throw new ArgumentNullException(nameof(mutation));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetEntryAsync(Key(cacheName, key), cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _read.GetValueAsync(Key(cacheName, key), cancellationToken);
 
     public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
@@ -38,7 +38,7 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         return _mutation.RemoveExpirationAsync(Key(cacheName, key), cancellationToken);
     }
 
-    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = operationId;
         var cacheKey = Key(cacheName, key);
@@ -46,7 +46,7 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         {
             var existing = await _read.GetEntryAsync(cacheKey, cancellationToken).ConfigureAwait(false);
             if (existing is not null)
-                entry = CacheEntryUpdatePolicy.PreserveExpirationWhenNotSpecified(entry, existing);
+                entry = PreserveExpirationWhenNotSpecified(entry, existing);
         }
 
         await _mutation.SetAsync(cacheKey, entry, cancellationToken).ConfigureAwait(false);
@@ -58,7 +58,7 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
         return _mutation.TouchAsync(Key(cacheName, key), expiration, cancellationToken);
     }
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         _ = operationId;
         return _mutation.TryAddAsync(Key(cacheName, key), entry, cancellationToken);
@@ -71,4 +71,11 @@ internal sealed class ClientCache<T> : ILogicalNamespacedCache<T>
     }
 
     private static CacheKey Key(string cacheName, string key) => new(cacheName, key);
+
+    private static NodeCacheEntry<T> PreserveExpirationWhenNotSpecified(NodeCacheEntry<T> replacement, NodeCacheEntry<T> existing)
+    {
+        if (replacement.ExpiresUtc is not null || replacement.Expiration is not null)
+            return replacement;
+        return new NodeCacheEntry<T>(replacement.Value, replacement.Version, existing.ExpiresUtc, null, replacement.Tags ?? existing.Tags);
+    }
 }

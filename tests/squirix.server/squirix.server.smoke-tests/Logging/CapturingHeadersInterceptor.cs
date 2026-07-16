@@ -13,7 +13,7 @@ internal sealed class CapturingHeadersInterceptor : Interceptor
     private volatile Metadata? _last;
 
     /// <summary>Gets the last captured request metadata headers.</summary>
-    public Metadata? LastRequestHeaders => _last;
+    internal Metadata? LastRequestHeaders => _last;
 
     /// <inheritdoc />
     public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)

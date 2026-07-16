@@ -18,8 +18,8 @@ public sealed class PersistenceDefaultModeIntegrationTests : IntegrationTestBase
         await using var node = await StartNodeAsync(uri, "node_ephemeral_ops");
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(TestOperationIds.Default, CacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
-        var value = await cache.GetValueAsync(CacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
+        await cache.SetEntryAsync(TestOperationIds.Default, ServerCacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
+        var value = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
         Assert.True(value.Found);
         Assert.Equal("value", value.Value);
     }

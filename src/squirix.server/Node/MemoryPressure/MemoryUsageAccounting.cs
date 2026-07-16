@@ -15,13 +15,13 @@ internal sealed class MemoryUsageAccounting : IMemoryUsageAccounting
     private long _estimatedBytes;
 
     /// <inheritdoc />
-    public long EntryCount => Volatile.Read(ref _entryCount);
+    public long ReadEntryCount() => Volatile.Read(ref _entryCount);
 
     /// <inheritdoc />
-    public long EstimatedBytes => Volatile.Read(ref _estimatedBytes);
+    public long ReadEstimatedBytes() => Volatile.Read(ref _estimatedBytes);
 
     /// <inheritdoc />
-    public long RejectedWriteCount => Volatile.Read(ref _admissionRejections);
+    public long ReadRejectedWriteCount() => Volatile.Read(ref _admissionRejections);
 
     /// <inheritdoc />
     public void AddEntry(long estimatedBytes)

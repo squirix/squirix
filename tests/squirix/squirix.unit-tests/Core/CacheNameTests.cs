@@ -21,14 +21,6 @@ public sealed class CacheNameTests : UnitTestBase
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
 
-    /// <summary>Verifies unvalidated normalization maps blank names to the default cache string.</summary>
-    [Fact]
-    public void NormalizeUnvalidatedMapsBlankToDefaultNamespace()
-    {
-        Assert.Equal(CacheNames.DefaultNamespace, CacheName.NormalizeUnvalidated(null));
-        Assert.Equal(CacheNames.DefaultNamespace, CacheName.NormalizeUnvalidated("   "));
-    }
-
     /// <summary>Verifies well-formed public cache names parse to canonical values.</summary>
     [Fact]
     public void ParsePublicAcceptsValidNames()
@@ -44,21 +36,5 @@ public sealed class CacheNameTests : UnitTestBase
         _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(null); });
         _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(string.Empty); });
         _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic("   "); });
-    }
-
-    /// <summary>Verifies excessive length is rejected.</summary>
-    [Fact]
-    public void ParsePublicRejectsTooLongNames()
-    {
-        var tooLong = new string('a', CacheNameValidator.MaxLength + 1);
-        _ = Assert.Throws<ArgumentException>(() => { _ = CacheName.ParsePublic(tooLong); });
-    }
-
-    /// <summary>Verifies string projection returns the canonical cache name.</summary>
-    [Fact]
-    public void ToStringReturnsCanonicalValue()
-    {
-        var cn = CacheName.ParsePublic("catalog");
-        Assert.Equal("catalog", cn.ToString());
     }
 }

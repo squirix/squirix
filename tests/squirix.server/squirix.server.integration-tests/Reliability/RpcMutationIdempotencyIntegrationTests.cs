@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Contracts;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Node.Services;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -27,15 +27,14 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    CacheName = "default",
-                    Key = "missing-operation-id",
-                    Entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => client.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
+            {
+                CacheName = "default",
+                Key = "missing-operation-id",
+                Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
@@ -55,7 +54,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
             OperationId = ValidOperationId,
             CacheName = "default",
             Key = "replay-key",
-            Entry = new CacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
+            Entry = new NodeCacheEntry<object?> { Value = "first", Version = 1 }.MapToProto(),
         };
 
         var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
@@ -75,16 +74,15 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = "integration-replay-op",
-                    CacheName = "default",
-                    Key = "invalid-format-operation-id",
-                    Entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => client.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
+            {
+                OperationId = "integration-replay-op",
+                CacheName = "default",
+                Key = "invalid-format-operation-id",
+                Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
@@ -106,23 +104,22 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
                 OperationId = MismatchOperationId,
                 CacheName = "default",
                 Key = "mismatch-a",
-                Entry = new CacheEntry<object?> { Value = "a", Version = 1 }.MapToProto(),
+                Entry = new NodeCacheEntry<object?> { Value = "a", Version = 1 }.MapToProto(),
             },
             cancellationToken: DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = MismatchOperationId,
-                    CacheName = "default",
-                    Key = "mismatch-b",
-                    Entry = new CacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => client.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
+            {
+                OperationId = MismatchOperationId,
+                CacheName = "default",
+                Key = "mismatch-b",
+                Entry = new NodeCacheEntry<object?> { Value = "b", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
-        Assert.Equal(OperationIdReuseMismatchException.StableDetail, ex.Status.Detail);
+        Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Status.Detail);
     }
 
     /// <summary>Verifies over-length operation ids are rejected at the adapter.</summary>
@@ -136,16 +133,15 @@ public sealed class RpcMutationIdempotencyIntegrationTests : IntegrationTestBase
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
-            client.TryAddEntryAsync(
-                new TryAddEntryAsyncRequest
-                {
-                    OperationId = tooLong,
-                    CacheName = "default",
-                    Key = "too-long-operation-id",
-                    Entry = new CacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
-                },
-                cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => client.TryAddEntryAsync(
+            new TryAddEntryAsyncRequest
+            {
+                OperationId = tooLong,
+                CacheName = "default",
+                Key = "too-long-operation-id",
+                Entry = new NodeCacheEntry<object?> { Value = "v", Version = 1 }.MapToProto(),
+            },
+            cancellationToken: DefaultCancellationToken).ResponseAsync);
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);

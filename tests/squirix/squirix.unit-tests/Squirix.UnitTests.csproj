@@ -10,7 +10,6 @@
 
     <ItemGroup>
         <PackageReference Include="JetBrains.Annotations"/>
-        <PackageReference Include="NetArchTest.Rules"/>
         <PackageReference Include="xunit.v3"/>
         <PackageReference Include="xunit.v3.assert"/>
         <PackageReference Include="xunit.runner.visualstudio"/>

@@ -8,5 +8,5 @@ internal static class OperationInputValidator<T>
 {
     /// <summary>Validates a cache entry reference.</summary>
     /// <param name="entry">The entry to validate.</param>
-    public static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
+    internal static void ValidateEntry(CacheEntry<T>? entry) => ArgumentNullException.ThrowIfNull(entry);
 }

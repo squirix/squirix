@@ -12,7 +12,7 @@ internal static class StressLoadProfiles
     private const string ScaleVariable = "SQUIRIX_STRESS_SCALE";
 
     /// <summary>Gets the mixed-mutation contention workload over a fixed key set.</summary>
-    public static StressLoadProfile MixedMutation { get; } = new(6, TimeSpan.FromSeconds(120));
+    internal static StressLoadProfile MixedMutation { get; } = new(6, TimeSpan.FromSeconds(120));
 
     /// <summary>Gets the effective operation-count multiplier.</summary>
     private static double Scale { get; } = ResolveScale();

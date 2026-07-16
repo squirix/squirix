@@ -21,28 +21,23 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     private readonly ManifestStore _manifestStore;
     private readonly IMemoryUsageAccounting _memoryAccounting;
     private readonly IMemoryPressureStateEvaluator _memoryEvaluator;
-    private readonly MemoryPressureOptions _memoryPressureOptions;
+    private readonly PressureOptions _memoryPressureOptions;
     private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
-    private readonly SnapshotCoordinator<object?> _snapshot;
+    private readonly Coordinator _snapshot;
 
-    public HealthReadyDetailsProvider(
-        ManifestStore manifestStore,
-        IRetentionCleanupReadinessStatus retentionCleanup,
-        IJournalCoordinator journal,
-        SnapshotCoordinator<object?> snapshot,
-        IJournalCompactionStatus compaction,
-        ClusterConfig cluster,
-        IMemoryUsageAccounting memoryAccounting,
+    internal HealthReadyDetailsProvider(
+        HealthReadyDependencies deps,
         IMemoryPressureStateEvaluator memoryEvaluator,
-        MemoryPressureOptions memoryPressureOptions)
+        PressureOptions memoryPressureOptions)
     {
-        _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-        _retentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
-        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
-        _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-        _compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-        _cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-        _memoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
+        ArgumentNullException.ThrowIfNull(deps);
+        _manifestStore = deps.ManifestStore;
+        _retentionCleanup = deps.RetentionCleanup;
+        _journal = deps.Journal;
+        _snapshot = deps.Snapshot;
+        _compaction = deps.Compaction;
+        _cluster = deps.Cluster;
+        _memoryAccounting = deps.MemoryAccounting;
         _memoryEvaluator = memoryEvaluator ?? throw new ArgumentNullException(nameof(memoryEvaluator));
         _memoryPressureOptions = memoryPressureOptions ?? throw new ArgumentNullException(nameof(memoryPressureOptions));
     }
@@ -66,11 +61,11 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
 
         var compactionState = _compaction.State switch
         {
-            CompactionState.Idle => "Idle",
-            CompactionState.Waiting => "Waiting",
-            CompactionState.Running => "Running",
-            CompactionState.BackingOff => "BackingOff",
-            CompactionState.Failed => "Failed",
+            RunState.Idle => "Idle",
+            RunState.Waiting => "Waiting",
+            RunState.Running => "Running",
+            RunState.BackingOff => "BackingOff",
+            RunState.Failed => "Failed",
             _ => throw new InvalidOperationException($"Unsupported compaction state: {_compaction.State}."),
         };
         var compaction = new HealthCompactionSnapshot(compactionState, _compaction.LastRunUtc, _compaction.IsInFlight);
@@ -95,13 +90,13 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
 
     private HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot()
     {
-        var estimatedBytes = _memoryAccounting.EstimatedBytes;
+        var estimatedBytes = _memoryAccounting.ReadEstimatedBytes();
         var state = _memoryEvaluator.Evaluate(estimatedBytes);
         var pressureStateName = state switch
         {
-            MemoryPressureState.Normal => "normal",
-            MemoryPressureState.High => "high",
-            MemoryPressureState.Critical => "critical",
+            PressureLevel.Normal => "normal",
+            PressureLevel.High => "high",
+            PressureLevel.Critical => "critical",
             _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
         };
 
@@ -109,15 +104,14 @@ internal sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
             pressureStateName,
             _memoryPressureOptions.MaxEstimatedCacheBytes,
             estimatedBytes,
-            _memoryAccounting.EntryCount,
-            _memoryAccounting.RejectedWriteCount,
+            _memoryAccounting.ReadEntryCount(),
+            _memoryAccounting.ReadRejectedWriteCount(),
             true);
     }
 
-    private HealthRetentionCleanupSnapshot BuildRetentionCleanupSnapshot() =>
-        new(
-            _retentionCleanup.IsDegraded,
-            _retentionCleanup.ConsecutiveWriteFailures,
-            _retentionCleanup.RecentFailureCount,
-            _retentionCleanup.LastFailureUtc);
+    private HealthRetentionCleanupSnapshot BuildRetentionCleanupSnapshot() => new(
+        _retentionCleanup.IsDegraded,
+        _retentionCleanup.ConsecutiveWriteFailures,
+        _retentionCleanup.RecentFailureCount,
+        _retentionCleanup.LastFailureUtc);
 }

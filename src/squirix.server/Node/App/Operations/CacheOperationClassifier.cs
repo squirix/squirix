@@ -11,7 +11,7 @@ internal static class CacheOperationClassifier
 {
     internal static string ClassifyCacheRemoveResult<T>(CacheRemoveResult<T> result) => result.Removed ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
-    internal static string ClassifyCacheValueResult<T>(CacheValueResult<T> result) => result.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
+    internal static string ClassifyCacheValueResult<T>(NodeCacheValueResult<T> result) => result.Found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
     internal static string ClassifyException(Exception exception) => exception switch
     {
@@ -27,5 +27,5 @@ internal static class CacheOperationClassifier
 
     internal static string ClassifyFoundBool(bool found) => found ? CacheOperationResults.Ok : CacheOperationResults.NotFound;
 
-    internal static string ClassifyNullableReferenceResult<T>(CacheEntry<T>? result) => result is null ? CacheOperationResults.NotFound : CacheOperationResults.Ok;
+    internal static string ClassifyNullableReferenceResult<T>(NodeCacheEntry<T>? result) => result is null ? CacheOperationResults.NotFound : CacheOperationResults.Ok;
 }

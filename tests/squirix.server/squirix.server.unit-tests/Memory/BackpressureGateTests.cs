@@ -24,8 +24,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task AcquireBypassesWhenBackpressureIsDisabled()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 Enabled = false,
                 MaxInFlight = 1,
@@ -47,8 +47,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task AcquireSucceedsImmediatelyWhenCapacityAvailable()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 2,
                 MaxQueue = 1,
@@ -71,7 +71,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
     {
         const int maxInFlight = 3;
-        var backpressureOptions = new BackpressureOptions
+        var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = maxInFlight,
             MaxQueue = 64,
@@ -80,28 +80,23 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        var gate = new BackpressureGate(backpressureOptions);
-        try
+        using var gate = new AdmissionGate(backpressureOptions);
+        IBackpressureGate gateForClients = gate;
+        var current = new int[1];
+        var observedMax = new int[1];
+        var clients = new Task[24];
+        for (var i = 0; i < clients.Length; i++)
         {
-            IBackpressureGate gateForClients = gate;
-            var current = new int[1];
-            var observedMax = new int[1];
-            var clients = new Task[24];
-            for (var i = 0; i < clients.Length; i++)
-            {
-                clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
-            }
-
-            var runClients = Task.WhenAll(clients);
-
-            await runClients;
-
-            Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
+            clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
         }
-        finally
-        {
-            gate.Dispose();
-        }
+
+        var runClients = Task.WhenAll(clients);
+
+        await runClients;
+
+        Assert.True(
+            observedMax[0] <= maxInFlight,
+            $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
     }
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
@@ -136,7 +131,7 @@ public sealed class BackpressureGateTests : UnitTestBase
 
         listener.Start();
 
-        var backpressureOptions = new BackpressureOptions
+        var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = 1,
             MaxQueue = 1,
@@ -145,7 +140,7 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
-        using var gate = new BackpressureGate(backpressureOptions);
+        using var gate = new AdmissionGate(backpressureOptions);
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken).AsTask();
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
@@ -187,7 +182,7 @@ public sealed class BackpressureGateTests : UnitTestBase
 
         listener.Start();
 
-        var options = new BackpressureOptions
+        var options = new AdmissionOptions
         {
             MaxInFlight = 1,
             MaxQueue = 1,
@@ -197,12 +192,12 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
 
-        using var gateA = new BackpressureGate(options);
+        using var gateA = new AdmissionGate(options);
 
         var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", DefaultCancellationToken)).Lease;
         var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", DefaultCancellationToken).AsTask();
 
-        var gateB = new BackpressureGate(options);
+        var gateB = new AdmissionGate(options);
         gateB.Dispose();
 
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
@@ -217,8 +212,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task LeaseDoubleDisposeKeepsCurrentBehavior()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -238,8 +233,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 MaxQueue = 0,
@@ -266,8 +261,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 PerClientMaxInFlight = 1,
@@ -294,8 +289,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task PerClientRateLimitIsolatedByClient()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 MaxQueue = 0,
@@ -324,8 +319,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task QueueFullRejectsImmediately()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -358,8 +353,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -384,8 +379,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueuedAcquireCompletesAfterLeaseRelease()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -413,8 +408,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task QueuedAcquireObservesCallerCancellation()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -441,8 +436,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
     {
         using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 2,
                 MaxQueue = 1,
@@ -469,10 +464,11 @@ public sealed class BackpressureGateTests : UnitTestBase
         return false;
     }
 
-    private static bool IsBackpressureGauge(string name) =>
-        string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal)
-        || string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal)
-        || string.Equals(name, BackpressureTrackedClientsInstrumentName, StringComparison.Ordinal);
+    private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
+                                                            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
+                                                                name,
+                                                                BackpressureTrackedClientsInstrumentName,
+                                                                StringComparison.Ordinal);
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {

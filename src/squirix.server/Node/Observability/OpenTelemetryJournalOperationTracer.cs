@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Journaling.Observability;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -11,7 +10,7 @@ namespace Squirix.Server.Node.Observability;
 internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTracer
 {
     /// <inheritdoc />
-    public IJournalOperationTraceScope? Begin(JournalOperationKind kind, in JournalOperationTraceContext context)
+    IJournalOperationTraceScope? IJournalOperationTracer.Begin(JournalOperationKind kind, in JournalOperationTraceContext? context)
     {
         var activity = ActivitySourceHolder.StartInternal(GetSpanName(kind));
         if (activity is null)
@@ -21,9 +20,12 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
         return new OpenTelemetryJournalOperationTraceScope(activity);
     }
 
-    private static void ApplyContextTags(Activity activity, in JournalOperationTraceContext context)
+    private static void ApplyContextTags(Activity activity, in JournalOperationTraceContext? context)
     {
         if (!activity.IsAllDataRequested)
+            return;
+
+        if (context is null)
             return;
 
         if (context.Key is not null)

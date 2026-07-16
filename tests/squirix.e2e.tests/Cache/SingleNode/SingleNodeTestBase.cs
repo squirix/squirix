@@ -1,4 +1,5 @@
 using System;
+using Squirix.Client;
 using Squirix.E2ETests.Support;
 using Squirix.E2ETests.Support.Cluster.Fixtures;
 using Xunit;

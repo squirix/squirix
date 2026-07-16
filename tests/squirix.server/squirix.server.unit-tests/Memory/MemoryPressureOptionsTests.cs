@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Serialization;
 using Xunit;
@@ -7,7 +6,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>
-/// Tests for <see cref="MemoryPressureOptions" /> defaults and validation.
+/// Tests for <see cref="PressureOptions" /> defaults and validation.
 /// </summary>
 public sealed class MemoryPressureOptionsTests
 {
@@ -15,7 +14,7 @@ public sealed class MemoryPressureOptionsTests
     [Fact]
     public void DefaultsMatchContract()
     {
-        var resolved = MemoryPressureOptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(10_000));
+        var resolved = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(10_000));
         Assert.Equal(8_000L, resolved.MaxEstimatedCacheBytes);
         Assert.Equal(80, resolved.HighPressureThresholdPercent);
         Assert.Equal(95, resolved.CriticalPressureThresholdPercent);
@@ -25,7 +24,7 @@ public sealed class MemoryPressureOptionsTests
     [Fact]
     public void FieldBackedValidationAcceptsThresholdBoundaries()
     {
-        var options = new MemoryPressureOptions
+        var options = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1,
             HighPressureThresholdPercent = 1,
@@ -40,24 +39,30 @@ public sealed class MemoryPressureOptionsTests
 
     /// <summary>Verifies a critical threshold above 100 is rejected.</summary>
     [Fact]
-    public void FieldBackedValidationRejectsCriticalThresholdAboveOneHundred()
+    public void ValidateRejectsCriticalThresholdAboveOneHundred()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new MemoryPressureOptions { CriticalPressureThresholdPercent = 101 });
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 1024,
+            CriticalPressureThresholdPercent = 101,
+        };
+        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
 
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(nameof(MemoryPressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
-        Assert.Contains("101", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(PressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies a non-positive high threshold is rejected.</summary>
     [Fact]
-    public void FieldBackedValidationRejectsHighThresholdOutOfRange()
+    public void ValidateRejectsHighThresholdOutOfRange()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new MemoryPressureOptions { HighPressureThresholdPercent = 0 });
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 1024,
+            HighPressureThresholdPercent = 0,
+        };
+        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
 
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(nameof(MemoryPressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
-        Assert.Contains("0", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(PressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies non-positive byte limits are rejected.</summary>
@@ -66,13 +71,12 @@ public sealed class MemoryPressureOptionsTests
     [InlineData(0)]
     [InlineData(-1)]
     [InlineData(-1000)]
-    public void FieldBackedValidationRejectsNonPositiveMaxBytes(long maxBytes)
+    public void ValidateRejectsNonPositiveMaxBytes(long maxBytes)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => _ = new MemoryPressureOptions { MaxEstimatedCacheBytes = maxBytes });
+        var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
+        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
 
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(nameof(MemoryPressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
-        Assert.Contains(maxBytes.ToString(CultureInfo.InvariantCulture), ex.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
@@ -80,7 +84,7 @@ public sealed class MemoryPressureOptionsTests
     public void JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":60,"criticalPressureThresholdPercent":90}""";
-        var options = new SystemTextJsonSerializer().Deserialize<MemoryPressureOptions>(json);
+        var options = new ServerJsonSerializer().Deserialize<PressureOptions>(json);
         Assert.NotNull(options);
         options.Validate();
         Assert.Equal(4096, options.MaxEstimatedCacheBytes);
@@ -89,12 +93,12 @@ public sealed class MemoryPressureOptionsTests
     }
 
     /// <summary>
-    /// Verifies a representative valid configuration passes <see cref="MemoryPressureOptions.Validate" />.
+    /// Verifies a representative valid configuration passes <see cref="PressureOptions.Validate" />.
     /// </summary>
     [Fact]
     public void ValidateAcceptsValidConfiguration()
     {
-        var o = new MemoryPressureOptions
+        var o = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 50,
@@ -108,7 +112,7 @@ public sealed class MemoryPressureOptionsTests
     [Fact]
     public void ValidateRejectsHighNotStrictlyBelowCritical()
     {
-        var o = new MemoryPressureOptions
+        var o = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 90,

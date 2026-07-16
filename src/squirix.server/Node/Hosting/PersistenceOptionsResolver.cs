@@ -7,7 +7,7 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class PersistenceOptionsResolver
 {
-    public static PersistenceOptions Resolve(ClusterConfig cluster, PersistenceOptions source)
+    internal static PersistenceOptions Resolve(ClusterConfig cluster, PersistenceOptions source)
     {
         ArgumentNullException.ThrowIfNull(cluster);
         ArgumentNullException.ThrowIfNull(source);

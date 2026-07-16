@@ -36,7 +36,7 @@ public sealed class JournalEntryExpirationMaterializerTests
     public void ForRecoveryInsertMaterializesAbsoluteExpiryFromRecordTimestamp()
     {
         var writtenUnixMs = DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
-        var entry = new CacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
+        var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };
 
         var restored = JournalEntryExpirationMaterializer.ForRecoveryInsert(entry, writtenUnixMs);
 

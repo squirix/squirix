@@ -13,13 +13,13 @@ internal sealed class DelayedLocalCacheRecoveryDecorator<T> : ILocalCacheRecover
     private readonly ILocalCacheRecovery<T> _inner;
     private readonly RecoveryReplayDelaySignal _signal;
 
-    public DelayedLocalCacheRecoveryDecorator(ILocalCacheRecovery<T> inner, RecoveryReplayDelaySignal signal)
+    internal DelayedLocalCacheRecoveryDecorator(ILocalCacheRecovery<T> inner, RecoveryReplayDelaySignal signal)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _signal = signal ?? throw new ArgumentNullException(nameof(signal));
     }
 
-    public async ValueTask InsertForDurableRecoveryAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken)
+    public async ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken)
     {
         await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
         await _inner.InsertForDurableRecoveryAsync(key, entry, cancellationToken).ConfigureAwait(false);

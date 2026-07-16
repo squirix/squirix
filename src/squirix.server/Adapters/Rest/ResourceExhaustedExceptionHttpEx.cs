@@ -7,10 +7,10 @@ internal static class ResourceExhaustedExceptionHttpEx
 {
     extension(ResourceExhaustedException exception)
     {
-        public IResult ToHttpResult()
+        internal IResult ToHttpResult()
         {
             _ = exception;
-            return CacheOperationContract.MemoryPressure().ToHttpResult();
+            return ServerOpContract.MemoryPressure().ToHttpResult();
         }
     }
 }

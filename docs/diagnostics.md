@@ -105,12 +105,12 @@ These instruments describe logical cache operations only and use bounded `operat
 Missing reads are reported as `not_found` when the API shape can distinguish them (`GetValueAsync`, `GetEntryAsync`, and
 remove paths). Use `GetValueAsync` or `GetEntryAsync` when metrics need miss classification.
 
-Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `MemoryPressureGate`, and memory-pressure
+Memory-pressure metrics remain owned by `MemoryPressureMetricsService`, `Gate`, and memory-pressure
 components; they are not part of the generic operation observability model. journal, snapshot, compaction, recovery,
 manifest, and storage health metrics remain owned by the storage layer (`JournalCoordinator`, `JournalReader`,
-`SnapshotCoordinator`, `JournalMetricsExporterService`, and related storage services).
+`Coordinator`, `JournalMetricsExporterService`, and related storage services).
 
-Backpressure metrics are owned by `BackpressureGate` and exposed through the `Squirix` meter as runtime cache-operation
+Backpressure metrics are owned by `Gate` and exposed through the `Squirix` meter as runtime cache-operation
 admission diagnostics. `BackpressureCacheDecorator<T>` applies this policy before logical reads and writes enter memory
 admission, clustered routing, journal append, memory mutation, memory accounting, or idempotency outcome updates.
 REST/gRPC adapters keep transport-specific protection and map runtime backpressure failures to HTTP 429 or gRPC

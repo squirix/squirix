@@ -14,11 +14,11 @@ internal sealed class JournalStartupGate
     }
 
     /// <summary>Gets a value indicating whether startup recovery has completed and the gate is open.</summary>
-    public bool IsReady => _ready.Task.IsCompleted;
+    internal bool IsReady => _ready.Task.IsCompleted;
 
-    public void Open() => _ready.TrySetResult();
+    internal void Open() => _ready.TrySetResult();
 
-    public ValueTask WaitAsync(CancellationToken cancellationToken)
+    internal ValueTask WaitAsync(CancellationToken cancellationToken)
     {
         var ready = _ready.Task;
         return !cancellationToken.CanBeCanceled || ready.IsCompleted ? new ValueTask(ready) : new ValueTask(ready.WaitAsync(cancellationToken));

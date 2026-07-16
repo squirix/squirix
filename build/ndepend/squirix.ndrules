@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<NDepend>
+  <Queries>
+    <CustomJustMyCodeQueries>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport types from JustMyCode</Name>
+// Share-sourced wire types and protobuf-generated service contracts are not product-layer code.
+// Removes Squirix.Transport.Grpc* from JustMyCode for all rules (including ND2016 Try* methods).
+notmycode
+from t in Types
+where t.FullNameLike("Squirix.Transport.Grpc*")
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport methods from JustMyCode</Name>
+// Explicit method discard so rules that enumerate Methods (for example ND2016) never see
+// protobuf client stubs such as SquirixCacheService+SquirixCacheServiceClient.TryAddEntry.
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      m.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard shared gRPC transport fields from JustMyCode</Name>
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      f.ParentType.FullNameLike("Squirix.Transport.Grpc*")
+select f]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
+// Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
+// Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
+// Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
+notmycode
+let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
+    filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+from t in Types
+where t.SourceFileDeclAvailable &&
+      t.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source methods from JustMyCode</Name>
+notmycode
+let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
+    filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+from m in Methods
+where m.SourceFileDeclAvailable &&
+      m.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source fields from JustMyCode</Name>
+notmycode
+let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
+    filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith(".pb.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcachegrpc.cs") ||
+    filePath.ToLower().Replace('/', '\\').EndsWith("\\squirixcache.cs") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\obj\\") ||
+    filePath.ToLower().Replace('/', '\\').Contains("\\generated\\"))
+from f in Fields
+where f.SourceFileDeclAvailable &&
+      f.SourceDecls.Any(s => IsGeneratedSourceFile(s.SourceFile.FilePath.ToString()))
+select f]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute types from JustMyCode</Name>
+notmycode
+from t in Types
+where t.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute methods from JustMyCode</Name>
+// Grpc.Tools tags generated RPC stubs on the method (grpc_csharp_plugin), not always on the declaring type.
+notmycode
+from m in Methods
+where m.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard GeneratedCodeAttribute methods from JustMyCode</Name>
+// Grpc.Tools tags generated RPC stubs on the method (grpc_csharp_plugin), not always on the declaring type.
+notmycode
+from m in Methods
+where m.HasAttribute("System.CodeDom.Compiler.GeneratedCodeAttribute".AllowNoMatch())
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard MutableInt holder fields from JustMyCode</Name>
+// MutableInt32/MutableInt64._value is mutated via Interlocked through ref; marking it readonly is invalid C#.
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      (f.ParentType.FullName == "Squirix.Server.Utils.MutableInt32" ||
+       f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
+select f]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard MutableInt holder fields from JustMyCode</Name>
+// MutableInt32/MutableInt64._value is mutated via Interlocked through ref; marking it readonly is invalid C#.
+notmycode
+from f in Fields
+where f.ParentType != null &&
+      (f.ParentType.FullName == "Squirix.Server.Utils.MutableInt32" ||
+       f.ParentType.FullName == "Squirix.Server.Utils.MutableInt64")
+select f]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude durability dedicated threads from ND2500</Name>
+// JournalCoordinator and ManifestRollPublisher own long-lived WAL/manifest I/O threads by design.
+// Task.Run is banned on infrastructure paths; do not refactor these to the thread pool.
+notmycode
+from m in Methods
+where m.IsConstructor &&
+      m.ParentType != null &&
+      (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
+       m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher")
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard benchmark assemblies from JustMyCode</Name>
+// BenchmarkDotNet hosts, harnesses, and sessions are reflected/instantiated by the runner.
+// Suppresses ND1206-ND1209 on benchmark assemblies.
+notmycode
+from a in Application.Assemblies.WithNameIn(
+      "Squirix.Benchmarks",
+      "Squirix.E2EBenchmarks",
+      "Squirix.Server.Benchmarks")
+select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard sample assemblies from JustMyCode</Name>
+// Smoke/sample apps under samples/ are not product-layer code. Folder layout need not match
+// RootNamespace (ND2103) and other naming rules should not gate sample harnesses.
+notmycode
+from a in Application.Assemblies.WithNameIn(
+      "ExternalPackageSmoke")
+select a]]></Query>
+    </CustomJustMyCodeQueries>
+    <CustomRuleOverrides>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND2016" Group="Naming Conventions"><![CDATA[// <Name>Methods prefixed with 'Try' should return a boolean</Name>
+// <Id>ND2016:MethodsPrefixedWithTryShouldReturnABoolean</Id>
+// ND2016 squirix override: stock rule uses Application.Methods and ignores notmycode.
+// JustMyCode excludes protobuf/gRPC generated Try* RPC stubs via notmycode queries above.
+warnif count > 0
+from m in JustMyCode.Methods
+where m.SimpleNameLike("^Try") &&
+      m.ReturnType != null &&
+      m.ReturnType.FullName != "System.Boolean" &&
+      !m.ReturnType.Name.Contains("Task")
+select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False" RuleToken="ND1902" Group="Immutability"><![CDATA[// <Name>Avoid static fields with a mutable field type</Name>
+// <Id>ND1902:AvoidStaticFieldsWithAMutableFieldType</Id>
+// ND1902 squirix override: stock rule uses Application.Fields and ignores notmycode.
+// Explicit FullName exclusions for intentional process-wide static cells (notmycode alone is unreliable for Fields).
+warnif count > 0
+from f in JustMyCode.Fields
+where f.IsStatic &&
+     !f.IsEnumValue &&
+     !f.IsGeneratedByCompiler &&
+     !f.IsLiteral
+let fieldType = f.FieldType
+let isExcludedStaticHolder =
+     f.FullNameLike("(.*\\.)?IdempotencyMetrics\\.Catalog$") ||
+     f.FullNameLike("(.*\\.)?MemoryPressureMetrics\\.Catalog$") ||
+     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.Observers" ||
+     f.FullName == "Squirix.Server.Node.Observability.BackpressureMetrics.ObserversState" ||
+     f.FullName == "Squirix.Server.Node.MemoryPressure.ObjectCacheEntrySizeEstimator.NullPayloadShell"
+where fieldType != null &&
+     !fieldType.IsThirdParty &&
+     !fieldType.IsInterface &&
+     !fieldType.IsDelegate &&
+     !fieldType.IsImmutable &&
+     !isExcludedStaticHolder
+select new {
+   f,
+   mutableFieldType = fieldType,
+   isFieldImmutable = f.IsImmutable ? "Immutable" : "Mutable",
+   isFieldReadOnly = f.IsInitOnly ? "ReadOnly" : "Not ReadOnly",
+   Debt = 10.ToMinutes().ToDebt(),
+   Severity = Severity.Medium
+}]]></Query>
+    </CustomRuleOverrides>
+  </Queries>
+</NDepend>

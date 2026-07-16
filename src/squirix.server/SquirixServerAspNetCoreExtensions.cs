@@ -35,7 +35,7 @@ public static class SquirixServerAspNetCoreExtensions
     public static WebApplication MapSquirixServer(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
-        return SquirixServerHostingComposition.MapServer(app);
+        return ServerHostingComposition.MapServer(app);
     }
 
     private static async Task<WebApplicationBuilder> ConfigureSquirixServerBuilderAsync(
@@ -46,10 +46,10 @@ public static class SquirixServerAspNetCoreExtensions
         Action<SquirixServerExtensionOptions>? configureExtensions,
         CancellationToken cancellationToken)
     {
-        var options = await SquirixServerConfiguration.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
+        var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
         var extensions = new SquirixServerExtensionOptions();
         configureExtensions?.Invoke(extensions);
-        await SquirixServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
+        await ServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
         return builder;
     }
 }

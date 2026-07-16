@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Adapters.Endpoint.Grpc;
+using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
 using Xunit;
 

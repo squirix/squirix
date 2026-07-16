@@ -47,7 +47,7 @@ internal static class DomainTransportErrorMapper
     /// </exception>
     /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
     [DoesNotReturn]
-    public static void Map(RpcException ex, CancellationToken cancellationToken)
+    internal static void Map(RpcException ex, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ex);
 
@@ -63,7 +63,7 @@ internal static class DomainTransportErrorMapper
 
     private static void ThrowIfCallerCancellation(RpcException ex, CancellationToken cancellationToken)
     {
-        if (OperationCancellationClassifier.IsCallerInitiatedGrpcCancellation(ex, cancellationToken))
+        if (ServerCancelClassifier.IsCallerInitiatedGrpcCancellation(ex, cancellationToken))
             cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -72,11 +72,11 @@ internal static class DomainTransportErrorMapper
         if (ex.StatusCode is not StatusCode.FailedPrecondition)
             return;
 
-        if (CacheOperationContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
+        if (ServerOpContractClassifier.TryGetFailedPreconditionInvalidOperationMessage(ex.Status.Detail, out var message))
             throw new InvalidOperationException(message, ex);
 
-        if (CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
-            throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
+        if (ServerOpContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
+            throw new ServerOpIdMismatchException(ex.Status.Detail, ex);
     }
 
     private static void ThrowIfInvalidArgumentContract(RpcException ex)
@@ -84,14 +84,14 @@ internal static class DomainTransportErrorMapper
         if (ex.StatusCode is not StatusCode.InvalidArgument)
             return;
 
-        if (CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
-            throw CacheOperationContract.OperationIdRequired();
+        if (ServerOpContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+            throw ServerOpContract.OperationIdRequired();
 
-        if (CacheOperationContract.IsOperationIdInvalidFormatMessage(ex.Status.Detail))
-            throw CacheOperationContract.OperationIdInvalidFormat();
+        if (ServerOpContract.IsOperationIdInvalidFormatMessage(ex.Status.Detail))
+            throw ServerOpContract.OperationIdInvalidFormat();
 
-        if (CacheOperationContract.IsOperationIdTooLongMessage(ex.Status.Detail))
-            throw CacheOperationContract.OperationIdTooLong();
+        if (ServerOpContract.IsOperationIdTooLongMessage(ex.Status.Detail))
+            throw ServerOpContract.OperationIdTooLong();
 
         throw new ArgumentException(ex.Status.Detail, nameof(ex), ex);
     }
@@ -105,6 +105,6 @@ internal static class DomainTransportErrorMapper
         if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
             return;
 
-        throw CacheOperationContract.PayloadTooLarge(SquirixEntryLimits.MaxEntrySizeBytes);
+        throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
     }
 }

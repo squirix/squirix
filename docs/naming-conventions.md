@@ -29,8 +29,8 @@ squirix-server run
 
 Keep for:
 
-- C# namespaces: `Squirix`, `Squirix.Server.Storage.Journaling`, etc.
-- exported types: `SquirixClient`, `SquirixException`, etc.
+- C# namespaces: `Squirix`, `Squirix.Client`, `Squirix.Server.Storage.Journaling`, etc.
+- exported types: `Squirix.Client.SquirixClient`, `SquirixException`, etc.
 - Assembly names and `.csproj` file names: `Squirix`, `Squirix.Server.csproj`, etc.
 - XML documentation `cref` / type references.
 - Configuration JSON sections and environment prefixes where the runtime binds them (e.g. `"Squirix"` settings object,

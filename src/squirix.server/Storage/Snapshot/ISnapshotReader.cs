@@ -6,5 +6,5 @@ namespace Squirix.Server.Storage.Snapshot;
 /// <summary>Loads snapshot files from durable storage.</summary>
 internal interface ISnapshotReader
 {
-    Task<SnapshotLoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default);
+    Task<LoadResult<T>> LoadStrictAsync<T>(string path, bool skipExpired = true, CancellationToken cancellationToken = default);
 }

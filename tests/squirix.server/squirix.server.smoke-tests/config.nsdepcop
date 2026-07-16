@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Server.SmokeTests" To="Squirix" />
+
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Internal.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Core.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Errors.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Serialization.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Atomic.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Batch.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Watch.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Scan.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Mutations.*" />
+  <Disallowed From="Squirix.Server.SmokeTests.*" To="Squirix.Runtime.*" />
+
+</NsDepCopConfig>

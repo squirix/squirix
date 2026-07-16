@@ -30,7 +30,7 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         if (_journal.HasFlushLoopFailure)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
 
-        if (_compaction.State is CompactionState.Failed)
+        if (_compaction.State is RunState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
         var healthy = _snapshot.HasFatalFailure ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")
