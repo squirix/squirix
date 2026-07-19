@@ -3,8 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using Squirix.Server.SmokeTests.Support;
-using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
 
@@ -25,7 +24,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     [Fact]
     public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
     {
-        var localIp = LocalHostNetworking.TryGetLocalNonLoopbackIpv4();
+        var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
@@ -34,7 +33,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
         await using var node = await StartNodeAsync(
             bindUrl,
             "node-ready-details-auth",
-            security: TestJwtHelper.ToSecurityOptions(credentials),
+            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
             cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), DefaultCancellationToken);

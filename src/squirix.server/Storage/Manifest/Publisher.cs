@@ -87,7 +87,7 @@ internal sealed class Publisher : IDisposable
 
         var targetPath = _allocator.BuildManifestFilePath(nextIndex);
         Pointer.Write(_currentPointerBuffer, nextIndex);
-        Durability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
+        FileDurability.WriteManifestRollBlocking(targetPath, _encodeBuffer.AsSpan(0, encodedLength), _currentPointerWriter, _currentPointerBuffer);
 
         var manifest = new State
         {
@@ -120,7 +120,7 @@ internal sealed class Publisher : IDisposable
     private void UpdateCurrentPointerBlocking(int manifestIndex)
     {
         Pointer.Write(_currentPointerBuffer, manifestIndex);
-        Durability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
+        FileDurability.WriteCurrentPointerBlocking(_currentPointerWriter, _currentPointerBuffer);
     }
 
     private void WritePublishedManifestBlocking()
@@ -128,7 +128,7 @@ internal sealed class Publisher : IDisposable
         if (_publishWork is not { } publishWork)
             throw new InvalidOperationException("Publish work was not initialized.");
 
-        Durability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
+        FileDurability.WriteManifestDataFileBlocking(publishWork.TargetPath, _encodeBuffer.AsSpan(0, publishWork.EncodedLength));
         UpdateCurrentPointerBlocking(publishWork.ManifestIndex);
     }
 

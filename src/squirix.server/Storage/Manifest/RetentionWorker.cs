@@ -4,7 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Logging;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Storage.Manifest;
 
@@ -183,7 +184,7 @@ internal sealed class RetentionWorker
             }
         }
 
-        private static bool TryCleanupOldSnapshots(RetentionContext context, State.SnapshotRef? currentSnapshot)
+        private static bool TryCleanupOldSnapshots(RetentionContext context, SnapshotRef? currentSnapshot)
         {
             try
             {
@@ -209,7 +210,7 @@ internal sealed class RetentionWorker
             }
         }
 
-        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, State.SnapshotRef? currentSnapshot)
+        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, SnapshotRef? currentSnapshot)
         {
             var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
             var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);

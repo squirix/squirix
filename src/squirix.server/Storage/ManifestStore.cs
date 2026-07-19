@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Utils;
 using Index = Squirix.Server.Storage.Manifest.Index;
@@ -30,41 +31,12 @@ internal sealed class ManifestStore : IDisposable
     private readonly RetentionWorker _retentionWorker;
     private bool _disposed;
 
-    public ManifestStore(
+    internal ManifestStore(
         PersistenceOptions options,
         ILogger<ManifestStore>? logger = null,
         IRetentionCleanupReadinessStatus? retentionReadiness = null,
-        IManifestRetentionFailureMetrics? failureMetrics = null)
-        : this(options, logger, retentionReadiness, new FileOperations(), failureMetrics)
-    {
-        var dataDir = options.DataDir;
-        _currentPath = PathEx.Combine(dataDir, $"{FilePrefixes.Manifest}current");
-        _allocator = new IndexAllocator(
-            dataDir,
-            _currentPath,
-            PathEx.Combine(dataDir, FilePrefixes.Manifest),
-            $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}",
-            ReadCurrentIndexForInit);
-        _publisher = new Publisher(dataDir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
-        var retentionContext = new RetentionContext(
-            new RetentionSettings(
-                dataDir,
-                options.ManifestRetentionCount > 0 ? options.ManifestRetentionCount : 3,
-                options.SnapshotRetentionCount > 0 ? options.SnapshotRetentionCount : 3,
-                $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}"),
-            fileOperations,
-            logger,
-            IndexAllocator.ParseManifestIndex,
-            failureMetrics ?? NoOpManifestRetentionFailureMetrics.Instance);
-        _retentionWorker = new RetentionWorker(retentionContext, retentionReadiness);
-    }
-
-    public ManifestStore(
-        PersistenceOptions options,
-        ILogger<ManifestStore>? logger,
-        IRetentionCleanupReadinessStatus? retentionReadiness,
-        IStorageFileOperations fileOperations,
-        IManifestRetentionFailureMetrics? failureMetrics = null)
+        IManifestRetentionFailureMetrics? failureMetrics = null,
+        IStorageFileOperations? fileOperations = null)
     {
         var dataDir = options.DataDir;
         _currentPath = PathEx.Combine(dataDir, $"{FilePrefixes.Manifest}current");

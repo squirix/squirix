@@ -25,7 +25,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp));
+        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
@@ -37,7 +37,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             bindUrl,
             "node-metrics-auth",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            DefaultCancellationToken);
+            cancellationToken: DefaultCancellationToken);
 
         var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackMetricsUrl), DefaultCancellationToken);
         Assert.True(loopbackAnonymous.IsSuccessStatusCode);

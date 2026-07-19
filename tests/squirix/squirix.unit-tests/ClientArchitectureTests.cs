@@ -16,6 +16,7 @@ namespace Squirix.UnitTests;
 public sealed class ClientArchitectureTests
 {
     private const string ClientProjectRelativePath = "src/squirix/Squirix.csproj";
+
     private static readonly Lazy<string> RepositoryRoot = new(ResolveRepositoryRoot);
     private static readonly Lazy<XDocument> ClientProject = new(LoadClientProject);
 
@@ -23,7 +24,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client-generated gRPC CLR transport types remain internal and client-only.</summary>
     [Fact]
-    public void ClientAssemblyGrpcTransportTypesRemainInternal()
+    public void ClientAssemblyGrpcTransportTypesShouldRemainInternalClientSurface()
     {
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
@@ -32,7 +33,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client package does not grant the server assembly access to internal SDK types.</summary>
     [Fact]
-    public void ClientAssemblyShouldNotExposeInternalsToServer()
+    public void ClientAssemblyShouldNotExposeInternalsToSquirixServer()
     {
         var assemblyInfoPath = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
         var text = File.ReadAllText(assemblyInfoPath);
@@ -49,7 +50,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
     [Fact]
-    public void ClientProjectGeneratesNarrowCacheGrpcFromShared()
+    public void ClientProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
     {
         var protobuf = ClientProjectIndex.Value.RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
@@ -61,7 +62,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the client project does not grow server-hosting dependency debt.</summary>
     [Fact]
-    public void ClientProjectShouldNotReferenceServerHosting()
+    public void ClientProjectShouldNotReferenceServerHostingPackages()
     {
         var index = ClientProjectIndex.Value;
 
@@ -74,7 +75,7 @@ public sealed class ClientArchitectureTests
 
     /// <summary>Ensures the core project does not depend on the server project.</summary>
     [Fact]
-    public void ClientProjectShouldNotReferenceServerProject()
+    public void ClientProjectShouldNotReferenceSquirixServerProject()
     {
         var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
 
@@ -97,6 +98,37 @@ public sealed class ClientArchitectureTests
         {
             return client.GetCacheAsync<int>(name, cancellationToken);
         }
+    }
+
+    private static XDocument LoadClientProject()
+    {
+        var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(path));
+        return XDocument.Load(path);
+    }
+
+    private static string ResolveRepositoryRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (File.Exists(PathKit.Combine(dir.FullName, "squirix.slnx")))
+                return dir.FullName;
+
+            dir = dir.Parent;
+        }
+
+        throw new InvalidOperationException("Repository root not found.");
+    }
+
+    private static MsbuildProjectIndex ParseMsbuildProject(XDocument project)
+    {
+        var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
+
+        CollectMsbuildIncludes(project.Root, includes, includedElements);
+
+        return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
     }
 
     private static void AddMsbuildInclude(
@@ -134,39 +166,10 @@ public sealed class ClientArchitectureTests
             AddMsbuildInclude(includes, includedElements, localName, include, root);
 
         for (var node = root.FirstNode; node is not null; node = node.NextNode)
+        {
             if (node is XElement child)
                 CollectMsbuildIncludes(child, includes, includedElements);
-    }
-
-    private static XDocument LoadClientProject()
-    {
-        var path = PathKit.Combine(RepositoryRoot.Value, ClientProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
-        return XDocument.Load(path);
-    }
-
-    private static MsbuildProjectIndex ParseMsbuildProject(XDocument project)
-    {
-        var includes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        var includedElements = new Dictionary<string, List<XElement>>(StringComparer.OrdinalIgnoreCase);
-
-        CollectMsbuildIncludes(project.Root, includes, includedElements);
-
-        return new MsbuildProjectIndex(includes.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase), includedElements.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase));
-    }
-
-    private static string ResolveRepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(PathKit.Combine(dir.FullName, "squirix.slnx")))
-                return dir.FullName;
-
-            dir = dir.Parent;
         }
-
-        throw new InvalidOperationException("Repository root not found.");
     }
 
     private sealed class MsbuildProjectIndex
@@ -184,7 +187,7 @@ public sealed class ClientArchitectureTests
 
         internal XElement RequireIncludedElement(string localName, string include)
         {
-            Assert.True(_includedElements.TryGetValue(localName, out var elements));
+            Assert.True(_includedElements.TryGetValue(localName, out var elements), $"Expected MSBuild element '{localName}' with Include='{include}'.");
 
             XElement? match = null;
             for (var i = 0; i < elements.Count; i++)
@@ -196,7 +199,7 @@ public sealed class ClientArchitectureTests
                 break;
             }
 
-            Assert.True(match is not null);
+            Assert.True(match is not null, $"Expected MSBuild element '{localName}' with Include='{include}'.");
             return match;
         }
     }

@@ -84,7 +84,7 @@ public sealed class SquirixServer : IAsyncDisposable
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
         Configurator.ApplyRuntimeDefaults(options);
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
 
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -115,7 +115,7 @@ public sealed class SquirixServer : IAsyncDisposable
     {
         private readonly WebApplication _app;
 
-        public ApplicationHandle(WebApplication app)
+        internal ApplicationHandle(WebApplication app)
         {
             _app = app ?? throw new ArgumentNullException(nameof(app));
         }

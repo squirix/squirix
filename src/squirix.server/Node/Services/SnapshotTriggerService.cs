@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
 
@@ -42,7 +43,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _journal.OnAppended += OnJournalAppended;
-        SnapshotTriggerLogs.LogStarted(_log, 1);
+        LogManager.SnapshotTriggerStarted(_log, 1);
 
         try
         {
@@ -50,7 +51,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         catch (OperationCanceledException)
         {
-            SnapshotTriggerLogs.LogCanceled(_log);
+            LogManager.SnapshotTriggerCanceled(_log);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or UnauthorizedAccessException)
         {
@@ -69,7 +70,7 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         void OnJournalAppended(object? sender, EventArgs e)
         {
             if (_log.IsEnabled(LogLevel.Trace))
-                SnapshotTriggerLogs.LogJournalAppended(_log);
+                LogManager.SnapshotTriggerJournalAppended(_log);
 
             _ = _snapshotRequests.Writer.TryWrite(true);
         }

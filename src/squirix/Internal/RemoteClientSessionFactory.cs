@@ -9,7 +9,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Client;
 using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
@@ -18,16 +17,22 @@ namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
-    internal static async ValueTask<IRemoteClientSession> ConnectAsync(SquirixClientOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
+    internal static async ValueTask<IRemoteClientSession> ConnectAsync(
+        IList<Uri> endpoints,
+        Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
+        ISquirixSerializer? serializer,
+        HttpMessageHandler? handler,
+        CancellationToken cancellationToken)
     {
         var normalizedEndpoints = NormalizeEndpoints(endpoints);
 
         var peers = new Peer[normalizedEndpoints.Length];
         for (var i = 0; i < normalizedEndpoints.Length; i++)
+        {
             peers[i] = new Peer
             {
                 NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
-                Uri = endpoints[i],
+                Uri = normalizedEndpoints[i],
             };
 
         var credentials = BuildCallCredentials(bearerTokenProvider);
@@ -51,12 +56,12 @@ internal static class RemoteClientSessionFactory
         }
     }
 
-    private static CallCredentials? BuildCallCredentials(SquirixClientOptions options)
+    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
-        if (options.BearerTokenProvider is not { } tokenProvider)
+        if (bearerTokenProvider is null)
             return null;
 
-        return new BearerTokenCallCredentials(tokenProvider).Credentials;
+        return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
     }
 
     private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
@@ -346,7 +351,7 @@ internal static class RemoteClientSessionFactory
 
             private readonly ISquirixSerializer _inner;
 
-            public MetricsDecoratedSerializer(ISquirixSerializer inner)
+            internal MetricsDecoratedSerializer(ISquirixSerializer inner)
             {
                 _inner = inner ?? throw new ArgumentNullException(nameof(inner));
                 _impl = _inner.GetType().Name;
@@ -496,7 +501,7 @@ internal static class RemoteClientSessionFactory
 
         private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
 
-        public BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
+        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
         {
             _tokenProvider = tokenProvider;
             Credentials = CallCredentials.FromInterceptor(InterceptAsync);
@@ -519,7 +524,7 @@ internal static class RemoteClientSessionFactory
         private readonly IClientPool _remoteClients;
         private readonly ISquirixSerializer _serializer;
 
-        public RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
+        internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
         {
             _remoteClients = remoteClients ?? throw new ArgumentNullException(nameof(remoteClients));
             _bootstrapFailover = bootstrapFailover ?? throw new ArgumentNullException(nameof(bootstrapFailover));

@@ -44,9 +44,9 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
             new SmokeNodeStartOptions
             {
                 ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
-                ServicesConfigure = servicesConfigure.Apply,
+                ServicesConfigure = services => services.AddSingleton(capture),
             },
-            DefaultCancellationToken);
+            cancellationToken: DefaultCancellationToken);
 
         var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
 
@@ -84,36 +84,6 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         Assert.Equal(expectedTraceId, gotTraceId);
     }
 
-    private static string TraceIdFromTraceparent(string traceparent)
-    {
-        var span = traceparent.AsSpan();
-        var firstDash = span.IndexOf('-');
-        if (firstDash < 0)
-            throw new InvalidOperationException("traceparent is missing a dash separator.");
-
-        var secondDash = span[(firstDash + 1)..].IndexOf('-');
-        if (secondDash < 0)
-            throw new InvalidOperationException("traceparent is missing the trace-id segment.");
-
-        secondDash += firstDash + 1;
-        return traceparent[(firstDash + 1)..secondDash];
-    }
-
-    private sealed class CaptureServicesConfigure
-    {
-        private readonly CapturingHeadersInterceptor _capture;
-
-        internal CaptureServicesConfigure(CapturingHeadersInterceptor capture)
-        {
-            _capture = capture;
-            Apply = ApplyCore;
-        }
-
-        internal Action<IServiceCollection> Apply { get; }
-
-        private void ApplyCore(IServiceCollection services) => services.AddSingleton(_capture);
-    }
-
     /// <summary>
     /// Test-only server-side gRPC interceptor that captures the latest request metadata headers.
     /// Useful for asserting trace-context propagation in smoke tests.
@@ -126,7 +96,10 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         internal Metadata? LastRequestHeaders => _last;
 
         /// <inheritdoc />
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
+            TRequest request,
+            ServerCallContext context,
+            UnaryServerMethod<TRequest, TResponse> continuation)
         {
             _last = context.RequestHeaders;
             return base.UnaryServerHandler(request, context, continuation);

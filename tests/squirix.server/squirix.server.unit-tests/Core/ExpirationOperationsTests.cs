@@ -9,7 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Core;
 
 /// <summary>Unit tests covering expiration operations: TouchAsync and RemoveExpirationAsync.</summary>
-public sealed class ExpirationOperationsTests : UnitTestBase
+public sealed class ExpirationOperationsTests : ServerUnitTestBase
 {
     /// <summary>Verifies RemoveExpirationAsync removes expiration for an existing expiring key and the value remains after the old expiration window.</summary>
     [Fact]

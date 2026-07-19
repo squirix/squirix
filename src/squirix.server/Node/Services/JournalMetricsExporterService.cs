@@ -42,7 +42,10 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
+            "squirix_journal_size_bytes",
+            ObserveSize,
+            description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

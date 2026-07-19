@@ -10,7 +10,6 @@ using Squirix.Server.Logging;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Journaling.Entries;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
@@ -66,7 +65,10 @@ internal sealed class RecoveryService<T> : IHostedService
             return;
         }
 
-        _replayTask = ReplayInBackgroundAsync(cancellationToken);
+        // Do not pass the StartAsync token into background replay: Host.StartAsync links it to a
+        // CTS that is disposed (and cancelled) when startup completes, which would abort recovery.
+        var stopping = _applicationLifetime?.ApplicationStopping ?? CancellationToken.None;
+        _replayTask = ReplayInBackgroundAsync(stopping);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -78,8 +80,9 @@ internal sealed class RecoveryService<T> : IHostedService
         {
 #pragma warning disable VSTHRD003
 
-        // The replay task is owned by this hosted service and is awaited during shutdown.
-        await _replayTask.ConfigureAwait(false);
+            // The replay task is owned by this hosted service and is awaited during shutdown.
+            // ApplicationStopping is signalled before hosted-service StopAsync, which cancels replay.
+            await _replayTask.WaitAsync(cancellationToken).ConfigureAwait(false);
 #pragma warning restore VSTHRD003
         }
         catch (OperationCanceledException)
@@ -282,8 +285,10 @@ internal sealed class RecoveryService<T> : IHostedService
 
     private async Task ReplayJournalSegmentsAsync(int fromSegment, ulong lastAppliedSeq, CancellationToken cancellationToken)
     {
-        foreach (var record in JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken))
+        using var records = JournalReadPath.ReadAll(_opt.DataDir, fromSegment, cancellationToken);
+        while (records.MoveNext())
         {
+            var record = records.Current;
             if (record.Sequence <= lastAppliedSeq)
                 continue;
 
@@ -349,7 +354,7 @@ internal sealed class RecoveryService<T> : IHostedService
     }
 
     private sealed record ReplayContext(
-        State.SnapshotRef? SnapshotReference,
+        SnapshotRef? SnapshotReference,
         int ManifestCurrentJournal,
         int FirstAvailableSegment,
         int FirstJournalSegmentOrDefault,

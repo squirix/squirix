@@ -32,7 +32,7 @@ internal sealed class MsbuildProjectIndex
 
     internal XElement RequireIncludedElement(string localName, string include)
     {
-        Assert.True(_includedElements.TryGetValue(localName, out var elements));
+        Assert.True(_includedElements.TryGetValue(localName, out var elements), $"Expected MSBuild element '{localName}' with Include='{include}'.");
 
         XElement? match = null;
         for (var i = 0; i < elements.Count; i++)
@@ -44,13 +44,13 @@ internal sealed class MsbuildProjectIndex
             break;
         }
 
-        Assert.True(match is not null);
+        Assert.True(match is not null, $"Expected MSBuild element '{localName}' with Include='{include}'.");
         return match;
     }
 
     internal string RequireProperty(string propertyName)
     {
-        Assert.True(_properties.TryGetValue(propertyName, out var value));
+        Assert.True(_properties.TryGetValue(propertyName, out var value), $"Expected MSBuild property '{propertyName}'.");
         return value;
     }
 }

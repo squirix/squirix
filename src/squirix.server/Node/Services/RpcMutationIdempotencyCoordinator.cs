@@ -2,8 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using Squirix.Server.Contracts;
-using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Errors;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
@@ -14,13 +14,13 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     private readonly IJournalCoordinator? _journal;
     private readonly RpcMutationIdempotencyStore _store;
 
-    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
+    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store, IJournalCoordinator journal)
         : this(store)
     {
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    public RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
+    internal RpcMutationIdempotencyCoordinator(RpcMutationIdempotencyStore store)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
     }
@@ -62,5 +62,54 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         where T : IMessage<T>, new()
     {
         internal static readonly MessageParser<T> Instance = new(static () => new T());
+    }
+
+    /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
+    private sealed class RpcMutationIdempotencyExecutionScope : IDisposable
+    {
+        private readonly Func<object, CancellationToken, ValueTask> _completeAsync;
+
+        private RpcMutationIdempotencyExecutionScope(Func<object, CancellationToken, ValueTask> completeAsync)
+        {
+            _completeAsync = completeAsync ?? throw new ArgumentNullException(nameof(completeAsync));
+        }
+
+        void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
+
+        internal static RpcMutationIdempotencyExecutionScope Begin<TResponse>(
+            RpcMutationIdempotencyStore store,
+            string operationId,
+            string fingerprint,
+            IJournalCoordinator journal,
+            Func<TResponse, byte[]> serializeResponse)
+            where TResponse : IMessage<TResponse>
+        {
+            ArgumentNullException.ThrowIfNull(store);
+            ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+            ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+            ArgumentNullException.ThrowIfNull(journal);
+            ArgumentNullException.ThrowIfNull(serializeResponse);
+
+            var scope = new RpcMutationIdempotencyExecutionScope(CompleteAsync);
+            RpcMutationIdempotencyExecutionAmbient.Activate(scope);
+            return scope;
+
+            ValueTask CompleteAsync(object response, CancellationToken cancellationToken)
+            {
+                if (response is not TResponse typedResponse)
+                    throw new InvalidOperationException("Idempotency response type does not match the active execution scope.");
+
+                var responseBytes = serializeResponse(typedResponse);
+                store.RecordSuccess(operationId, fingerprint, responseBytes);
+                return journal.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
+            }
+        }
+
+        internal ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
+            where TResponse : IMessage<TResponse>
+        {
+            ArgumentNullException.ThrowIfNull(response);
+            return _completeAsync(response, cancellationToken);
+        }
     }
 }

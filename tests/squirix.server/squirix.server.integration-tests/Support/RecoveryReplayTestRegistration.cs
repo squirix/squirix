@@ -16,8 +16,41 @@ internal static class RecoveryReplayTestRegistration
     /// <returns>Configure callback that registers <paramref name="signal" /> for delayed recovery.</returns>
     internal static Action<IServiceCollection> CreateDelayedReplayConfigure(RecoveryReplayDelaySignal signal)
     {
+        ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(signal);
-        return new DelayedReplayConfigure(signal).Configure;
+
+        // Delayed replay must never block host StartAsync; otherwise the test cannot Release().
+        ReplaceSingleton(services, new RecoveryOptions { BlockOnStart = false });
+        _ = services.AddSingleton(signal);
+        ReplaceSingleton<ILocalCacheRecovery<object?>>(
+            services,
+            static sp => new DelayedLocalCacheRecoveryDecorator<object?>(
+                sp.GetRequiredService<PhysicalCache<object?>>(),
+                sp.GetRequiredService<RecoveryReplayDelaySignal>()));
+    }
+
+    private static void ReplaceSingleton<TService>(IServiceCollection services, Func<IServiceProvider, TService> factory)
+        where TService : class
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            if (services[i].ServiceType == typeof(TService))
+                services.RemoveAt(i);
+        }
+
+        _ = services.AddSingleton(factory);
+    }
+
+    private static void ReplaceSingleton<TService>(IServiceCollection services, TService instance)
+        where TService : class
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            if (services[i].ServiceType == typeof(TService))
+                services.RemoveAt(i);
+        }
+
+        _ = services.AddSingleton(instance);
     }
 
     /// <summary>Delays durable recovery replay until a test signal is released.</summary>
@@ -55,48 +88,6 @@ internal static class RecoveryReplayTestRegistration
         {
             await _signal.WaitAsync(cancellationToken).ConfigureAwait(false);
             return await _inner.TouchExpirationForDurableRecoveryAsync(key, expiresUtc, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private sealed class DelayedReplayConfigure
-    {
-        private readonly RecoveryReplayDelaySignal _signal;
-
-        internal DelayedReplayConfigure(RecoveryReplayDelaySignal signal)
-        {
-            _signal = signal;
-        }
-
-        internal void Configure(IServiceCollection services)
-        {
-            ArgumentNullException.ThrowIfNull(services);
-
-            // Delayed replay must never block host StartAsync; otherwise the test cannot Release().
-            ReplaceSingleton(services, new RecoveryOptions { BlockOnStart = false });
-            _ = services.AddSingleton(_signal);
-            ReplaceSingleton<ILocalCacheRecovery<object?>>(
-                services,
-                static sp => new DelayedLocalCacheRecoveryDecorator<object?>(sp.GetRequiredService<PhysicalCache<object?>>(), sp.GetRequiredService<RecoveryReplayDelaySignal>()));
-        }
-
-        private static void ReplaceSingleton<TService>(IServiceCollection services, Func<IServiceProvider, TService> factory)
-            where TService : class
-        {
-            for (var i = services.Count - 1; i >= 0; i--)
-                if (services[i].ServiceType == typeof(TService))
-                    services.RemoveAt(i);
-
-            _ = services.AddSingleton(factory);
-        }
-
-        private static void ReplaceSingleton<TService>(IServiceCollection services, TService instance)
-            where TService : class
-        {
-            for (var i = services.Count - 1; i >= 0; i--)
-                if (services[i].ServiceType == typeof(TService))
-                    services.RemoveAt(i);
-
-            _ = services.AddSingleton(instance);
         }
     }
 }

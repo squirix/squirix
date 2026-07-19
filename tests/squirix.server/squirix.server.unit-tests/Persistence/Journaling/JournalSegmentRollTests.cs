@@ -11,13 +11,14 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal segment roll happens before the frame that would overflow the active segment.</summary>
-public sealed class JournalSegmentRollTests : UnitTestBase
+public sealed class JournalSegmentRollTests : ServerUnitTestBase
 {
     private const int FillPayloadSize = 8_192;
     private const int LargePayloadSize = 16_000;
@@ -98,7 +99,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
             await journal.AppendPutAsync(overflowKey, overflowPayload, DefaultCancellationToken);
             await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-            await ManifestStoreTestSupport.WaitUntilAsync(
+            await StoreTestSupport.WaitUntilAsync(
                 manifestStore,
                 static s => s.ReadCurrentOrDefaultBlocking().CurrentJournal is 2,
                 TimeSpan.FromSeconds(5),
@@ -117,7 +118,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
     private static Task BlockNextManifestWriteAsync(ManifestStore manifestStore, string dataDir)
     {
         manifestStore.PublishRollBlocking(1, 1);
-        return File.WriteAllTextAsync(PathKit.Combine(dataDir, ManifestStoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
+        return File.WriteAllTextAsync(NodePathKit.Combine(dataDir, StoreTestSupport.ManifestDataFileName(2)), string.Empty, DefaultCancellationToken);
     }
 
     private static bool ContainsPutKey(string dataDir, int segmentIndex, string key)
@@ -126,7 +127,11 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         if (!File.Exists(path))
             return false;
 
-        using IJournalRecordEnumerator enumerator = new BinaryJournalSegmentReader.Enumerator(path, true, CancellationToken.None);
+        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{segmentIndex.ToString(CultureInfo.InvariantCulture)}");
+        _ = Directory.CreateDirectory(isolatedDataDir);
+        File.Copy(path, JournalReadPath.BuildSegmentPath(isolatedDataDir, segmentIndex), true);
+
+        using var enumerator = JournalReadPath.ReadAll(isolatedDataDir, segmentIndex, CancellationToken.None);
         while (enumerator.MoveNext())
         {
             var record = enumerator.Current;
@@ -193,7 +198,7 @@ public sealed class JournalSegmentRollTests : UnitTestBase
         return JournalFraming.FrameTotalLength(BinaryJournalCodec.ComputeFrameBodyLength(record));
     }
 
-    private static string SegmentPath(string dataDir, int segmentIndex) => PathKit.Combine(
+    private static string SegmentPath(string dataDir, int segmentIndex) => NodePathKit.Combine(
         dataDir,
         $"{FilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 }

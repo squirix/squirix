@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
@@ -8,7 +9,6 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -20,7 +20,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 {
     /// <summary>Loads a binary snapshot watermark and replays only journal records after it.</summary>
     [Fact]
-    public async Task BinarySnapshotRecoveryReplaysJournalTailWatermark()
+    public async Task BinarySnapshotRecoveryReplaysJournalTailAfterWatermark()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-binary-snapshot");
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
@@ -69,10 +69,12 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
     public async Task MissingSnapshotPathFallsBackToJournalOnlyRecovery()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
-        var missingSnapshotPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(1)}{FileExtensions.Snapshot}");
+        var missingSnapshotPath = NodePathKit.Combine(
+            scenario.DataDir,
+            $"{FilePrefixes.Snapshot}{1.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
 
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, record);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [record]);
 
         await scenario.ManifestStore.WriteAsync(
             new State

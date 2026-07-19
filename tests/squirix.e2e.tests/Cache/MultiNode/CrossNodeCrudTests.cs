@@ -1,20 +1,19 @@
 using System.Globalization;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
-using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
 /// <summary>Integration tests for multi-node public CRUD and cross-node visibility.</summary>
 /// <param name="fixture">Shared two-node cluster fixture.</param>
-public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixture)
+public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
 {
     /// <summary>Verifies AddAsync(string, T) observes existing named-cache entries across nodes.</summary>
     [Fact]
     public async Task AddValueOnNodeBThrowsWhenKeyInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-add-conflict");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -25,10 +24,10 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task ConcurrentAddFromBothNodesOnlyOneSucceeds()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "concurrent-add");
 
-        var a = TwoNodeSupport.CaptureAddAsync(Cluster.CacheA, key, "a", DefaultCancellationToken);
-        var b = TwoNodeSupport.CaptureAddAsync(Cluster.CacheB, key, "b", DefaultCancellationToken);
+        var a = Helpers.CaptureAddAsync(Cluster.CacheA, key, "a", DefaultCancellationToken);
+        var b = Helpers.CaptureAddAsync(Cluster.CacheB, key, "b", DefaultCancellationToken);
 
         var errors = await Task.WhenAll(a, b);
 
@@ -41,7 +40,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task ConcurrentTryAddFromBothNodesOnlyOneReturnsTrue()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "concurrent-try-add");
 
         var a = Cluster.CacheA.TryAddAsync(key, "a", cancellationToken: DefaultCancellationToken);
         var b = Cluster.CacheB.TryAddAsync(key, "b", cancellationToken: DefaultCancellationToken);
@@ -57,7 +56,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task ConcurrentUpsertsFromBothNodesLeaveReadableValue()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "concurrent-upsert");
 
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
@@ -79,7 +78,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task ExternalClientConnectedNodeMutationOwnerNodeB()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
         await using var client = await LoopbackConnect.ConnectAsync(Cluster.NodeAAddress, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<object?>("orders", DefaultCancellationToken);
 
@@ -93,7 +92,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task GetEntryOnNodeBReturnsEntryInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-entry");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -106,7 +105,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task GetValueOnNodeBReturnsTrueWhenKeyInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-value");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-get-value");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -117,7 +116,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task InsertNodeAUpdateNodeBGetOnNodeAReturnsLatestValue()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
         await Cluster.CacheB.SetAsync(key, "v2", cancellationToken: DefaultCancellationToken);
@@ -129,7 +128,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task InsertValueOnNodeAGetOnNodeBReturnsInsertedValue()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -140,7 +139,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task RemoveNodeBDeletesEntryInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-remove-entry");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-remove-entry");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -151,7 +150,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task RemoveNodeBThenGetOnNodeAReturnsNull()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "cross-node-remove");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -174,7 +173,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task TryAddValueOnNodeBReturnsFalseKeyInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -197,7 +196,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task TryGetValueOnNodeBReturnsValueInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-get-value");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -210,7 +209,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task TryRemoveOnNodeBRemovesEntryInsertedOnNodeA()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-remove");
 
         await Cluster.CacheA.SetAsync(key, "v1", cancellationToken: DefaultCancellationToken);
 
@@ -223,7 +222,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task TryRemoveOnNodeBReturnsRemoteRemovedEntryMetadata()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-entry-metadata");
 
         await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
 
@@ -240,7 +239,7 @@ public sealed class CrudTests(TwoNodeFixture fixture) : MultiNodeTestBase(fixtur
     [Fact]
     public async Task TryRemoveOnNodeBStoredNullReportsRemoved()
     {
-        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
+        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-null");
 
         await Cluster.CacheA.SetAsync(key, null, cancellationToken: DefaultCancellationToken);
 

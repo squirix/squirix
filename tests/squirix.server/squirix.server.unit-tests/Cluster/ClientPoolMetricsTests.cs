@@ -9,7 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Tests for ServerClientPool methods and metrics.</summary>
-public sealed class ClientPoolMetricsTests : UnitTestBase
+public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";

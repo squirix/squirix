@@ -6,7 +6,7 @@ namespace Squirix.Server.Utils;
 internal static class HexFormat
 {
     /// <summary>
-    /// Writes a 32-byte digest as 64 uppercase hexadecimal characters into <paramref name="destination" />.
+    /// Formats a 32-byte digest as 64 uppercase hexadecimal characters.
     /// Matches <see cref="Convert.ToHexString(ReadOnlySpan{byte})" /> — required for stable idempotency fingerprints.
     /// </summary>
     /// <param name="destination">Destination span of at least 64 characters.</param>

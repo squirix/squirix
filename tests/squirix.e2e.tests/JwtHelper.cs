@@ -8,7 +8,7 @@ namespace Squirix.E2ETests;
 /// <summary>Creates JWT credentials for authenticated E2E scenarios.</summary>
 internal static class JwtHelper
 {
-    public static JwtCredentials CreateSymmetricCredentials()
+    internal static JwtCredentials CreateSymmetricCredentials()
     {
         var signingKey = RandomNumberGenerator.GetBytes(32);
         const string issuer = "https://e2e.squirix.test";

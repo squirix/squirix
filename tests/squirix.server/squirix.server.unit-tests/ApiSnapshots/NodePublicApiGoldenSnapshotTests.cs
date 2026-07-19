@@ -22,7 +22,7 @@ public sealed class NodePublicApiGoldenSnapshotTests
         var assemblyPath = NodePathKit.Combine(AppContext.BaseDirectory, "Squirix.Server.dll");
         var actual = NodeExportedApiMetadata.GetExportedApiIdentitySet(assemblyPath);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixServerPublicTypes.golden.txt");
-        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(path), $"Golden file missing: {path}");
 
         var expected = await LoadIdentityLinesAsync(path);
         if (actual.SetEquals(expected))

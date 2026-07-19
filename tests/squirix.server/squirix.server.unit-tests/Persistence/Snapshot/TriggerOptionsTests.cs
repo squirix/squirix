@@ -41,9 +41,7 @@ public sealed class TriggerOptionsTests
     [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
-        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
-            propertyName,
-            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(propertyName)));
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }

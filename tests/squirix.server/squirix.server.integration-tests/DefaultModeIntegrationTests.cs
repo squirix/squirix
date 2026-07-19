@@ -17,7 +17,7 @@ public sealed class DefaultModeIntegrationTests : NodeIntegrationTestBase
         await using var node = await StartNodeAsync(uri, "node_ephemeral_ops");
         var cache = GetCache(node);
 
-        await cache.SetEntryAsync(TestOperationIds.Default, ServerCacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
+        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, "ephemeral:key", BuildEntry("value"), DefaultCancellationToken);
         var value = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, "ephemeral:key", DefaultCancellationToken);
         Assert.True(value.Found);
         Assert.Equal("value", value.Value);

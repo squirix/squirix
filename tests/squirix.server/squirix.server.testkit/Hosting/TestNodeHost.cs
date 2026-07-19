@@ -85,8 +85,12 @@ public sealed class TestNodeHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
-        await SuppressObjectDisposedAsync(StopAppAsync()).ConfigureAwait(false);
-        await SuppressObjectDisposedAsync(_app.DisposeAsync()).ConfigureAwait(false);
+        await SuppressObjectDisposedAsync(async () =>
+        {
+            using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+        await SuppressObjectDisposedAsync(() => _app.DisposeAsync()).ConfigureAwait(false);
 
         if (PersistenceEnabled && !string.IsNullOrWhiteSpace(DataDir))
             try

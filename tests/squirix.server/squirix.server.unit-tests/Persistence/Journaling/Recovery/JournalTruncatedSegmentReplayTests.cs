@@ -20,7 +20,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-readonly-failure");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
-        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [record]);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
@@ -34,8 +34,9 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
 
             _ = Assert.Throws<InvalidDataException>(() =>
             {
-                foreach (var unused in JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken))
-                    _ = unused;
+                using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
+                while (records.MoveNext())
+                    _ = records.Current;
             });
             Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
         }
@@ -51,7 +52,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-journal-badcrc");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
-        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [record]);
 
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
@@ -60,8 +61,9 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
 
         var ex = Assert.Throws<InvalidDataException>(() =>
         {
-            foreach (var unused in JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken))
-                _ = unused;
+            using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
+            while (records.MoveNext())
+                _ = records.Current;
         });
         Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
     }
@@ -73,15 +75,16 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-journal-trunc");
         var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");
         var second = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "k2", "b");
-        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [first, second]);
 
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
             fs.SetLength(fs.Length - 1);
 
         var list = new List<JournalRecord>(2);
-        foreach (var record in JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken))
-            list.Add(record);
+        using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
+        while (records.MoveNext())
+            list.Add(records.Current);
 
         _ = Assert.Single(list);
         Assert.Equal(JournalOperationKind.Put, list[0].Operation);

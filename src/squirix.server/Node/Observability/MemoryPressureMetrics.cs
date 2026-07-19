@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using Squirix.Server.Node.MemoryPressure;
@@ -17,25 +16,9 @@ internal static class MemoryPressureMetrics
     private static readonly RegistrationCatalog Catalog = new();
     private static readonly Lock InitLock = new();
 
-    private static readonly Counter<long> RejectionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
-        "squirix_memory_rejections_total",
-        "{rejection}",
-        "Memory admission rejections by operation and reason");
-
     private static readonly RegistrationCatalog Catalog = new();
 
-    internal static void RecordRejection(string nodeId, string operation, string reason)
-    {
-        var tags = new TagList
-        {
-            { "node", nodeId },
-            { "operation", operation },
-            { "reason", reason },
-        };
-        RejectionsTotal.Add(1, in tags);
-    }
-
-    internal static void Register(MemoryPressureMetricRegistration registration)
+    internal static void Register(MetricRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
         lock (InitLock)
@@ -134,11 +117,11 @@ internal static class MemoryPressureMetrics
     {
         private int _instrumentsCreated;
 
-        private ImmutableArray<MemoryPressureMetricRegistration> _items = ImmutableArray<MemoryPressureMetricRegistration>.Empty;
+        private ImmutableArray<MetricRegistration> _items = ImmutableArray<MetricRegistration>.Empty;
 
-        internal void Add(MemoryPressureMetricRegistration registration) => _items = _items.Add(registration);
+        internal void Add(MetricRegistration registration) => _items = _items.Add(registration);
 
-        internal void Remove(MemoryPressureMetricRegistration registration)
+        internal void Remove(MetricRegistration registration)
         {
             var previous = _items;
             var index = previous.IndexOf(registration);
@@ -146,11 +129,11 @@ internal static class MemoryPressureMetrics
                 return;
 
             _items = previous.Length is 1
-                ? ImmutableArray<MemoryPressureMetricRegistration>.Empty
+                ? ImmutableArray<MetricRegistration>.Empty
                 : previous.RemoveAt(index);
         }
 
-        internal ImmutableArray<MemoryPressureMetricRegistration> SnapshotItems() => _items;
+        internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;
 
         internal bool TryCreateInstruments() => Interlocked.CompareExchange(ref _instrumentsCreated, 1, 0) is 0;
     }

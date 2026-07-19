@@ -32,7 +32,7 @@ if ($null -ne $ideFilesNode) {
 $ideFilesNode = $ndproj.CreateElement('IDEFiles')
 $ideFile = $ndproj.CreateElement('IDEFile')
 $ideFile.SetAttribute('FilePath', '.\squirix.slnx')
-$ideFile.SetAttribute('Filters', '-test')
+$ideFile.SetAttribute('Filters', '')
 $ideFile.SetAttribute('Configuration', 'DEBUG|AnyCPU')
 
 $rootInfo = $ndproj.CreateElement('RootDirResolvingInfo')
@@ -127,7 +127,7 @@ if ($null -ne $ruleFiles) {
 
 $ndproj.Save($ndprojPath)
 Write-Host "Updated $ndprojPath"
-Write-Host "  IDEFile: .\squirix.slnx | Filters='-test' | Configuration=DEBUG|AnyCPU"
+Write-Host "  IDEFile: .\squirix.slnx | Filters='' | Configuration=DEBUG|AnyCPU"
 Write-Host "  Inlined $($customQueriesNode.SelectNodes('Query').Count) custom notmycode queries into '$justMyCodeGroupName'"
 if ($null -ne $customRuleOverridesNode) {
     Write-Host "  Applied $($customRuleOverridesNode.SelectNodes('Query').Count) custom rule override(s) from squirix.ndrules"

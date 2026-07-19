@@ -18,15 +18,6 @@ public sealed class CacheValueGrpcMappingTests
         Assert.Equal(42, wire.Int32Value);
     }
 
-    /// <summary>int32 wire values decode to typed <see cref="int" /> reads.</summary>
-    [Fact]
-    public async Task Int32ValueRoundTripsAsInt()
-    {
-        var wire = new CacheValue { Int32Value = 7 };
-
-        Assert.Equal(7, await ServerProtoEx.MapCacheValueAsync<int>(wire));
-    }
-
     /// <summary>CLR <see cref="long" /> values outside int32 range keep the int64 wire arm.</summary>
     [Fact]
     public void Int64EncodesAsInt64ValueWireForm()
@@ -36,5 +27,14 @@ public sealed class CacheValueGrpcMappingTests
 
         Assert.Equal(CacheValue.KindOneofCase.Int64Value, wire.KindCase);
         Assert.Equal(value, wire.Int64Value);
+    }
+
+    /// <summary>int32 wire values decode to typed <see cref="int" /> reads.</summary>
+    [Fact]
+    public async Task Int32ValueRoundTripsAsInt()
+    {
+        var wire = new CacheValue { Int32Value = 7 };
+
+        Assert.Equal(7, await ServerProtoEx.MapCacheValueAsync<int>(wire));
     }
 }

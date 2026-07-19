@@ -18,8 +18,8 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 /// <summary>Regression tests for idempotency export timing during snapshot cut (plan step 2).</summary>
 public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
 {
-    private const string AfterFlushOperationId = "after-flush";
     private const string AtFlushOperationId = "at-flush";
+    private const string AfterFlushOperationId = "after-flush";
     private static readonly byte[] IdempotencyResponseBytes = [1];
 
     /// <summary>Snapshot idempotency must match the flush watermark, not outcomes recorded after the mutation gate opens.</summary>
@@ -48,9 +48,15 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
         await RecordIdempotencyAsync(journal, idempotency, AtFlushOperationId, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        var snapshotPath = await CutSnapshotDuringPostFlushIdempotencyAsync(journal, manifestStore, writer, idempotency, DefaultCancellationToken);
+        var snapshotPath = await CutSnapshotDuringPostFlushIdempotencyAsync(
+            journal,
+            manifestStore,
+            writer,
+            idempotency,
+            DefaultCancellationToken);
 
-        var loaded = await StoreFactory.CreateReader(persistence).LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
+        var loaded = await StoreFactory.CreateReader(persistence)
+            .LoadStrictAsync<object?>(snapshotPath, cancellationToken: DefaultCancellationToken);
         var record = Assert.Single(loaded.IdempotencyRecords);
         Assert.Equal(AtFlushOperationId, record.OperationId);
     }
@@ -81,7 +87,11 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
 
                 var prev = await state.manifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-                var path = await state.writer.WriteAsync(nextIndex, [], idempotencyAtFlush, ct).ConfigureAwait(false);
+                var path = await state.writer.WriteAsync(
+                    nextIndex,
+                    [],
+                    idempotencyAtFlush,
+                    ct).ConfigureAwait(false);
                 await state.manifestStore.WriteAsync(
                     new State
                     {
@@ -109,7 +119,11 @@ public sealed class CutIdempotencyConsistencyTests : ServerUnitTestBase
         return await snapshotPathTask.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
     }
 
-    private static async Task RecordIdempotencyAsync(IJournalCoordinator journal, RpcMutationIdempotencyStore store, string operationId, CancellationToken cancellationToken)
+    private static async Task RecordIdempotencyAsync(
+        IJournalCoordinator journal,
+        RpcMutationIdempotencyStore store,
+        string operationId,
+        CancellationToken cancellationToken)
     {
         store.RecordSuccess(operationId, "fp", IdempotencyResponseBytes);
         await journal.AppendIdempotencyOutcomeAsync(operationId, "fp", IdempotencyResponseBytes, cancellationToken);

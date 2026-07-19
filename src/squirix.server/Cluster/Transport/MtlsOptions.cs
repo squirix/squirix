@@ -25,7 +25,7 @@ internal sealed record MtlsOptions
     internal string? KeyPath { get; init; }
 
     /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>
-    public string? CaPath { get; init; }
+    internal string? CaPath { get; init; }
 
     /// <summary>Validates configuration shape and file presence without loading certificates.</summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>

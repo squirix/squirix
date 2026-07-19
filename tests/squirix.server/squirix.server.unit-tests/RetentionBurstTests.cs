@@ -32,24 +32,28 @@ public sealed class RetentionBurstTests : ServerUnitTestBase, IAsyncLifetime
             store.PublishRollBlocking(i, Convert.ToUInt64(i));
 
         var manifestPath = NodePathKit.Combine(Dir.Path, StoreTestSupport.ManifestDataFileName(20));
-        await StoreTestSupport.WaitUntilAsync(manifestPath, static path => File.Exists(path), TimeSpan.FromSeconds(5), DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(
+            manifestPath,
+            static path => File.Exists(path),
+            TimeSpan.FromSeconds(5),
+            DefaultCancellationToken);
 
         var currentPath = NodePathKit.Combine(Dir.Path, StoreTestSupport.ManifestCurrentPointer);
         Assert.Equal(20, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
         Assert.True(File.Exists(NodePathKit.Combine(Dir.Path, StoreTestSupport.ManifestDataFileName(20))));
     }
 
-    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Creates a temporary directory for test storage.</summary>
     public ValueTask InitializeAsync()
     {
         _dir = new TempDirectory("manifest-burst");
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Disposes the temporary directory after the test class finishes.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
         return ValueTask.CompletedTask;
     }
 

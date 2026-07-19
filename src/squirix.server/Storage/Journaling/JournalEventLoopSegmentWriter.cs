@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.IO;
 using System.Threading;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -11,7 +12,7 @@ internal sealed class JournalEventLoopSegmentWriter
 {
     private readonly JournalEventLoop _owner;
 
-    public JournalEventLoopSegmentWriter(JournalEventLoop owner)
+    internal JournalEventLoopSegmentWriter(JournalEventLoop owner)
     {
         _owner = owner;
     }
@@ -43,7 +44,7 @@ internal sealed class JournalEventLoopSegmentWriter
         _owner.SetDirty(true);
 
         for (var i = 0; i < _owner.WriteBatch.PendingAppends.Count; i++)
-            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i].Item);
+            CompleteStagedAppend(_owner.WriteBatch.PendingAppends[i]);
 
         _owner.WriteBatch.Clear();
 
@@ -89,9 +90,9 @@ internal sealed class JournalEventLoopSegmentWriter
 
                 // Compaction rewrote the segment set on disk; resync the in-memory capacity counters
                 // (used by the hot roll path) from the new on-disk layout.
-                var postMaintenanceStats = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
-                _owner.SetJournalTotalBytes(postMaintenanceStats.TotalBytes);
-                _owner.SetJournalSegmentCount(postMaintenanceStats.SegmentCount);
+                var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats(_owner.Options.DataDir);
+                _owner.SetJournalTotalBytes(totalBytes);
+                _owner.SetJournalSegmentCount(segmentCount);
                 CompleteJournalWorkItem(item);
                 return false;
 

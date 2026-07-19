@@ -58,7 +58,7 @@ internal static class IdempotencyMetrics
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
-            yield return new Measurement<long>(registration.Store.RecordCount, Tags(registration.NodeId));
+            yield return new Measurement<long>(registration.RecordCount(), Tags(registration.NodeId));
         }
     }
 

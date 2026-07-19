@@ -9,12 +9,6 @@ internal sealed class TopologyOptions
     [SetsRequiredMembers]
     internal TopologyOptions(ServerPeer[] peers)
     {
-        Peers = peers;
-    }
-
-    [SetsRequiredMembers]
-    internal TopologyOptions(ServerPeer peer)
-    {
         Peers = [peer];
     }
 

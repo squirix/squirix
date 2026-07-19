@@ -32,6 +32,26 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
         }
     }
 
+    /// <summary>Put payloads round-trip through the binary cache-entry codec.</summary>
+    [Fact]
+    public void PutPayloadRoundTripsStringValue()
+    {
+        var entry = new NodeCacheEntry<string> { Value = "journal-value", Version = 4 };
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var length = JournalEntryPayload.Encode(in prepared, out var bytes);
+        try
+        {
+            Assert.True(JournalEntryPayload.TryDecode<string>(bytes.AsSpan(0, length), out var roundTrip));
+            Assert.NotNull(roundTrip);
+            Assert.Equal("journal-value", roundTrip.Value);
+            Assert.Equal(4, roundTrip.Version);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
+        }
+    }
+
     /// <summary>Put payloads round-trip entry metadata through the binary cache-entry codec.</summary>
     [Fact]
     public void PutPayloadRoundTripsMetadata()
@@ -51,26 +71,6 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
             Assert.Equal(entry.Version, roundTrip.Version);
             Assert.Equal(entry.ExpiresUtc, roundTrip.ExpiresUtc);
             Assert.Equal("west", roundTrip.Tags?["region"]);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(bytes);
-        }
-    }
-
-    /// <summary>Put payloads round-trip through the binary cache-entry codec.</summary>
-    [Fact]
-    public void PutPayloadRoundTripsStringValue()
-    {
-        var entry = new NodeCacheEntry<string> { Value = "journal-value", Version = 4 };
-        var prepared = JournalEntryPayload.PrepareEncode(entry);
-        var length = JournalEntryPayload.Encode(in prepared, out var bytes);
-        try
-        {
-            Assert.True(JournalEntryPayload.TryDecode<string>(bytes.AsSpan(0, length), out var roundTrip));
-            Assert.NotNull(roundTrip);
-            Assert.Equal("journal-value", roundTrip.Value);
-            Assert.Equal(4, roundTrip.Version);
         }
         finally
         {

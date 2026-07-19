@@ -25,18 +25,18 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
 {
     private const int FillChunkChars = 8_192;
     private const int RollOverflowChars = 16_000;
-    private static readonly CacheKey BaseKey = CacheKey.Default("base");
-    private static readonly CacheKey FillKey = CacheKey.Default("fill");
 
     private static readonly CacheKey OverflowKey = CacheKey.Default("overflow");
+    private static readonly CacheKey FillKey = CacheKey.Default("fill");
     private static readonly CacheKey TailKey = CacheKey.Default("tail");
+    private static readonly CacheKey BaseKey = CacheKey.Default("base");
 
     /// <summary>
     /// When a segment roll happens during the slow snapshot build phase, recovery must still replay journal tail
     /// records from the closed segment. Replay-from segment and next sequence are frozen at flush time under the mutation gate.
     /// </summary>
     [Fact]
-    public async Task SegmentRollSnapshotBuildLosesJournalTailOnRecovery()
+    public async Task SegmentRollDuringSnapshotBuildLosesJournalTailOnRecovery()
     {
         using var dir = new TempDirectory("squirix-snap-cut-roll-recovery");
         var persistence = new PersistenceOptions
@@ -70,29 +70,6 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         await AssertTailRecoveredAfterSnapshotAsync(persistence, manifestStore, DefaultCancellationToken);
     }
 
-    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, ManifestStore manifestStore, CancellationToken cancellationToken)
-    {
-        var cache = new PhysicalCache<object?>();
-        await using (cache.ConfigureAwait(false))
-        {
-            await new RecoveryService<object?>(
-                new RecoveryOptions { BlockOnStart = true },
-                NullLogger<RecoveryService<object?>>.Instance,
-                new RecoveryDependencies<object?>(
-                    persistence,
-                    manifestStore,
-                    cache,
-                    new JournalStartupGate(false),
-                    new RpcMutationIdempotencyStore(),
-                    StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
-
-            Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
-            var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
-            Assert.True(tailEntry.Found);
-            Assert.Equal("tail", tailEntry.Value);
-        }
-    }
-
     private static async Task<SnapshotRef> CutSnapshotDuringSegmentRollAsync(
         JournalCoordinator journal,
         ManifestStore manifestStore,
@@ -105,7 +82,8 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         var cut = (buildStarted, releaseBuild, journal, manifestStore, writer);
         var snapshotTask = journal.ExecuteSnapshotCutAsync(
             cut,
-            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>((state.journal.CurrentSegmentIndex, state.journal.NextSequence)),
+            static (state, _, _) => new ValueTask<(int ReplayFromSegment, ulong NextSequence)>(
+                (state.journal.CurrentSegmentIndex, state.journal.NextSequence)),
             static async (state, seqAtFlush, flushBoundary, ct) =>
             {
                 state.buildStarted.SetResult();
@@ -113,7 +91,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
 
                 var prev = await state.manifestStore.ReadCurrentOrDefaultAsync(ct).ConfigureAwait(false);
                 var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-                var path = await state.writer.WriteSingleAsync(nextIndex, BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 }, ct).ConfigureAwait(false);
+                var path = await state.writer.WriteAsync(nextIndex, [(BaseKey, new NodeCacheEntry<object?> { Value = "base", Version = 1 })], [], ct).ConfigureAwait(false);
                 var updated = new State
                 {
                     Format = prev.Format,
@@ -140,6 +118,29 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
         Assert.True(journal.CurrentSegmentIndex >= 2);
         releaseBuild.SetResult();
         return await snapshotTask.WaitAsync(TimeSpan.FromSeconds(15), TimeProvider.System, cancellationToken);
+    }
+
+    private static async Task AssertTailRecoveredAfterSnapshotAsync(PersistenceOptions persistence, ManifestStore manifestStore, CancellationToken cancellationToken)
+    {
+        var cache = new PhysicalCache<object?>();
+        await using (cache.ConfigureAwait(false))
+        {
+            await new RecoveryService<object?>(
+                new RecoveryOptions { BlockOnStart = true },
+                NullLogger<RecoveryService<object?>>.Instance,
+                new RecoveryDependencies<object?>(
+                    persistence,
+                    manifestStore,
+                    cache,
+                    new JournalStartupGate(false),
+                    new RpcMutationIdempotencyStore(),
+                    StoreFactory.CreateReader(persistence))).StartAsync(cancellationToken);
+
+            Assert.Equal("base", (await cache.GetValueAsync(BaseKey, cancellationToken)).Value);
+            var tailEntry = await cache.GetValueAsync(TailKey, cancellationToken);
+            Assert.True(tailEntry.Found, "Journal tail in the closed segment must be replayed after snapshot recovery.");
+            Assert.Equal("tail", tailEntry.Value);
+        }
     }
 
     private static async Task FillSegmentOneForRollAsync(JournalCoordinator journal, int overflowFrameLen, CancellationToken cancellationToken)

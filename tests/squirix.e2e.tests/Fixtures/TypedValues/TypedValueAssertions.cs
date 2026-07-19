@@ -5,7 +5,7 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 
 internal static class TypedValueAssertions
 {
-    public static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
+    internal static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
     {
         Assert.Equal(expected.Id, actual.Id);
         Assert.Equal(expected.DisplayName, actual.DisplayName);

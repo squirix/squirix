@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Support.Cluster;
-using Squirix.Server.TestKit.Journaling;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Benchmarks.Payload;
 

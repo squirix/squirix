@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Core;
 
 namespace Squirix.Server.Storage.Journaling;
 

@@ -5,31 +5,31 @@ namespace Squirix.Server.Node.Backpressure;
 /// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
 internal sealed record AdmissionOptions
 {
-    public TimeSpan MaxSlowdownDelay { get; init; } = TimeSpan.FromMilliseconds(25);
+    internal TimeSpan MaxSlowdownDelay { get; init; } = TimeSpan.FromMilliseconds(25);
 
-    public bool Enabled { get; init; } = true;
+    internal bool Enabled { get; init; } = true;
 
-    public int MaxInFlight { get; init; } = 256;
+    internal int MaxInFlight { get; init; } = 256;
 
-    public int MaxQueue { get; init; } = 128;
+    internal int MaxQueue { get; init; } = 128;
 
-    public TimeSpan MaxQueueWait { get; init; } = TimeSpan.FromMilliseconds(250);
+    internal TimeSpan MaxQueueWait { get; init; } = TimeSpan.FromMilliseconds(250);
 
-    public int? NodeRateLimitBurst { get; init; }
+    internal int? NodeRateLimitBurst { get; init; }
 
-    public int? NodeRateLimitPerSecond { get; init; }
+    internal int? NodeRateLimitPerSecond { get; init; }
 
-    public int? PerClientMaxInFlight { get; init; }
+    internal int? PerClientMaxInFlight { get; init; }
 
-    public int? PerClientMaxQueue { get; init; }
+    internal int? PerClientMaxQueue { get; init; }
 
-    public int? PerClientRateLimitBurst { get; init; }
+    internal int? PerClientRateLimitBurst { get; init; }
 
-    public int? PerClientRateLimitPerSecond { get; init; }
+    internal int? PerClientRateLimitPerSecond { get; init; }
 
-    public int RejectThreshold { get; init; } = 256;
+    internal int RejectThreshold { get; init; } = 256;
 
-    public int SlowdownThreshold { get; init; } = 192;
+    internal int SlowdownThreshold { get; init; } = 192;
 
     internal void Validate()
     {

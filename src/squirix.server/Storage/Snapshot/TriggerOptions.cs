@@ -40,15 +40,28 @@ namespace Squirix.Server.Storage.Snapshot;
 /// </remarks>
 internal sealed class TriggerOptions
 {
-    public TriggerOptions()
+    [JsonConstructor]
+    internal TriggerOptions()
+        : this(0L, 0d, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), 128L * 1024 * 1024, 250_000L, TimeSpan.FromMinutes(5))
     {
-        LatencyThrottleDuration = TimeSpan.FromSeconds(10);
-        MinGapBetweenSnapshots = TimeSpan.FromMinutes(1);
-        SnapshotEveryNBytes = 128L * 1024 * 1024;
-        SnapshotEveryNOps = 250_000L;
-        SnapshotInterval = TimeSpan.FromMinutes(5);
-        LatencySloMilliseconds = 0d;
-        JournalGrowthThrottleBytes = 0L;
+    }
+
+    private TriggerOptions(
+        long journalGrowthThrottleBytes,
+        double latencySloMilliseconds,
+        TimeSpan latencyThrottleDuration,
+        TimeSpan minGapBetweenSnapshots,
+        long snapshotEveryNBytes,
+        long snapshotEveryNOps,
+        TimeSpan snapshotInterval)
+    {
+        JournalGrowthThrottleBytes = journalGrowthThrottleBytes;
+        LatencySloMilliseconds = latencySloMilliseconds;
+        LatencyThrottleDuration = latencyThrottleDuration;
+        MinGapBetweenSnapshots = minGapBetweenSnapshots;
+        SnapshotEveryNBytes = snapshotEveryNBytes;
+        SnapshotEveryNOps = snapshotEveryNOps;
+        SnapshotInterval = snapshotInterval;
     }
 
     /// <summary>
@@ -56,7 +69,8 @@ internal sealed class TriggerOptions
     /// Default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    public long JournalGrowthThrottleBytes
+    [JsonInclude]
+    internal long JournalGrowthThrottleBytes
     {
         get;
         private init
@@ -74,7 +88,8 @@ internal sealed class TriggerOptions
     /// snapshot attempts are throttled for <see cref="LatencyThrottleDuration" />. Default is 0 (disabled).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative, NaN, or infinite.</exception>
-    public double LatencySloMilliseconds
+    [JsonInclude]
+    internal double LatencySloMilliseconds
     {
         get;
         private init
@@ -91,7 +106,8 @@ internal sealed class TriggerOptions
     /// Default is 10 seconds.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    public TimeSpan LatencyThrottleDuration
+    [JsonInclude]
+    internal TimeSpan LatencyThrottleDuration
     {
         get;
         private init
@@ -108,7 +124,8 @@ internal sealed class TriggerOptions
     /// Default is 1 minute.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    public TimeSpan MinGapBetweenSnapshots
+    [JsonInclude]
+    internal TimeSpan MinGapBetweenSnapshots
     {
         get;
         private init
@@ -125,7 +142,8 @@ internal sealed class TriggerOptions
     /// since the previous snapshot. Default is 128 MiB.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    public long SnapshotEveryNBytes
+    [JsonInclude]
+    internal long SnapshotEveryNBytes
     {
         get;
         private init
@@ -142,7 +160,8 @@ internal sealed class TriggerOptions
     /// have been applied since the previous snapshot. Default is 250,000.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
-    public long SnapshotEveryNOps
+    [JsonInclude]
+    internal long SnapshotEveryNOps
     {
         get;
         private init
@@ -159,7 +178,8 @@ internal sealed class TriggerOptions
     /// Default is 5 minutes.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
-    public TimeSpan SnapshotInterval
+    [JsonInclude]
+    internal TimeSpan SnapshotInterval
     {
         get;
         private init

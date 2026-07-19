@@ -10,13 +10,21 @@ namespace Squirix.Server.Runtime;
 /// <see cref="IServerSerializer" /> implementation backed by <see cref="System.Text.Json" />.
 /// </summary>
 /// <remarks>
-/// Intentional reflection fallback for arbitrary user cache value types (<c>Deserialize&lt;T&gt;</c> / <c>Serialize&lt;T&gt;</c>).
-/// Known squirix DTOs should use dedicated <see cref="JsonSerializerContext" /> types at call sites instead of this class.
+/// Intentional reflection fallback for arbitrary application payload types.
+/// Persistence and REST DTOs use dedicated <see cref="JsonSerializerContext" /> types at call sites.
 /// </remarks>
-#pragma warning disable ZA1001 // ISquirixSerializer must support arbitrary T; reflection fallback is the public contract.
-internal sealed class SystemTextJsonSerializer : ISquirixSerializer
+#pragma warning disable ZA1001 // Generic serializer boundary; reflection fallback is required for unknown T.
+internal sealed class ServerJsonSerializer : IServerSerializer
 {
-    private readonly JsonSerializerOptions _options = CreateDefaultOptions();
+    private readonly JsonSerializerOptions _options;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ServerJsonSerializer" /> class.
+    /// </summary>
+    internal ServerJsonSerializer()
+    {
+        _options = CreateDefaultOptions();
+    }
 
     /// <inheritdoc />
     public T? Deserialize<T>(string payload) => JsonSerializer.Deserialize<T>(payload, _options);

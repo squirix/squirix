@@ -18,7 +18,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly IBackpressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver)
+    internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));

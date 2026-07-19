@@ -17,12 +17,12 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private readonly IdempotencyOptions _options;
     private readonly ConcurrentDictionary<string, PersistedIdempotencyRecord> _records = new(StringComparer.Ordinal);
 
-    public RpcMutationIdempotencyStore()
+    internal RpcMutationIdempotencyStore()
         : this(new IdempotencyOptions(), "local")
     {
     }
 
-    public RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId)
+    internal RpcMutationIdempotencyStore(IdempotencyOptions options, string nodeId)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
@@ -30,7 +30,7 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
         _nodeId = string.IsNullOrWhiteSpace(nodeId) ? "local" : nodeId;
     }
 
-    public RpcMutationIdempotencyStore(TimeSpan retention)
+    internal RpcMutationIdempotencyStore(TimeSpan retention)
         : this(new IdempotencyOptions { Retention = retention }, "local")
     {
     }

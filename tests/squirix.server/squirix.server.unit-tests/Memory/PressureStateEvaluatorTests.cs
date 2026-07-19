@@ -119,7 +119,7 @@ public sealed class PressureStateEvaluatorTests
         /// Initializes a new instance of the <see cref="PressureOptionsBinding" /> class.
         /// </summary>
         /// <param name="value">Bound options value.</param>
-        public MemoryPressureOptionsBinding(PressureOptions value)
+        internal MemoryPressureOptionsBinding(PressureOptions value)
         {
             Value = value;
         }

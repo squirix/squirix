@@ -17,7 +17,7 @@ internal sealed class BoundedJournalRing : IDisposable
     private long _head;
     private long _tail;
 
-    public BoundedJournalRing(int capacity)
+    internal BoundedJournalRing(int capacity)
     {
         if (capacity <= 0 || !BitOperations.IsPow2(capacity))
             throw new ArgumentOutOfRangeException(nameof(capacity), "capacity must be a power of two.");

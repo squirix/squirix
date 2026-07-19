@@ -69,10 +69,7 @@ public sealed class PressureOptionsResolverTests
     {
         private readonly long _availableBytes;
 
-        internal FixedMemoryBudgetProvider(long availableBytes)
-        {
-            _availableBytes = availableBytes;
-        }
+        internal FixedMemoryBudgetProvider(long availableBytes) => _availableBytes = availableBytes;
 
         long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
     }

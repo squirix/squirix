@@ -39,11 +39,6 @@ internal static class ServerArchitectureFixtures
 
     private const string ServerProjectRelativePath = "src/squirix.server/Squirix.Server.csproj";
 
-    private static readonly string[] ServerBootstrapSourceRelativePaths =
-    [
-        "src/squirix.server.host/Program.cs",
-    ];
-
     private static readonly Lazy<XDocument> ServerProject = new(LoadServerProject);
 
     private static readonly Lazy<MsbuildProjectIndex> ServerProjectIndex = new(static () => ParseMsbuildProject(ServerProject.Value));
@@ -154,7 +149,7 @@ internal static class ServerArchitectureFixtures
         var path = Path.IsPathRooted(relativeOrAbsolutePath) ? relativeOrAbsolutePath : Path.Join(
             RepositoryPaths.FindRepositoryRoot(),
             relativeOrAbsolutePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(path), $"Expected project at {path}.");
         return XDocument.Load(path);
     }
 
@@ -177,14 +172,17 @@ internal static class ServerArchitectureFixtures
     internal static async Task<(string RelativePath, string Text)[]> ReadServerBootstrapSourceTextsAsync(CancellationToken cancellationToken)
     {
         var root = RepositoryPaths.FindRepositoryRoot();
-        var paths = ServerBootstrapSourceRelativePaths;
-
-        var sources = new (string RelativePath, string Text)[paths.Length];
-        for (var i = 0; i < paths.Length; i++)
+        var relativePaths = new[]
         {
-            var relativePath = paths[i].Replace('/', Path.DirectorySeparatorChar);
+            "src/squirix.server.host/Program.cs",
+        };
+
+        var sources = new (string RelativePath, string Text)[relativePaths.Length];
+        for (var i = 0; i < relativePaths.Length; i++)
+        {
+            var relativePath = relativePaths[i].Replace('/', Path.DirectorySeparatorChar);
             var absolutePath = Path.Join(root, relativePath);
-            Assert.True(File.Exists(absolutePath));
+            Assert.True(File.Exists(absolutePath), $"Expected server bootstrap source at {absolutePath}.");
             sources[i] = (relativePath, await File.ReadAllTextAsync(absolutePath, cancellationToken));
         }
 
@@ -241,8 +239,10 @@ internal static class ServerArchitectureFixtures
         }
 
         for (var node = root.FirstNode; node is not null; node = node.NextNode)
+        {
             if (node is XElement child)
                 CollectIndexData(child, properties, includes, includedElements, localNames);
+        }
     }
 
     private static bool IsGeneratedOutputPath(string path)
@@ -256,7 +256,7 @@ internal static class ServerArchitectureFixtures
     private static XDocument LoadServerProject()
     {
         var path = Path.Join(RepositoryPaths.FindRepositoryRoot(), ServerProjectRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        Assert.True(File.Exists(path));
+        Assert.True(File.Exists(path), $"Expected project at {path}.");
         return XDocument.Load(path);
     }
 }

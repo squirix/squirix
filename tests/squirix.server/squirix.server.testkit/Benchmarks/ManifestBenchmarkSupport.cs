@@ -5,7 +5,7 @@ namespace Squirix.Server.TestKit.Benchmarks;
 /// <summary>Scaling helpers for manifest publish and segment-roll benchmarks.</summary>
 public static class ManifestBenchmarkSupport
 {
-    private static bool IsQuickMode => string.Equals(System.Environment.GetEnvironmentVariable("SQUIRIX_BENCH_QUICK"), "1", StringComparison.Ordinal);
+    private static bool IsQuickMode => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_BENCH_QUICK"), "1", StringComparison.Ordinal);
 
     /// <summary>Returns publish operations per invoke (default 2000; quick 500).</summary>
     /// <param name="defaultCount">Operations per invoke when quick mode is disabled.</param>

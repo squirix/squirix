@@ -111,7 +111,11 @@ public sealed class DurableTypedValueRestartTests : EndToEndTestBase
             await StartNodeAsync(cancellationToken);
         }
 
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, DataDir, cancellationToken);
+        private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
+        {
+            var topology = new[] { ("nodeA", Uri) };
+            _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, topology, DataDir, cancellationToken);
+        }
 
         private async ValueTask StopNodeAsync()
         {

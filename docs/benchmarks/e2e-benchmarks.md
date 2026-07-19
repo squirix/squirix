@@ -103,7 +103,7 @@ Smoke run (fast, one read path, persistence only):
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks.GetValueAsync*' `
+  --filter '*Wire*AllocBenchmarks.GetValueAsync*' `
   --filter '*Persistence*' `
   --warmupCount 1 `
   --iterationCount 3
@@ -114,7 +114,7 @@ re-seed 512 keys in `IterationSetup`):
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Wire*AllocBenchmarks*' `
   --warmupCount 1 `
   --iterationCount 3 `
   --exporters json
@@ -124,7 +124,7 @@ Persistence-only subset:
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Wire*AllocBenchmarks*' `
   --filter '*Persistence*' `
   --warmupCount 1 `
   --iterationCount 3 `

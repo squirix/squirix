@@ -11,7 +11,7 @@ internal sealed class ExtensionCachePipelineAdapter<T> : ILogicalNamespacedCache
     private readonly ILogicalNamespacedCache<T> _core;
     private readonly ISquirixServerEntryCachePipeline<T>? _pipeline;
 
-    public ExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> core, ISquirixServerCachePipeline decorated)
+    internal ExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> core, ISquirixServerCachePipeline decorated)
     {
         _core = core ?? throw new ArgumentNullException(nameof(core));
         _ = decorated ?? throw new ArgumentNullException(nameof(decorated));

@@ -8,7 +8,7 @@ internal sealed record BootstrapConnectOptions
     internal static readonly TimeSpan DefaultPerAttemptTimeout = TimeSpan.FromSeconds(5);
     internal static readonly BootstrapConnectOptions SecondaryPeerAfterPrimary = new(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(2));
 
-    public BootstrapConnectOptions(TimeSpan perAttemptTimeout, TimeSpan overallDeadline, TimeSpan? baseBackoff = null, TimeSpan? maxBackoff = null)
+    internal BootstrapConnectOptions(TimeSpan perAttemptTimeout, TimeSpan overallDeadline, TimeSpan? baseBackoff = null, TimeSpan? maxBackoff = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(perAttemptTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(overallDeadline, TimeSpan.Zero);

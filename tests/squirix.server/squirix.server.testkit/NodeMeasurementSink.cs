@@ -82,7 +82,7 @@ public sealed class NodeMeasurementSink : IDisposable
     {
         foreach (var measurement in events)
         {
-            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
+            if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(measurement, tag1.Key, tag1.Value))
             {
                 return true;
 
@@ -96,7 +96,7 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value))
+            if (MeasurementHasTag(measurement, tag1.Key, tag1.Value) && MeasurementHasTag(measurement, tag2.Key, tag2.Value))
                 return true;
         }
 
@@ -115,8 +115,8 @@ public sealed class NodeMeasurementSink : IDisposable
             if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (MeasurementHasTag(in measurement, tag1.Key, tag1.Value) && MeasurementHasTag(in measurement, tag2.Key, tag2.Value) &&
-                MeasurementHasTag(in measurement, tag3.Key, tag3.Value))
+            if (MeasurementHasTag(measurement, tag1.Key, tag1.Value) && MeasurementHasTag(measurement, tag2.Key, tag2.Value) &&
+                MeasurementHasTag(measurement, tag3.Key, tag3.Value))
             {
                 return true;
         }
@@ -124,7 +124,7 @@ public sealed class NodeMeasurementSink : IDisposable
         return false;
     }
 
-    private static bool MeasurementHasTag(in CapturedMeasurement measurement, string key, string expectedValue)
+    private static bool MeasurementHasTag(CapturedMeasurement measurement, string key, string expectedValue)
     {
         if (measurement.OverflowTags is not null)
         {
@@ -152,13 +152,7 @@ public sealed class NodeMeasurementSink : IDisposable
         _ => string.Equals(Convert.ToString(tagValue, CultureInfo.InvariantCulture), expected, StringComparison.OrdinalIgnoreCase),
     };
 
-    private void OnInstrumentPublished(Instrument instrument, MeterListener listener)
-    {
-        if (string.Equals(instrument.Meter.Name, _meterName, StringComparison.OrdinalIgnoreCase))
-            listener.EnableMeasurementEvents(instrument, _events);
-    }
-
-    private readonly struct CapturedMeasurement
+    private sealed record CapturedMeasurement
     {
         private readonly string? _tagKey0;
         private readonly string? _tagKey1;
@@ -167,25 +161,16 @@ public sealed class NodeMeasurementSink : IDisposable
         private readonly object? _tagValue1;
         private readonly object? _tagValue2;
 
-        private CapturedMeasurement(
-            string instrumentName,
-            int tagCount,
-            string? tagKey0,
-            string? tagKey1,
-            string? tagKey2,
-            object? tagValue0,
-            object? tagValue1,
-            object? tagValue2,
-            KeyValuePair<string, object?>[]? overflowTags)
+        private CapturedMeasurement(string instrumentName, int tagCount, InlineTags? inline, KeyValuePair<string, object?>[]? overflowTags)
         {
             InstrumentName = instrumentName;
             TagCount = tagCount;
-            _tagKey0 = tagKey0;
-            _tagKey1 = tagKey1;
-            _tagKey2 = tagKey2;
-            _tagValue0 = tagValue0;
-            _tagValue1 = tagValue1;
-            _tagValue2 = tagValue2;
+            _tagKey0 = inline?.Key0;
+            _tagKey1 = inline?.Key1;
+            _tagKey2 = inline?.Key2;
+            _tagValue0 = inline?.Value0;
+            _tagValue1 = inline?.Value1;
+            _tagValue2 = inline?.Value2;
             OverflowTags = overflowTags;
         }
 
@@ -198,25 +183,23 @@ public sealed class NodeMeasurementSink : IDisposable
         internal static CapturedMeasurement Capture(string instrumentName, ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
             if (tags.Length is 0)
-                return new CapturedMeasurement(instrumentName, 0, null, null, null, null, null, null, null);
+                return new CapturedMeasurement(instrumentName, 0, null, null);
 
             if (tags.Length <= 3)
             {
-                return new CapturedMeasurement(
-                    instrumentName,
-                    tags.Length,
+                var inline = new InlineTags(
                     tags.Length > 0 ? tags[0].Key : null,
                     tags.Length > 1 ? tags[1].Key : null,
                     tags.Length > 2 ? tags[2].Key : null,
                     tags.Length > 0 ? tags[0].Value : null,
                     tags.Length > 1 ? tags[1].Value : null,
-                    tags.Length > 2 ? tags[2].Value : null,
-                    null);
+                    tags.Length > 2 ? tags[2].Value : null);
+                return new CapturedMeasurement(instrumentName, tags.Length, inline, null);
             }
 
             var overflow = new KeyValuePair<string, object?>[tags.Length];
             tags.CopyTo(overflow);
-            return new CapturedMeasurement(instrumentName, tags.Length, null, null, null, null, null, null, overflow);
+            return new CapturedMeasurement(instrumentName, tags.Length, null, overflow);
         }
 
         internal void GetTag(int index, out string key, out object? value)
@@ -238,6 +221,31 @@ public sealed class NodeMeasurementSink : IDisposable
                 default:
                     throw new ArgumentOutOfRangeException(nameof(index));
             }
+        }
+
+        private sealed record InlineTags
+        {
+            internal InlineTags(string? key0, string? key1, string? key2, object? value0, object? value1, object? value2)
+            {
+                Key0 = key0;
+                Key1 = key1;
+                Key2 = key2;
+                Value0 = value0;
+                Value1 = value1;
+                Value2 = value2;
+            }
+
+            internal string? Key0 { get; }
+
+            internal string? Key1 { get; }
+
+            internal string? Key2 { get; }
+
+            internal object? Value0 { get; }
+
+            internal object? Value1 { get; }
+
+            internal object? Value2 { get; }
         }
     }
 }

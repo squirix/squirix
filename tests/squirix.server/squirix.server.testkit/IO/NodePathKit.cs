@@ -164,7 +164,7 @@ public static class NodePathKit
             startTicks = DateTime.UtcNow.Ticks;
         }
 
-        return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
+        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
     }
 
     private static string CombineCore(bool sanitize, string path1, string path2)
@@ -185,7 +185,7 @@ public static class NodePathKit
         return CombineCore(sanitize, paths);
     }
 
-    private static string CombineCore(bool sanitize, string? path1, string? path2, string? path3, string? path4, string? path5, string? path6, int pathCount)
+    private static string CombineCore(bool sanitize, ReadOnlySpan<string?> paths)
     {
         var buffer = ArrayPool<string>.Shared.Rent(MaxSegmentBufferLength);
         var count = 0;

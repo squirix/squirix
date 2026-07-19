@@ -4,7 +4,7 @@ using System.Buffers.Binary;
 using System.IO;
 using Squirix.Server.Utils;
 
-namespace Squirix.Server.Storage.Journaling;
+namespace Squirix.Server.Storage.Journaling.Read;
 
 internal static class JournalFrameReader
 {

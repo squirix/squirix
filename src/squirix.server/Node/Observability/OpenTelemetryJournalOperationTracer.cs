@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Read;
 
 namespace Squirix.Server.Node.Observability;
 

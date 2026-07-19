@@ -24,7 +24,7 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -51,8 +51,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
         const string value = "cluster-forwarded-with-jwt";
@@ -152,8 +152,8 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uriB);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

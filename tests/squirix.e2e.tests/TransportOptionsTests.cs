@@ -1,10 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Client;
-using Squirix.E2ETests.Support;
-using Squirix.E2ETests.Support.Auth;
-using Squirix.E2ETests.Support.Client;
-using Squirix.E2ETests.Support.Cluster;
+using Squirix.E2ETests.Cluster;
 using Squirix.Server.TestKit.Hosting;
 using Xunit;
 

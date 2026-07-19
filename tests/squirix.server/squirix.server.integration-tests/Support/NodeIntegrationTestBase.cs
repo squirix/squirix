@@ -89,7 +89,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         };
         (_mtls, _, var material) = await ClusterTls.ResolveForNodeAsync(_mtls, cluster, bootstrapPeer.Uri, cancellationToken).ConfigureAwait(false);
         return material is not { Enabled: true, TrustAnchor: not null } ? LoopbackHttp.CreateHandler()
-            : TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(material.TrustAnchor, targetPeerNodeId);
+            : TestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor, targetPeerNodeId);
     }
 
     /// <summary>Creates an outbound handler that presents a trusted cluster peer certificate for inter-node gRPC.</summary>
@@ -124,21 +124,39 @@ public abstract class NodeIntegrationTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, testName);
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        string uri,
+        string nodeId,
+        NodeStartOptions? options = null,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        uri,
+        BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]),
+        options,
+        testName);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, testName);
+    internal ValueTask<TestNodeHost> StartNodeAsync(
+        Uri uri,
+        string nodeId,
+        NodeStartOptions? options = null,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        uri,
+        BuildClusterPeers([(nodeId, uri)]),
+        options,
+        testName);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null)
+    internal async ValueTask<TestNodeHost> StartNodeAsync(
+        Uri uri,
+        ServerPeer[] peers,
+        NodeStartOptions? options = null,
+        [CallerMemberName] string? testName = null)
     {
         options ??= new NodeStartOptions();
         ArgumentNullException.ThrowIfNull(uri);
@@ -172,18 +190,24 @@ public abstract class NodeIntegrationTestBase : IDisposable
             clusterConfig,
             new NodeHostStartOptions
             {
-                ConfigureLogging = static b =>
+                ConfigureLogging = b =>
                 {
                     _ = b.ClearProviders();
                     _ = b.SetMinimumLevel(LogLevel.Debug);
                     _ = b.AddFilter("Grpc", LogLevel.Debug);
                     _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                     _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = b.AddConsole().AddDebug();
+                    _ = options.Output is not null ? b.AddProvider(new LoggerProvider(options.Output)) : b.AddConsole().AddDebug();
                 },
                 WaitForRecovery = options.WaitForRecovery,
+                SnapshotOptions = options.SnapshotOptions,
+                CallPolicyFactory = options.CallPolicyFactory,
+                ConfigureGrpc = options.ConfigureGrpc,
                 ServicesConfigure = options.ServicesConfigure,
                 PersistenceOptions = persistenceOptionsOverride,
+                PeerHandlerFactory = options.PeerHandlerFactory,
+                BackpressureOptions = options.BackpressureOptions,
+                MemoryPressureOptions = options.MemoryPressureOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
                 MtlsMaterial = mtlsMaterial,
@@ -226,6 +250,14 @@ public abstract class NodeIntegrationTestBase : IDisposable
         _httpClient?.Dispose();
     }
 
+    /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
+    /// <param name="host">The started test node host providing access to the service provider.</param>
+    /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.
+    /// </exception>
+    private protected static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
+
     /// <summary>
     /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
     /// </summary>
@@ -255,14 +287,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
         return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
-
-    /// <summary>Resolves the cluster-aware cache API client from the test node’s dependency injection container.</summary>
-    /// <param name="host">The started test node host providing access to the service provider.</param>
-    /// <returns>The resolved <see cref="ICacheApi{T}" /> instance.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node’s service provider.
-    /// </exception>
-    private protected static ILogicalNamespacedCache<object?> GetCache(TestNodeHost host) => host.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>("default");
 
     private static string BuildTestScope(string? testName, string? extra)
     {
@@ -313,7 +337,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (clean && CleanedScopes.TryAdd(path, 0))
             await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir) ? NodePathKit.Combine(true, path, selfNodeId) : persistenceOptions.DataDir;
+        var effectiveDataDir = persistenceOptions?.DataDir ?? NodePathKit.Combine(true, path, selfNodeId);
         DirectoryKit.CreateDirectory(effectiveDataDir);
 
         if (persistenceOptions is null)
@@ -352,6 +376,13 @@ public abstract class NodeIntegrationTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, testName);
+    private ValueTask<TestNodeHost> StartNodeAsync(
+        string uri,
+        ServerPeer[] peers,
+        NodeStartOptions? options = null,
+        [CallerMemberName] string? testName = null) => StartNodeAsync(
+        new Uri(uri, UriKind.Absolute),
+        peers,
+        options,
+        testName);
 }

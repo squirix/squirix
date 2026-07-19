@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.App;
@@ -443,5 +443,33 @@ internal sealed class DurableMutationExecutor
         internal DurableMutationExecutor Mutator { get; }
 
         internal Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+    }
+
+    /// <summary>Result of the journal append phase of a durable mutation.</summary>
+    /// <typeparam name="TResult">Mutation result type.</typeparam>
+    private sealed record DurableMutationPlan<TResult>
+    {
+        private DurableMutationPlan(bool shouldApply, TResult? skipResult)
+        {
+            ShouldApply = shouldApply;
+            SkipResult = skipResult;
+        }
+
+        /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
+        internal bool ShouldApply { get; }
+
+        /// <summary>
+        /// Gets the result returned when <see cref="ShouldApply" /> is false.
+        /// </summary>
+        internal TResult? SkipResult { get; }
+
+        /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>
+        /// <returns>An apply plan.</returns>
+        internal static DurableMutationPlan<TResult> Apply() => new(true, default);
+
+        /// <summary>Creates a plan that skips durability commit and memory apply.</summary>
+        /// <param name="result">Result to return to the caller.</param>
+        /// <returns>A skip plan.</returns>
+        internal static DurableMutationPlan<TResult> Skip(TResult result) => new(false, result);
     }
 }

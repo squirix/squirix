@@ -5,7 +5,6 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <summary>
 /// Optional settings for <see cref="TestNodeHostFactory" /> node startup.
 /// </summary>
-// -V3072 Mtls is borrowed from the test harness; this DTO does not own the shared context.
 public sealed class TestNodeHostStartOptions
 {
     /// <summary>Gets the persistence data directory. When set, the node starts with journal/snapshot persistence enabled.</summary>

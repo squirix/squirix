@@ -97,10 +97,10 @@ public sealed class KeyedSingleFlightTests : UnitTestBase
     {
         private int _executions;
 
-        public int Executions => _executions;
+        internal int Executions => _executions;
 
-        public required TaskCompletionSource Gate { get; init; }
+        internal required TaskCompletionSource Gate { get; init; }
 
-        public void IncrementExecutions() => _ = Interlocked.Increment(ref _executions);
+        internal void IncrementExecutions() => _ = Interlocked.Increment(ref _executions);
     }
 }

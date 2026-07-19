@@ -18,7 +18,10 @@ internal sealed class ServerInterceptor : Interceptor
         _nodeId = nodeId;
     }
 
-    public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+    public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
+        TRequest request,
+        ServerCallContext context,
+        UnaryServerMethod<TRequest, TResponse> continuation)
     {
         var headers = context.RequestHeaders;
         var traceParent = headers.GetValue(Correlation.TraceParentHeader);

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
+using Squirix.E2ETests.Cluster;
 using Xunit;
 
 namespace Squirix.E2ETests;

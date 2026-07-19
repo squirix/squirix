@@ -2,8 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
-using Squirix.Server.Storage.Manifest;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
@@ -22,7 +20,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
     [Fact]
     public async Task WriteCleansUpJournalSegmentsOlderThanReplayPoint()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir);
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         CreateJournalSegment(1);
@@ -34,7 +32,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             new Storage.Manifest.State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.State.SnapshotRef
+                LastSnapshot = new Storage.Manifest.SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -46,7 +44,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleJournalPaths = (JournalPath(1), JournalPath(2));
-        await ManifestStoreTestSupport.WaitUntilAsync(
+        await StoreTestSupport.WaitUntilAsync(
             staleJournalPaths,
             static paths => !FileKit.Exists(paths.Item1) && !FileKit.Exists(paths.Item2),
             TimeSpan.FromSeconds(5),
@@ -75,7 +73,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         await store.WriteAsync(
             new Storage.Manifest.State
             {
-                LastSnapshot = new Storage.Manifest.State.SnapshotRef
+                LastSnapshot = new Storage.Manifest.SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
@@ -87,7 +85,7 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await ManifestStoreTestSupport.WaitUntilAsync(
+        await StoreTestSupport.WaitUntilAsync(
             staleSnapshotPath,
             static path => !FileKit.Exists(path),
             TimeSpan.FromSeconds(5),
@@ -126,12 +124,12 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         base.Dispose(disposing);
     }
 
-    private string JournalPath(int index) => PathKit.Combine(
+    private string JournalPath(int index) => NodePathKit.Combine(
         false,
         Dir,
         $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => PathKit.Combine(
+    private string SnapshotPath(int index) => NodePathKit.Combine(
         false,
         Dir,
         $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");

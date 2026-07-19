@@ -46,5 +46,5 @@ public sealed class SquirixServerOptions
 
     /// <summary>Validates the current configuration and throws when a value is invalid.</summary>
     /// <exception cref="ArgumentException">Thrown when a configuration value is invalid.</exception>
-    public void Validate() => ClusterTopologyValidator.Validate(this);
+    public void Validate() => SquirixServerOptionsValidator.Validate(this);
 }

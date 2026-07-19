@@ -6,8 +6,9 @@ using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Node.Bootstrap;
+using Squirix.Server.Cluster;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Node.Hosting;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server;
@@ -35,7 +36,7 @@ public static class Configurator
 
         ApplyRuntimeDefaults(options);
         AlignLocalPeerWithNodeUrl(options);
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
     }
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
@@ -234,9 +235,6 @@ public static class Configurator
 
             var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
                           throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
-            if (options.DataDirectory is not null)
-                options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
-
             if (SquirixServerOptionsValidator.TryValidate(options, out var failures))
                 return (true, options, null);
 
@@ -283,9 +281,9 @@ public static class Configurator
     /// <summary>Maps validated server options to internal cluster configuration.</summary>
     /// <param name="options">Validated server options.</param>
     /// <returns>Cluster configuration for the node host pipeline.</returns>
-    internal static ClusterConfig ToClusterConfig(SquirixServerOptions options)
+    internal static TopologyOptions ToClusterConfig(SquirixServerOptions options)
     {
-        ClusterTopologyValidator.Validate(options);
+        SquirixServerOptionsValidator.Validate(options);
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
@@ -299,7 +297,7 @@ public static class Configurator
                 peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
             }
 
-        return new ClusterConfig(peers)
+        return new TopologyOptions(peers)
         {
             ClusterId = options.ClusterId,
             NodeId = options.NodeId,

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 

@@ -1,7 +1,6 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Contracts;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
 using Squirix.Server.UnitTests.Support;
@@ -11,7 +10,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Unit tests for mutating RPC idempotency store behavior.</summary>
-public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
+public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
 {
     private const string ValidOperationId = "0123456789abcdef0123456789abcdef";
 
@@ -162,7 +161,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
 
     /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
     [Fact]
-    public void TryReplayReturnsFalseWhenOperationIdIsUnknown()
+    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
     {
         var store = new RpcMutationIdempotencyStore();
         var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
@@ -173,6 +172,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : UnitTestBase
 
     private sealed class ExecutionCounter
     {
-        public int Value { get; set; }
+        internal int Value { get; set; }
     }
 }

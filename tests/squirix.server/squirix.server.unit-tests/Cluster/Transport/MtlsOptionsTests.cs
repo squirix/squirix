@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -92,13 +91,13 @@ public sealed class MtlsOptionsTests
     [Fact]
     public void StartupValidatorAllowsTopologyMtlsMaterial()
     {
-        var cluster = new ClusterConfig([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }])
+        var cluster = new TopologyOptions([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }])
         {
             ClusterId = "test",
             NodeId = "node-a",
             Uri = new Uri("https://localhost:6001"),
         };
-        var validator = new OptionsValidators.MtlsOptionsValidator(cluster);
+        var validator = new MtlsOptionsValidator(cluster);
 
         var result = validator.Validate(null, new MtlsOptions());
 

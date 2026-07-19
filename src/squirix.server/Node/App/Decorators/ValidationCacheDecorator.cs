@@ -4,9 +4,8 @@ using System.Threading.Tasks;
 using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Limits;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.Node.App.Decorators;
 
@@ -18,7 +17,7 @@ internal sealed class ValidationCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly INodeLocator _ring;
     private readonly string _self;
 
-    public ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, INodeLocator ring, string self)
+    internal ValidationCacheDecorator(ILogicalNamespacedCache<T> inner, INodeLocator ring, string self)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));

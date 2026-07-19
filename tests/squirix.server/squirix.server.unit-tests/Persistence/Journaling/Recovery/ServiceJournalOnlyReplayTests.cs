@@ -4,7 +4,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
-using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -16,16 +15,16 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
 {
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>
     [Fact]
-    public async Task JournalRecoveryReplaysClosedManifestCurrentJournal()
+    public async Task JournalOnlyRecoveryReplaysClosedSegmentBelowManifestCurrentJournal()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
         var seg1A = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "seg1-a", "a");
         var seg1B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "seg1-b", "b");
         var seg2C = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "seg2-c", "c");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, [seg1A, seg1B]);
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 2, seg2C);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 2, [seg2C]);
         await scenario.ManifestStore.WriteAsync(
-            new State
+            new Storage.Manifest.State
             {
                 Format = 1,
                 CurrentJournal = 2,

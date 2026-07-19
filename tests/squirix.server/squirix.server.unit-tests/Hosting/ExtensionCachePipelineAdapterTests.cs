@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Hosting;
@@ -21,7 +21,7 @@ public sealed class ExtensionCachePipelineAdapterTests
         var adapter = new ExtensionCachePipelineAdapter<object?>(core, decorated);
         var entry = new NodeCacheEntry<object?> { Value = "value", Version = 7 };
 
-        await adapter.SetEntryAsync(TestOperationIds.Default, "cache", "key", entry, CancellationToken.None);
+        await adapter.SetEntryAsync(UnitMutationOpIds.Default, "cache", "key", entry, CancellationToken.None);
         var result = await adapter.GetEntryAsync("cache", "key", CancellationToken.None);
 
         Assert.Equal(1, decorated.InsertEntryCalls);
@@ -51,9 +51,9 @@ public sealed class ExtensionCachePipelineAdapterTests
 
         internal int GetEntryCalls { get; private set; }
 
-        public int GetValueCalls { get; private set; }
+        internal int GetValueCalls { get; private set; }
 
-        public int InsertEntryCalls { get; private set; }
+        internal int InsertEntryCalls { get; private set; }
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
         {
@@ -90,9 +90,9 @@ public sealed class ExtensionCachePipelineAdapterTests
     {
         internal int GetEntryCalls { get; private set; }
 
-        public int GetValueCalls { get; private set; }
+        internal int GetValueCalls { get; private set; }
 
-        public int InsertEntryCalls { get; private set; }
+        internal int InsertEntryCalls { get; private set; }
 
         public ValueTask<NodeCacheEntry<object?>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken)
         {

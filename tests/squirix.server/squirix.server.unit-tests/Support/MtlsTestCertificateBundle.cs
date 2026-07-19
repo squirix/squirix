@@ -31,7 +31,7 @@ internal sealed class MtlsTestCertificateBundle : IDisposable
         PfxPath = pfxPath;
     }
 
-    public string CaPath { get; }
+    internal string CaPath { get; }
 
     internal string CertPath { get; }
 

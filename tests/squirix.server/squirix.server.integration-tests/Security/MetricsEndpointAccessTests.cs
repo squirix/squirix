@@ -26,7 +26,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
         var mainPort = AllocateDedicatedPort();
         var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var req = new HttpRequestMessage(HttpMethod.Get, InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics"));
         req.Version = HttpVersion.Version20;
@@ -45,7 +45,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
         var mainPort = AllocateDedicatedPort();
         var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var response = await HttpClient.GetAsync(new Uri(InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics")), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -55,14 +55,14 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
     [Fact]
     public async Task RemoteMetricsScrapeCredentialsAuthEnabled()
     {
-        var localIp = LocalHostNetworking.TryGetLocalNonLoopbackIpv4();
+        var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
         var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var response = await GetMetricsViaLocalIpAsync(localIp, mainPort, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);

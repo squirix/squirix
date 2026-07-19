@@ -1,6 +1,5 @@
 using System;
 using Squirix.Core;
-using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;

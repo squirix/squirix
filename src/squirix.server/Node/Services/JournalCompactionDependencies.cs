@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot;
@@ -14,7 +14,7 @@ internal sealed class JournalCompactionDependencies
         ManifestStore manifest,
         ISnapshotReader snapshotReader,
         PersistenceOptions persistence,
-        ClusterConfig cluster,
+        TopologyOptions cluster,
         TimeProvider? timeProvider = null)
     {
         Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
@@ -36,7 +36,7 @@ internal sealed class JournalCompactionDependencies
 
     internal PersistenceOptions Persistence { get; }
 
-    internal ClusterConfig Cluster { get; }
+    internal TopologyOptions Cluster { get; }
 
     internal TimeProvider TimeProvider { get; }
 }

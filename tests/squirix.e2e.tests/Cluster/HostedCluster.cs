@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
-using Squirix.E2ETests.Support.Client;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
@@ -20,7 +19,7 @@ internal sealed class HostedCluster : IAsyncDisposable
 
     private readonly List<ISquirixClient> _clients = [];
     private readonly TempDirectory? _dataDir;
-    private readonly MtlsTestContext? _mtls;
+    private readonly ClusterTls? _mtls;
     private readonly Dictionary<string, TestNode> _nodes;
     private int _disposed;
 
@@ -29,39 +28,6 @@ internal sealed class HostedCluster : IAsyncDisposable
         _nodes = nodes;
         _mtls = mtls;
         _dataDir = dataDir;
-    }
-
-    public static ValueTask<HostedCluster> StartTwoNodeAsync(
-        string? testName = null,
-        TestNodeSecurityOptions? security = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
-
-    public static ValueTask<HostedCluster> StartTwoNodeAsync(
-        TwoNodeStartOptions? options,
-        string? testName = null,
-        bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], options, testName, usePersistence, cancellationToken);
-
-    public async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
-    {
-        var uri = _nodes[nodeId].Uri;
-        var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
-        _clients.Add(client);
-        return client;
-    }
-
-    public Uri GetUri(string nodeId) => _nodes[nodeId].Uri;
-
-    /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
-    /// <param name="nodeId">Node identifier to stop.</param>
-    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is not a running node.</exception>
-    public ValueTask StopNodeAsync(string nodeId)
-    {
-        if (!_nodes.Remove(nodeId, out var node))
-            throw new InvalidOperationException($"Node '{nodeId}' is not running.");
-
-        return node.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -85,6 +51,39 @@ internal sealed class HostedCluster : IAsyncDisposable
         bool usePersistence = false,
         CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
+    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
+        string? testName = null,
+        TestNodeSecurityOptions? security = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartTwoNodeAsync(new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+
+    internal static ValueTask<HostedCluster> StartTwoNodeAsync(
+        TwoNodeStartOptions? options,
+        string? testName = null,
+        bool usePersistence = false,
+        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], options, testName, usePersistence, cancellationToken);
+
+    internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
+    {
+        var uri = _nodes[nodeId].Uri;
+        var client = await LoopbackConnect.ConnectAsync(uri, cancellationToken);
+        _clients.Add(client);
+        return client;
+    }
+
+    internal Uri GetUri(string nodeId) => _nodes[nodeId].Uri;
+
+    /// <summary>Stops and removes one HostedCluster node while leaving other nodes running.</summary>
+    /// <param name="nodeId">Node identifier to stop.</param>
+    /// <exception cref="InvalidOperationException">Thrown when <paramref name="nodeId" /> is not a running node.</exception>
+    internal ValueTask StopNodeAsync(string nodeId)
+    {
+        if (!_nodes.Remove(nodeId, out var node))
+            throw new InvalidOperationException($"Node '{nodeId}' is not running.");
+
+        return node.DisposeAsync();
+    }
+
     private static string BuildDataDir(TempDirectory clusterRoot, string nodeId)
     {
         var path = NodePathKit.Combine(clusterRoot.Path, nodeId);
@@ -107,6 +106,8 @@ internal sealed class HostedCluster : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         startOptions ??= new TwoNodeStartOptions();
+
+        // Pre-allocate every listen URI so each node advertises the same peer topology at startup.
         var uris = new Dictionary<string, Uri>(StringComparer.Ordinal);
         for (var i = 0; i < nodeIds.Length; i++)
             uris[nodeIds[i]] = ListenPortPool.EndToEndTests.NextHttpUri();
@@ -131,7 +132,7 @@ internal sealed class HostedCluster : IAsyncDisposable
                     Security = startOptions.Security,
                     MtlsProfile = startOptions.GetProfile(nodeId),
                 };
-                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, cancellationToken));
+                nodes[nodeId] = new TestNode(await TestNodeHostFactory.StartNodeAsync(nodeId, uris[nodeId], topology, hostOptions, mtls, cancellationToken));
             }
 
             return new HostedCluster(nodes, mtls, dataDir);

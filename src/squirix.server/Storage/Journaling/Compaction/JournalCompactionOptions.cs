@@ -13,7 +13,8 @@ internal sealed class JournalCompactionOptions
         MinTailSegments = 2;
     }
 
-    public TimeSpan MinGap
+    [JsonInclude]
+    internal TimeSpan MinGap
     {
         get;
         init
@@ -51,5 +52,6 @@ internal sealed class JournalCompactionOptions
         }
     }
 
-    public bool Enabled { get; init; } = true;
+    [JsonInclude]
+    internal bool Enabled { get; init; } = true;
 }

@@ -1,4 +1,4 @@
-namespace Squirix.Internal.Cluster.Reliability;
+namespace Squirix.Server.Node.Observability;
 
 /// <summary>
 /// Classifies which cancellation source is authoritative for an <see cref="System.OperationCanceledException" /> path.

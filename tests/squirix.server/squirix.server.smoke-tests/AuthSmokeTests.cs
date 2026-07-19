@@ -1,7 +1,6 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.SmokeTests.Support;
-using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
@@ -22,7 +21,7 @@ public sealed class AuthSmokeTests : SmokeTestBase
         await using var node = await StartNodeAsync(
             uri,
             "node-grpc-auth",
-            security: TestJwtHelper.ToSecurityOptions(credentials),
+            new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
             cancellationToken: DefaultCancellationToken);
 
         using var channel = CreateGrpcChannel(uri);

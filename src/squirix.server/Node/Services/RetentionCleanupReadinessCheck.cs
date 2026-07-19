@@ -14,7 +14,7 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
 
     private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
 
-    public RetentionCleanupReadinessCheck(IRetentionCleanupReadinessStatus retentionCleanup)
+    internal RetentionCleanupReadinessCheck(IRetentionCleanupReadinessStatus retentionCleanup)
     {
         _retentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
     }

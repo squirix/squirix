@@ -30,21 +30,6 @@ public sealed class JournalBackendContractTests
         Assert.Equal(key.Key, last.Key.Key);
     }
 
-    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
-    [Fact]
-    public async Task AppendRemoveExpirationReplayRoundTrip()
-    {
-        await using var context = await CreateCoordinatorAsync();
-        var key = new CacheKey("ns", "remove-exp-key");
-        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
-        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
-
-        var last = await ReadLastRecordAsync(context);
-        Assert.Equal(JournalOperationKind.RemoveExpiration, last.Operation);
-        Assert.Equal(key.Namespace, last.Key.Namespace);
-        Assert.Equal(key.Key, last.Key.Key);
-    }
-
     /// <summary>Append remove and replay round-trip for the pipelined journal backend.</summary>
     [Fact]
     public async Task AppendRemoveReplayRoundTrip()
@@ -56,6 +41,21 @@ public sealed class JournalBackendContractTests
 
         var last = await ReadLastRecordAsync(context);
         Assert.Equal(JournalOperationKind.Remove, last.Operation);
+        Assert.Equal(key.Namespace, last.Key.Namespace);
+        Assert.Equal(key.Key, last.Key.Key);
+    }
+
+    /// <summary>Append remove-expiration and replay round-trip for the pipelined journal backend.</summary>
+    [Fact]
+    public async Task AppendRemoveExpirationReplayRoundTrip()
+    {
+        await using var context = await CreateCoordinatorAsync();
+        var key = new CacheKey("ns", "remove-exp-key");
+        await context.Coordinator.AppendRemoveExpirationAsync(key, CancellationToken.None);
+        await context.Coordinator.AwaitDurabilityCommitAsync(CancellationToken.None);
+
+        var last = await ReadLastRecordAsync(context);
+        Assert.Equal(JournalOperationKind.RemoveExpiration, last.Operation);
         Assert.Equal(key.Namespace, last.Key.Namespace);
         Assert.Equal(key.Key, last.Key.Key);
     }
@@ -111,11 +111,11 @@ public sealed class JournalBackendContractTests
             Coordinator = coordinator;
         }
 
-        internal IJournalCoordinator Coordinator { get; }
+        internal PersistenceOptions Options { get; }
 
         internal ManifestStore ManifestStore { get; }
 
-        internal PersistenceOptions Options { get; }
+        internal IJournalCoordinator Coordinator { get; }
 
         public async ValueTask DisposeAsync()
         {

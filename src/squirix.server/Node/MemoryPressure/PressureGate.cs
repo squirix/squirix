@@ -20,7 +20,7 @@ internal sealed class PressureGate : IMemoryPressureGate
     /// <param name="evaluator">Pressure state evaluator.</param>
     /// <param name="accounting">Approximate global accounting snapshot input.</param>
     /// <param name="nodeId">This node's id for low-cardinality metrics only.</param>
-    public PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
+    internal PressureGate(IMemoryPressureStateEvaluator evaluator, IMemoryUsageAccounting accounting, string nodeId)
     {
         _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
         _accounting = accounting ?? throw new ArgumentNullException(nameof(accounting));
@@ -44,7 +44,7 @@ internal sealed class PressureGate : IMemoryPressureGate
 
         _accounting.RecordAdmissionRejection();
         var unknown = string.IsNullOrEmpty(operation) ? AdmissionOperations.Unknown : operation;
-        MemoryPressureMetrics.RecordRejection(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
+        RejectionCounter.Record(_nodeId, unknown, ClassifyRejectionReason(magnitudeUnknown, boundedGrowth));
         throw new ResourceExhaustedException();
     }
 

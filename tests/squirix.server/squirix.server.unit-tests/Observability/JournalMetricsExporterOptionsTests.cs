@@ -1,6 +1,6 @@
 using System;
 using Squirix.Server.Node.Services;
-using Squirix.Server.Serialization;
+using Squirix.Server.Runtime;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;

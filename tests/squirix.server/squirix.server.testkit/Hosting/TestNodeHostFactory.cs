@@ -12,7 +12,7 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <summary>Starts in-process Squirix nodes for external black-box tests.</summary>
 public static class TestNodeHostFactory
 {
-    /// <summary>Starts an ephemeral standalone (single-peer) node without a temporary topology collection.</summary>
+    /// <summary>Starts a test node with shared cluster mTLS material owned by the caller.</summary>
     /// <param name="nodeId">The node identifier.</param>
     /// <param name="uri">The HTTP listen address.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
@@ -24,19 +24,11 @@ public static class TestNodeHostFactory
         string nodeId,
         Uri uri,
         ReadOnlySpan<(string NodeId, Uri Uri)> topology,
-        TestNodeHostStartOptions? options = null,
+        TestNodeHostStartOptions? options,
+        ClusterTls? sharedMtls,
         CancellationToken cancellationToken = default)
     {
-        return StartNodeAsync(
-            nodeId,
-            uri,
-            CopyTopology(topology),
-            options?.DataDir,
-            options?.DataDir is not null,
-            options?.Security,
-            options?.Mtls,
-            options?.MtlsProfile ?? MtlsTestNodeProfile.Normal,
-            cancellationToken);
+        return StartNodeAsync(nodeId, uri, CopyTopology(topology), options, sharedMtls, cancellationToken);
     }
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
@@ -65,6 +57,29 @@ public static class TestNodeHostFactory
         string? dataDir,
         CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, topology, new TestNodeHostStartOptions { DataDir = dataDir }, cancellationToken);
 
+    private static (string NodeId, Uri Uri)[] CopyTopology(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
+    {
+        var copy = new (string NodeId, Uri Uri)[topology.Length];
+        for (var i = 0; i < topology.Length; i++)
+            copy[i] = (topology[i].NodeId, topology[i].Uri);
+
+        return copy;
+    }
+
+    /// <summary>Starts a test node with the provided cluster topology and optional settings.</summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="uri">The HTTP listen address.</param>
+    /// <param name="topology">Cluster members for peer configuration.</param>
+    /// <param name="options">Optional startup settings.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    private static ValueTask<TestNodeHost> StartNodeAsync(
+        string nodeId,
+        Uri uri,
+        ReadOnlySpan<(string NodeId, Uri Uri)> topology,
+        TestNodeHostStartOptions? options = null,
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, topology, options, null, cancellationToken);
+
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
@@ -73,11 +88,8 @@ public static class TestNodeHostFactory
         string nodeId,
         Uri uri,
         (string NodeId, Uri Uri)[] topology,
-        string? dataDir,
-        bool persistence,
-        TestNodeSecurityOptions? security,
-        MtlsTestContext? mtls,
-        MtlsTestNodeProfile mtlsProfile,
+        TestNodeHostStartOptions? options,
+        ClusterTls? sharedMtls,
         CancellationToken cancellationToken)
     {
         PersistenceOptions? persistenceOptions = null;
@@ -87,7 +99,12 @@ public static class TestNodeHostFactory
             if (string.IsNullOrWhiteSpace(dataDir))
                 throw new ArgumentException("DataDir must be non-empty when persistence is enabled.", nameof(options));
 
-        var clusterConfig = new ClusterConfig(peers)
+            persistenceOptions = new PersistenceOptions { DataDir = dataDir };
+        }
+
+        var peers = ClusterTls.CreatePeers(ref sharedMtls, topology);
+
+        var clusterConfig = new TopologyOptions(peers)
         {
             NodeId = nodeId,
             Uri = uri,
@@ -95,8 +112,9 @@ public static class TestNodeHostFactory
         };
 
         var primaryUri = clusterConfig.Uri;
-        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = mtls is null ? (null, null, null)
-            : await mtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
+        var mtlsProfile = options?.MtlsProfile ?? TestNodeProfile.Normal;
+        var (mtlsOptions, mtlsMaterial, peerHandlerFactory) = sharedMtls is null ? (null, null, null)
+            : await sharedMtls.ResolveNodeStartupAsync(clusterConfig, primaryUri, mtlsProfile, cancellationToken).ConfigureAwait(false);
 
         var app = await NodeHost.StartAsync(
             clusterConfig,
@@ -118,15 +136,6 @@ public static class TestNodeHostFactory
             },
             cancellationToken).ConfigureAwait(false);
 
-        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistence);
-    }
-
-    private static (string NodeId, Uri Uri)[] CopyTopology(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
-    {
-        var copy = new (string NodeId, Uri Uri)[topology.Length];
-        for (var i = 0; i < topology.Length; i++)
-            copy[i] = (topology[i].NodeId, topology[i].Uri);
-
-        return copy;
+        return new TestNodeHost(app, uri, persistenceOptions?.DataDir ?? string.Empty, persistenceOptions is not null);
     }
 }

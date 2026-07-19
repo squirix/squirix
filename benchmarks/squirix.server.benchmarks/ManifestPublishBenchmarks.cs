@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Benchmarks;
+using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -11,7 +12,7 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
 public class ManifestPublishBenchmarks
 {
-    private ManifestBenchmarkHost? _host;
+    private Host? _host;
     private int _operationsPerInvoke;
     private ulong _nextSequence = 1;
 
@@ -45,10 +46,42 @@ public class ManifestPublishBenchmarks
             ManifestRetentionCount = retention,
             SnapshotRetentionCount = retention,
         };
-        _host = await ManifestBenchmarkHost.CreateAsync("manifest-bench", options).ConfigureAwait(false);
+        _host = await Host.CreateAsync("manifest-bench", options).ConfigureAwait(false);
         _nextSequence = 1;
 
         // Warm steady-state in-memory index/cache before measured iterations.
         _host.Store.PublishRollBlocking(1, _nextSequence++);
+    }
+
+    /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>
+    private sealed class Host : IAsyncDisposable
+    {
+        private readonly TempDirectory _dataDir;
+
+        private Host(TempDirectory dataDir, ManifestStore manifestStore)
+        {
+            _dataDir = dataDir;
+            Store = manifestStore;
+        }
+
+        internal ManifestStore Store { get; }
+
+        public ValueTask DisposeAsync()
+        {
+            Store.Dispose();
+            _dataDir.Dispose();
+            return ValueTask.CompletedTask;
+        }
+
+        internal static Task<Host> CreateAsync(string tempDirectoryPrefix, PersistenceOptions options)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(tempDirectoryPrefix);
+            ArgumentNullException.ThrowIfNull(options);
+
+            var dataDir = new TempDirectory(tempDirectoryPrefix);
+            var persistence = options with { DataDir = dataDir.Path };
+            var manifestStore = new ManifestStore(persistence);
+            return Task.FromResult(new Host(dataDir, manifestStore));
+        }
     }
 }

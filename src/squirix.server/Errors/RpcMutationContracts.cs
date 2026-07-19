@@ -1,6 +1,6 @@
 using Grpc.Core;
 
-namespace Squirix.Server.Contracts;
+namespace Squirix.Server.Errors;
 
 /// <summary>Shared validation and stable detail strings for mutating RPC idempotency.</summary>
 internal static class RpcMutationContracts

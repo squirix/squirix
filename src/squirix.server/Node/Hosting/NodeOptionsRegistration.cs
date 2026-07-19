@@ -1,12 +1,13 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Node.Services;
@@ -20,68 +21,109 @@ internal static class NodeOptionsRegistration
 {
     internal static async Task<IServiceCollection> AddSquirixValidatedOptionsAsync(
         this IServiceCollection services,
-        ClusterConfig cluster,
+        TopologyOptions cluster,
         ValidatedOptionsArgs args,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        AddValidatedInstance<ClusterConfig, OptionsValidators.ClusterConfigValidator>(services, cluster);
-        var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
-        AddValidatedInstance<MtlsOptions, OptionsValidators.MtlsOptionsValidator>(services, mtlsOptions);
-        _ = args.MtlsMaterial is not null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
-        {
-            var registeredCluster = provider.GetRequiredService<ClusterConfig>();
-            var options = provider.GetRequiredService<MtlsOptions>();
-            var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
-            return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
-        });
-        AddValidatedInstance<AdmissionOptions, OptionsValidators.BackpressureOptionsValidator>(services, args.BackpressureOptions ?? new AdmissionOptions());
+        AddValidatedInstance<TopologyOptions, ConfigValidator>(services, cluster);
+        AddValidatedMtlsOptions(services, args);
+        AddValidatedInstance<AdmissionOptions, AdmissionOptionsValidator>(services, args.BackpressureOptions ?? new AdmissionOptions());
         var unresolvedMemoryPressure = await PressureBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         var memoryPressure = args.MemoryPressureOptions ?? OptionsResolver.Resolve(unresolvedMemoryPressure, GcMemoryBudgetProvider.Instance);
-        AddValidatedInstance<PressureOptions, OptionsValidators.MemoryPressureOptionsValidator>(services, memoryPressure);
+        AddValidatedInstance<PressureOptions, PressureOptionsValidator>(services, memoryPressure);
         var idempotency = await IdempotencyBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
-        AddValidatedInstance<IdempotencyOptions, OptionsValidators.IdempotencyOptionsValidator>(services, idempotency);
+        AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions is not null)
-        {
-            AddValidatedInstance<PersistenceOptions, OptionsValidators.PersistenceOptionsValidator>(services, args.PersistenceOptions);
-            var snapshot = args.SnapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
-            AddValidatedInstance<TriggerOptions, OptionsValidators.SnapshotTriggerOptionsValidator>(services, snapshot);
-            var compactionOptions = new JournalCompactionOptions
-            {
-                Enabled = true,
-                MinTailSegments = 2,
-                MinTailBytes = 64 * 1024 * 1024,
-                MinGap = TimeSpan.FromMinutes(2),
-            };
-            AddValidatedInstance<JournalCompactionOptions, OptionsValidators.JournalCompactionOptionsValidator>(services, compactionOptions);
-            var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
-            AddValidatedInstance<JournalMetricsExporterOptions, OptionsValidators.JournalMetricsExporterOptionsValidator>(services, options);
-        }
+            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, args.SnapshotOptions, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
-        AddValidatedInstance<PrometheusMetricsEndpointOptions, OptionsValidators.PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
+        AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
         return services;
+    }
+
+    private static void AddValidatedMtlsOptions(IServiceCollection services, ValidatedOptionsArgs args)
+    {
+        var mtlsOptions = args.MtlsOptions ?? MtlsOptionsResolver.ResolveFromEnvironment();
+        AddValidatedOptionsInstance(services, mtlsOptions);
+
+        // Factory keeps the internal MtlsOptionsValidator constructor usable with MS.DI.
+        _ = services.AddSingleton<IValidateOptions<MtlsOptions>>(static sp => new MtlsOptionsValidator(sp.GetRequiredService<TopologyOptions>()));
+        _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
+            sp.GetRequiredService<IOptions<MtlsOptions>>(),
+            sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
+        _ = args.MtlsMaterial is not null
+            ? services.AddSingleton(args.MtlsMaterial)
+            : services.AddSingleton(static provider =>
+            {
+                var registeredCluster = provider.GetRequiredService<TopologyOptions>();
+                var options = provider.GetRequiredService<MtlsOptions>();
+                var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
+                return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+            });
+    }
+
+    private static async Task AddValidatedPersistenceOptionsAsync(
+        IServiceCollection services,
+        PersistenceOptions persistence,
+        TriggerOptions? snapshotOptions,
+        CancellationToken cancellationToken)
+    {
+        AddValidatedInstance<PersistenceOptions, PersistenceOptionsValidator>(services, persistence);
+        var snapshot = snapshotOptions ?? await SnapshotBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
+        AddValidatedInstance<TriggerOptions, TriggerOptionsValidator>(services, snapshot);
+        var compactionOptions = new JournalCompactionOptions
+        {
+            Enabled = true,
+            MinTailSegments = 2,
+            MinTailBytes = 64 * 1024 * 1024,
+            MinGap = TimeSpan.FromMinutes(2),
+        };
+        AddValidatedInstance<JournalCompactionOptions, JournalCompactionOptionsValidator>(services, compactionOptions);
+        var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromSeconds(5) };
+        AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }
 
     private static void AddValidatedInstance<TOptions, TValidator>(IServiceCollection services, TOptions source)
         where TOptions : class
         where TValidator : class, IValidateOptions<TOptions>
     {
+        AddValidatedOptionsInstance(services, source);
+        _ = services.AddSingleton<IValidateOptions<TOptions>, TValidator>();
+        _ = services.AddHostedService(static sp => new StartupOptionsValidator<TOptions>(
+            sp.GetRequiredService<IOptions<TOptions>>(),
+            sp.GetRequiredService<IValidateOptions<TOptions>>()));
+    }
+
+    private static void AddValidatedOptionsInstance<TOptions>(IServiceCollection services, TOptions source)
+        where TOptions : class
+    {
         // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
         // (requires a parameterless ctor) and CopyFrom cannot assign init-only properties after construction.
         _ = services.AddSingleton(source);
         _ = services.AddSingleton(Options.Create(source));
         _ = services.AddSingleton<IOptionsMonitor<TOptions>>(new StaticOptionsMonitor<TOptions>(source));
-        _ = services.AddSingleton<IValidateOptions<TOptions>, TValidator>();
-        _ = services.AddHostedService<OptionsValidators.StartupOptionsValidator<TOptions>>();
+    }
+
+    /// <summary>Loads snapshot trigger settings from <c>Squirix.settings.json</c>.</summary>
+    private static class SnapshotBootstrap
+    {
+        /// <summary>Loads snapshot trigger settings using the same settings file discovery as cluster bootstrap.</summary>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        /// <returns>Loaded snapshot trigger options.</returns>
+        internal static async Task<TriggerOptions> LoadAsync(CancellationToken cancellationToken = default)
+        {
+            var (_, fileMerged) = await UnifiedSettings.TryMergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
+            return fileMerged;
+        }
     }
 
     private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
         where TOptions : class
     {
-        public StaticOptionsMonitor(TOptions value)
+        internal StaticOptionsMonitor(TOptions value)
         {
             CurrentValue = value;
         }
@@ -91,5 +133,27 @@ internal static class NodeOptionsRegistration
         public TOptions Get(string? name) => CurrentValue;
 
         public IDisposable? OnChange(Action<TOptions, string?> listener) => null;
+    }
+
+    [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container via factory.")]
+    private sealed class StartupOptionsValidator<TOptions> : IHostedService
+        where TOptions : class
+    {
+        private readonly IOptions<TOptions> _options;
+        private readonly IValidateOptions<TOptions> _validator;
+
+        internal StartupOptionsValidator(IOptions<TOptions> options, IValidateOptions<TOptions> validator)
+        {
+            _options = options;
+            _validator = validator;
+        }
+
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            var result = _validator.Validate(Options.DefaultName, _options.Value);
+            return result.Failed ? throw new OptionsValidationException(Options.DefaultName, typeof(TOptions), result.Failures) : Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

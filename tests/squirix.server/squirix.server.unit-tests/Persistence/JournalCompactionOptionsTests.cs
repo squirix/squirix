@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Serialization;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Xunit;
 

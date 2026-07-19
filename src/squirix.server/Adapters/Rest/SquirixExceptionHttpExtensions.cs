@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Http;
-using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
-using static Squirix.Server.Adapters.Rest.Dtos;
 
 namespace Squirix.Server.Adapters.Rest;
 

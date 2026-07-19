@@ -25,6 +25,11 @@ internal sealed record PreparedJournalEntry
     private static NodeCacheEntry<object?> ToObjectEntry<T>(NodeCacheEntry<T> entry)
     {
         var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(entry.ExpiresUtc, entry.Expiration);
-        return new NodeCacheEntry<object?>(CacheEntryCodec.NormalizeValue(entry.Value), entry.Version, expiresUtc, expiration, entry.Tags);
+        return new NodeCacheEntry<object?>(
+            CacheEntryCodec.NormalizeValue(entry.Value),
+            entry.Version,
+            expiresUtc,
+            expiration,
+            entry.Tags);
     }
 }

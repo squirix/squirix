@@ -6,7 +6,7 @@ using Grpc.Core;
 using Microsoft.Extensions.Time.Testing;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -214,7 +214,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await cts.CancelAsync();
 
         _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(pending.AsTask);
-        Assert.Equal(1, attempts.Value);
+        Assert.Equal(1, attempts.Count);
     }
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
@@ -237,7 +237,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         Assert.Equal(42, value);
-        Assert.Equal(2, attempts.Value);
+        Assert.Equal(2, attempts.Count);
     }
 
     /// <summary>Ensures a call queued behind the concurrency gate is rejected if drain begins before it starts executing.</summary>
@@ -337,29 +337,48 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         string? peer = null,
         TimeProvider? timeProvider = null) => new(timeoutPerAttempt, maxAttempts, baseBackoff, maxBackoff, maxConcurrentPerPeer, peer, timeProvider ?? TimeProvider.System);
 
-    private sealed class CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
+    private sealed class CancellationProbeState
     {
-        public TaskCompletionSource Entered { get; } = entered;
+        internal CancellationProbeState(TaskCompletionSource entered, InvocationCounter attempts)
+        {
+            Entered = entered;
+            Attempts = attempts;
+        }
 
-        internal InvocationCounter Attempts { get; } = attempts;
+        internal TaskCompletionSource Entered { get; }
+
+        internal InvocationCounter Attempts { get; }
     }
 
-    private sealed class ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
+    private sealed class ConcurrencySyncState
     {
-        public TaskCompletionSource FirstEntered { get; } = firstEntered;
+        internal ConcurrencySyncState(TaskCompletionSource firstEntered, TaskCompletionSource releaseFirst, PeakCounter peak)
+        {
+            FirstEntered = firstEntered;
+            Peak = peak;
+            ReleaseFirst = releaseFirst;
+        }
 
-        public PeakCounter Peak { get; } = peak;
+        internal TaskCompletionSource FirstEntered { get; }
 
-        public TaskCompletionSource ReleaseFirst { get; } = releaseFirst;
+        internal PeakCounter Peak { get; }
 
-        public RunningCounter Running { get; } = new();
+        internal TaskCompletionSource ReleaseFirst { get; }
+
+        internal RunningCounter Running { get; } = new();
     }
 
-    private sealed class EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+    private sealed class EnterReleaseGate
     {
-        public TaskCompletionSource Entered { get; } = entered;
+        internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+        {
+            Entered = entered;
+            Release = release;
+        }
 
-        public TaskCompletionSource Release { get; } = release;
+        internal TaskCompletionSource Entered { get; }
+
+        internal TaskCompletionSource Release { get; }
     }
 
     private sealed class InvocationCounter

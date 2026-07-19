@@ -1,7 +1,6 @@
 using System;
-using Squirix.Server.Serialization;
+using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -12,6 +11,21 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// </summary>
 public sealed class OptionsTests
 {
+    /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
+    /// <param name="propertyName">Property being validated.</param>
+    [Theory]
+    [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
+    [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
+    [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
+    [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
+    public static void ValidateRejectsNonPositiveScalars(string propertyName)
+    {
+        var options = CreateWithInvalidScalar(propertyName);
+        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+
+        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Ensures the default-constructed <see cref="PersistenceOptions" /> exposes the expected
     /// initial values for all properties.
@@ -65,27 +79,11 @@ public sealed class OptionsTests
         Assert.Equal(1, options.SnapshotRetentionCount);
     }
 
-    /// <summary>Verifies local scalar validation rejects non-positive values via <see cref="PersistenceOptions.Validate" />.</summary>
-    /// <param name="propertyName">Property being validated.</param>
-    [Theory]
-    [InlineData(nameof(PersistenceOptions.JournalMaxSegmentMb))]
-    [InlineData(nameof(PersistenceOptions.FlushIntervalMs))]
-    [InlineData(nameof(PersistenceOptions.ManifestRetentionCount))]
-    [InlineData(nameof(PersistenceOptions.SnapshotRetentionCount))]
-    public void ValidateRejectsNonPositiveScalars(string propertyName)
-    {
-        var options = CreateWithInvalidScalar(propertyName);
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
-
-        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
-    }
-
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>
     [Fact]
     public void JsonDeserializeBindsValidatedScalars()
     {
-        const string json =
-            """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
+        const string json = """{"dataDir":"data","journalMaxSegmentMb":64,"flushIntervalMs":20,"manifestRetentionCount":2,"snapshotRetentionCount":4,"strictFsync":true}""";
         var options = new ServerJsonSerializer().Deserialize<PersistenceOptions>(json);
         Assert.NotNull(options);
         Assert.Equal("data", options.DataDir);

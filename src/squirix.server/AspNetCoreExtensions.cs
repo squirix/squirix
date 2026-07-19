@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
@@ -50,9 +49,18 @@ public static class AspNetCoreExtensions
         CancellationToken cancellationToken)
     {
         var options = await Configurator.CreateHostingOptionsAsync(configure, settingsPath, loadDiscoveredSettings, cancellationToken).ConfigureAwait(false);
-        var extensions = new SquirixServerExtensionOptions();
+        var extensions = new ExtensionOptions();
         configureExtensions?.Invoke(extensions);
-        await ServerHostingComposition.ConfigureBuilderAsync(builder, options, extensions, cancellationToken).ConfigureAwait(false);
+        await ServerHostingComposition.ConfigureBuilderAsync(
+            builder,
+            Configurator.ToClusterConfig(options),
+            args =>
+            {
+                args.WaitForRecovery = options.WaitForRecovery;
+                args.PersistenceOptions = ResolvePersistenceOptions(options);
+                args.Extensions = extensions;
+            },
+            cancellationToken).ConfigureAwait(false);
         return builder;
     }
 
@@ -61,17 +69,11 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var persistenceOptions = new PersistenceOptions
+        var resolvePersistenceOptions = new PersistenceOptions
         {
             JournalMaxSegmentMb = 64,
             FlushIntervalMs = 10,
         };
-        if (string.IsNullOrWhiteSpace(options.DataDirectory))
-            return persistenceOptions;
-
-        return persistenceOptions with
-        {
-            DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory),
-        };
+        return string.IsNullOrWhiteSpace(options.DataDirectory) ? resolvePersistenceOptions : new PersistenceOptions { DataDir = options.DataDirectory };
     }
 }

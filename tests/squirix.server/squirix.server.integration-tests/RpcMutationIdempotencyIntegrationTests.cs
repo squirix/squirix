@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Contracts;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Utils;

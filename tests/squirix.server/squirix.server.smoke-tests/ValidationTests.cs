@@ -3,8 +3,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Hosting;
 using Xunit;
 
 namespace Squirix.Server.SmokeTests;
@@ -23,8 +21,12 @@ public sealed class ValidationTests : SmokeTestBase
             RejectThreshold = 6,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { BackpressureOptions = invalidBackpressure }, DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() =>
+            StartNodeAsync(
+                GetNextHttpUri(),
+                "nodeA",
+                new SmokeNodeStartOptions { BackpressureOptions = invalidBackpressure },
+                cancellationToken: DefaultCancellationToken).AsTask());
 
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }
@@ -40,8 +42,12 @@ public sealed class ValidationTests : SmokeTestBase
             CriticalPressureThresholdPercent = 50,
         };
 
-        var ex = await NodeAsyncAssert.ThrowsAsync<OptionsValidationException, TestNodeHost>(
-            StartNodeAsync(GetNextHttpUri(), "nodeA", new SmokeNodeStartOptions { MemoryPressureOptions = invalid }, DefaultCancellationToken));
+        var ex = await Assert.ThrowsAsync<OptionsValidationException>(() =>
+            StartNodeAsync(
+                GetNextHttpUri(),
+                "nodeA",
+                new SmokeNodeStartOptions { MemoryPressureOptions = invalid },
+                cancellationToken: DefaultCancellationToken).AsTask());
 
         Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
     }

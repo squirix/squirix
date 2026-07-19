@@ -236,7 +236,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
         private readonly EvictionOptions _options;
         private readonly LinkedList<CacheKey> _order = [];
 
-        public LocalEvictionIndex(EvictionOptions options)
+        internal LocalEvictionIndex(EvictionOptions options)
         {
             _options = options;
         }

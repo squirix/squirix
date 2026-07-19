@@ -5,8 +5,6 @@ using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Runtime;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
-using static Squirix.Server.Adapters.Rest.Dtos;
-using RestJsonSerializerContext = Squirix.Server.Adapters.Endpoint.RestJsonSerializerContext;
 
 namespace Squirix.Server.UnitTests;
 

@@ -1,13 +1,12 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Client;
-using Squirix.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.UnitTests;
 
 /// <summary>Covers the public remote-only client factory surface.</summary>
-public sealed class ClientConnectTests : UnitTestBase
+public sealed class ConnectTests : UnitTestBase
 {
     /// <summary>Verifies explicit remote mode requires at least one endpoint.</summary>
     [Fact]

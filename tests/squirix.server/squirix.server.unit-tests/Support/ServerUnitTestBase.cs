@@ -7,7 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Provides a common base for server unit tests.</summary>
-public abstract class UnitTestBase : IDisposable
+public abstract class ServerUnitTestBase : IDisposable
 {
     static ServerUnitTestBase()
     {

@@ -135,20 +135,7 @@ public sealed class CorrelationClientInterceptorTests
             static () => { });
     }
 
-    private static Correlation.ClientInterceptor CreateInterceptor()
-    {
-        var cluster = new ClusterConfig([])
-        {
-            ClusterId = "c",
-            NodeId = "n1",
-            Uri = new Uri("https://localhost"),
-        };
-
-            values.Add(entry.Value);
-        }
-
-        return values;
-    }
+    private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
 
     private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
 

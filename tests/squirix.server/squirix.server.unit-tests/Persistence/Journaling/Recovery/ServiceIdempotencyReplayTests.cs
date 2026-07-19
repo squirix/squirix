@@ -21,12 +21,12 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 /// <summary>Recovery replay of durable idempotency journal frames.</summary>
 public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
 {
-    private const string Fingerprint = "try-add-entry-async|default|idempotency-key|abc123";
     private const string OperationId = "0123456789abcdef0123456789abcdef";
+    private const string Fingerprint = "try-add-entry-async|default|idempotency-key|abc123";
 
     /// <summary>Journal replay must restore idempotency CreatedUtc from the frame UnixMs, not recovery wall clock.</summary>
     [Fact]
-    public async Task JournalReplayRestoresIdempotencyCreatedUtcUnixMs()
+    public async Task JournalReplayRestoresIdempotencyCreatedUtcFromUnixMs()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-idempotency-unixms");
         var persistence = CreatePersistence(scenario.DataDir);
@@ -51,7 +51,29 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
         Assert.True(response.Added);
     }
 
-    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) =>
+        new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+
+    private static async Task WritePutAndIdempotencyAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence)
+    {
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            persistence,
+            await scenario.ManifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            scenario.ManifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
+
+        await journal.AppendPutAsync(
+            CacheKey.Default("idempotency-key"),
+            JournalEntryPayloadKit.EncodePut("v"),
+            DefaultCancellationToken);
+        await journal.AppendIdempotencyOutcomeAsync(
+            OperationId,
+            Fingerprint,
+            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+            DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
+    }
 
     private static long ReadIdempotencyOutcomeUnixMs(string dataDir)
     {
@@ -66,7 +88,10 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
         throw new InvalidOperationException("IdempotencyOutcome frame was not found in the journal.");
     }
 
-    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, RpcMutationIdempotencyStore idempotencyStore)
+    private static Task RunRecoveryAsync(
+        RecoveryScenarioBuilder scenario,
+        PersistenceOptions persistence,
+        RpcMutationIdempotencyStore idempotencyStore)
     {
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
@@ -79,23 +104,5 @@ public sealed class ServiceIdempotencyReplayTests : ServerUnitTestBase
                 idempotencyStore,
                 StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
-    }
-
-    private static async Task WritePutAndIdempotencyAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence)
-    {
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
-            persistence,
-            await scenario.ManifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            scenario.ManifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
-
-        await journal.AppendPutAsync(CacheKey.Default("idempotency-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
-        await journal.AppendIdempotencyOutcomeAsync(
-            OperationId,
-            Fingerprint,
-            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
-            DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }
 }

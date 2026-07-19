@@ -17,11 +17,8 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     [Fact]
     public void CreateChannelHandlerDisabledUsesDefaultHandler()
     {
-        using var createdHandler = MtlsTestCertificates.CreateDefaultChannelHandler();
-        if (createdHandler is not SocketsHttpHandler handler)
-            throw new InvalidOperationException("Expected SocketsHttpHandler.");
-
-        Assert.Null(handler.SslOptions.ClientCertificates);
+        using var createdHandler = TestCertificates.CreateDefaultChannelHandler();
+        Assert.Null(createdHandler.SslOptions.ClientCertificates);
     }
 
     /// <summary>Ensures enabled cluster mTLS attaches the local node certificate to outbound calls.</summary>
@@ -40,7 +37,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             true,
             "node-a");
 
-        using var handler = MtlsTestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
 
         Assert.NotNull(handler.SslOptions.ClientCertificates);
         var clientCertificate = Assert.Single(handler.SslOptions.ClientCertificates);
@@ -63,7 +60,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
             6001,
             true,
             "node-a");
-        using var handler = MtlsTestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
+        using var handler = TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, "node-b");
         var callback = handler.SslOptions.RemoteCertificateValidationCallback ?? throw new InvalidOperationException("Remote certificate validation callback was not configured.");
 
         Assert.False(callback(this, null, null, SslPolicyErrors.None));

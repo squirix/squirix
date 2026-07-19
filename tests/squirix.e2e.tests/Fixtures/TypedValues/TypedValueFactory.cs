@@ -7,7 +7,7 @@ internal static class TypedValueFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 8, 15, 30, TimeSpan.Zero);
 
-    public static TypedCustomerProfile CreateProfile(string id) => new(
+    internal static TypedCustomerProfile CreateProfile(string id) => new(
         id,
         $"Customer {id}",
         $"{id}@example.test",

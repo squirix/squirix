@@ -2,14 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures.TypedValues;
-using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node typed custom values through the public cache API.</summary>
 /// <param name="fixture">Shared single-node cluster fixture.</param>
-public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
+public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixture)
 {
     /// <summary>Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.</summary>
     [Fact]

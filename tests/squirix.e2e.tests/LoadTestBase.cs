@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
-using Squirix.E2ETests.Support.Cluster;
+using Squirix.E2ETests.Cluster;
 
 namespace Squirix.E2ETests;
 
@@ -11,7 +11,7 @@ namespace Squirix.E2ETests;
 /// Base class for SDK stress tests. Lives outside <c>Squirix.E2ETests.Cache</c> so it may use extra infrastructure
 /// helpers without widening the cache-test surface, while still exercising only the public SDK.
 /// </summary>
-public abstract class StressTestBase : EndToEndTestBase
+public abstract class LoadTestBase : EndToEndTestBase
 {
     /// <summary>Runs concurrent writer tasks until they complete or the budget elapses.</summary>
     /// <param name="writers">Number of concurrent writer tasks.</param>
@@ -48,15 +48,5 @@ public abstract class StressTestBase : EndToEndTestBase
         var cts = CancellationTokenSource.CreateLinkedTokenSource(DefaultCancellationToken);
         cts.CancelAfter(profile.Budget);
         return cts;
-    }
-
-    internal static Task RunWritersAsync(int writers, Func<int, Task> writerBody, TimeSpan budget)
-    {
-        ArgumentNullException.ThrowIfNull(writerBody);
-        var tasks = new Task[writers];
-        for (var w = 0; w < writers; w++)
-            tasks[w] = writerBody(w);
-
-        return Task.WhenAll(tasks).WaitAsync(budget, TimeProvider.System, DefaultCancellationToken);
     }
 }

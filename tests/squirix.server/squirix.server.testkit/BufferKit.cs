@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Squirix.Server.TestKit.Testing;
+namespace Squirix.Server.TestKit;
 
 /// <summary>Stackalloc / ArrayPool helpers for test encode buffers.</summary>
 [SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Squirix.Server.UnitTests via InternalsVisibleTo.")]

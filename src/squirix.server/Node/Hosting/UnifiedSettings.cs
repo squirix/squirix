@@ -42,9 +42,12 @@ internal static class UnifiedSettings
     /// <returns>A task that completes after optional sections are validated.</returns>
     internal static async Task ValidateOptionalSectionsAsync(string settingsFilePath, List<string> failures, CancellationToken cancellationToken = default)
     {
-        var (found, pressure) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settingsFilePath, new UnresolvedMemoryPressureOptions(), cancellationToken)
-                                                       .ConfigureAwait(false);
+        var (found, pressure) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(
+            settingsFilePath,
+            new UnresolvedMemoryPressureOptions(),
+            cancellationToken).ConfigureAwait(false);
         if (found)
+        {
             try
             {
                 _ = OptionsResolver.Resolve(pressure, GcMemoryBudgetProvider.Instance);
@@ -53,6 +56,7 @@ internal static class UnifiedSettings
             {
                 failures.Add(ex.Message);
             }
+        }
 
         var (snapshotFound, snapshot) = await TryMergeSnapshotFromSettingsFilePathAsync(settingsFilePath, new TriggerOptions(), cancellationToken).ConfigureAwait(false);
         if (snapshotFound)
@@ -64,9 +68,10 @@ internal static class UnifiedSettings
         }
 
         var (prometheusFound, prometheus) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(
-            settingsFilePath,
-            new PrometheusMetricsEndpointOptions(),
-            cancellationToken).ConfigureAwait(false);
+                settingsFilePath,
+                new PrometheusMetricsEndpointOptions(),
+                cancellationToken)
+           .ConfigureAwait(false);
         if (!prometheusFound)
             return;
 

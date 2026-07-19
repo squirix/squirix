@@ -7,7 +7,6 @@ using System.Text.Json;
 using Squirix;
 using Squirix.Client;
 using Squirix.Server;
-using Squirix.Client;
 
 var requestedWorkingDirectory = Environment.GetEnvironmentVariable("SQUIRIX_TEST_HOST_WORKING_DIRECTORY");
 if (!string.IsNullOrWhiteSpace(requestedWorkingDirectory))
