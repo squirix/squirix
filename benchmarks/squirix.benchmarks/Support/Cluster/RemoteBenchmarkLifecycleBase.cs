@@ -4,13 +4,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Benchmarks.Support.Client;
-using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks.Support.Cluster;
 
 /// <summary>Shared BenchmarkDotNet lifecycle for benchmarks that talk to an in-process node over the remote client SDK.</summary>
 [InProcess]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Base class must remain public for BenchmarkDotNet benchmark classes.")]
 public abstract class RemoteBenchmarkLifecycleBase
 {
     private BenchmarkCacheSession? _cacheSession;
@@ -19,6 +17,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// <summary>
     /// Gets the shared cache opened by <see cref="StartSharedCacheAsync" />.
     /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the shared cache session was not opened.</exception>
     protected ICache<object?> SharedCache => (_cacheSession ?? throw new InvalidOperationException("Shared cache session was not opened.")).Cache;
 
     /// <summary>Connects a client and disposes it before returning.</summary>
@@ -57,7 +56,6 @@ public abstract class RemoteBenchmarkLifecycleBase
         if (_node is not null)
             return;
 
-        BenchmarkRuntime.EnsureInitialized();
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -68,7 +66,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     protected async Task StartSharedCacheAsync(string cacheName)
     {
         await StartNodeAsync().ConfigureAwait(false);
-        _cacheSession = await BenchmarkCacheSession.OpenAsync(RequireNode(), cacheName, CancellationToken.None).ConfigureAwait(false);
+        _cacheSession = await BenchmarkCacheSession.OpenAsync(RequireNode().Uri, cacheName, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -96,7 +94,7 @@ public abstract class RemoteBenchmarkLifecycleBase
     }
 
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Caller disposes the returned lease.")]
-    private async Task<BenchmarkClientLease> OpenClientLeaseAsync() => await RequireNode().OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
+    private Task<BenchmarkClientLease> OpenClientLeaseAsync() => RequireNode().OpenClientAsync(CancellationToken.None);
 
     private BenchmarkNodeScope RequireNode() => _node ?? throw new InvalidOperationException("Benchmark node was not started. Global setup did not run.");
 }

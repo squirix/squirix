@@ -7,20 +7,7 @@ internal static class TypedValueFactory
 {
     private static readonly DateTimeOffset BaseInstant = new(2026, 6, 6, 8, 15, 30, TimeSpan.Zero);
 
-    public static TypedMutableCart CreateCart(string id) => new()
-    {
-        Id = id,
-        Items =
-        [
-            new TypedCartItem { Sku = "SKU-001", Quantity = 2, Price = 12.50m },
-            new TypedCartItem { Sku = "SKU-002", Quantity = 1, Price = 7.25m },
-        ],
-        Total = 32.25m,
-        UpdatedAt = BaseInstant.AddHours(1),
-        CouponCode = "SAVE10",
-    };
-
-    public static TypedCustomerProfile CreateProfile(string id) => new(
+    internal static TypedCustomerProfile CreateProfile(string id) => new(
         id,
         $"Customer {id}",
         $"{id}@example.test",
@@ -34,18 +21,18 @@ internal static class TypedValueFactory
         BaseInstant,
         TypedCustomerStatus.Active);
 
-    public static TypedCustomerProfile CreateProfileWithEmptyCollections(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithEmptyCollections(string id) => CreateProfile(id) with
     {
         Roles = [],
         Metadata = new Dictionary<string, string>(StringComparer.Ordinal),
     };
 
-    public static TypedCustomerProfile CreateProfileWithNullEmail(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithNullEmail(string id) => CreateProfile(id) with
     {
         Email = null,
     };
 
-    public static TypedCustomerProfile CreateProfileWithUnicodeText(string id) => CreateProfile(id) with
+    internal static TypedCustomerProfile CreateProfileWithUnicodeText(string id) => CreateProfile(id) with
     {
         DisplayName = "Customer 東京",
         Address = CreateAddress("東京", "千代田 1-1", "100-0001", "JP"),
@@ -56,7 +43,7 @@ internal static class TypedValueFactory
         },
     };
 
-    public static TypedMutableCart CreateUpdatedCart(string id) => new()
+    internal static TypedMutableCart CreateUpdatedCart(string id) => new()
     {
         Id = id,
         Items =
@@ -68,7 +55,7 @@ internal static class TypedValueFactory
         CouponCode = null,
     };
 
-    public static TypedCustomerProfile CreateUpdatedProfile(string id) => new(
+    internal static TypedCustomerProfile CreateUpdatedProfile(string id) => new(
         id,
         $"Updated Customer {id}",
         null,
@@ -82,6 +69,19 @@ internal static class TypedValueFactory
         },
         BaseInstant.AddMinutes(30),
         TypedCustomerStatus.Suspended);
+
+    internal static TypedMutableCart CreateCart(string id) => new()
+    {
+        Id = id,
+        Items =
+        [
+            new TypedCartItem { Sku = "SKU-001", Quantity = 2, Price = 12.50m },
+            new TypedCartItem { Sku = "SKU-002", Quantity = 1, Price = 7.25m },
+        ],
+        Total = 32.25m,
+        UpdatedAt = BaseInstant.AddHours(1),
+        CouponCode = "SAVE10",
+    };
 
     private static TypedCustomerAddress CreateAddress(string city, string street, string postalCode, string country) => new(
         city,

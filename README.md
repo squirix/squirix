@@ -2,37 +2,37 @@
 
 [![CI](https://github.com/squirix/squirix/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/squirix/squirix/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.5-004880?logo=nuget&logoColor=white)](https://www.nuget.org/profiles/squirix)
+[![NuGet](https://img.shields.io/badge/NuGet-0.1.0--preview.6-004880?logo=nuget&logoColor=white)](https://www.nuget.org/profiles/squirix)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Slack](https://img.shields.io/badge/Slack-join-4A154B?logo=slack&logoColor=white)](https://squirix.slack.com)
 
 Experimental distributed cache for **.NET 10**. Apps use the `Squirix` client SDK over HTTPS gRPC; server nodes own
 cache state, routing, durability, and ops endpoints.
 
-**0.1.0-preview.5** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
+**0.1.0-preview.6** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
 
 ## NuGet packages
 
 All packages are published under the [squirix NuGet profile](https://www.nuget.org/profiles/squirix):
 
-| Package | Role |
-| --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool |
+| Package                                                                      | Role                                                     |
+|------------------------------------------------------------------------------|----------------------------------------------------------|
+| [`squirix`](https://www.nuget.org/packages/squirix/)                         | Client SDK — `SquirixClient`, `ICache<T>`, serialization |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/)           | Server runtime — routing, durability, gRPC host          |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` global tool                  |
 
 ## Quick start
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.5
-dotnet tool install -g squirix.server.tool --version 0.1.0-preview.5
+dotnet add package squirix --version 0.1.0-preview.6
+dotnet tool install -g squirix.server.tool --version 0.1.0-preview.6
 squirix-server run
 ```
 
 - **NuGet package** for the CLI: `squirix.server.tool`
 - **Command after install**: `squirix-server` (`run`, `init`, `doctor`, `validate-config`, …)
 
-Durable mode (WAL + snapshots):
+Durable mode (journal + snapshots):
 
 ```bash
 squirix-server run --persist --data-dir ./data

@@ -2,7 +2,7 @@
 using System.Diagnostics;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -23,14 +23,33 @@ if (string.IsNullOrWhiteSpace(toolsDir) || !Directory.Exists(toolsDir))
     return 1;
 }
 
-var files = Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly).Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase)
-                     .ToArray();
+var files = new List<string>();
+foreach (var file in Directory.EnumerateFiles(toolsDir, "sqr-*.cs", SearchOption.TopDirectoryOnly))
+    files.Add(Path.GetFullPath(file));
 
-if (files.Length is 0)
+files.Sort(StringComparer.OrdinalIgnoreCase);
+
+if (files.Count is 0)
 {
     await Console.Error.WriteLineAsync("ERROR: no tools/sqr-*.cs files found.").ConfigureAwait(false);
     return 1;
 }
+
+var dotnetPath = ResolveDotnetPath();
+if (dotnetPath is null)
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
+var repoRoot = Directory.GetParent(toolsDir)?.FullName;
+if (string.IsNullOrWhiteSpace(repoRoot))
+{
+    await Console.Error.WriteLineAsync("ERROR: repository root not found.").ConfigureAwait(false);
+    return 1;
+}
+
+repoRoot = Path.GetFullPath(repoRoot);
 
 foreach (var file in files)
 {
@@ -38,9 +57,9 @@ foreach (var file in files)
     await output.WriteLineAsync($"---- {name} --help ----").ConfigureAwait(false);
     var processStartInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         Arguments = $"run --file \"{file}\" -- --help",
-        WorkingDirectory = Directory.GetParent(toolsDir)?.FullName ?? Environment.CurrentDirectory,
+        WorkingDirectory = repoRoot,
         UseShellExecute = false,
     };
     using var proc = Process.Start(processStartInfo);
@@ -54,3 +73,39 @@ foreach (var file in files)
 
 await output.WriteLineAsync("OK: all file-based tools responded to --help.").ConfigureAwait(false);
 return 0;
+
+static string? ResolveDotnetPath()
+{
+    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    {
+        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        if (File.Exists(dotnetRootCandidate))
+            return Path.GetFullPath(dotnetRootCandidate);
+    }
+
+    var processPath = Environment.ProcessPath;
+    if (!string.IsNullOrWhiteSpace(processPath))
+    {
+        var processFileName = Path.GetFileName(processPath);
+        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(processPath);
+        }
+    }
+
+    var pathValue = Environment.GetEnvironmentVariable("PATH");
+    if (string.IsNullOrWhiteSpace(pathValue))
+        return null;
+
+    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var pathCandidate = Path.Combine(segment, executableName);
+        if (File.Exists(pathCandidate))
+            return Path.GetFullPath(pathCandidate);
+    }
+
+    return null;
+}

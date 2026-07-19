@@ -18,11 +18,11 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
     public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = [];
 
-    /// <summary>Gets or sets a value indicating whether WAL/snapshot persistence is enabled.</summary>
+    /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
 
     /// <summary>Gets or sets the primary HTTP/2 URL used for gRPC and node traffic.</summary>
-    public Uri Url { get; set; } = new("https://localhost:5001");
+    public Uri Uri { get; set; } = new("https://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>
     public int VirtualNodes { get; set; } = 128;
@@ -33,9 +33,9 @@ public sealed class SquirixServerOptions
     /// <summary>Validates the current configuration without throwing.</summary>
     /// <param name="errors">Validation errors when the method returns <see langword="false" />.</param>
     /// <returns><see langword="true" /> when configuration is valid.</returns>
-    public bool TryValidate(out IReadOnlyList<string> errors) => ClusterTopologyValidator.TryValidate(this, out errors);
+    public bool TryValidate(out IReadOnlyList<string> errors) => SquirixServerOptionsValidator.TryValidate(this, out errors);
 
-    /// <summary>Enables WAL/snapshot persistence for this node.</summary>
+    /// <summary>Enables journal/snapshot persistence for this node.</summary>
     /// <param name="dataDirectory">Optional data directory override.</param>
     public void UsePersistence(string? dataDirectory = null)
     {

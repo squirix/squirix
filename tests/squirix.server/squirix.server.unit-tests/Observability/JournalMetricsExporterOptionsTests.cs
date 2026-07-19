@@ -1,6 +1,6 @@
 using System;
-using System.Text.Json;
 using Squirix.Server.Node.Services;
+using Squirix.Server.Runtime;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -10,11 +10,6 @@ namespace Squirix.Server.UnitTests.Observability;
 /// </summary>
 public sealed class JournalMetricsExporterOptionsTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>Verifies the minimum positive interval remains accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryInterval()
@@ -28,7 +23,7 @@ public sealed class JournalMetricsExporterOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsNonPositiveInterval()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);
@@ -40,7 +35,7 @@ public sealed class JournalMetricsExporterOptionsTests
     public void JsonDeserializeBindsValidatedInterval()
     {
         const string json = """{"interval":"00:00:03"}""";
-        var options = JsonSerializer.Deserialize<JournalMetricsExporterOptions>(json, JsonOptions);
+        var options = new ServerJsonSerializer().Deserialize<JournalMetricsExporterOptions>(json);
         Assert.NotNull(options);
         Assert.Equal(TimeSpan.FromSeconds(3), options.Interval);
     }

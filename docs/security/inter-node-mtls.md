@@ -183,7 +183,7 @@ Mount the same files in containers at stable paths (for example `/mtls/cluster-c
 
 ### In-process and automated tests
 
-`Squirix.Server.TestKit` generates ephemeral test certificates (for example `MtlsTestCertificates` and multi-node test
+`Squirix.Server.TestKit` generates ephemeral test certificates (for example `TestCertificates` and multi-node test
 host helpers) for integration and E2E suites. That machinery is **test-only** and not a supported production workflow.
 
 ## Related documentation

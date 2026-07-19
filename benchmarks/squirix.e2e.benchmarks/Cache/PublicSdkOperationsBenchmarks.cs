@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,15 +6,12 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
-using Squirix.E2EBenchmarks.Support.Runtime;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
 /// <summary>Baseline end-to-end benchmarks for the public Squirix SDK against a real single-node Squirix server.</summary>
 [MemoryDiagnoser]
 [MinIterationTime(150)]
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet discovers benchmark classes by public type.")]
-[SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "BenchmarkDotNet prefers instance members.")]
 public class PublicSdkOperationsBenchmarks
 {
     private const string CacheName = "bench-public-sdk-operations";
@@ -28,10 +24,10 @@ public class PublicSdkOperationsBenchmarks
     private readonly string[] _existingKeys = new string[KeyCount];
     private readonly string[] _expiringKeys = new string[KeyCount];
     private readonly string[] _missingKeys = new string[KeyCount];
-    private BenchmarkClientLease? _client;
+    private E2EBenchmarkClientLease? _client;
     private int _getOrAddMissingOffset;
     private int _mixedWriteOffset;
-    private BenchmarkNodeScope? _node;
+    private E2EBenchmarkNodeScope? _node;
     private ICache<string>? _squirix;
     private int _writeOffset;
 
@@ -147,10 +143,9 @@ public class PublicSdkOperationsBenchmarks
     [GlobalSetup]
     public async Task SetupAsync()
     {
-        BenchmarkRuntime.EnsureInitialized();
         SeedKeys();
 
-        _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None).ConfigureAwait(false);
         _client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
         _squirix = await _client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
 

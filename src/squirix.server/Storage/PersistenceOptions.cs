@@ -1,125 +1,118 @@
 using System;
+using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Squirix.Server.Storage;
 
 internal sealed record PersistenceOptions
 {
-    public PersistenceOptions()
-    {
-        FlushIntervalMs = 10;
-        ManifestRetentionCount = 3;
-        SnapshotIntervalSec = 60;
-        SnapshotRetentionCount = 3;
-        JournalMaxSegmentMb = 128;
-        JournalGroupCommitMaxBatch = 32;
-    }
+    [JsonInclude]
+    internal string DataDir { get; init; } = string.Empty;
 
-    public string DataDir { get; init; } = string.Empty;
-
-    public int FlushIntervalMs
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "FlushIntervalMs must be greater than zero.");
-
-            field = value;
-        }
-    }
-
-    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
-    public bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWaitMs > 0;
+    [JsonInclude]
+    internal int FlushIntervalMs { get; init; } = 10;
 
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
+    [JsonInclude]
     [JsonPropertyName("groupCommitMaxBatch")]
-    public int JournalGroupCommitMaxBatch
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxBatch must be greater than zero.");
-
-            field = value;
-        }
-    }
+    internal int JournalGroupCommitMaxBatch { get; init; } = 32;
 
     /// <summary>
-    /// Gets the maximum time in milliseconds to wait for additional journal appends before issuing a shared durability flush.
+    /// Gets the maximum time to wait for additional journal appends before issuing a shared durability flush.
     /// When zero, group commit is disabled and each durable mutation flushes independently.
     /// </summary>
-    [JsonPropertyName("groupCommitMaxWaitMs")]
-    public int JournalGroupCommitMaxWaitMs
-    {
-        get;
-        init
-        {
-            if (value < 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalGroupCommitMaxWaitMs cannot be negative.");
+    [JsonPropertyName("groupCommitMaxWait")]
+    [JsonConverter(typeof(MillisecondsTimeSpanJsonConverter))]
+    [JsonInclude]
+    internal TimeSpan JournalGroupCommitMaxWait { get; init; } = TimeSpan.Zero;
 
-            field = value;
-        }
-    }
+    [JsonPropertyName("journalMaxSegmentCount")]
+    [JsonInclude]
+    internal int JournalMaxSegmentCount { get; init; } = JournalSegmentLimits.DefaultMaxSegmentCount;
 
     [JsonPropertyName("journalMaxSegmentMb")]
-    public int JournalMaxSegmentMb
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "JournalMaxSegmentMb must be greater than zero.");
+    [JsonInclude]
+    internal int JournalMaxSegmentMb { get; init; } = JournalSegmentLimits.DefaultMaxSegmentMb;
 
-            field = value;
-        }
-    }
+    [JsonPropertyName("journalMaxTotalBytesMb")]
+    [JsonInclude]
+    internal int JournalMaxTotalBytesMb { get; init; } = JournalSegmentLimits.DefaultMaxTotalBytesMb;
 
-    public int ManifestRetentionCount
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "ManifestRetentionCount must be greater than zero.");
-
-            field = value;
-        }
-    }
-
-    public int SnapshotIntervalSec
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotIntervalSec must be greater than zero.");
-
-            field = value;
-        }
-    }
-
-    public int SnapshotRetentionCount
-    {
-        get;
-        init
-        {
-            if (value <= 0)
-                throw new ArgumentOutOfRangeException(nameof(value), value, "SnapshotRetentionCount must be greater than zero.");
-
-            field = value;
-        }
-    }
-
-    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
-    public int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
-
-    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
-    public int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
+    [JsonPropertyName("journalPlatformBackend")]
+    [JsonInclude]
+    internal JournalPlatformBackend JournalPlatformBackend { get; init; } = JournalPlatformBackend.Auto;
 
     /// <summary>
-    /// Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.
+    /// Gets the size in bytes of the per-coordinator journal write-coalescing buffer. The buffer is
+    /// allocated lazily on first staged append. Frames larger than this value bypass coalescing and
+    /// are written directly.
     /// </summary>
-    public int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
+    [JsonPropertyName("journalWriteBatchBytes")]
+    [JsonInclude]
+    internal int JournalWriteBatchBytes { get; init; } = 16 * 1024 * 1024;
+
+    [JsonInclude]
+    internal int ManifestRetentionCount { get; init; } = 3;
+
+    /// <summary>Gets the number of consecutive manifest writes with retention cleanup failures required to degrade readiness.</summary>
+    [JsonInclude]
+    internal int RetentionCleanupDegradedConsecutiveWrites { get; init; } = 3;
+
+    /// <summary>Gets the number of retention cleanup failures inside <see cref="RetentionCleanupDegradedWindowMinutes" /> required to degrade readiness.</summary>
+    [JsonInclude]
+    internal int RetentionCleanupDegradedWindowFailures { get; init; } = 5;
+
+    /// <summary>Gets the sliding window in minutes used when counting retention cleanup failures for readiness degradation.</summary>
+    [JsonInclude]
+    internal int RetentionCleanupDegradedWindowMinutes { get; init; } = 15;
+
+    [JsonInclude]
+    internal int SnapshotRetentionCount { get; init; } = 3;
+
+    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
+    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
+
+    /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
+    internal void Validate()
+    {
+        if (FlushIntervalMs <= 0)
+            throw new InvalidOperationException("Persistence FlushIntervalMs must be greater than zero.");
+        if (JournalGroupCommitMaxBatch <= 0)
+            throw new InvalidOperationException("Persistence JournalGroupCommitMaxBatch must be greater than zero.");
+        if (JournalGroupCommitMaxWait < TimeSpan.Zero)
+            throw new InvalidOperationException("Persistence JournalGroupCommitMaxWait cannot be negative.");
+        if (JournalMaxSegmentCount <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxSegmentCount must be greater than zero.");
+        if (JournalMaxSegmentMb <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxSegmentMb must be greater than zero.");
+        if (JournalMaxTotalBytesMb <= 0)
+            throw new InvalidOperationException("Persistence JournalMaxTotalBytesMb must be greater than zero.");
+        if (JournalWriteBatchBytes <= 0)
+            throw new InvalidOperationException("Persistence JournalWriteBatchBytes must be greater than zero.");
+        if (ManifestRetentionCount <= 0)
+            throw new InvalidOperationException("Persistence ManifestRetentionCount must be greater than zero.");
+        if (SnapshotRetentionCount <= 0)
+            throw new InvalidOperationException("Persistence SnapshotRetentionCount must be greater than zero.");
+    }
+
+    private sealed class MillisecondsTimeSpanJsonConverter : JsonConverter<TimeSpan>
+    {
+        public override TimeSpan Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType is JsonTokenType.Number && reader.TryGetInt64(out var milliseconds))
+                return TimeSpan.FromMilliseconds(milliseconds);
+
+            if (reader.TokenType is not JsonTokenType.String)
+                throw new JsonException("Expected a millisecond count or TimeSpan string.");
+            var text = reader.GetString();
+            if (text is not null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out var parsed))
+                return parsed;
+
+            throw new JsonException("Expected a millisecond count or TimeSpan string.");
+        }
+
+        public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options) => writer.WriteNumberValue(Convert.ToInt64(value.TotalMilliseconds));
+    }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Benchmarks.Support.Runtime;
+using Squirix.Client;
 
 namespace Squirix.Benchmarks.Support.Client;
 
@@ -31,16 +31,11 @@ internal sealed class BenchmarkClientLease : IAsyncDisposable
             await client.DisposeAsync().ConfigureAwait(false);
     }
 
-    internal static async Task<BenchmarkClientLease> ConnectAsync(string endpoint, CancellationToken cancellationToken)
+    internal static async Task<BenchmarkClientLease> ConnectAsync(Uri uri, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
-        var client = await SquirixClient.ConnectAsync(
-            options =>
-            {
-                BenchmarkRuntime.ConfigureRemoteClient(options);
-                options.Endpoints.Add(endpoint);
-            },
-            cancellationToken).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(uri);
+
+        var client = await SquirixClient.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
         return new BenchmarkClientLease(client);
     }
 }

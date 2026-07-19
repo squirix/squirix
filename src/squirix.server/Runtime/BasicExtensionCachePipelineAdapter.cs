@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Runtime;
@@ -9,36 +10,31 @@ internal sealed class BasicExtensionCachePipelineAdapter<T> : ISquirixServerEntr
 {
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    public BasicExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> inner)
+    internal BasicExtensionCachePipelineAdapter(ILogicalNamespacedCache<T> inner)
     {
         _inner = inner;
     }
 
-    public ValueTask AddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _inner.AddAsync(cacheName, key, value, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
-    public ValueTask AddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _inner.AddAsync(cacheName, key, entry, cancellationToken);
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetValueAsync(cacheName, key, cancellationToken);
 
-    public ValueTask<bool> ContainsAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.ContainsAsync(cacheName, key, cancellationToken);
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
-    public ValueTask<TimeSpan?> GetExpirationAsync(string cacheName, string key, CancellationToken cancellationToken) =>
-        _inner.GetExpirationAsync(cacheName, key, cancellationToken);
+    public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _inner.SetEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-    public ValueTask<T?> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetValueAsync(cacheName, key, cancellationToken);
+    public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        _inner.TouchAsync(operationId, cacheName, key, expiration, cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _inner.SetAsync(cacheName, key, value, cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
 
-    public ValueTask InsertAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _inner.SetAsync(cacheName, key, entry, cancellationToken);
-
-    public ValueTask<bool> RemoveAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.RemoveAsync(cacheName, key, cancellationToken);
-
-    public ValueTask<bool> TouchAsync(string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        _inner.TouchAsync(cacheName, key, expiration, cancellationToken);
-
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, T? value, CancellationToken cancellationToken) => _inner.TryAddAsync(cacheName, key, value, cancellationToken);
-
-    public ValueTask<bool> TryAddAsync(string cacheName, string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _inner.TryAddAsync(cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) =>
+        _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);
 }

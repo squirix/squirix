@@ -1,0 +1,26 @@
+// Documentation Comment ID strings (ECMA format). Partial names like M:System.String.Format are ignored silently.
+// Enumerable.ToArray is matched on static calls; extension syntax (list.ToArray()) is not always reported by RS0030.
+M:System.String.Create(System.Int32,System.Span{System.Action{System.Span{System.Char}}});Use string interpolation ($""), stackalloc spans, or StringBuilder instead.
+M:System.String.Format(System.String,System.Object);Use string interpolation ($"") instead.
+M:System.String.Format(System.String,System.Object[]);Use string interpolation ($"") instead.
+M:System.String.Format(System.IFormatProvider,System.String,System.Object);Use string interpolation ($"") instead.
+M:System.String.Format(System.IFormatProvider,System.String,System.Object[]);Use string interpolation ($"") instead.
+M:System.FormattableString.Invariant(System.FormattableString);Use string interpolation ($"") instead.
+T:System.Linq.Enumerable;LINQ is banned in this solution. Use explicit loops instead.
+T:System.Linq.EnumerableQuery`1;LINQ is banned in this solution. Use explicit loops instead.
+T:System.Linq.ParallelEnumerable;LINQ is banned in this solution. Use explicit loops instead.
+M:System.Linq.Enumerable.ToArray`1(System.Collections.Generic.IEnumerable{``0});Avoid unnecessary array copies. Return List<T>/IReadOnlyList<T> or use collection expressions ([.. source]) when an array is required.
+M:System.Linq.Enumerable.ToList`1(System.Collections.Generic.IEnumerable{``0});Avoid unnecessary list materialization. Use explicit loops or pre-sized collections instead.
+M:System.Collections.Generic.List`1.ToArray();Avoid unnecessary array copies when a list or span view is sufficient.
+M:System.ReadOnlySpan`1.ToArray;Avoid unnecessary array copies when ReadOnlySpan can be passed through instead.
+M:System.Span`1.ToArray;Avoid unnecessary array copies when Span can be passed through instead.
+M:System.MemoryExtensions.ToArray`1(System.ReadOnlySpan{``0});Avoid Span.ToArray() when ReadOnlySpan can be passed through instead.
+M:System.MemoryExtensions.ToArray`1(System.Span{``0});Avoid Span.ToArray() when Span can be passed through instead.
+M:System.MemoryExtensions.ToArray`1(System.ReadOnlyMemory{``0});Avoid Memory.ToArray() when ReadOnlyMemory can be used instead.
+M:System.MemoryExtensions.ToArray`1(System.Memory{``0});Avoid Memory.ToArray() when ReadOnlyMemory can be used instead.
+M:System.Threading.Tasks.Task.Run(System.Action);Use explicit infrastructure threading (BackgroundService, dedicated thread, or LongRunning Task.Factory.StartNew) instead.
+M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task});Use explicit infrastructure threading instead.
+M:System.Threading.Tasks.Task.Run``1(System.Func{``0});Use explicit infrastructure threading instead.
+M:System.Threading.Tasks.Task.Run(System.Action,System.Threading.CancellationToken);Use explicit infrastructure threading instead.
+M:System.Threading.Tasks.Task.Run(System.Func{System.Threading.Tasks.Task},System.Threading.CancellationToken);Use explicit infrastructure threading instead.
+M:System.Threading.Tasks.Task.Run``1(System.Func{``0},System.Threading.CancellationToken);Use explicit infrastructure threading instead.

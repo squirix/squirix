@@ -1,11 +1,9 @@
 using System;
-using System.Globalization;
 using System.IO;
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Client;
 using Squirix.Server;
 
 namespace Squirix.ExternalPackageSmoke;
@@ -14,32 +12,35 @@ internal static class Program
 {
     private const string IsolationSharedKey = "shared-key";
 
-    public static async Task<int> Main()
+    private static async Task<int> Main()
     {
-        // Isolated temp root for testkit-scoped paths when persistence is enabled in samples or tests.
-        var testRoot = Path.Join(Path.GetTempPath(), "squirix-external-smoke", Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(testRoot);
-        Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot);
+        var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
+        try
+        {
+            Environment.SetEnvironmentVariable("SQUIRIX_TEST_ROOT", testRoot.FullName);
 
-        var endpoint = $"https://localhost:{NextFreePort().ToString(CultureInfo.InvariantCulture)}";
-        await WriteSettingsAsync("external-smoke", endpoint, CancellationToken.None).ConfigureAwait(false);
-        _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
-        var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+            var endpoint = await LoadConfiguredEndpointAsync(CancellationToken.None).ConfigureAwait(false);
+            _ = await SquirixServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            var client = await SquirixClient.ConnectAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
 
-        await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
-        await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
+            await RunIsolationAsync(client, CancellationToken.None).ConfigureAwait(false);
+            await RunExpirationAsync(client, CancellationToken.None).ConfigureAwait(false);
 
-        return 0;
+            return 0;
+        }
+        finally
+        {
+            testRoot.Delete(true);
+        }
     }
 
-    private static int NextFreePort()
+    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        if (listener.LocalEndpoint is not IPEndPoint endpoint)
-            throw new InvalidOperationException("Failed to resolve local TCP listener endpoint.");
-
-        return endpoint.Port;
+        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(json);
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
+                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        return new Uri(uri, UriKind.Absolute);
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
@@ -66,31 +67,5 @@ internal static class Program
         {
             throw new InvalidOperationException("Named cache isolation failed.");
         }
-    }
-
-    private static async Task WriteSettingsAsync(string nodeId, string url, CancellationToken cancellationToken)
-    {
-        var settings = new
-        {
-            Squirix = new
-            {
-                Cluster = new
-                {
-                    NodeId = nodeId,
-                    Url = url,
-                    VirtualNodes = 128,
-                    Peers = new[]
-                    {
-                        new
-                        {
-                            NodeId = nodeId,
-                            Url = url,
-                        },
-                    },
-                },
-            },
-        };
-
-        await File.WriteAllTextAsync("Squirix.settings.json", JsonSerializer.Serialize(settings), cancellationToken).ConfigureAwait(false);
     }
 }

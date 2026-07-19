@@ -1,15 +1,15 @@
 namespace Squirix.Server.Storage.Journaling;
 
 /// <summary>
-/// Optional tags for a <see cref="JournalOperationKind" /> trace scope.
+/// Optional tags for a <see cref="Abstractions.JournalOperationKind" /> trace scope.
 /// </summary>
-internal readonly struct JournalOperationTraceContext
+internal sealed record JournalOperationTraceContext
 {
-    public bool? GroupCommitEnabled { get; init; }
+    internal bool? GroupCommitEnabled { get; init; }
 
-    public string? Key { get; init; }
+    internal string? Key { get; init; }
 
-    public string? Namespace { get; init; }
+    internal string? Namespace { get; init; }
 
-    public int? PayloadBytes { get; init; }
+    internal int? PayloadBytes { get; init; }
 }

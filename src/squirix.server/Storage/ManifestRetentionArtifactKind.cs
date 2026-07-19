@@ -4,7 +4,7 @@ namespace Squirix.Server.Storage;
 internal static class ManifestRetentionArtifactKind
 {
     public const string JournalSegment = "journal_segment";
-    public const string Manifest = "manifest";
 
     public const string Snapshot = "snapshot";
+    internal const string Manifest = "manifest";
 }

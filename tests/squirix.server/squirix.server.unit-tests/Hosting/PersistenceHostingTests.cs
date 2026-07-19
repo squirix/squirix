@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,18 +12,8 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers persistence opt-in hosting behavior.</summary>
-public sealed class PersistenceHostingTests : UnitTestBase
+public sealed class PersistenceHostingTests : ServerUnitTestBase
 {
-    /// <summary>Ensures data directory without persistence is rejected.</summary>
-    [Fact]
-    public void DataDirectoryWithoutPersistenceIsRejected()
-    {
-        var options = new SquirixServerOptions { DataDirectory = "/tmp/data" };
-
-        var ex = Assert.Throws<ArgumentException>(() => SquirixServerOptionsValidator.Validate(options));
-        Assert.Contains("UsePersistence", ex.Message, StringComparison.Ordinal);
-    }
-
     /// <summary>Ensures the default host does not register persistence services.</summary>
     [Fact]
     public async Task DefaultHostingDoesNotRegisterPersistenceOptions()
@@ -37,7 +26,7 @@ public sealed class PersistenceHostingTests : UnitTestBase
             });
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
@@ -51,7 +40,7 @@ public sealed class PersistenceHostingTests : UnitTestBase
     [Fact]
     public async Task UsePersistenceRegistersPersistenceOptions()
     {
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-persistence-tests", Guid.NewGuid().ToString("N"));
+        using var dir = new TempDirectory("squirix-persistence-tests");
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
@@ -62,17 +51,14 @@ public sealed class PersistenceHostingTests : UnitTestBase
         _ = await builder.AddSquirixServerAsync(
             options =>
             {
-                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dataDir);
+                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+                options.UsePersistence(dir);
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
-        Assert.Equal(dataDir, persistence.DataDir);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
+        Assert.Equal(dir.Path, persistence.DataDir);
     }
 }

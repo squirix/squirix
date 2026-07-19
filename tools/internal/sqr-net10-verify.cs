@@ -6,7 +6,7 @@ var projectExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { 
 var skippedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "bin", "obj", ".git" };
 var scopedTopLevelDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "src", "tests", "benchmarks", "samples" };
 
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
@@ -89,7 +89,23 @@ IEnumerable<string> EnumerateProjectFiles(string repoRoot)
         if (parts.Length is 0 || !scopedTopLevelDirectories.Contains(parts[0]))
             continue;
 
-        if (parts.Any(skippedDirectories.Contains))
+        var skip = false;
+        foreach (var skipped in skippedDirectories)
+        {
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!string.Equals(parts[i], skipped, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                skip = true;
+                break;
+            }
+
+            if (skip)
+                break;
+        }
+
+        if (skip)
             continue;
 
         yield return file;
@@ -133,8 +149,7 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
             continue;
         }
 
-        var frameworks = element.Value.Split(';');
-        foreach (var framework in frameworks)
+        foreach (var framework in element.Value.Split(';'))
         {
             var value = framework.Trim();
             if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))

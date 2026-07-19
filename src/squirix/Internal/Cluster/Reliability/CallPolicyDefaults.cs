@@ -26,9 +26,9 @@ internal static class CallPolicyDefaults
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMilliseconds(600);
 
     /// <summary>
-    /// Per-attempt timeout for remote cache RPCs issued by <see cref="SquirixClient" />.
+    /// Per-attempt timeout for remote cache RPCs issued by <see cref="Client.SquirixClient" />.
     /// </summary>
     private static readonly TimeSpan PerAttemptTimeout = TimeSpan.FromSeconds(3);
 
-    public static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
+    internal static CallPolicy Create(string peer) => new(PerAttemptTimeout, MaxAttempts, BaseBackoff, MaxBackoff, peer: peer);
 }

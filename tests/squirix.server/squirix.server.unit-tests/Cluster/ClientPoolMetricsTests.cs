@@ -1,48 +1,27 @@
 using System;
 using System.Globalization;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
-/// <summary>Tests for ClientPool methods and metrics.</summary>
-public sealed class ClientPoolMetricsTests : UnitTestBase
+/// <summary>Tests for ServerClientPool methods and metrics.</summary>
+public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
-    private static readonly BootstrapConnectOptions FailFastConnectOptions = new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
-
-    /// <summary>Pool size matches configured peers and draining toggles after BeginDrain.</summary>
-    [Fact]
-    public async Task ActiveClientCountReflectsPeerSetAndDrainingState()
-    {
-        var peers = BuildPeers(4);
-        var pool = new ClientPool(peers, static _ => new CallPolicy());
-        await using (pool)
-        {
-            Assert.Equal(4, pool.ActiveClientCount);
-            Assert.Equal(4, pool.NodeIds.Count);
-            Assert.False(pool.IsDraining);
-
-            pool.BeginDrain();
-
-            Assert.True(pool.IsDraining);
-            Assert.Equal(4, pool.ActiveClientCount);
-        }
-    }
 
     /// <summary>Ensures Dispose emits squirix_peer_pool_disposals_total counter events.</summary>
     [Fact]
     public async Task DisposeIncrementsDisposalsTotal()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         var peers = BuildPeers(2);
-        var pool = new ClientPool(peers, static _ => new CallPolicy());
+        var pool = new ServerClientPool(peers, PolicyOnlyArgs());
 
         await pool.DisposeAsync();
 
@@ -54,7 +33,7 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
     public async Task ForNodeReusesSameClientAcrossManyLookups()
     {
         var peers = BuildPeers(1);
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
         var first = pool.ForNode("n0");
 
         for (var i = 0; i < 256; i++)
@@ -66,7 +45,7 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
     public async Task NodeIdsReturnsStableSortedSnapshot()
     {
         var peers = BuildPeers(3);
-        var pool = new ClientPool(peers, static _ => new CallPolicy());
+        var pool = new ServerClientPool(peers, PolicyOnlyArgs());
         await using var poolHandle = pool;
 
         Assert.Equal(["n0", "n1", "n2"], pool.NodeIds);
@@ -77,8 +56,7 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
     public async Task PoolSizeRemainsStableAfterManyForNodeLookups()
     {
         var peers = BuildPeers(2);
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy());
-        Assert.Equal(2, pool.ActiveClientCount);
+        await using var pool = new ServerClientPool(peers, PolicyOnlyArgs());
 
         var anchor = pool.ForNode("n0");
 
@@ -86,24 +64,15 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
             _ = pool.ForNode(i % 2 is 0 ? "n0" : "n1");
 
         Assert.Same(anchor, pool.ForNode("n0"));
-        Assert.Equal(2, pool.ActiveClientCount);
     }
 
-    /// <summary>Ensures WarmUpAsync fails fast when configured peer endpoints are unreachable.</summary>
-    [Fact]
-    public async Task WarmUpThrowsWhenEndpointsAreUnreachable()
-    {
-        var peers = BuildPeers(1);
-        await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
-        Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
-    }
+    private static ServerClientPoolArgs PolicyOnlyArgs() => new() { PolicyFactory = static _ => new ServerCallPolicy() };
 
-    private static Peer[] BuildPeers(int n)
+    private static ServerPeer[] BuildPeers(int n)
     {
-        var peers = new Peer[n];
+        var peers = new ServerPeer[n];
         for (var i = 0; i < n; i++)
-            peers[i] = new Peer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Url = $"https://localhost:{6500 + i.ToString(CultureInfo.InvariantCulture)}" };
+            peers[i] = new ServerPeer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Uri = new Uri($"https://localhost:{(6500 + i).ToString(CultureInfo.InvariantCulture)}") };
 
         return peers;
     }

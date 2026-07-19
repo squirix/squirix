@@ -1,7 +1,7 @@
 # Bootstrap client failover
 
 Remote applications connect with `SquirixClient.ConnectAsync` and one or more bootstrap URLs in
-`SquirixOptions.Endpoints`.
+`SquirixClientOptions.Endpoints`.
 
 ## What bootstrap endpoints are
 
@@ -32,6 +32,10 @@ maps to one or more gRPC calls on the server.
 
 Transport failover covers gRPC transport errors (for example `Unavailable`, `DeadlineExceeded`). Application-level
 outcomes (`NotFound`, validation errors) are not failover signals.
+
+The client SDK keeps the same `operation_id` when it retries a mutating RPC on the next bootstrap endpoint. Server
+nodes propagate that id through owner-routing hops, so a retry that reaches a different entry node still deduplicates on
+the key owner when the payload fingerprint matches. See [api.md](api.md) for `operation_id` format and replay rules.
 
 ## Testing
 

@@ -1,23 +1,20 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Squirix.E2EBenchmarks.Scenarios;
 
 /// <summary>End-to-end topology shape measured by a benchmark scenario.</summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark parameter enum is part of public benchmark parameterization.")]
 public enum BenchmarkTopology
 {
     /// <summary>One Squirix node and one client connected to that node.</summary>
-    SingleNode,
+    SingleNode = 0,
 
     /// <summary>Two nodes with a node A client and keys owned by node A.</summary>
-    TwoNodeLocalOwner,
+    TwoNodeLocalOwner = 1,
 
     /// <summary>Two nodes with a node A client and keys owned by node B.</summary>
-    TwoNodeRemoteOwner,
+    TwoNodeRemoteOwner = 2,
 
     /// <summary>Two nodes with keys distributed across both owners.</summary>
-    TwoNodeUniformKeys,
+    TwoNodeUniformKeys = 3,
 
     /// <summary>Two nodes with a small hot keyset distributed across both owners.</summary>
-    TwoNodeHotKeys,
+    TwoNodeHotKeys = 4,
 }

@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 namespace Squirix.Server.TestKit.Networking;
 
@@ -10,13 +10,10 @@ namespace Squirix.Server.TestKit.Networking;
 /// Each preset allocates from the full <see cref="HostPortRegion" /> range. Cross-process safety
 /// relies on bind probing in <see cref="PortAllocator" />; regions stay disjoint per consumer.
 /// </remarks>
-[SuppressMessage(
-    "Design",
-    "CA1001:Types that own disposable fields should be disposable",
-    Justification = "Pools are process-lifetime singletons; ports are released via PortAllocator process-wide reservation.")]
-public sealed class ListenPortPool
+public sealed class ListenPortPool : IDisposable
 {
     private readonly PortAllocator _allocator;
+    private bool _disposed;
 
     private ListenPortPool(HostPortRegion region)
     {
@@ -31,9 +28,6 @@ public sealed class ListenPortPool
     /// <summary>Gets the port pool for end-to-end SDK test hosts.</summary>
     public static ListenPortPool EndToEndTests { get; } = new(HostPortRegion.EndToEndTests);
 
-    /// <summary>Gets the port pool for server smoke test hosts.</summary>
-    public static ListenPortPool SmokeTests { get; } = new(HostPortRegion.SmokeTests);
-
     /// <summary>Gets the port pool for server integration test hosts.</summary>
     public static ListenPortPool IntegrationTests { get; } = new(HostPortRegion.IntegrationTests);
 
@@ -43,15 +37,34 @@ public sealed class ListenPortPool
     /// <summary>Gets the port pool for server unit tests that bind HTTPS listeners.</summary>
     public static ListenPortPool ServerUnitTests { get; } = new(HostPortRegion.ServerUnitTests);
 
+    /// <summary>Gets the port pool for server smoke test hosts.</summary>
+    public static ListenPortPool SmokeTests { get; } = new(HostPortRegion.SmokeTests);
+
     /// <summary>Reserves the next free port from this pool.</summary>
     /// <returns>A loopback port number.</returns>
     public int AllocatePort() => _allocator.Allocate();
 
     /// <summary>Reserves the next free port and returns a loopback HTTPS listen URI.</summary>
     /// <returns>A URI of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public Uri NextHttpUri() => new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", AllocatePort()).Uri;
+    public Uri NextHttpUri() => new(NextHttpAddress(), UriKind.Absolute);
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _allocator.Dispose();
+        _disposed = true;
+    }
+
+    private static string FormatLoopbackHttps(int port) => $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
 
     /// <summary>Reserves the next free port and returns a canonical loopback HTTPS listen URL.</summary>
     /// <returns>A URL of the form <c>https://127.0.0.1:&lt;port&gt;</c>.</returns>
-    public string NextHttpAddress() => ListenUrls.CanonicalAuthority(NextHttpUri());
+    private string NextHttpAddress()
+    {
+        var port = AllocatePort();
+        return FormatLoopbackHttps(port);
+    }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Contracts;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -13,27 +13,31 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
     private readonly string _cacheName;
     private readonly ILogicalNamespacedCache<T> _namespaced;
 
-    public RoutedCacheApi(ILogicalNamespacedCache<T> namespaced, string cacheName)
+    internal RoutedCacheApi(ILogicalNamespacedCache<T> namespaced, string cacheName)
     {
         _namespaced = namespaced ?? throw new ArgumentNullException(nameof(namespaced));
         _cacheName = cacheName ?? throw new ArgumentNullException(nameof(cacheName));
     }
 
-    public ValueTask<CacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string key, CancellationToken cancellationToken) => _namespaced.GetEntryAsync(_cacheName, key, cancellationToken);
 
-    public ValueTask InsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken) => _namespaced.SetAsync(_cacheName, key, entry, cancellationToken);
+    public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string key, CancellationToken cancellationToken) => _namespaced.GetValueAsync(_cacheName, key, cancellationToken);
 
-    public ValueTask<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken) => _namespaced.RemoveExpirationAsync(_cacheName, key, cancellationToken);
+    public ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string key, CancellationToken cancellationToken) =>
+        _namespaced.RemoveAsync(operationId, _cacheName, key, cancellationToken);
 
-    public ValueTask<bool> TouchAsync(string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-        _namespaced.TouchAsync(_cacheName, key, expiration, cancellationToken);
+    public ValueTask<bool> RemoveExpirationAsync(string operationId, string key, CancellationToken cancellationToken) =>
+        _namespaced.RemoveExpirationAsync(operationId, _cacheName, key, cancellationToken);
 
-    public ValueTask<CacheValueResult<T>> TryGetValueAsync(string key, CancellationToken cancellationToken) => _namespaced.TryGetValueAsync(_cacheName, key, cancellationToken);
+    public ValueTask SetEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _namespaced.SetEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
 
-    public ValueTask<bool> TryInsertAsync(string key, CacheEntry<T> entry, CancellationToken cancellationToken) =>
-        _namespaced.TryAddAsync(_cacheName, key, entry, cancellationToken);
+    public ValueTask<bool> TouchAsync(string operationId, string key, TimeSpan expiration, CancellationToken cancellationToken) =>
+        _namespaced.TouchAsync(operationId, _cacheName, key, expiration, cancellationToken);
 
-    public ValueTask<CacheRemoveResult<T>> TryRemoveAsync(string key, CancellationToken cancellationToken) => _namespaced.TryRemoveAsync(_cacheName, key, cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        _namespaced.TryAddEntryAsync(operationId, _cacheName, key, entry, cancellationToken);
 
-    public ValueTask<bool> UpdateAsync(string key, T? value, CancellationToken cancellationToken) => _namespaced.UpdateAsync(_cacheName, key, value, cancellationToken);
+    public ValueTask<bool> UpdateAsync(string operationId, string key, T? value, CancellationToken cancellationToken) =>
+        _namespaced.UpdateAsync(operationId, _cacheName, key, value, cancellationToken);
 }

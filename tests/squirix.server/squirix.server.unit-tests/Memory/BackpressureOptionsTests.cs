@@ -5,7 +5,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>
-/// Unit tests covering validation and defaults for <see cref="BackpressureOptions" />.
+/// Unit tests covering validation and defaults for <see cref="AdmissionOptions" />.
 /// </summary>
 public sealed class BackpressureOptionsTests
 {
@@ -13,7 +13,7 @@ public sealed class BackpressureOptionsTests
     [Fact]
     public void DefaultsAreValid()
     {
-        var options = new BackpressureOptions();
+        var options = new AdmissionOptions();
 
         var ex = Record.Exception(options.Validate);
 
@@ -29,7 +29,7 @@ public sealed class BackpressureOptionsTests
     [Fact]
     public void ValidateThrowsForIncompleteRateLimit()
     {
-        var options = new BackpressureOptions
+        var options = new AdmissionOptions
         {
             NodeRateLimitPerSecond = 100,
         };
@@ -43,7 +43,7 @@ public sealed class BackpressureOptionsTests
     [Fact]
     public void ValidateThrowsForInvalidPerClientConcurrency()
     {
-        var options = new BackpressureOptions
+        var options = new AdmissionOptions
         {
             MaxInFlight = 8,
             PerClientMaxInFlight = 9,
@@ -58,7 +58,7 @@ public sealed class BackpressureOptionsTests
     [Fact]
     public void ValidateThrowsForInvalidThresholdOrdering()
     {
-        var options = new BackpressureOptions
+        var options = new AdmissionOptions
         {
             MaxInFlight = 8,
             SlowdownThreshold = 6,

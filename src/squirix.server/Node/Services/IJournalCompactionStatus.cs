@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Node.Services;
 
@@ -9,5 +9,5 @@ internal interface IJournalCompactionStatus
 
     DateTime LastRunUtc { get; }
 
-    CompactionState State { get; }
+    RunState State { get; }
 }

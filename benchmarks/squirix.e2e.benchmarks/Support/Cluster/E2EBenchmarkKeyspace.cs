@@ -1,5 +1,8 @@
+using System;
+using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Squirix.E2EBenchmarks.Scenarios;
 
 namespace Squirix.E2EBenchmarks.Support.Cluster;
@@ -34,7 +37,7 @@ internal sealed class E2EBenchmarkKeyspace
         if (topology is BenchmarkTopology.SingleNode)
             return CreateSequential("single", LargeKeyCount, HotKeyCount);
 
-        var owner = new E2EBenchmarkKeyOwner(["nodeA", "nodeB"]);
+        var owner = new KeyOwner(["nodeA", "nodeB"]);
         return topology switch
         {
             BenchmarkTopology.TwoNodeLocalOwner => CreateOwned(cacheName, owner, "nodeA", "local"),
@@ -58,11 +61,11 @@ internal sealed class E2EBenchmarkKeyspace
     {
         var keys = new string[count];
         for (var i = 0; i < keys.Length; i++)
-            keys[i] = string.Concat(prefix, ":", i.ToString("D6", CultureInfo.InvariantCulture));
+            keys[i] = $"{prefix}:{i.ToString("D6", CultureInfo.InvariantCulture)}";
         return keys;
     }
 
-    private static E2EBenchmarkKeyspace CreateOwned(string cacheName, E2EBenchmarkKeyOwner owner, string nodeId, string prefix)
+    private static E2EBenchmarkKeyspace CreateOwned(string cacheName, KeyOwner owner, string nodeId, string prefix)
     {
         var hit = owner.FindKeysOwnedBy(cacheName, nodeId, LargeKeyCount, $"{prefix}:hit");
         var miss = owner.FindKeysOwnedBy(cacheName, nodeId, LargeKeyCount, $"{prefix}:miss");
@@ -82,14 +85,15 @@ internal sealed class E2EBenchmarkKeyspace
         return new E2EBenchmarkKeyspace(hit, miss, add, hot, expiring);
     }
 
-    private static E2EBenchmarkKeyspace CreateUniform(string cacheName, E2EBenchmarkKeyOwner owner, string prefix, int count)
+    private static E2EBenchmarkKeyspace CreateUniform(string cacheName, KeyOwner owner, string prefix, int count)
     {
         var nodeA = owner.FindKeysOwnedBy(cacheName, "nodeA", count / 2, $"{prefix}:a");
         var nodeB = owner.FindKeysOwnedBy(cacheName, "nodeB", count / 2, $"{prefix}:b");
         var hit = Interleave(nodeA, nodeB);
         var miss = CreateKeys($"{prefix}:miss", count);
         var add = CreateKeys($"{prefix}:add", count);
-        var hot = hit.Take(HotKeyCount).ToArray();
+        var hot = new string[HotKeyCount];
+        Array.Copy(hit, hot, HotKeyCount);
         var expiring = CreateKeys($"{prefix}:expiring", count);
         return new E2EBenchmarkKeyspace(hit, miss, add, hot, expiring);
     }
@@ -104,5 +108,80 @@ internal sealed class E2EBenchmarkKeyspace
         }
 
         return result;
+    }
+
+    /// <summary>Mirrors the Squirix consistent-hash owner selection for benchmark setup.</summary>
+    private sealed class KeyOwner
+    {
+        private readonly (ulong Hash, string Node)[] _ring;
+
+        internal KeyOwner(HashSet<string> uniqueNodes, int virtualNodes = 128)
+        {
+            if (uniqueNodes.Count is 0)
+                throw new ArgumentException("At least one node is required.", nameof(uniqueNodes));
+
+            var nodes = new List<string>(uniqueNodes);
+
+            var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
+            for (var nodeIndex = 0; nodeIndex < nodes.Count; nodeIndex++)
+            {
+                var node = nodes[nodeIndex];
+                for (var vnode = 0; vnode < virtualNodes; vnode++)
+                    ring.Add((HashString($"{node}#{vnode.ToString(CultureInfo.InvariantCulture)}"), node));
+            }
+
+            ring.Sort(static (a, b) => a.Hash.CompareTo(b.Hash));
+            _ring = [.. ring];
+        }
+
+        internal string[] FindKeysOwnedBy(string cacheName, string ownerId, int count, string prefix)
+        {
+            var keys = new List<string>(count);
+            for (var i = 0; i < 200_000 && keys.Count < count; i++)
+            {
+                var candidate = $"{prefix}:{i.ToString(CultureInfo.InvariantCulture)}";
+                if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
+                    keys.Add(candidate);
+            }
+
+            return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count.ToString(CultureInfo.InvariantCulture)} benchmark keys owned by {ownerId}.");
+        }
+
+        private static ulong HashCacheRouteKey(string cacheName, string key)
+        {
+            var canonical = string.IsNullOrWhiteSpace(cacheName) ? "default" : cacheName;
+            return HashString($"{canonical.Length.ToString(CultureInfo.InvariantCulture)}:{canonical}\x1F{key}");
+        }
+
+        private static ulong HashString(string text)
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            Span<byte> digest = stackalloc byte[32];
+            _ = SHA256.HashData(bytes, digest);
+            return BitConverter.ToUInt64(digest);
+        }
+
+        private int FindFirstGreaterOrEqual(ulong hash)
+        {
+            var lo = 0;
+            var hi = _ring.Length - 1;
+            while (lo <= hi)
+            {
+                var mid = (lo + hi) >> 1;
+                if (_ring[mid].Hash < hash)
+                    lo = mid + 1;
+                else
+                    hi = mid - 1;
+            }
+
+            return lo == _ring.Length ? 0 : lo;
+        }
+
+        private string GetOwner(string cacheName, string key)
+        {
+            var hash = HashCacheRouteKey(cacheName, key);
+            var idx = FindFirstGreaterOrEqual(hash);
+            return _ring[idx].Node;
+        }
     }
 }

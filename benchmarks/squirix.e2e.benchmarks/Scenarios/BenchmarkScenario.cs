@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.E2EBenchmarks.Scenarios;
 
@@ -8,7 +7,6 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 /// <param name="Topology">The end-to-end topology.</param>
 /// <param name="ValueShape">The cache value shape.</param>
 /// <param name="DurabilityMode">The durability mode.</param>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Benchmark scenario record is part of public benchmark parameterization.")]
 public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValueShape ValueShape, E2EBenchmarkDurabilityMode DurabilityMode)
 {
     /// <summary>Creates the default diagnostic scenario matrix.</summary>

@@ -7,9 +7,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
 
@@ -31,15 +32,18 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, ClusterConfig cluster)
+    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, TopologyOptions cluster)
     {
         _opt = opt;
         _options = options;
         _nodeId = cluster.NodeId;
 
-        _ = MeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = MeterRegistry.Meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
+            "squirix_journal_size_bytes",
+            ObserveSize,
+            description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -88,7 +92,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             return;
         }
 
-        var files = Directory.GetFiles(dir, $"{StorageFilePrefixes.Journal}*{StorageFileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+        var files = Directory.GetFiles(dir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)

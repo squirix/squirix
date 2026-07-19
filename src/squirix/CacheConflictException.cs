@@ -1,15 +1,15 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
+using JetBrains.Annotations;
 
 namespace Squirix;
 
 /// <summary>Thrown when a cache mutation conflicts with an existing live entry.</summary>
+[PublicAPI]
 public sealed class CacheConflictException : Exception
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="CacheConflictException" /> class.
     /// </summary>
-    [SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "Required public exception constructor for API compatibility.")]
     public CacheConflictException()
     {
     }
@@ -19,7 +19,6 @@ public sealed class CacheConflictException : Exception
     /// </summary>
     /// <param name="message">The exception message.</param>
     /// <param name="innerException">The inner exception.</param>
-    [SuppressMessage("ReSharper", "UnusedMember.Global", Justification = "Required public exception constructor for API compatibility.")]
     public CacheConflictException(string? message, Exception? innerException)
         : base(message, innerException)
     {
@@ -36,5 +35,5 @@ public sealed class CacheConflictException : Exception
     }
 
     /// <summary>Gets the conflicting cache key.</summary>
-    public string Key { get; private set; } = string.Empty;
+    public string Key { get; } = string.Empty;
 }

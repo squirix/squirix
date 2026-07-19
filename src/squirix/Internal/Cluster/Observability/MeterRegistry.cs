@@ -4,5 +4,5 @@ namespace Squirix.Internal.Cluster.Observability;
 
 internal static class MeterRegistry
 {
-    public static readonly Meter Meter = new("Squirix");
+    internal static readonly Meter Meter = new("Squirix");
 }

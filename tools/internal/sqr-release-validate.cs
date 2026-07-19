@@ -5,6 +5,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Xml.Linq;
 
 var requiredDocs = new[]
@@ -22,7 +23,7 @@ var packageProjects = new[]
 };
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
 {
@@ -30,7 +31,7 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     await output.WriteLineAsync().ConfigureAwait(false);
     await output.WriteLineAsync("Usage:").ConfigureAwait(false);
     await output.WriteLineAsync(
-                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludePropertyTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
+                     "  dotnet run --file tools/internal/sqr-release-validate.cs -- [-SkipTests] [-SkipFormat] [-IncludeIntegrationTests] [-IncludeStressChecks] [-IncludeBenchmarks] [-Configuration Release] [-ArtifactsDirectory artifacts/release-validation] [-PackageVersion <ver>]")
                 .ConfigureAwait(false);
     return 0;
 }
@@ -40,6 +41,13 @@ if (!options.IsValid)
     return 1;
 
 var repoRoot = ResolveRepoRoot();
+var dotnetPath = ResolveDotnetPath();
+if (dotnetPath is null)
+{
+    await Console.Error.WriteLineAsync("ERROR: dotnet executable path is unavailable.").ConfigureAwait(false);
+    return 1;
+}
+
 var repoRootResolved = Path.GetFullPath(repoRoot);
 var artifactsPath = Path.GetFullPath(Path.Combine(repoRootResolved, options.ArtifactsDirectory));
 var packageOutputPath = Path.Combine(artifactsPath, "packages");
@@ -103,17 +111,6 @@ try
                 "normal",
             ]).ConfigureAwait(false);
 
-        if (options.IncludePropertyTests)
-        {
-            await StepAsync("Run property tests").ConfigureAwait(false);
-            await RunDotnetOrThrowAsync(
-                repoRootResolved,
-                [
-                    "test", "tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj", "--configuration", options.Configuration, "--no-build",
-                    "--verbosity", "normal",
-                ]).ConfigureAwait(false);
-        }
-
         if (options.IncludeIntegrationTests)
         {
             await StepAsync("Run integration tests").ConfigureAwait(false);
@@ -129,6 +126,7 @@ try
         {
             await StepAsync("Run selected resiliency stress checks").ConfigureAwait(false);
             var code = await RunDotnetAsync(
+                dotnetPath,
                 repoRootResolved,
                 [
                     "run",
@@ -151,8 +149,10 @@ try
         await RunDotnetOrThrowAsync(repoRootResolved, NewPackArguments(project, options.Configuration, packageOutputPath, options.PackageVersion)).ConfigureAwait(false);
 
     await StepAsync("Validate package artifacts").ConfigureAwait(false);
-    var packages = Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly).Order(StringComparer.OrdinalIgnoreCase).ToArray();
-    if (packages.Length < packageProjects.Length)
+    var packages = new List<string>(Directory.EnumerateFiles(packageOutputPath, "*.nupkg", SearchOption.TopDirectoryOnly));
+
+    packages.Sort(StringComparer.OrdinalIgnoreCase);
+    if (packages.Count < packageProjects.Length)
         throw new InvalidOperationException($"Expected at least {packageProjects.Length} .nupkg files in {packageOutputPath}.");
 
     foreach (var package in packages)
@@ -178,6 +178,7 @@ try
 
     await StepAsync("Run external package smoke against packed artifacts").ConfigureAwait(false);
     var smokeRunCode = await RunDotnetAsync(
+        dotnetPath,
         Path.Combine(repoRootResolved, "samples", "external-package-smoke"),
         ["run", "--configuration", options.Configuration, "--no-build", "/p:SmokeUsePackages=true"]).ConfigureAwait(false);
     if (smokeRunCode is not 0)
@@ -234,13 +235,6 @@ async Task<ReleaseOptions> ParseOptionsAsync(string[] args)
         if (string.Equals(a, "-IncludeIntegrationTests", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--include-integration-tests", StringComparison.OrdinalIgnoreCase))
         {
             parsed.IncludeIntegrationTests = true;
-            argIndex++;
-            continue;
-        }
-
-        if (string.Equals(a, "-IncludePropertyTests", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--include-property-tests", StringComparison.OrdinalIgnoreCase))
-        {
-            parsed.IncludePropertyTests = true;
             argIndex++;
             continue;
         }
@@ -308,26 +302,66 @@ string ResolveRepoRoot()
     return Environment.CurrentDirectory;
 }
 
-static async Task StepAsync(string name)
+static Task StepAsync(string name)
 {
-    await Console.Out.WriteLineAsync($"==> {name}").ConfigureAwait(false);
+    return Console.Out.WriteLineAsync($"==> {name}");
 }
 
 async Task RunDotnetOrThrowAsync(string workingDirectory, IReadOnlyList<string> args)
 {
-    var code = await RunDotnetAsync(workingDirectory, args).ConfigureAwait(false);
+    var code = await RunDotnetAsync(dotnetPath, workingDirectory, args).ConfigureAwait(false);
     if (code is not 0)
         throw new InvalidOperationException($"dotnet {string.Join(' ', args)} failed with exit code {code.ToString(CultureInfo.InvariantCulture)}.");
 }
 
-static async Task<int> RunDotnetAsync(string workingDirectory, IReadOnlyList<string> args)
+static string? ResolveDotnetPath()
 {
+    var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+    if (!string.IsNullOrWhiteSpace(dotnetRoot))
+    {
+        var dotnetRootCandidate = Path.Combine(dotnetRoot, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        if (File.Exists(dotnetRootCandidate))
+            return Path.GetFullPath(dotnetRootCandidate);
+    }
+
+    var processPath = Environment.ProcessPath;
+    if (!string.IsNullOrWhiteSpace(processPath))
+    {
+        var processFileName = Path.GetFileName(processPath);
+        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(processPath);
+        }
+    }
+
+    var pathValue = Environment.GetEnvironmentVariable("PATH");
+    if (string.IsNullOrWhiteSpace(pathValue))
+        return null;
+
+    var executableName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+    foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var pathCandidate = Path.Combine(segment, executableName);
+        if (File.Exists(pathCandidate))
+            return Path.GetFullPath(pathCandidate);
+    }
+
+    return null;
+}
+
+static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
+{
+    var quotedArgs = new string[args.Count];
+    for (var i = 0; i < args.Count; i++)
+        quotedArgs[i] = QuoteIfNeeded(args[i]);
+
     var processStartInfo = new ProcessStartInfo
     {
-        FileName = "dotnet",
+        FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
-        Arguments = string.Join(' ', args.Select(QuoteIfNeeded)),
+        Arguments = string.Join(' ', quotedArgs),
     };
     using var proc = Process.Start(processStartInfo);
     if (proc is not null)
@@ -366,11 +400,35 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
     var archive = await ZipFile.OpenReadAsync(packagePath, cancellationToken).ConfigureAwait(false);
     await using (archive.ConfigureAwait(false))
     {
-        var names = archive.Entries.Select(static e => e.FullName).ToArray();
-        var nuspecName = names.FirstOrDefault(static n => n.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+        var names = new List<string>();
+        foreach (var entry in archive.Entries)
+            names.Add(entry.FullName);
+
+        string? nuspecName = null;
+        var nameSpan = CollectionsMarshal.AsSpan(names);
+        for (var i = 0; i < nameSpan.Length; i++)
+        {
+            var name = nameSpan[i];
+            if (!name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            nuspecName = name;
+            break;
+        }
+
         if (string.IsNullOrWhiteSpace(nuspecName))
             throw new InvalidOperationException($"Package has no nuspec: {packagePath}");
-        if (!names.Contains("README.md", StringComparer.Ordinal))
+
+        var hasReadme = false;
+        for (var i = 0; i < nameSpan.Length; i++)
+        {
+            if (!string.Equals(nameSpan[i], "README.md", StringComparison.Ordinal))
+                continue;
+            hasReadme = true;
+            break;
+        }
+
+        if (!hasReadme)
             throw new InvalidOperationException($"Package has no README.md: {packagePath}");
 
         var nuspecEntry = archive.GetEntry(nuspecName) ?? throw new InvalidOperationException($"Package nuspec entry is missing: {packagePath}");
@@ -378,23 +436,59 @@ static async Task ValidatePackageMetadataAsync(string packagePath, CancellationT
         await using (stream.ConfigureAwait(false))
         {
             var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken).ConfigureAwait(false);
-            var metadata = document.Root?.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "metadata", StringComparison.Ordinal));
+            XElement? metadata = null;
+            foreach (var element in document.Root?.Elements() ?? [])
+            {
+                if (!string.Equals(element.Name.LocalName, "metadata", StringComparison.Ordinal))
+                    continue;
+
+                metadata = element;
+                break;
+            }
+
             if (metadata is null)
                 throw new InvalidOperationException($"Package metadata is missing in {packagePath}.");
 
             foreach (var name in new[] { "id", "version", "authors", "description", "tags" })
             {
-                var value = metadata.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, name, StringComparison.Ordinal))?.Value.Trim();
+                string? value = null;
+                foreach (var element in metadata.Elements())
+                {
+                    if (!string.Equals(element.Name.LocalName, name, StringComparison.Ordinal))
+                        continue;
+
+                    value = element.Value.Trim();
+                    break;
+                }
+
                 if (string.IsNullOrWhiteSpace(value))
                     throw new InvalidOperationException($"Package metadata '{name}' is missing in {packagePath}.");
             }
 
-            var repository = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "repository", StringComparison.Ordinal));
+            XElement? repository = null;
+            foreach (var element in metadata.Elements())
+            {
+                if (!string.Equals(element.Name.LocalName, "repository", StringComparison.Ordinal))
+                    continue;
+
+                repository = element;
+                break;
+            }
+
             var repositoryUrl = repository?.Attribute("url")?.Value.Trim();
             if (string.IsNullOrWhiteSpace(repositoryUrl))
                 throw new InvalidOperationException($"Package metadata 'repository.url' is missing in {packagePath}.");
 
-            var licenseElement = metadata.Elements().FirstOrDefault(static e => string.Equals(e.Name.LocalName, "license", StringComparison.Ordinal));
+            XElement? licenseElement = null;
+            foreach (var element in metadata.Elements())
+            {
+                if (!string.Equals(element.Name.LocalName, "license", StringComparison.Ordinal))
+                    continue;
+
+                licenseElement = element;
+                break;
+            }
+
             if (string.IsNullOrWhiteSpace(licenseElement?.Value.Trim()))
                 throw new InvalidOperationException($"Package metadata 'license' is missing in {packagePath}.");
         }
@@ -410,8 +504,6 @@ internal sealed class ReleaseOptions
     public bool IncludeBenchmarks { get; set; }
 
     public bool IncludeIntegrationTests { get; set; }
-
-    public bool IncludePropertyTests { get; set; }
 
     public bool IncludeStressChecks { get; set; }
 

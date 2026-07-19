@@ -12,7 +12,7 @@ Example settings discovery and validation: [configuration.md](configuration.md).
 
 ## Client bootstrap endpoints
 
-Applications connect with one or more bootstrap URLs in `SquirixOptions.Endpoints`. These URLs are an **HA front door**
+Applications connect with one or more bootstrap URLs in `SquirixClientOptions.Endpoints`. These URLs are an **HA front door**
 — interchangeable views of the same cluster — **not independent shards**.
 
 ```csharp

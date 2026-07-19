@@ -9,9 +9,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Grpc.Core;
 using Squirix;
+using Squirix.Client;
 using Squirix.Server;
 
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase)
     || string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase)))
@@ -20,7 +21,16 @@ if (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.Ordin
     return 0;
 }
 
-var runLoad = !argv.Any(static arg => string.Equals(arg, "--skip-load", StringComparison.OrdinalIgnoreCase));
+var runLoad = true;
+foreach (var arg in argv)
+{
+    if (string.Equals(arg, "--skip-load", StringComparison.OrdinalIgnoreCase))
+    {
+        runLoad = false;
+        break;
+    }
+}
+
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 var cancellationToken = cts.Token;
 var previousTestRoot = Environment.GetEnvironmentVariable("SQUIRIX_TEST_ROOT");
@@ -38,7 +48,7 @@ try
     var host = await SquirixServer.StartAsync(cancellationToken).ConfigureAwait(false);
     await using (host.ConfigureAwait(false))
     {
-        var client = await SquirixClient.ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        var client = await SquirixClient.ConnectAsync(new Uri(endpoint), cancellationToken).ConfigureAwait(false);
         await using (client.ConfigureAwait(false))
         {
             var defaultCache = await client.GetCacheAsync<object?>("default", cancellationToken).ConfigureAwait(false);
@@ -171,7 +181,7 @@ static int NextFreePort()
     return port;
 }
 
-static async Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
+static Task WriteSettingsFileAsync(string directory, string endpoint, CancellationToken cancellationToken)
 {
     var settings = new
     {
@@ -180,19 +190,21 @@ static async Task WriteSettingsFileAsync(string directory, string endpoint, Canc
             Cluster = new
             {
                 NodeId = "runner",
-                Url = endpoint,
+                Uri = endpoint,
                 Peers = new[]
                 {
                     new
                     {
                         NodeId = "runner",
-                        Url = endpoint,
+                        Uri = endpoint,
                     },
                 },
             },
         },
     };
 
+#pragma warning disable ZA1001 // Ad-hoc demo settings DTO; source generation is not worth the ceremony here.
     var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-    await File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken).ConfigureAwait(false);
+#pragma warning restore ZA1001
+    return File.WriteAllTextAsync(Path.Join(directory, "Squirix.settings.json"), json, cancellationToken);
 }

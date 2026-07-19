@@ -19,7 +19,7 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />
-    public long EstimateBytes(CacheKey key, CacheEntry<T> entry, bool payloadIsCounter)
+    public long EstimateBytes(CacheKey key, NodeCacheEntry<T> entry, bool payloadIsCounter)
     {
         long n = FixedPerEntryOverheadBytes;
         n += Encoding.UTF8.GetByteCount(key.Namespace);
@@ -29,6 +29,14 @@ internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
         n += EstimateTagsBytes(entry.Tags);
         n += payloadIsCounter ? sizeof(long) : EstimateTypedPayloadBytes(entry.Value);
         return n;
+    }
+
+    /// <inheritdoc />
+    public bool HasUnknownPayloadMagnitude(NodeCacheEntry<T> entry, bool payloadIsCounter)
+    {
+        if (payloadIsCounter)
+            return false;
+        return MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(entry.Value);
     }
 
     private static long EstimateTagsBytes(FrozenDictionary<string, string>? tags)

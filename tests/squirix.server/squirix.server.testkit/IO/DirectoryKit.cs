@@ -1,7 +1,5 @@
 using System;
-using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,15 +68,15 @@ public static class DirectoryKit
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Path must be a non-empty string.", nameof(path));
 
-        ValidateNoInvalidChars(path);
+        PathValidationKit.ValidateNoInvalidChars(path);
 
         var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
-        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? System.Environment.CurrentDirectory, path));
+        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : NodePathKit.Combine(baseFull ?? Environment.CurrentDirectory, path));
 
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
 
-        ValidateSegments(full);
+        PathValidationKit.ValidateSegments(full);
 
         if (forbidSymlinks)
             EnsureNoSymlinksInChain(full, baseFull);
@@ -102,9 +100,9 @@ public static class DirectoryKit
     /// <exception cref="UnauthorizedAccessException">Propagated from <see cref="CreateDirectory(string,string?,bool,bool)" /> on access errors.</exception>
     public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
-        var d = PathKit.Combine(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"));
-        if (!string.IsNullOrEmpty(hint))
-            d = PathKit.Combine(d, hint);
+        var d = string.IsNullOrEmpty(hint)
+            ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+            : Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         CreateDirectory(d);
         return d;
     }
@@ -120,12 +118,12 @@ public static class DirectoryKit
     /// </remarks>
     /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
     /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
-    public static Task TryDeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => TryDeleteDirectoryCoreAsync(dir, cancellationToken);
+    public static Task DeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => DeleteDirectoryCoreAsync(dir, cancellationToken);
 
     /// <summary>Best-effort recursive delete of a directory.</summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>
-    /// <remarks>Prefer <see cref="TryDeleteDirectoryAsync" /> in async code paths.</remarks>
-    public static void TryDeleteDirectory(string dir)
+    /// <remarks>Prefer <see cref="DeleteDirectoryAsync" /> in async code paths.</remarks>
+    public static void DeleteDirectory(string dir)
     {
         for (var i = 0; i < 6; i++)
         {
@@ -150,7 +148,7 @@ public static class DirectoryKit
             Directory.Delete(dir, true);
     }
 
-    private static async Task TryDeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
+    private static async Task DeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
     {
         for (var i = 0; i < 6; i++)
         {
@@ -184,18 +182,20 @@ public static class DirectoryKit
         {
             try
             {
-                // Files
-                foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly))
+                var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var fi = 0; fi < files.Length; fi++)
                 {
-                    TryMakeWritable(f);
+                    var f = files[fi];
+                    ClearReadOnlyAttributes(f);
                     File.Delete(f);
                 }
 
-                // Dirs
-                foreach (var d in Directory.EnumerateDirectories(dir, "*", SearchOption.TopDirectoryOnly))
+                var directories = Directory.GetDirectories(dir, "*", SearchOption.TopDirectoryOnly);
+                for (var di = 0; di < directories.Length; di++)
                 {
-                    var di = new DirectoryInfo(d);
-                    if (forbidSymlinks && IsSymlink(di))
+                    var d = directories[di];
+                    var directoryInfo = new DirectoryInfo(d);
+                    if (forbidSymlinks && IsSymlink(directoryInfo))
                         throw new IOException($"Refusing to descend into symlink/junction: '{d}'.");
 
                     Directory.Delete(d, true);
@@ -253,7 +253,7 @@ public static class DirectoryKit
 
         foreach (var p in parts)
         {
-            cur = PathKit.Combine(cur, p);
+            cur = NodePathKit.Combine(cur, p);
             var di = new DirectoryInfo(cur);
             if (!di.Exists)
                 break; // Not yet existing — will be created as regular directories
@@ -269,7 +269,7 @@ public static class DirectoryKit
         // strict case-sensitive on Linux.
         var ignoreCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
         var comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var baseWithSep = baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : baseFull + Path.DirectorySeparatorChar;
+        var baseWithSep = baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : $"{baseFull}{Path.DirectorySeparatorChar}";
         return candidateFull.Equals(baseFull, comparison) || candidateFull.StartsWith(baseWithSep, comparison);
     }
 
@@ -296,7 +296,7 @@ public static class DirectoryKit
 
         try
         {
-            return fsi.Attributes.HasFlag(FileAttributes.ReparsePoint);
+            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
         }
         catch (IOException)
         {
@@ -308,32 +308,12 @@ public static class DirectoryKit
         }
     }
 
-    private static bool IsWindowsReservedName(string seg)
-    {
-        // Check name without extension
-        var name = seg;
-        var dot = seg.IndexOf('.', StringComparison.Ordinal);
-        if (dot > 0)
-            name = seg[..dot];
-
-        string[] fixedNames = ["CON", "PRN", "AUX", "NUL"];
-        if (fixedNames.Any(n => string.Equals(name, n, StringComparison.OrdinalIgnoreCase)))
-            return true;
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3].ToUpperInvariant();
-        var equals = prefix.Equals("COM", StringComparison.Ordinal) || prefix.Equals("LPT", StringComparison.Ordinal);
-        return equals && int.TryParse(name.AsSpan(3), CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
     private static string? PrepareBaseFullPath(string? baseDir, bool forbidSymlinks)
     {
         if (string.IsNullOrWhiteSpace(baseDir))
             return null;
 
-        ValidateNoInvalidChars(baseDir);
+        PathValidationKit.ValidateNoInvalidChars(baseDir);
         var baseFull = Path.GetFullPath(baseDir);
 
         if (forbidSymlinks)
@@ -349,12 +329,12 @@ public static class DirectoryKit
         return baseFull;
     }
 
-    private static void TryMakeWritable(string file)
+    private static void ClearReadOnlyAttributes(string file)
     {
         try
         {
             var attrs = File.GetAttributes(file);
-            if (attrs.HasFlag(FileAttributes.ReadOnly))
+            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
                 File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
         catch (IOException)
@@ -364,44 +344,6 @@ public static class DirectoryKit
         catch (UnauthorizedAccessException)
         {
             // ignore
-        }
-    }
-
-    private static void ValidateNoInvalidChars(string path)
-    {
-        if (path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
-            throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
-
-        // Wildcards typically indicate a glob, not a concrete path
-        if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
-            throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
-    }
-
-    private static void ValidateSegments(string fullPath)
-    {
-        var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-        var rest = fullPath[root.Length..];
-        var segments = rest.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var rawSeg in segments)
-        {
-            var seg = rawSeg.Trim();
-            if (seg.Length is 0)
-                throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
-
-            // Windows-only constraints
-            if (OperatingSystem.IsWindows())
-            {
-                if (seg.EndsWith(' ') || seg.EndsWith('.'))
-                    throw new ArgumentException($"Segment ends with space or dot: '{seg}' in '{fullPath}'.", nameof(fullPath));
-
-                if (IsWindowsReservedName(seg))
-                    throw new ArgumentException($"Segment is a reserved Windows name: '{seg}' in '{fullPath}'.", nameof(fullPath));
-            }
-
-            // File-name level invalid chars (cross-platform)
-            if (seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException($"Segment contains invalid characters: '{seg}' in '{fullPath}'.", nameof(fullPath));
         }
     }
 }

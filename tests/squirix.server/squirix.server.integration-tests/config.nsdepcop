@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server.IntegrationTests dependency policy.
+
+  Integration tests exercise live server surfaces through TestKit hosts and gRPC/REST clients.
+  Keep the client SDK package boundary; shared transport CLR remains allowed.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Server.IntegrationTests" To="Squirix" />
+
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Internal.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Core.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Errors.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Serialization.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Atomic.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Batch.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Watch.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Scan.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Mutations.*" />
+  <Disallowed From="Squirix.Server.IntegrationTests.*" To="Squirix.Runtime.*" />
+
+</NsDepCopConfig>

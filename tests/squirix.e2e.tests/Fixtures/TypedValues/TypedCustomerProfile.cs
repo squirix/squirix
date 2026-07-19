@@ -8,7 +8,7 @@ internal sealed record TypedCustomerProfile(
     string DisplayName,
     string? Email,
     TypedCustomerAddress Address,
-    string[] Roles,
+    IReadOnlyList<string> Roles,
     Dictionary<string, string> Metadata,
     DateTimeOffset CreatedAt,
     TypedCustomerStatus Status);

@@ -4,14 +4,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>
-/// Unit tests for inbound correlation handling in <see cref="Correlation.ServerInterceptor" />.
+/// Unit tests for inbound correlation handling in <see cref="ServerInterceptor" />.
 /// </summary>
 public sealed class CorrelationServerInterceptorTests
 {
@@ -110,18 +109,7 @@ public sealed class CorrelationServerInterceptorTests
         Assert.Same(outer, Activity.Current);
     }
 
-    private static Correlation.ServerInterceptor CreateInterceptor()
-    {
-        var cluster = new ClusterConfig
-        {
-            ClusterId = "c",
-            NodeId = "n1",
-            Peers = [],
-            Url = "https://localhost",
-        };
-
-        return new Correlation.ServerInterceptor(NullLogger<Correlation.ServerInterceptor>.Instance, cluster);
-    }
+    private static ServerInterceptor CreateInterceptor() => new(NullLogger<ServerInterceptor>.Instance, "n1");
 
     private static ActivityListener CreateSquirixActivityListener()
     {
@@ -139,7 +127,7 @@ public sealed class CorrelationServerInterceptorTests
 
     private sealed class TestServerCallContext : ServerCallContext
     {
-        public TestServerCallContext(Metadata? headers = null)
+        internal TestServerCallContext(Metadata? headers = null)
         {
             RequestHeadersCore = headers ?? [];
         }

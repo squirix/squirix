@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server namespace dependency policy (denylist on top of allow-all).
+
+  Intended layer stack (outer → inner, dependencies flow downward only):
+
+    Adapters (REST/gRPC transport)
+      → Node.Hosting (DI composition, Kestrel, options)
+        → Node.Services / Node.App / Node.Bootstrap / Node.Context (runtime orchestration & decorators)
+          → Cluster (routing, membership, inter-node transport)
+          → LocalCache (in-memory owner cache)
+          → Node.Backpressure / Node.MemoryPressure / Node.Observability / Serialization
+            → Storage (journal, snapshot, manifest)
+              → Kernel: Errors, Logging, Utils, Core, Contracts, Runtime.Contracts
+
+  Shared transport CLR: Squirix.Transport.Grpc.* (compiled from shared proto/mappers).
+
+  Rules below flag upward/cross-cutting coupling that should be refactored toward abstractions
+  in Contracts / Runtime.Contracts / Storage.Journaling.Abstractions.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <!-- Baseline: every namespace may depend unless a Disallowed rule matches. -->
+  <Allowed From="*" To="*" />
+
+  <!-- Assembly baseline: allow all package references except explicit cross-package violations below. -->
+  <AllowedAssembly From="*" To="*" />
+
+  <!-- Server runtime must never reference the client SDK assembly (separate package boundary). -->
+  <DisallowedAssembly From="Squirix.Server" To="Squirix" />
+
+  <!-- ═══ Process / package boundary ═══ -->
+
+  <!-- Server product must not depend on client SDK namespaces (only shared Squirix.Transport.Grpc is allowed). -->
+  <Disallowed From="Squirix.Server.*" To="Squirix.Atomic.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Batch.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Watch.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Scan.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Mutations.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Errors.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Internal.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Runtime.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Core.*" />
+  <Disallowed From="Squirix.Server.*" To="Squirix.Serialization.*" />
+
+  <!-- ═══ Kernel purity (inner shared types must stay free of outer layers) ═══ -->
+
+  <!-- Error contracts are domain vocabulary; must not pull orchestration types (today: CacheOperationContract → Node.Services). -->
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Services.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Errors.*" To="Squirix.Server.Storage.*" />
+
+  <!-- Low-level helpers (paths, CRC, buffers) must remain infrastructure-agnostic. -->
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Utils.*" To="Squirix.Server.Node.Services.*" />
+
+  <!-- Logging must stay free of outer orchestration. -->
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Logging.*" To="Squirix.Server.Node.Services.*" />
+
+  <!-- Public cache API contracts must not reference transport, hosting, or persistence implementations. -->
+  <Disallowed From="Squirix.Server.Contracts.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Contracts.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Contracts.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Contracts.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- Runtime contracts are the inward-facing port surface; must not reference concrete node context (today: IRemoteInvocationScopeFactory → Node.Context). -->
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Context.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Runtime.Contracts.*" To="Squirix.Server.Storage.*" />
+
+  <!-- Runtime adapters implement contracts; must not become a second transport layer. -->
+  <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Runtime.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Core validators/limits are shared kernel; keep them free of node/cluster/storage orchestration. -->
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Storage.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Cluster.*" />
+  <Disallowed From="Squirix.Server.Core.*" To="Squirix.Server.Node.Services.*" />
+
+  <!-- ═══ Storage (durability core — must not depend upward) ═══ -->
+
+  <!-- Persistence must not know REST/gRPC adapters. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Persistence must not depend on DI composition / Kestrel wiring. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Snapshot/journal code must not depend on cluster topology types (today: SnapshotCoordinator → Cluster.Membership). -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- Durability path must not read in-memory owner cache shapes (today: SnapshotCoordinator → LocalCache). -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.LocalCache.*" />
+
+  <!-- Storage must not call node orchestration (today: snapshot codecs → Node.Services idempotency DTOs). -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Services.*" />
+
+  <!-- Storage must not emit product metrics directly (today: ManifestRetentionCleanup → Node.Observability). -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Observability.*" />
+
+  <!-- Storage must not depend on admission/backpressure gates. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Backpressure.*" />
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.MemoryPressure.*" />
+
+  <!-- Storage must not depend on cache decorator pipeline. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.App.*" />
+
+  <!-- Storage must not load unified settings/bootstrap (today: SnapshotBootstrap → Node.Bootstrap). -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Bootstrap.*" />
+
+  <!-- Storage must not depend on per-request invocation context. -->
+  <Disallowed From="Squirix.Server.Storage.*" To="Squirix.Server.Node.Context.*" />
+
+  <!-- Adapters must not bypass snapshot/journal abstractions via JSON journal internals (legacy guard). -->
+  <Disallowed From="Squirix.Server.Adapters.*" To="Squirix.Server.Storage.Journaling.Json.*" />
+
+  <!-- ═══ Local in-memory cache ═══ -->
+
+  <!-- Owner cache must not depend on transport adapters. -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Owner cache must not depend on cluster routing/client pool. -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- Owner cache must not depend on persistence implementation (only abstractions belong above). -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Storage.*" />
+
+  <!-- Owner cache must not depend on DI/host composition. -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Entry sizing must not depend on memory-pressure gate types (today: estimators → Node.MemoryPressure). -->
+  <Disallowed From="Squirix.Server.LocalCache.*" To="Squirix.Server.Node.MemoryPressure.*" />
+
+  <!-- ═══ Cluster (distributed routing & inter-node transport) ═══ -->
+
+  <!-- Cluster runtime must not depend on REST/gRPC adapters. -->
+  <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Cluster registration must not reference DI composition types (today: ClusterRuntimeServiceRegistration → Node.Hosting). -->
+  <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Cluster must not reference cache decorator implementations (today: ClusterRuntimeServiceRegistration → Node.App.Decorators). -->
+  <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Node.App.*" />
+
+  <!-- Cluster transport must not depend on persistence (routing stays separate from WAL). -->
+  <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Storage.*" />
+
+  <!-- ═══ Node subsystems ═══ -->
+
+  <!-- Backpressure gate must stay independent from storage internals (enforced previously by ArchUnit). -->
+  <Disallowed From="Squirix.Server.Node.Backpressure.*" To="Squirix.Server.Storage.*" />
+
+  <!-- Hosted services orchestrate storage but must not depend on transport adapters. -->
+  <Disallowed From="Squirix.Server.Node.Services.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Observability must stay transport-agnostic (metrics/tracing decorators live above adapters). -->
+  <Disallowed From="Squirix.Server.Node.Observability.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Cache decorator pipeline must not depend on DI option bags in Hosting (today: DeadlineCacheDecorator → CachePipelineDeadlineOptions). -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Decorators must not call transport adapters directly. -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Decorators should not call hosted services; prefer abstractions in Runtime.Contracts / Storage.Abstractions (today: DurableMutationExecutor → Node.Services). -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Node.Services.*" />
+
+  <!-- Settings bootstrap must not depend on hosting composition (today: UnifiedSettings → Node.Hosting). -->
+  <Disallowed From="Squirix.Server.Node.Bootstrap.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Per-request context is node-internal; must not depend on outward adapters. -->
+  <Disallowed From="Squirix.Server.Node.Context.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- Serializer wiring must not depend on observability decorators (today: MetricsDecoratedSerializer → Node.Observability). -->
+  <Disallowed From="Squirix.Server.Serialization.*" To="Squirix.Server.Node.Observability.*" />
+  <Disallowed From="Squirix.Server.Serialization.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- ═══ Adapters (outer transport — should depend on contracts/runtime, not hosting/services) ═══ -->
+
+  <!-- gRPC/REST adapters must not depend on DI composition types (today: GrpcInvocationContextInterceptor → Node.Hosting). -->
+  <Disallowed From="Squirix.Server.Adapters.*" To="Squirix.Server.Node.Hosting.*" />
+
+  <!-- Transport should call cache through Runtime/Contracts ports, not hosted services (today: SquirixServiceAdapter → Node.Services). -->
+  <Disallowed From="Squirix.Server.Adapters.*" To="Squirix.Server.Node.Services.*" />
+
+</NsDepCopConfig>

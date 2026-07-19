@@ -1,6 +1,6 @@
 using System;
-using System.Threading.Tasks;
-using Squirix.Server.Limits;
+using System.Buffers;
+using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.TestKit.Benchmarks;
@@ -8,53 +8,50 @@ namespace Squirix.Server.TestKit.Benchmarks;
 /// <summary>Benchmark-facing wrappers for entry payload serialization paths on the write pipeline.</summary>
 public static class EntryPayloadWritePathBenchmarkSupport
 {
-    /// <summary>Serializes the entry once using the discriminated journal JSON writer.</summary>
+    /// <summary>Serializes the entry once using the binary journal entry codec.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length.</returns>
-    public static async Task<int> DiscriminatedSerializeOnceAsync(CacheEntry<string> entry)
+    public static int BinarySerializeOnce(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(
-            entry.Value,
-            entry.ExpiresUtc,
-            entry.Expiration,
-            entry.Version,
-            entry.Tags).ConfigureAwait(false);
-        return payload.Length;
+        return JournalEntryPayload.MeasureSerializedBytes(entry);
     }
 
-    /// <summary>Simulates the current validation guard plus journal path with two independent discriminated serializations.</summary>
+    /// <summary>Simulates validation guard plus journal path with two independent binary encodings.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The combined serialized byte length from both passes.</returns>
-    public static async Task<int> DiscriminatedSerializeTwiceAsync(CacheEntry<string> entry)
+    public static int BinarySerializeTwice(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-
-        var guardBytes = await EntryPayloadSizeGuard.MeasureSerializedBytesAsync(entry).ConfigureAwait(false);
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(
-            entry.Value,
-            entry.ExpiresUtc,
-            entry.Expiration,
-            entry.Version,
-            entry.Tags).ConfigureAwait(false);
-        return guardBytes + payload.Length;
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        var guardBytes = prepared.EncodedLength;
+        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
+        try
+        {
+            return guardBytes + length;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
-    /// <summary>Simulates reusing one discriminated serialization for both validation and journal append.</summary>
+    /// <summary>Simulates the write path: prepare once, guard on prepared length, then pooled encode.</summary>
     /// <param name="entry">The cache entry to serialize.</param>
     /// <returns>The serialized byte length after validation.</returns>
-    public static async Task<int> SerializeOnceThenLengthCheckAsync(CacheEntry<string> entry)
+    public static int SerializeOnceThenLengthCheck(NodeCacheEntry<string> entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-
-        var payload = await DiscriminatedEntryJsonWriter.BuildEntryJsonAsync(
-            entry.Value,
-            entry.ExpiresUtc,
-            entry.Expiration,
-            entry.Version,
-            entry.Tags).ConfigureAwait(false);
-        EntryPayloadSizeGuard.EnsureDiscriminatedJsonWithinLimit(payload);
-        return payload.Length;
+        var prepared = JournalEntryPayload.PrepareEncode(entry);
+        EntryPayloadSizeGuard.EnsureLengthWithinLimit(prepared.EncodedLength);
+        var length = JournalEntryPayload.Encode(in prepared, out var buffer);
+        try
+        {
+            return length;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 }

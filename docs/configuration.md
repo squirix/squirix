@@ -17,13 +17,13 @@ In Docker, mount settings read-only (for example `docker/node-a/Squirix.settings
 See [containerization.md](containerization.md) for dev and release image layouts.
 
 The standalone `squirix-server` host, `await builder.AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()` load
-`Squirix:Cluster` through `SquirixServerConfiguration` when a settings file is discovered or supplied. `StartAsync()`
+`Squirix:Cluster` through `Configurator` when a settings file is discovered or supplied. `StartAsync()`
 then hosts the node through the same `AddSquirixServerAsync` / `MapSquirixServer` pipeline as the standalone executable.
 Other sections such as `MemoryPressure` and `PrometheusMetrics` are still merged from the same settings file at runtime
 when present. Custom ASP.NET Core hosts configure cluster topology and optional persistence through
 `SquirixServerOptions` (`UsePersistence()`); `app.MapSquirixServer()` maps gRPC, health, and metrics endpoints.
 
-## Remote client (`SquirixOptions`)
+## Remote client (`SquirixClientOptions`)
 
 Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 
@@ -87,7 +87,7 @@ Example fragment:
 
 ## Cluster settings
 
-`Squirix:Cluster` is loaded by `SquirixServerConfiguration` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
+`Squirix:Cluster` is loaded by `Configurator` (`TryLoadFromFileAsync`, `LoadFromFileAsync`) for the
 standalone host, `AddSquirixServerAsync(...)`, and `SquirixServer.StartAsync()`.
 
 | Field            | Type   | Default                                | Validation                                                                                                                           |
@@ -116,11 +116,11 @@ Example:
         "Cluster": {
             "ClusterId": "dev-cluster",
             "NodeId": "node-a",
-            "Url": "https://localhost:5001",
+            "Uri": "https://localhost:5001",
             "VirtualNodes": 128,
             "Peers": [
-                { "NodeId": "node-a", "Url": "https://localhost:5001" },
-                { "NodeId": "node-b", "Url": "https://localhost:5002" }
+                { "NodeId": "node-a", "Uri": "https://localhost:5001" },
+                { "NodeId": "node-b", "Uri": "https://localhost:5002" }
             ]
         }
     }
@@ -145,7 +145,7 @@ section in settings (mapped into the same options model).
 | `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
 | `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
 
-Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable WAL/snapshot persistence. The standalone
+Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
 
 Example:
@@ -189,14 +189,17 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `DataDir`                     | string | `%LocalAppData%/squirix/<cluster>/<node>` or temp fallback | Required, non-empty                                                                                                                        |
 | `JournalMaxSegmentMb`         | int    | `64`                                                       | `> 0`                                                                                                                                      |
 | `FlushIntervalMs`             | int    | `10`                                                       | `> 0`                                                                                                                                      |
-| `SnapshotIntervalSec`         | int    | `60`                                                       | `> 0`; persisted setting validated at startup. Snapshot **scheduling** uses the Snapshot section's `SnapshotInterval` (default 5 minutes). |
 | `ManifestRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `SnapshotRetentionCount`      | int    | `3`                                                        | `> 0`                                                                                                                                      |
 | `StrictFsync`                 | bool   | `true`                                                     | Any boolean                                                                                                                                |
-| `JournalGroupCommitMaxWaitMs` | int    | `0`                                                        | `>= 0` (`0` disables group commit)                                                                                                         |
-| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`                                                                                                                                      |
+| `JournalGroupCommitMaxWait`   | string | `0` (disabled)                                             | `>= 0`; JSON key `groupCommitMaxWait`, value in ms                                                                                         |
+| `JournalGroupCommitMaxBatch`  | int    | `32`                                                       | `> 0`; used only when group commit is enabled                                                                                              |
+| `JournalBackend`              | string | `Pipelined`                                                | Pipelined binary journal (only supported backend)                                                                                          |
+| `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
+| `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
 
-See [journal group commit](journal-group-commit.md) for latency vs throughput tradeoffs.
+See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
 
 ### Snapshot
 
@@ -309,11 +312,11 @@ See [diagnostics](diagnostics.md#metrics-route) for scrape semantics and securit
 ## In-process test hosts
 
 Production and standalone `squirix-server` processes configure JWT through environment variables (see below).
-In-process test hosts (`SquirixNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
+In-process test hosts (`TestNodeHost`, `TestNodeHostFactory`) also accept an optional **per-node security override**
 so parallel tests do not share process-wide environment state.
 
 Use `TestNodeSecurityOptions` from `Squirix.Server.TestKit` when starting a node in tests. When provided, the override
-replaces environment-variable lookup for that startup only; omit it on `IntegrationTestBase.StartNodeAsync` to keep
+replaces environment-variable lookup for that startup only; omit it on `NodeIntegrationTestBase.StartNodeAsync` to keep
 env-based behavior, or rely on the smoke-test default (empty override, unauthenticated node).
 
 ```csharp
@@ -412,12 +415,12 @@ startup; the process refuses to start without them.
         "Cluster": {
             "ClusterId": "prod-cache",
             "NodeId": "cache-a",
-            "Url": "https://cache-a.example.internal:5001",
+            "Uri": "https://cache-a.example.internal:5001",
             "VirtualNodes": 256,
             "Peers": [
-                { "NodeId": "cache-a", "Url": "https://cache-a.example.internal:5001" },
-                { "NodeId": "cache-b", "Url": "https://cache-b.example.internal:5002" },
-                { "NodeId": "cache-c", "Url": "https://cache-c.example.internal:5003" }
+                { "NodeId": "cache-a", "Uri": "https://cache-a.example.internal:5001" },
+                { "NodeId": "cache-b", "Uri": "https://cache-b.example.internal:5002" },
+                { "NodeId": "cache-c", "Uri": "https://cache-c.example.internal:5003" }
             ]
         }
     }

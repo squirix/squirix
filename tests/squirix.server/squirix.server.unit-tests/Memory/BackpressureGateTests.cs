@@ -5,14 +5,14 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
 
 /// <summary>Unit tests for node-level backpressure admission control.</summary>
-public sealed class BackpressureGateTests : UnitTestBase
+public sealed class BackpressureGateTests : ServerUnitTestBase
 {
     private const string BackpressureInFlightInstrumentName = "squirix_backpressure_in_flight";
     private const string BackpressureQueueDepthInstrumentName = "squirix_backpressure_queue_depth";
@@ -23,9 +23,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task AcquireBypassesWhenBackpressureIsDisabled()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 Enabled = false,
                 MaxInFlight = 1,
@@ -47,8 +47,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task AcquireSucceedsImmediatelyWhenCapacityAvailable()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 2,
                 MaxQueue = 1,
@@ -71,7 +71,7 @@ public sealed class BackpressureGateTests : UnitTestBase
     public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
     {
         const int maxInFlight = 3;
-        var backpressureOptions = new BackpressureOptions
+        var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = maxInFlight,
             MaxQueue = 64,
@@ -80,28 +80,23 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromSeconds(2),
         };
-        var gate = new BackpressureGate(backpressureOptions);
-        try
+        using var gate = new AdmissionGate(backpressureOptions);
+        IBackpressureGate gateForClients = gate;
+        var current = new int[1];
+        var observedMax = new int[1];
+        var clients = new Task[24];
+        for (var i = 0; i < clients.Length; i++)
         {
-            IBackpressureGate gateForClients = gate;
-            var current = new int[1];
-            var observedMax = new int[1];
-            var clients = new Task[24];
-            for (var i = 0; i < clients.Length; i++)
-            {
-                clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
-            }
-
-            var runClients = Task.WhenAll(clients);
-
-            await runClients;
-
-            Assert.True(observedMax[0] <= maxInFlight, $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
+            clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
         }
-        finally
-        {
-            gate.Dispose();
-        }
+
+        var runClients = Task.WhenAll(clients);
+
+        await runClients;
+
+        Assert.True(
+            observedMax[0] <= maxInFlight,
+            $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
     }
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
@@ -136,7 +131,7 @@ public sealed class BackpressureGateTests : UnitTestBase
 
         listener.Start();
 
-        var backpressureOptions = new BackpressureOptions
+        var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = 1,
             MaxQueue = 1,
@@ -145,7 +140,7 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxSlowdownDelay = TimeSpan.Zero,
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
-        using var gate = new BackpressureGate(backpressureOptions);
+        using var gate = new AdmissionGate(backpressureOptions);
         var first = (await gate.AcquireAsync("rest", "get", "rest:client-a", DefaultCancellationToken)).Lease;
         var secondAcquire = gate.AcquireAsync("rest", "get", "rest:client-b", DefaultCancellationToken).AsTask();
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
@@ -187,7 +182,7 @@ public sealed class BackpressureGateTests : UnitTestBase
 
         listener.Start();
 
-        var options = new BackpressureOptions
+        var options = new AdmissionOptions
         {
             MaxInFlight = 1,
             MaxQueue = 1,
@@ -197,12 +192,12 @@ public sealed class BackpressureGateTests : UnitTestBase
             MaxQueueWait = TimeSpan.FromMilliseconds(200),
         };
 
-        using var gateA = new BackpressureGate(options);
+        using var gateA = new AdmissionGate(options);
 
         var firstA = (await gateA.AcquireAsync("rest", "get", "rest:gateA:client-a", DefaultCancellationToken)).Lease;
         var queuedA = gateA.AcquireAsync("rest", "get", "rest:gateA:client-b", DefaultCancellationToken).AsTask();
 
-        var gateB = new BackpressureGate(options);
+        var gateB = new AdmissionGate(options);
         gateB.Dispose();
 
         await WaitForGaugeSnapshotAsync(listener, inFlight, queueDepth, trackedClients, DefaultCancellationToken);
@@ -217,8 +212,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task LeaseDoubleDisposeKeepsCurrentBehavior()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -237,9 +232,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task NodeRateLimitRejectsAndEmitsScopeMetric()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 MaxQueue = 0,
@@ -265,9 +260,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 PerClientMaxInFlight = 1,
@@ -293,9 +288,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task PerClientRateLimitIsolatedByClient()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 4,
                 MaxQueue = 0,
@@ -323,9 +318,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueueFullRejectsImmediately()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -357,9 +352,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueueTimeoutRejectsAndEmitsMetrics()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -384,8 +379,8 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueuedAcquireCompletesAfterLeaseRelease()
     {
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -412,9 +407,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task QueuedAcquireObservesCallerCancellation()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 1,
                 MaxQueue = 1,
@@ -440,9 +435,9 @@ public sealed class BackpressureGateTests : UnitTestBase
     [Fact]
     public async Task SlowdownCounterIncrementsWhenThresholdIsExceeded()
     {
-        using var sink = new MeasurementSink(MeterName);
-        using var gate = new BackpressureGate(
-            new BackpressureOptions
+        using var sink = new NodeMeasurementSink(MeterName);
+        using var gate = new AdmissionGate(
+            new AdmissionOptions
             {
                 MaxInFlight = 2,
                 MaxQueue = 1,
@@ -458,21 +453,22 @@ public sealed class BackpressureGateTests : UnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_slowdown_total", ("transport", "rest"), ("op", "put")));
     }
 
-    private static bool HasAtLeast(IEnumerable<int> values, int min)
+    private static bool HasAtLeast(List<int> values, int min)
     {
-        foreach (var value in values)
+        for (var i = 0; i < values.Count; i++)
         {
-            if (value >= min)
+            if (values[i] >= min)
                 return true;
         }
 
         return false;
     }
 
-    private static bool IsBackpressureGauge(string name) =>
-        string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal)
-        || string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal)
-        || string.Equals(name, BackpressureTrackedClientsInstrumentName, StringComparison.Ordinal);
+    private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
+                                                            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
+                                                                name,
+                                                                BackpressureTrackedClientsInstrumentName,
+                                                                StringComparison.Ordinal);
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
@@ -511,9 +507,9 @@ public sealed class BackpressureGateTests : UnitTestBase
 
     private static async Task WaitForGaugeSnapshotAsync(
         MeterListener listener,
-        IReadOnlyCollection<int> inFlight,
-        IReadOnlyCollection<int> queueDepth,
-        IReadOnlyCollection<int> trackedClients,
+        List<int> inFlight,
+        List<int> queueDepth,
+        List<int> trackedClients,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(1);
@@ -526,9 +522,9 @@ public sealed class BackpressureGateTests : UnitTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, cancellationToken);
         }
 
-        Assert.Contains(inFlight, static x => x >= 1);
-        Assert.Contains(queueDepth, static x => x >= 1);
-        Assert.Contains(trackedClients, static x => x >= 2);
+        Assert.True(HasAtLeast(inFlight, 1));
+        Assert.True(HasAtLeast(queueDepth, 1));
+        Assert.True(HasAtLeast(trackedClients, 2));
     }
 
     private static async Task WaitUntilCanceledAsync(Task task)

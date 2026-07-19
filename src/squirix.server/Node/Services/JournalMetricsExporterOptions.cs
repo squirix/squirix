@@ -1,20 +1,22 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Squirix.Server.Node.Services;
 
 /// <summary>Options for the journal metrics exporter background service.</summary>
 internal sealed class JournalMetricsExporterOptions
 {
-    public JournalMetricsExporterOptions()
+    [JsonConstructor]
+    internal JournalMetricsExporterOptions()
     {
         Interval = TimeSpan.FromSeconds(5);
     }
 
-    public TimeSpan Interval
+    [JsonInclude]
+    [JsonPropertyName("interval")]
+    internal TimeSpan Interval
     {
         get;
-        [SuppressMessage("ReSharper", "PropertyCanBeMadeInitOnly.Global", Justification = "Used in serialization.")]
         set
         {
             if (value <= TimeSpan.Zero)

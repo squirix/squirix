@@ -9,7 +9,7 @@ namespace Squirix.Server.LocalCache;
 /// <typeparam name="T">The stored value type.</typeparam>
 internal interface ILocalCacheRecovery<T>
 {
-    ValueTask InsertForDurableRecoveryAsync(CacheKey key, CacheEntry<T> entry, CancellationToken cancellationToken);
+    ValueTask InsertForDurableRecoveryAsync(CacheKey key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
 
     ValueTask<bool> RemoveExpirationForDurableRecoveryAsync(CacheKey key, CancellationToken cancellationToken);
 

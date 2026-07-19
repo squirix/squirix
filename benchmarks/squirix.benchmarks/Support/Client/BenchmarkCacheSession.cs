@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Benchmarks.Support.Cluster;
 
 namespace Squirix.Benchmarks.Support.Client;
 
@@ -33,12 +32,12 @@ internal sealed class BenchmarkCacheSession : IAsyncDisposable
     }
 
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to BenchmarkCacheSession which disposes the client lease.")]
-    internal static async Task<BenchmarkCacheSession> OpenAsync(BenchmarkNodeScope node, string cacheName, CancellationToken cancellationToken)
+    internal static async Task<BenchmarkCacheSession> OpenAsync(Uri uri, string cacheName, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(node);
+        ArgumentNullException.ThrowIfNull(uri);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        var clientLease = await node.OpenClientAsync(cancellationToken).ConfigureAwait(false);
+        var clientLease = await BenchmarkClientLease.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
         try
         {
             var cache = await clientLease.Client.GetCacheAsync<object?>(cacheName, cancellationToken).ConfigureAwait(false);

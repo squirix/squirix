@@ -2,7 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Compaction;
 
 namespace Squirix.Server.Node.Services;
 
@@ -13,7 +14,7 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
     private readonly IJournalCoordinator _journal;
     private readonly ISnapshotReadinessStatus _snapshot;
 
-    public JournalMaintenanceReadinessHealthCheck(IJournalCoordinator journal, IJournalCompactionStatus compaction, ISnapshotReadinessStatus snapshot)
+    internal JournalMaintenanceReadinessHealthCheck(IJournalCoordinator journal, IJournalCompactionStatus compaction, ISnapshotReadinessStatus snapshot)
     {
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
@@ -29,7 +30,7 @@ internal sealed class JournalMaintenanceReadinessHealthCheck : IHealthCheck
         if (_journal.HasFlushLoopFailure)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal periodic flush loop failed."));
 
-        if (_compaction.State is CompactionState.Failed)
+        if (_compaction.State is RunState.Failed)
             return Task.FromResult(HealthCheckResult.Unhealthy("journal compaction is in failed state."));
 
         var healthy = _snapshot.HasFatalFailure ? HealthCheckResult.Unhealthy("Snapshot trigger service has a fatal failure.")

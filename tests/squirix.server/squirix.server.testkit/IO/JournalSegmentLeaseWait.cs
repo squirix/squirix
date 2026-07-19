@@ -2,13 +2,13 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Storage;
 
 namespace Squirix.Server.TestKit.IO;
 
 /// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
 public static class JournalSegmentLeaseWait
 {
+    private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const int BufferSize = 64 * 1024;
 
     /// <summary>
@@ -17,10 +17,14 @@ public static class JournalSegmentLeaseWait
     /// <param name="dataDir">Node data directory containing journal segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="TimeoutException">Thrown when the files remain locked until the wait budget expires.</exception>
-    public static async Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    public static Task WaitForReleasedAsync(string dataDir, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
+        return PollUntilJournalSegmentsReleasedAsync(dataDir, cancellationToken);
+    }
 
+    private static async Task PollUntilJournalSegmentsReleasedAsync(string dataDir, CancellationToken cancellationToken)
+    {
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
@@ -39,7 +43,7 @@ public static class JournalSegmentLeaseWait
         if (!Directory.Exists(dataDir))
             return true;
 
-        var files = Directory.GetFiles(dataDir, StorageFilePrefixes.JournalSegmentGlob);
+        var files = Directory.GetFiles(dataDir, JournalSegmentGlob);
         if (files.Length is 0)
             return true;
 

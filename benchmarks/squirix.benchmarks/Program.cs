@@ -1,13 +1,10 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Running;
 using Squirix.Benchmarks.Config;
-using Squirix.Benchmarks.Support.Runtime;
 
 namespace Squirix.Benchmarks;
 
 /// <summary>Entry point for running the BenchmarkDotNet benchmark suite in this assembly.</summary>
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "BenchmarkDotNet entry point must remain public.")]
 public static class Program
 {
     /// <summary>Discovers and executes benchmarks in the current assembly.</summary>
@@ -17,10 +14,9 @@ public static class Program
     public static void Main(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        BenchmarkRuntime.EnsureInitialized();
 
         if (args.Length is 0)
-            args = ["--filter", "*"];
+            args = ["--help"];
 
         var artifacts = Environment.GetEnvironmentVariable("BDN_ARTIFACTS");
         if (string.IsNullOrWhiteSpace(artifacts))

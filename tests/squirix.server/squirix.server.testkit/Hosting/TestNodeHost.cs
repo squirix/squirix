@@ -25,14 +25,14 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// Initializes a new instance of the <see cref="TestNodeHost" /> class.
     /// </summary>
     /// <param name="app">The preconfigured <see cref="WebApplication" /> to run inside the test host.</param>
-    /// <param name="address">The listening address (scheme/host/port) used by the test node.</param>
+    /// <param name="uri">The listening address (scheme/host/port) used by the test node.</param>
     /// <param name="dataDir">Path to the data directory used by the test node (journal, snapshots, etc.).</param>
     /// <param name="persistenceEnabled">Whether persistence is enabled for the hosted node.</param>
     /// <param name="scope">Optional disposable scope that will be disposed alongside the host.</param>
-    public TestNodeHost(WebApplication app, string address, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
+    public TestNodeHost(WebApplication app, Uri uri, string dataDir, bool persistenceEnabled = false, IDisposable? scope = null)
     {
         _app = app;
-        Address = address;
+        Uri = uri;
         DataDir = dataDir;
         PersistenceEnabled = persistenceEnabled;
         _scope = scope;
@@ -41,7 +41,7 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>
     /// Gets the HTTP(S) address where the test node is reachable (e.g., <c>https://localhost:9443</c>).
     /// </summary>
-    public string Address { get; }
+    public Uri Uri { get; }
 
     /// <summary>Gets the absolute path to the node's data directory created for the test run.</summary>
     public string DataDir { get; }
@@ -52,6 +52,16 @@ public sealed class TestNodeHost : IAsyncDisposable
     /// <summary>Gets the root service provider of the hosted application for resolving test dependencies.</summary>
     public IServiceProvider Services => _app.Services;
 
+    /// <summary>Simulates an unclean process termination (for example SIGKILL) by disposing the host without graceful shutdown.</summary>
+    public async ValueTask AbruptShutdownAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) is 1)
+            return;
+
+        await SuppressObjectDisposedAsync(() => _app.DisposeAsync()).ConfigureAwait(false);
+        _scope?.Dispose();
+    }
+
     /// <summary>
     /// Asynchronously disposes the underlying <see cref="WebApplication" /> and releases resources.
     /// </summary>
@@ -60,7 +70,11 @@ public sealed class TestNodeHost : IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) is 1)
             return;
 
-        await SuppressObjectDisposedAsync(() => new ValueTask(_app.StopAsync(CancellationToken.None))).ConfigureAwait(false);
+        await SuppressObjectDisposedAsync(async () =>
+        {
+            using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await _app.StopAsync(stopCts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
         await SuppressObjectDisposedAsync(() => _app.DisposeAsync()).ConfigureAwait(false);
 
         if (PersistenceEnabled && !string.IsNullOrWhiteSpace(DataDir))

@@ -1,12 +1,14 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -16,7 +18,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
-public sealed class JournalCompactionControllerTests : UnitTestBase
+public sealed class JournalCompactionControllerTests : ServerUnitTestBase
 {
     /// <summary>Double dispose does not throw.</summary>
     [Fact]
@@ -25,10 +27,15 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task DisposeIsIdempotent()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-double");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        using var controller = new JournalCompactionController(
+            opt,
+            manifestStore,
+            StoreFactory.CreateReader(opt),
+            journal,
+            NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
 
@@ -47,24 +54,23 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
         };
 
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        await journal.AppendPutAsync(CacheKey.Default("gate"), [.. """{"v":{"$t":"s","v":"x"},"ver":1}"""u8], null, DefaultCancellationToken);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        using var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
-        var mutexField = typeof(JournalCompactionController).GetField("_mutex", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(mutexField);
-        var mutex = Assert.IsType<SemaphoreSlim>(mutexField.GetValue(controller));
-        await mutex.WaitAsync(DefaultCancellationToken);
-        try
-        {
-            Assert.False(await controller.TryTriggerNowAsync(DefaultCancellationToken));
-        }
-        finally
-        {
-            _ = mutex.Release();
-        }
+        using var controller = new JournalCompactionController(
+            opt,
+            manifestStore,
+            StoreFactory.CreateReader(opt),
+            journal,
+            NullLogger<JournalCompactionController>.Instance);
 
+        var firstTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
+        var secondTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
+        var firstResult = await firstTrigger;
+        var secondResult = await secondTrigger;
+
+        Assert.True(firstResult ^ secondResult, "Exactly one concurrent trigger should succeed while compaction mutex is held.");
         Assert.True(await controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 
@@ -73,12 +79,12 @@ public sealed class JournalCompactionControllerTests : UnitTestBase
     public async Task TryTriggerNowAsyncThrowsAfterDispose()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-dispose");
-        var opt = new PersistenceOptions { DataDir = dir, FlushIntervalMs = 1000 };
+        var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
-        await using var journal = await JournalWriter.CreateAsync(opt, new Manifest(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        var controller = new JournalCompactionController(opt, manifestStore, journal, NullLogger<JournalCompactionController>.Instance);
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
-        _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => { _ = await controller.TryTriggerNowAsync(DefaultCancellationToken); });
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 }

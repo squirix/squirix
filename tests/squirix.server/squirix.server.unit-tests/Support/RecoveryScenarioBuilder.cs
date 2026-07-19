@@ -3,19 +3,20 @@ using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Storage;
 using Squirix.Server.TestKit.IO;
-using Xunit;
 
 namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Owns common recovery test infrastructure for focused journal and manifest scenarios.</summary>
 internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
 {
+    private readonly TempDirectory _dataDirectory;
     private bool _disposed;
 
-    private RecoveryScenarioBuilder(string dataDir)
+    private RecoveryScenarioBuilder(TempDirectory dataDirectory)
     {
-        DataDir = dataDir;
-        Persistence = new PersistenceOptions { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+        _dataDirectory = dataDirectory;
+        DataDir = dataDirectory.Path;
+        Persistence = new PersistenceOptions { DataDir = dataDirectory.Path, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         ManifestStore = new ManifestStore(Persistence);
         Cache = new PhysicalCache<object?>();
     }
@@ -40,12 +41,12 @@ internal sealed class RecoveryScenarioBuilder : IAsyncDisposable
 
         _disposed = true;
         ManifestStore.Dispose();
-        await Cache.DisposeAsync();
-        await DirectoryKit.TryDeleteDirectoryAsync(DataDir, TestContext.Current.CancellationToken);
+        await Cache.DisposeAsync().ConfigureAwait(false);
+        _dataDirectory.Dispose();
     }
 
     /// <summary>Creates a recovery scenario with an owned temporary data directory.</summary>
     /// <param name="prefix">Temporary directory prefix.</param>
     /// <returns>A configured recovery scenario.</returns>
-    internal static RecoveryScenarioBuilder Create(string prefix) => new(DirectoryKit.CreateTempDirectory(prefix));
+    internal static RecoveryScenarioBuilder Create(string prefix) => new(new TempDirectory(prefix));
 }

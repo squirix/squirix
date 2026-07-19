@@ -7,10 +7,12 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Logging;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Services;
@@ -21,61 +23,73 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private readonly ILogger<JournalCompactionService<T>> _log;
     private readonly ManifestStore _manifest;
     private readonly string _nodeId;
+    private readonly EventHandler<CompletedEventArgs> _onSnapshotCompleted;
     private readonly JournalCompactionOptions _opt;
     private readonly PersistenceOptions _persistence;
-    private readonly SnapshotCoordinator<T> _snap;
+    private readonly Coordinator _snap;
+    private readonly ISnapshotReader _snapshotReader;
     private readonly TimeProvider _timeProvider;
     private int _consecutiveFailures;
     private int _inFlight;
     private int _snapshotSubscriptionState;
+    private CancellationToken _stoppingToken;
 
-    public JournalCompactionService(
-        ILogger<JournalCompactionService<T>> log,
-        IOptions<JournalCompactionOptions> opt,
-        SnapshotCoordinator<T> snap,
-        IExclusiveMaintenanceExecutor journalMaintenance,
-        ManifestStore manifest,
-        IOptions<PersistenceOptions> persistence,
-        ClusterConfig cluster,
-        TimeProvider? timeProvider = null)
+    internal JournalCompactionService(ILogger<JournalCompactionService<T>> log, IOptions<JournalCompactionOptions> opt, JournalCompactionDependencies deps)
     {
-        _log = log;
-        _snap = snap;
-        _journalMaintenance = journalMaintenance;
-        _manifest = manifest;
-        _nodeId = cluster.NodeId;
+        _log = log ?? throw new ArgumentNullException(nameof(log));
+        ArgumentNullException.ThrowIfNull(opt);
         _opt = opt.Value;
-        _persistence = persistence.Value;
-        _timeProvider = timeProvider ?? TimeProvider.System;
+        ArgumentNullException.ThrowIfNull(deps);
+        _snap = deps.Snapshot;
+        _journalMaintenance = deps.JournalMaintenance;
+        _manifest = deps.Manifest;
+        _snapshotReader = deps.SnapshotReader;
+        _nodeId = deps.Cluster.NodeId;
+        _persistence = deps.Persistence;
+        _timeProvider = deps.TimeProvider;
+        _onSnapshotCompleted = OnSnapshotCompleted;
     }
 
     public bool IsInFlight => Volatile.Read(ref _inFlight) is not 0;
 
     public DateTime LastRunUtc { get; private set; } = DateTime.MinValue;
 
-    public CompactionState State { get; private set; } = CompactionState.Idle;
+    public RunState State { get; private set; } = RunState.Idle;
 
-    public override Task StartAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_opt.Enabled)
-            SubscribeSnapshotCompleted();
-
-        return base.StartAsync(cancellationToken);
+        _stoppingToken = stoppingToken;
+        if (!_opt.Enabled)
+            return Task.CompletedTask;
+        SubscribeSnapshotCompleted();
+        return RunLoopAsync(stoppingToken);
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken) => !_opt.Enabled ? Task.CompletedTask : RunLoopAsync(stoppingToken);
+    private static string StateName(RunState state) => state switch
+    {
+        RunState.Idle => nameof(RunState.Idle),
+        RunState.Waiting => nameof(RunState.Waiting),
+        RunState.Running => nameof(RunState.Running),
+        RunState.BackingOff => nameof(RunState.BackingOff),
+        RunState.Failed => nameof(RunState.Failed),
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unsupported enum value."),
+    };
 
-    private void ChangeState(CompactionState next)
+    private void ChangeState(RunState next)
     {
         var prev = State;
         if (prev == next)
             return;
 
         State = next;
-        LogManager.CompactionStateChanged(_log, prev, next);
+        if (!_log.IsEnabled(LogLevel.Debug))
+            return;
+        var prevName = StateName(prev);
+        var nextName = StateName(next);
+        LogManager.CompactionStateChanged(_log, prevName, nextName);
     }
 
-    private async Task<AttemptResult> MaybeCompactAsync(Manifest.SnapshotRef? snapshotHint, CancellationToken cancellationToken)
+    private async Task<AttemptResult> MaybeCompactAsync(SnapshotRef? snapshotHint, CancellationToken cancellationToken)
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) is not 0)
             return AttemptResult.Skipped; // already running, skip
@@ -107,12 +121,12 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
     }
 
-    private void OnSnapshotCompleted(object? sender, SnapshotCompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, CancellationToken.None);
+    private void OnSnapshotCompleted(object? sender, CompletedEventArgs e) => _ = MaybeCompactAsync(e.SnapshotRef, _stoppingToken);
 
     private AttemptResult RecordCompactionFailure()
     {
         _consecutiveFailures++;
-        ChangeState(CompactionState.Failed);
+        ChangeState(RunState.Failed);
         LogManager.CompactionFailed(_log);
         return AttemptResult.Failed;
     }
@@ -125,37 +139,31 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         _ = activity?.SetTag("compaction.tail_segments", segments);
         _ = activity?.SetTag("compaction.tail_bytes", bytes);
 
-        ChangeState(CompactionState.Running);
+        ChangeState(RunState.Running);
         LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
 
-        var sw = Stopwatch.StartNew();
+        var started = Stopwatch.GetTimestamp();
         var resultLabel = "failure";
         try
         {
-            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, ct)), cancellationToken)
-                                     .ConfigureAwait(false);
+            await _journalMaintenance.ExecuteMaintenanceExclusiveAsync(
+                ct => new ValueTask(JournalCompactor.CompactAsync(_persistence, _manifest, _snapshotReader, ct)),
+                cancellationToken).ConfigureAwait(false);
             resultLabel = "success";
         }
         finally
         {
-            sw.Stop();
-            try
-            {
-                CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(sw.Elapsed.TotalSeconds);
-            }
-            catch (InvalidOperationException)
-            {
-                // Metrics emission is best-effort and must not fail compaction flow.
-            }
+            var elapsed = Stopwatch.GetElapsedTime(started);
+            CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", sw.Elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
         }
 
         LastRunUtc = DateTime.UtcNow;
         _consecutiveFailures = 0;
         LogManager.CompactionDone(_log, LastRunUtc);
-        ChangeState(CompactionState.Waiting);
+        ChangeState(RunState.Waiting);
         return AttemptResult.Succeeded;
     }
 
@@ -166,7 +174,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             while (!cancellationToken.IsCancellationRequested)
             {
                 // Base waiting state between checks
-                ChangeState(CompactionState.Waiting);
+                ChangeState(RunState.Waiting);
 
                 // Jitter next wake-up to avoid thundering herd across nodes
                 var baseGap = _opt.MinGap <= TimeSpan.Zero ? TimeSpan.FromSeconds(10) : _opt.MinGap;
@@ -181,7 +189,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
                     continue;
 
                 // Exponential backoff with full jitter
-                ChangeState(CompactionState.BackingOff);
+                ChangeState(RunState.BackingOff);
                 var pow = Math.Min(_consecutiveFailures, 10); // cap exponent
                 var maxDelay = TimeSpan.FromSeconds(Math.Min(60, Math.Pow(2, pow))); // up to 60s
                 var maxBackoffMs = Math.Max(10d, maxDelay.TotalMilliseconds);
@@ -193,12 +201,12 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         }
         catch (OperationCanceledException)
         {
-            // Background compaction loop exits when the host token is cancelled; not an error for this service.
+            // Background compaction loop exits when the host token is Canceled; not an error for this service.
         }
         finally
         {
             UnsubscribeSnapshotCompleted();
-            ChangeState(CompactionState.Idle);
+            ChangeState(RunState.Idle);
         }
     }
 
@@ -207,7 +215,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 1) is not 0)
             return;
 
-        _snap.SnapshotCompleted += OnSnapshotCompleted;
+        _snap.SnapshotCompleted += _onSnapshotCompleted;
     }
 
     private bool TailLargeEnough(int replayFromSegment, out int segments, out long bytes)
@@ -234,6 +242,6 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
         if (Interlocked.Exchange(ref _snapshotSubscriptionState, 0) is 0)
             return;
 
-        _snap.SnapshotCompleted -= OnSnapshotCompleted;
+        _snap.SnapshotCompleted -= _onSnapshotCompleted;
     }
 }

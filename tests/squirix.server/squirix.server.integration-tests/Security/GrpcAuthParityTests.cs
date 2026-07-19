@@ -1,34 +1,33 @@
-using System;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>Verifies gRPC cache authentication when JWT is enabled.</summary>
-public sealed class GrpcAuthParityTests : IntegrationTestBase
+public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
 {
+    private const string NodeId = "node-grpc-parity";
+
     /// <summary>Verifies gRPC rejects requests authenticated with an invalid JWT bearer token.</summary>
     [Fact]
     public async Task GrpcInvalidJwtIsRejected()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var headers = new Metadata { { "authorization", "Bearer invalid.jwt.token" } };
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-jwt-bad" }, new CallOptions(headers, cancellationToken: DefaultCancellationToken));
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetEntryAsync(
+                new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-jwt-bad" },
+                new CallOptions(headers, cancellationToken: DefaultCancellationToken)).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
@@ -37,17 +36,14 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     public async Task GrpcMissingAuthIsRejectedWhenJwtEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await client.GetAsync(new GetRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: DefaultCancellationToken);
-        });
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-missing" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
@@ -56,16 +52,15 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     public async Task GrpcValidJwtSucceeds()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
-        var url = GetNextHttpUri();
-        var peers = new[] { new Peer { NodeId = Guid.NewGuid().ToString("N"), Url = url.AbsoluteUri } };
-        await using var node = await StartNodeAsync(url, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        var uri = GetNextHttpUri();
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
-        using var channel = CreateGrpcChannel(url);
+        using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
 
         var headers = new Metadata { { "authorization", $"Bearer {TestJwtHelper.CreateBearerToken(credentials)}" } };
         var response = await client.GetValueAsync(
-            new GetValueRequest { Key = "grpc-jwt-ok", CacheName = "default" },
+            new GetValueAsyncRequest { Key = "grpc-jwt-ok", CacheName = "default" },
             new CallOptions(headers, cancellationToken: DefaultCancellationToken));
         Assert.False(response.Found);
     }

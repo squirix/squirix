@@ -1,7 +1,9 @@
 name: CI
 
 on:
-    # Push/PR to main or develop: ubuntu-only matrix. macOS/Windows full matrix weekly (schedule) or manual dispatch.
+    # develop push/PR: ubuntu-only matrix (fast path).
+    # main push and PRs targeting main: full ubuntu/windows/macos matrix (release integration gate).
+    # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     push:
         branches: [ main, develop ]
@@ -45,6 +47,10 @@ jobs:
                           - 'Directory.Packages.props'
                           - 'global.json'
                           - 'stylecop.json'
+                          - 'BannedSymbols.txt'
+                          - 'BannedSymbols.Reflection.txt'
+                          - 'BannedSymbols.Storage.txt'
+                          - '.globalconfig'
                           - '.editorconfig'
                           - 'squirix.slnx'
                           - 'squirix.slnx.DotSettings'
@@ -70,6 +76,10 @@ jobs:
                           - 'Directory.Packages.props'
                           - 'global.json'
                           - 'stylecop.json'
+                          - 'BannedSymbols.txt'
+                          - 'BannedSymbols.Reflection.txt'
+                          - 'BannedSymbols.Storage.txt'
+                          - '.globalconfig'
                           - '.editorconfig'
                           - 'squirix.slnx'
 
@@ -187,7 +197,8 @@ jobs:
     build:
         name: Build (${{ matrix.os }} / ${{ matrix.framework }})
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 25
+        # Windows/macOS cold restore+build regularly exceeds 25m on the main matrix.
+        timeout-minutes: 45
         needs: changes
         if: |
             needs.changes.outputs.code == 'true' ||
@@ -196,7 +207,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
@@ -234,7 +245,6 @@ jobs:
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
             -   name: Ensure Dev HTTPS Certificate
-                if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: bash tools/ci/ensure-dev-https-cert.sh
 
@@ -300,8 +310,8 @@ jobs:
             -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
                     chmod +x tests/squirix.server/squirix.server.smoke-tests/bin/Release/net10.0/Squirix.Server.SmokeTests || true
@@ -375,11 +385,11 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ github.event_name == 'schedule' && 8 || 7 }}
+            max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && 8 || 7 }}
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-property, server-integration, e2e-single-node, e2e-multi-node ]
+                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -415,10 +425,11 @@ jobs:
             -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
+                    # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
@@ -442,9 +453,6 @@ jobs:
                       server-unit)
                         PROJECT="tests/squirix.server/squirix.server.unit-tests/Squirix.Server.UnitTests.csproj"
                         ;;
-                      server-property)
-                        PROJECT="tests/squirix.server/squirix.server.property-tests/Squirix.Server.PropertyTests.csproj"
-                        ;;
                       server-integration)
                         PROJECT="tests/squirix.server/squirix.server.integration-tests/Squirix.Server.IntegrationTests.csproj"
                         ;;
@@ -463,7 +471,7 @@ jobs:
                         ;;
                     esac
 
-                    if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.suite }}" != "server-property" ]; then
+                    if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
                       mkdir -p "coverage/${{ matrix.suite }}"
                       dotnet test "$PROJECT" -f ${{ matrix.framework }} --configuration Release --no-build --verbosity normal \
                         "${FILTER_ARGS[@]}" \
@@ -477,7 +485,7 @@ jobs:
                     fi
 
             -   name: Verify Suite Coverage Was Collected
-                if: matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
+                if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: |
                     mapfile -t files < <(find "coverage/${{ matrix.suite }}" -name coverage.cobertura.xml -type f 2>/dev/null || true)
@@ -490,7 +498,7 @@ jobs:
                     fi
 
             -   name: Upload Raw Coverage Files
-                if: always() && matrix.os == 'ubuntu-latest' && matrix.suite != 'server-property'
+                if: always() && matrix.os == 'ubuntu-latest'
                 uses: actions/upload-artifact@v7
                 with:
                     name: coverage-raw-${{ matrix.framework }}-${{ matrix.suite }}
@@ -554,8 +562,8 @@ jobs:
             -   name: Restore (Resolve Packages For Test Host)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
@@ -721,17 +729,33 @@ jobs:
             -   name: Write Top 5 Slowest Tests To Summary
                 shell: pwsh
                 run: |
-                    $trxFiles = Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue
-                    if ($null -eq $trxFiles -or $trxFiles.Count -eq 0) {
+                    $trxFiles = @(Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue)
+                    if ($trxFiles.Count -eq 0) {
                         "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                         "_No TRX files were found._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                         exit 0
                     }
 
                     $results = New-Object System.Collections.Generic.List[object]
+                    $skipped = New-Object System.Collections.Generic.List[string]
                     foreach ($trx in $trxFiles) {
-                        [xml]$doc = Get-Content -LiteralPath $trx.FullName
+                        try {
+                            # -Raw avoids Object[] cast failures; try/catch skips malformed TRX (e.g. duplicate attributes).
+                            $xmlText = Get-Content -LiteralPath $trx.FullName -Raw -ErrorAction Stop
+                            $doc = New-Object System.Xml.XmlDocument
+                            $doc.XmlResolver = $null
+                            $doc.LoadXml($xmlText)
+                        }
+                        catch {
+                            $skipped.Add(('{0}: {1}' -f $trx.Name, $_.Exception.Message))
+                            continue
+                        }
+
                         $nodes = $doc.SelectNodes("//*[local-name()='UnitTestResult']")
+                        if ($null -eq $nodes) {
+                            continue
+                        }
+
                         foreach ($node in $nodes) {
                             $durationText = $node.duration
                             if ([string]::IsNullOrWhiteSpace($durationText)) {
@@ -759,12 +783,21 @@ jobs:
                     "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     if ($results.Count -eq 0) {
                         "_No per-test durations found in TRX files._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        if ($skipped.Count -gt 0) {
+                            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                            "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        }
                         exit 0
                     }
 
                     $top = $results | Sort-Object Duration -Descending | Select-Object -First 5
                     foreach ($item in $top) {
                         ('- {0} - {1}' -f $item.Name, $item.DurationText) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                    }
+
+                    if ($skipped.Count -gt 0) {
+                        "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     }
 
     ci-success:

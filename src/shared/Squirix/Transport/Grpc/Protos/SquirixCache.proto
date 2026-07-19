@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package squirix.cache;
+
+option csharp_namespace = "Squirix.Transport.Grpc.Cache";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+message CacheEntryWire {
+    google.protobuf.Struct value = 1;
+    google.protobuf.Timestamp expires_utc = 2;
+    google.protobuf.Duration expiration = 3;
+}
+
+message CacheValue {
+    oneof kind {
+        google.protobuf.NullValue null_value = 1;
+        string string_value = 2;
+        int64 int32_value = 3;
+        int64 int64_value = 4;
+        double double_value = 5;
+        bool bool_value = 6;
+        google.protobuf.Struct struct_value = 7;
+    }
+}
+
+message SetEntryAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheEntryWire entry = 3;
+    string operation_id = 4;
+}
+
+message SetAsyncResponse {}
+
+message GetEntryAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+}
+
+message GetEntryAsyncResponse {
+    bool found = 1;
+    CacheEntryWire entry = 2;
+}
+
+message GetValueAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+}
+
+message GetValueAsyncResponse {
+    bool found = 1;
+    CacheValue value = 2;
+}
+
+message RemoveAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    string operation_id = 3;
+}
+
+message RemoveAsyncResponse {
+    bool removed = 1;
+    CacheValue previous_value = 2;
+}
+
+message TryAddEntryAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheEntryWire entry = 3;
+    string operation_id = 4;
+}
+
+message TryAddAsyncResponse {
+    bool added = 1;
+}
+
+message TouchAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    google.protobuf.Duration expiration = 3;
+    string operation_id = 4;
+}
+
+message TouchAsyncResponse {
+    bool found = 1;
+}
+
+message RemoveExpirationAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    string operation_id = 3;
+}
+
+message RemoveExpirationAsyncResponse {
+    bool found = 1;
+}
+
+message UpdateAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheEntryWire entry = 3;
+    string operation_id = 4;
+}
+
+message UpdateAsyncResponse {
+    bool updated = 1;
+}
+
+message GetExpirationAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+}
+
+message GetExpirationAsyncResponse {
+    bool found = 1;
+    bool has_expiration = 2;
+    google.protobuf.Duration remaining = 3;
+}
+
+message GetOrAddAsyncRequest {
+    string cache_name = 1;
+    string key = 2;
+    CacheEntryWire entry = 3;
+    string operation_id = 4;
+}
+
+message GetOrAddAsyncResponse {
+    bool added = 1;
+    CacheValue value = 2;
+}
+
+service SquirixCacheService {
+    rpc SetEntry(SetEntryAsyncRequest) returns (SetAsyncResponse);
+    rpc GetEntry(GetEntryAsyncRequest) returns (GetEntryAsyncResponse);
+    rpc GetValue(GetValueAsyncRequest) returns (GetValueAsyncResponse);
+    rpc Remove(RemoveAsyncRequest) returns (RemoveAsyncResponse);
+    rpc TryAddEntry(TryAddEntryAsyncRequest) returns (TryAddAsyncResponse);
+    rpc Touch(TouchAsyncRequest) returns (TouchAsyncResponse);
+    rpc RemoveExpiration(RemoveExpirationAsyncRequest) returns (RemoveExpirationAsyncResponse);
+    rpc Update(UpdateAsyncRequest) returns (UpdateAsyncResponse);
+    rpc GetExpiration(GetExpirationAsyncRequest) returns (GetExpirationAsyncResponse);
+    rpc GetOrAdd(GetOrAddAsyncRequest) returns (GetOrAddAsyncResponse);
+}

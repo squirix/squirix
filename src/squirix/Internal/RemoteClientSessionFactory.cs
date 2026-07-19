@@ -1,36 +1,42 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
-using Squirix.Internal.Cluster.Bootstrap;
+using Squirix.Internal.Cluster.Observability;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
-using Squirix.Serialization;
 
 namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
-    public static async ValueTask<IRemoteClientSession> ConnectAsync(SquirixOptions options, HttpMessageHandler? handler, CancellationToken cancellationToken)
+    internal static async ValueTask<IRemoteClientSession> ConnectAsync(
+        IList<Uri> endpoints,
+        Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
+        ISquirixSerializer? serializer,
+        HttpMessageHandler? handler,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        var normalizedEndpoints = NormalizeEndpoints(endpoints);
 
-        var endpoints = NormalizeEndpoints(options.Endpoints);
-
-        var peers = new Peer[endpoints.Length];
-        for (var i = 0; i < endpoints.Length; i++)
+        var peers = new Peer[normalizedEndpoints.Length];
+        for (var i = 0; i < normalizedEndpoints.Length; i++)
         {
             peers[i] = new Peer
             {
-                NodeId = string.Concat("endpoint-", i.ToString(CultureInfo.InvariantCulture)),
-                Url = endpoints[i],
+                NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
+                Uri = normalizedEndpoints[i],
             };
         }
 
-        var credentials = BuildCallCredentials(options);
+        var credentials = BuildCallCredentials(bearerTokenProvider);
 
         ClientPool? pool = null;
         try
@@ -39,14 +45,10 @@ internal static class RemoteClientSessionFactory
             pool = new ClientPool(peers, CallPolicyDefaults.Create, handler, callCredentials: credentials);
 #pragma warning restore CA2000
             var primaryNodeId = await pool.WarmUpAsync(cancellationToken).ConfigureAwait(false);
-            var nodeIds = new string[pool.BootstrapNodeIds.Count];
-            for (var i = 0; i < pool.BootstrapNodeIds.Count; i++)
-                nodeIds[i] = pool.BootstrapNodeIds[i];
-
-            var failover = new BootstrapEndpointFailover(nodeIds, primaryNodeId);
+            var failover = new EndpointFailover(pool.BootstrapNodeIds, primaryNodeId);
             var connected = pool;
             pool = null;
-            return new RemoteClientSession(connected, failover, SerializationProvider.Create(options.Serializer));
+            return new RemoteClientSession(connected, failover, SerializationProvider.Create(serializer));
         }
         finally
         {
@@ -55,37 +57,244 @@ internal static class RemoteClientSessionFactory
         }
     }
 
-    private static CallCredentials? BuildCallCredentials(SquirixOptions options)
+    private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
-        return options.BearerTokenProvider is null ? null : CallCredentials.FromInterceptor(async (context, metadata) =>
-        {
-            var token = await options.BearerTokenProvider(context.CancellationToken).ConfigureAwait(false);
-            metadata.Add("authorization", $"Bearer {token}");
-        });
+        if (bearerTokenProvider is null)
+            return null;
+
+        return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
     }
 
-    private static string[] NormalizeEndpoints(IEnumerable<string> endpoints)
+    private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<string>();
+        var result = new List<Uri>();
 
-        foreach (var endpoint in endpoints)
+        for (var index = 0; index < endpoints.Count; index++)
         {
-            if (string.IsNullOrWhiteSpace(endpoint))
-                throw new ArgumentException("Endpoint must be a non-empty string.", nameof(endpoints));
-
-            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Scheme) || string.IsNullOrWhiteSpace(uri.Host))
+            var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
+            if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
                 throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
 
-            GrpcTransportEndpoints.RequireHttps(uri.AbsoluteUri);
-            var normalized = uri.ToString();
-
-            if (seen.Add(normalized))
-                result.Add(normalized);
+            GrpcTransportEndpoints.RequireHttps(endpoint);
+            var authority = endpoint.GetLeftPart(UriPartial.Authority);
+            if (seen.Add(authority))
+                result.Add(endpoint);
         }
 
         return result.Count is 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
+    }
+
+    private static class SerializationProvider
+    {
+        internal static ISquirixSerializer Create(ISquirixSerializer? serializer = null, bool enableMetrics = true)
+        {
+            var effective = serializer ?? new SystemTextJsonSerializer();
+            return enableMetrics ? EnsureMetrics(effective) : effective;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ISquirixSerializer EnsureMetrics(ISquirixSerializer inner)
+        {
+            ArgumentNullException.ThrowIfNull(inner);
+            return inner is MetricsDecoratedSerializer ? inner : new MetricsDecoratedSerializer(inner);
+        }
+
+        /// <summary>Decorator that records metrics for serialization operations and delegates to an inner serializer.</summary>
+        private sealed class MetricsDecoratedSerializer : ISquirixSerializer
+        {
+            private readonly string _impl;
+
+            private readonly ISquirixSerializer _inner;
+
+            internal MetricsDecoratedSerializer(ISquirixSerializer inner)
+            {
+                _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                _impl = _inner.GetType().Name;
+            }
+
+            public T? Deserialize<T>(string payload)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.Deserialize<T>(payload);
+                    Record("deserialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public T? Deserialize<T>(JsonElement payload)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.Deserialize<T>(payload);
+                    Record("deserialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public T? Deserialize<T>(ReadOnlySpan<byte> payload)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.Deserialize<T>(payload);
+                    Record("deserialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public T? Deserialize<T>(Stream payload)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.Deserialize<T>(payload);
+                    Record("deserialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public void Serialize<T>(Stream destination, T? value)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    _inner.Serialize(destination, value);
+                    Record("serialize", true, start);
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public JsonElement SerializeToElement<T>(T? value)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.SerializeToElement(value);
+                    Record("serialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            public byte[] SerializeToUtf8Bytes<T>(T? value)
+            {
+                var start = Stopwatch.GetTimestamp();
+                try
+                {
+                    var result = _inner.SerializeToUtf8Bytes(value);
+                    Record("serialize", true, start);
+                    return result;
+                }
+                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                {
+                    throw;
+                }
+            }
+
+            private void Record(string op, bool success, long startTimestamp)
+            {
+                var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
+                SerializerMetrics.OpsTotal.WithLabels(op, success ? "ok" : "error", _impl).Inc(1);
+                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+            }
+
+            private void RecordFailure(string op, Exception ex, long startTimestamp)
+            {
+                var elapsedSeconds = Stopwatch.GetElapsedTime(startTimestamp).TotalSeconds;
+                SerializerMetrics.OpsTotal.WithLabels(op, "error", _impl).Inc(1);
+                SerializerMetrics.OpDurationSeconds.WithLabels(op, _impl).Observe(elapsedSeconds);
+                var exType = ex.GetType().Name;
+                SerializerMetrics.FailuresTotal.WithLabels(op, exType, _impl).Inc(1);
+            }
+
+            private bool TryRecordSerializerFailure(string op, Exception ex, long startTimestamp)
+            {
+                switch (ex)
+                {
+                    case JsonException:
+                    case NotSupportedException:
+                    case InvalidOperationException:
+                    case IOException:
+                        RecordFailure(op, ex, startTimestamp);
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+        }
+    }
+
+    private sealed class BearerTokenCallCredentials
+    {
+        private const string AuthorizationHeader = "authorization";
+        private const string BearerSchemePrefix = "Bearer ";
+
+        private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
+
+        internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
+        {
+            _tokenProvider = tokenProvider;
+            Credentials = CallCredentials.FromInterceptor(InterceptAsync);
+        }
+
+        internal CallCredentials Credentials { get; }
+
+        private static async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
+        {
+            var token = await tokenTask.ConfigureAwait(false);
+            metadata.Add(AuthorizationHeader, string.Concat(BearerSchemePrefix, token));
+        }
+
+        private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
+    }
+
+    private sealed class RemoteClientSession : IRemoteClientSession
+    {
+        private readonly EndpointFailover _bootstrapFailover;
+        private readonly IClientPool _remoteClients;
+        private readonly ISquirixSerializer _serializer;
+
+        internal RemoteClientSession(IClientPool remoteClients, EndpointFailover bootstrapFailover, ISquirixSerializer serializer)
+        {
+            _remoteClients = remoteClients ?? throw new ArgumentNullException(nameof(remoteClients));
+            _bootstrapFailover = bootstrapFailover ?? throw new ArgumentNullException(nameof(bootstrapFailover));
+            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _remoteClients.BeginDrain();
+            return _remoteClients.DisposeAsync();
+        }
+
+        public ICache<T> GetCache<T>(string cacheName) => new RemoteCache<T>(cacheName, _bootstrapFailover, _remoteClients, _serializer);
     }
 }

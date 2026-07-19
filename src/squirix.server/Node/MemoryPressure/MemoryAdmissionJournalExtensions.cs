@@ -17,18 +17,18 @@ internal static class MemoryAdmissionJournalExtensions
     /// <param name="estimator">The entry size estimator.</param>
     /// <param name="magnitudeUnknown">Set when growth cannot be bounded conservatively.</param>
     /// <returns>Estimated non-negative net growth in bytes.</returns>
-    public static long ComputeNetGrowthForReplace<T>(
+    internal static long ComputeNetGrowthForReplace<T>(
         CacheKey key,
-        CacheEntry<T>? existing,
+        NodeCacheEntry<T>? existing,
         bool existingPayloadIsCounter,
-        CacheEntry<T> proposed,
+        NodeCacheEntry<T> proposed,
         bool proposedPayloadIsCounter,
         ICacheEntrySizeEstimator<T> estimator,
         out bool magnitudeUnknown)
     {
         ArgumentNullException.ThrowIfNull(proposed);
-        magnitudeUnknown = MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(proposed.Value) ||
-                           (existing is not null && MemoryAdmissionPayloadClassifier.IsUnknownTypedPayloadEstimate(existing.Value));
+        magnitudeUnknown = estimator.HasUnknownPayloadMagnitude(proposed, proposedPayloadIsCounter) ||
+                           (existing is not null && estimator.HasUnknownPayloadMagnitude(existing, existingPayloadIsCounter));
 
         var nextBytes = estimator.EstimateBytes(key, proposed, proposedPayloadIsCounter);
         if (existing is null)

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Exporters.Json;
@@ -9,10 +8,6 @@ using BenchmarkDotNet.Validators;
 namespace Squirix.E2EBenchmarks.Config;
 
 /// <summary>BenchmarkDotNet configuration for end-to-end benchmarks.</summary>
-[SuppressMessage(
-    "Maintainability",
-    "CA1515:Consider making public types internal",
-    Justification = "Shared E2E benchmark configuration is consumed by public benchmark entry points.")]
 public static class SquirixE2EBenchmarkConfig
 {
     /// <summary>Creates the common end-to-end benchmark configuration.</summary>
@@ -21,6 +16,9 @@ public static class SquirixE2EBenchmarkConfig
                                                    .WithOptions(ConfigOptions.DisableOptimizationsValidator).WithOptions(ConfigOptions.JoinSummary)
                                                    .WithOptions(ConfigOptions.StopOnFirstError).AddValidator(JitOptimizationsValidator.DontFailOnError);
 
-    private static Job CreateJob() => string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? Job.Default.WithId("Long")
-        : Job.ShortRun.WithId("Short");
+    private static Job CreateJob()
+    {
+        var job = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? Job.Default : Job.ShortRun;
+        return job.DontEnforcePowerPlan().WithId(string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_LONG"), "1", StringComparison.Ordinal) ? "Long" : "Short");
+    }
 }

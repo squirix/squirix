@@ -4,7 +4,7 @@ using System.Globalization;
 using Squirix.Server.Cluster;
 
 var output = Console.Out;
-var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
+var argv = Environment.GetCommandLineArgs()[1..];
 if (argv.Length is 0 || (argv.Length is 1 && (string.Equals(argv[0], "--help", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-h", StringComparison.OrdinalIgnoreCase) ||
                                               string.Equals(argv[0], "-?", StringComparison.OrdinalIgnoreCase))))
@@ -72,30 +72,38 @@ if (string.IsNullOrWhiteSpace(nodesCsv))
 
 try
 {
-    var nodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.Ordinal).ToArray();
+    var splitNodes = nodesCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
+    foreach (var node in splitNodes)
+        uniqueNodes.Add(node);
+
+    var nodes = new string[uniqueNodes.Count];
+    var nodeIndex = 0;
+    foreach (var node in uniqueNodes)
+        nodes[nodeIndex++] = node;
+
     if (nodes.Length is 0)
         return await UsageAsync("--nodes must contain at least one node id").ConfigureAwait(false);
 
-    var ring = new ConsistentHashRing(nodes, virtualNodes);
+    var ring = RuntimeServiceRegistration.CreateHashLocator(nodes, virtualNodes);
     var distribution = new Dictionary<string, int>(StringComparer.Ordinal);
-    foreach (var node in nodes)
-        distribution[node] = 0;
+    for (var n = 0; n < nodes.Length; n++)
+        distribution[nodes[n]] = 0;
 
     for (var i = 0; i < sampleSize; i++)
-    {
-        var key = $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}";
-        var owner = ring.GetOwner(cacheName, key);
-        distribution[owner] = distribution.TryGetValue(owner, out var count) ? count + 1 : 1;
-    }
+        distribution[ring.GetOwner(cacheName, $"sample-key-{i.ToString(CultureInfo.InvariantCulture)}")]++;
 
     await output.WriteLineAsync("OK: ring distribution computed").ConfigureAwait(false);
     await output.WriteLineAsync($"cache: {cacheName}").ConfigureAwait(false);
     await output.WriteLineAsync($"virtualNodes: {virtualNodes.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     await output.WriteLineAsync($"sampleSize: {sampleSize.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
-    foreach (var key in distribution.Keys.Order(StringComparer.Ordinal))
+    var sortedKeys = new List<string>(distribution.Keys);
+    sortedKeys.Sort(StringComparer.Ordinal);
+    for (var k = 0; k < sortedKeys.Count; k++)
     {
+        var key = sortedKeys[k];
         var count = distribution[key];
-        var share = Math.Round(Convert.ToDouble(count, CultureInfo.InvariantCulture) / sampleSize, 6, MidpointRounding.ToEven);
+        var share = Math.Round(1.0 * count / sampleSize, 6, MidpointRounding.ToEven);
         await output.WriteLineAsync($"node.{key}.count: {count.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
         await output.WriteLineAsync($"node.{key}.share: {share.ToString(CultureInfo.InvariantCulture)}").ConfigureAwait(false);
     }

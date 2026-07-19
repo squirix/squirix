@@ -7,7 +7,7 @@ internal static class MtlsOptionsResolver
 {
     /// <summary>Loads cluster mTLS options from environment variables.</summary>
     /// <returns>Resolved options.</returns>
-    public static MtlsOptions ResolveFromEnvironment() => new()
+    internal static MtlsOptions ResolveFromEnvironment() => new()
     {
         CertPfxPath = NormalizePath(EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PATH")),
         CertPfxPassword = EnvVariables.ReadString("SQUIRIX_CLUSTER_MTLS_CERT_PFX_PASSWORD"),

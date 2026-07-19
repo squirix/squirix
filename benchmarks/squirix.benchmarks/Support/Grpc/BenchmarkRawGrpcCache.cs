@@ -2,11 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
-using Squirix.Benchmarks.Support.Runtime;
-using Squirix.Serialization;
+using Squirix.Internal;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
-using Squirix.Utils;
 
 namespace Squirix.Benchmarks.Support.Grpc;
 
@@ -36,14 +34,12 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    internal static BenchmarkRawGrpcCache Connect(string endpoint, string cacheName)
+    internal static BenchmarkRawGrpcCache Connect(Uri uri, string cacheName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         ArgumentException.ThrowIfNullOrWhiteSpace(cacheName);
 
-        BenchmarkRuntime.EnsureInitialized();
         var channel = GrpcChannel.ForAddress(
-            endpoint,
+            uri,
             new GrpcChannelOptions
             {
                 HttpHandler = LoopbackHttp.CreateHandler(),
@@ -54,11 +50,11 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     internal async ValueTask<bool> GetValueFoundAsync(string key, CancellationToken cancellationToken)
     {
-        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
         return response.Found;
     }
 
-    internal async ValueTask<bool> GetValueFoundAsync(GetValueRequest request, CancellationToken cancellationToken)
+    internal async ValueTask<bool> GetValueFoundAsync(GetValueAsyncRequest request, CancellationToken cancellationToken)
     {
         var response = await _client.GetValueAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
         return response.Found;
@@ -66,7 +62,7 @@ internal sealed class BenchmarkRawGrpcCache : IAsyncDisposable
 
     internal async ValueTask<string?> GetValueOrDefaultAsync(string key, CancellationToken cancellationToken)
     {
-        var response = await _client.GetValueAsync(new GetValueRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var response = await _client.GetValueAsync(new GetValueAsyncRequest { CacheName = _cacheName, Key = key }, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return response.Found ? await ProtoEx.FromCacheValueAsync<string>(response.Value, Serializer).ConfigureAwait(false) : null;
     }

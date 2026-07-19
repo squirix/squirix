@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server.UnitTests dependency policy.
+
+  Unit tests are white-box and may reference any Squirix.Server.* production namespace.
+  Guard only the package boundary against the client SDK and direct client namespaces.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+
+  <AllowedAssembly From="*" To="*" />
+
+  <DisallowedAssembly From="Squirix.Server.UnitTests" To="Squirix" />
+
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Internal.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Core.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Errors.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Serialization.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Atomic.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Batch.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Watch.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Scan.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Mutations.*" />
+  <Disallowed From="Squirix.Server.UnitTests.*" To="Squirix.Runtime.*" />
+
+</NsDepCopConfig>

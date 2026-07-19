@@ -12,7 +12,7 @@ Prerequisites:
 ### NuGet global tool
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.5
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.6
 squirix-server run
 ```
 
@@ -21,7 +21,7 @@ ready-to-use client and operational endpoint URLs. **No JWT is required** on thi
 access the cache API. This is a development convenience, not production hardening. See
 [server-mode.md — Loopback development default](server-mode.md#loopback-development-default-not-production-posture).
 
-For WAL/snapshot durability:
+For journal/snapshot durability:
 
 ```bash
 squirix-server run --persist --data-dir ./data
@@ -62,13 +62,13 @@ outside the container.
 Release image (pinned NuGet tool version):
 
 ```bash
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.5 .
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.6 .
 docker run --rm \
   -p 5000:5000 \
   -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
-  squirix-server:0.1.0-preview.5 run --urls https://0.0.0.0:5000
+  squirix-server:0.1.0-preview.6 run --urls https://0.0.0.0:5000
 ```
 
 Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
@@ -83,7 +83,7 @@ dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ## 2. Add the client SDK
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.5
+dotnet add package squirix --version 0.1.0-preview.6
 ```
 
 ## 3. Connect and use a typed cache
@@ -95,6 +95,7 @@ Use the HTTPS gRPC endpoint from the host output.
 ```csharp
 using System.Threading;
 using Squirix;
+using Squirix.Client;
 
 var cancellationToken = CancellationToken.None;
 

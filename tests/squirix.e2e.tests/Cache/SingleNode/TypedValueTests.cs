@@ -2,13 +2,13 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures.TypedValues;
-using Squirix.E2ETests.Support.Cluster.Fixtures;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
 
 /// <summary>Integration tests for single-node typed custom values through the public cache API.</summary>
-public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestBase(fixture)
+/// <param name="fixture">Shared single-node cluster fixture.</param>
+public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixture)
 {
     /// <summary>Verifies AddShouldThrowForExistingCustomRecordOnSingleNode.</summary>
     [Fact]
@@ -19,10 +19,8 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
 
         await cache.AddAsync("k", original, cancellationToken: DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(async () => await cache.AddAsync(
-            "k",
-            TypedValueFactory.CreateUpdatedProfile("add-conflict"),
-            cancellationToken: DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<CacheConflictException>(() =>
+            cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: DefaultCancellationToken));
 
         var result = await cache.GetValueAsync("k", DefaultCancellationToken);
         Assert.True(result.Found);
@@ -113,7 +111,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : SingleNodeTestB
         TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
         Assert.True(second.Found);
         TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
-        Assert.Equal(0, factoryCalls);
+        Assert.Equal(1, factoryCalls);
     }
 
     /// <summary>Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.</summary>

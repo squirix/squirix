@@ -1,7 +1,6 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -17,14 +16,13 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
-public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
+public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 {
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var url = $"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}";
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
@@ -35,7 +33,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
             options =>
             {
                 options.NodeId = "aspnet-test";
-                options.Url = new Uri(url);
+                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -55,19 +53,19 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
     [Fact]
     public async Task DataDirectoryOverridePreservesStrictFsyncDefault()
     {
+        using var dir = new TempDirectory("squirix-aspnet-tests");
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
                 EnvironmentName = "Development",
             });
-        var dataDir = PathKit.Combine(Path.GetTempPath(), "squirix-aspnet-tests", Guid.NewGuid().ToString("N"));
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = await builder.AddSquirixServerAsync(
             options =>
             {
-                options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dataDir);
+                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+                options.UsePersistence(dir);
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -75,10 +73,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
-        Assert.Equal(dataDir, persistence.DataDir);
-
-        if (Directory.Exists(dataDir))
-            Directory.Delete(dataDir, true);
+        Assert.Equal(dir.Path, persistence.DataDir);
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
@@ -94,7 +89,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
@@ -125,7 +120,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions =>
             {
@@ -157,7 +152,7 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Url = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
             loadDiscoveredSettings: false,
             configureExtensions: extensions => extensions.MapEndpointsWithAuthorization = (_, enabled) => authEnabled = enabled,
             cancellationToken: DefaultCancellationToken);
@@ -168,12 +163,20 @@ public sealed class AspNetCoreHostingExtensionsTests : UnitTestBase
         Assert.False(authEnabled);
     }
 
-    private static Endpoint[] GetMappedEndpoints(WebApplication app)
+    private static List<Endpoint> GetMappedEndpoints(WebApplication app)
     {
         if (app is not IEndpointRouteBuilder routeBuilder)
             throw new InvalidOperationException("Web application does not expose endpoint data sources.");
 
-        return routeBuilder.DataSources.SelectMany(static source => source.Endpoints).ToArray();
+        var capacity = 0;
+        foreach (var source in routeBuilder.DataSources)
+            capacity += source.Endpoints.Count;
+
+        var endpoints = new List<Endpoint>(capacity);
+        foreach (var source in routeBuilder.DataSources)
+            endpoints.AddRange(source.Endpoints);
+
+        return endpoints;
     }
 
     private sealed record ExtensionMarker(string Name);

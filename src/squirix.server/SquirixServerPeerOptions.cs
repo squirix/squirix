@@ -9,5 +9,5 @@ public sealed class SquirixServerPeerOptions
     public required string NodeId { get; set; }
 
     /// <summary>Gets or sets the peer server URL.</summary>
-    public required Uri Url { get; set; }
+    public required Uri Uri { get; set; }
 }

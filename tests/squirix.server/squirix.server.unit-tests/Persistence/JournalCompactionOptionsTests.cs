@@ -1,6 +1,6 @@
 using System;
-using System.Text.Json;
-using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Runtime;
+using Squirix.Server.Storage.Journaling.Compaction;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -10,11 +10,6 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// </summary>
 public sealed class JournalCompactionOptionsTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     /// <summary>Verifies lower-bound scalar values remain accepted.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
@@ -35,7 +30,7 @@ public sealed class JournalCompactionOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsInvalidScalars()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalCompactionOptions { MinTailSegments = -1 });
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalCompactionOptions { MinTailSegments = -1 });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);
@@ -46,7 +41,7 @@ public sealed class JournalCompactionOptionsTests
     public void JsonDeserializeBindsValidatedScalars()
     {
         const string json = """{"enabled":true,"minTailSegments":3,"minTailBytes":4096,"minGap":"00:00:30"}""";
-        var options = JsonSerializer.Deserialize<JournalCompactionOptions>(json, JsonOptions);
+        var options = new ServerJsonSerializer().Deserialize<JournalCompactionOptions>(json);
         Assert.NotNull(options);
         Assert.True(options.Enabled);
         Assert.Equal(3, options.MinTailSegments);

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
-using FakeItEasy;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
 using Xunit;
@@ -19,7 +18,7 @@ public sealed class ItemsGaugeReporterServiceTests
     [Fact]
     public async Task ObservableGaugeReflectsStatsAndPropagatesErrors()
     {
-        using var sink = new MeasurementSink();
+        using var sink = new NodeMeasurementSink();
         using var listener = CreateListener(sink);
 
         using (var service = new ItemsGaugeReporterService(new StubStats(9)))
@@ -38,9 +37,7 @@ public sealed class ItemsGaugeReporterServiceTests
             await empty.StopAsync(CancellationToken.None);
         }
 
-        var faultStats = A.Fake<ILocalCacheStats>();
-        _ = A.CallTo(() => faultStats.EntryCount).Throws(new InvalidOperationException("stats-down"));
-        using var faulting = new ItemsGaugeReporterService(faultStats);
+        using var faulting = new ItemsGaugeReporterService(new FaultingStats());
         await faulting.StartAsync(CancellationToken.None);
         var aggregate = Assert.Throws<AggregateException>(listener.RecordObservableInstruments);
         var inner = Assert.Single(aggregate.InnerExceptions);
@@ -49,7 +46,7 @@ public sealed class ItemsGaugeReporterServiceTests
         await faulting.StopAsync(CancellationToken.None);
     }
 
-    private static MeterListener CreateListener(MeasurementSink sink)
+    private static MeterListener CreateListener(NodeMeasurementSink sink)
     {
         var listener = new MeterListener
         {
@@ -76,20 +73,25 @@ public sealed class ItemsGaugeReporterServiceTests
         }
     }
 
-    private sealed class MeasurementSink : IDisposable
+    private sealed class NodeMeasurementSink : IDisposable
     {
-        public List<long> Values { get; } = [];
+        internal List<long> Values { get; } = [];
 
         public void Dispose() => Values.Clear();
     }
 
     private sealed class StubStats : ILocalCacheStats
     {
-        public StubStats(int entryCount)
+        internal StubStats(int entryCount)
         {
             EntryCount = entryCount;
         }
 
         public int EntryCount { get; }
+    }
+
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 }

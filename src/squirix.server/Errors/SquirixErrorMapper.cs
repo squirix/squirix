@@ -4,7 +4,7 @@ namespace Squirix.Server.Errors;
 
 internal static class SquirixErrorMapper
 {
-    public static string ToPublicCode(SquirixErrorCode code) => code switch
+    internal static string ToPublicCode(SquirixErrorCode code) => code switch
     {
         SquirixErrorCode.InvalidCacheName => "INVALID_CACHE_NAME",
         SquirixErrorCode.InvalidCacheKey => "INVALID_CACHE_KEY",
@@ -13,9 +13,12 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.Conflict => "CONFLICT",
         SquirixErrorCode.PayloadTooLarge => "PAYLOAD_TOO_LARGE",
         SquirixErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
-        SquirixErrorCode.MemoryPressure => ResourceExhaustedException.PublicErrorCode,
+        SquirixErrorCode.MemoryPressure => "MEMORY_PRESSURE",
         SquirixErrorCode.OperationIdRequired => "OPERATION_ID_REQUIRED",
+        SquirixErrorCode.OperationIdInvalidFormat => "OPERATION_ID_INVALID_FORMAT",
+        SquirixErrorCode.OperationIdTooLong => "OPERATION_ID_TOO_LONG",
         SquirixErrorCode.OperationIdReuseMismatch => "OPERATION_ID_REUSE_MISMATCH",
+        SquirixErrorCode.InvalidEntryTags => "INVALID_ENTRY_TAGS",
         _ => "INTERNAL_ERROR",
     };
 
@@ -30,7 +33,10 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.TooManyRequests => StatusCode.ResourceExhausted,
         SquirixErrorCode.MemoryPressure => StatusCode.ResourceExhausted,
         SquirixErrorCode.OperationIdRequired => StatusCode.InvalidArgument,
+        SquirixErrorCode.OperationIdInvalidFormat => StatusCode.InvalidArgument,
+        SquirixErrorCode.OperationIdTooLong => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdReuseMismatch => StatusCode.FailedPrecondition,
+        SquirixErrorCode.InvalidEntryTags => StatusCode.InvalidArgument,
         _ => StatusCode.Internal,
     };
 }

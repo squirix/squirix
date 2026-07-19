@@ -1,19 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>
-/// Tests trace header propagation on outbound unary calls through <see cref="Correlation.ClientInterceptor" />.
+/// Tests trace header propagation on outbound unary calls through <see cref="ClientInterceptor" />.
 /// </summary>
 public sealed class CorrelationClientInterceptorTests
 {
@@ -79,8 +78,17 @@ public sealed class CorrelationClientInterceptorTests
             });
 
         var options = Assert.NotNull(observed);
-        var values = (options.Headers ?? []).Where(static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase)).Select(static entry => entry.Value)
-                                            .ToArray();
+        var values = new List<string>();
+        var headers = options.Headers;
+        Assert.NotNull(headers);
+        for (var index = 0; index < headers.Count; index++)
+        {
+            var entry = headers[index];
+            if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
 
         _ = Assert.Single(values);
         Assert.NotEqual("00-stale-stale-00", values[0]);
@@ -113,8 +121,18 @@ public sealed class CorrelationClientInterceptorTests
             });
 
         var options = Assert.NotNull(observed);
-        var values = (options.Headers ?? []).Where(static entry => string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase)).Select(static entry => entry.Value)
-                                            .ToArray();
+        var values = new List<string>();
+        var headers = options.Headers;
+        Assert.NotNull(headers);
+        for (var index = 0; index < headers.Count; index++)
+        {
+            var entry = headers[index];
+            if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
+
         _ = Assert.Single(values);
         Assert.Equal("vendor=value", values[0]);
     }
@@ -129,18 +147,7 @@ public sealed class CorrelationClientInterceptorTests
             static () => { });
     }
 
-    private static Correlation.ClientInterceptor CreateInterceptor()
-    {
-        var cluster = new ClusterConfig
-        {
-            ClusterId = "c",
-            NodeId = "n1",
-            Peers = [],
-            Url = "https://localhost",
-        };
-
-        return new Correlation.ClientInterceptor(NullLogger<Correlation.ClientInterceptor>.Instance, cluster);
-    }
+    private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
 
     private static ActivityListener CreateSquirixActivityListener()
     {

@@ -14,14 +14,20 @@ namespace Squirix.Server.TestKit.Networking;
 /// </summary>
 public sealed class PortAllocator : IDisposable
 {
-    // Process-wide reservation to avoid duplicates between allocators inside one process
+    /// <summary>
+    /// Process-wide reservation to avoid duplicates between allocators inside one process.
+    /// </summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
     private readonly List<int> _allocatedPorts = [];
     private readonly int _endInclusive;
     private readonly int _rangeSize;
     private readonly int _start;
     private bool _disposed;
-    private int _next; // rolling cursor
+
+    /// <summary>
+    /// Rolling cursor.
+    /// </summary>
+    private int _next;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PortAllocator" /> class.
@@ -103,7 +109,8 @@ public sealed class PortAllocator : IDisposable
             _ = Reserved.TryRemove(candidate, out _);
         }
 
-        throw new InvalidOperationException($"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
+        throw new InvalidOperationException(
+            $"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
     }
 
     /// <inheritdoc />
@@ -112,8 +119,8 @@ public sealed class PortAllocator : IDisposable
         if (_disposed)
             return;
 
-        foreach (var port in _allocatedPorts)
-            _ = Reserved.TryRemove(port, out _);
+        for (var i = 0; i < _allocatedPorts.Count; i++)
+            _ = Reserved.TryRemove(_allocatedPorts[i], out _);
 
         _allocatedPorts.Clear();
         _disposed = true;
@@ -123,7 +130,7 @@ public sealed class PortAllocator : IDisposable
     {
         unchecked
         {
-            var hash = System.Environment.ProcessId;
+            var hash = Environment.ProcessId;
             foreach (var ch in AppContext.BaseDirectory)
                 hash = (hash * 31) + ch;
 

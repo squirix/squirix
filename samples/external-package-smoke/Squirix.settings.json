@@ -1,0 +1,15 @@
+{
+    "Squirix": {
+        "Cluster": {
+            "NodeId": "external-smoke",
+            "Uri": "https://localhost:51907",
+            "VirtualNodes": 128,
+            "Peers": [
+                {
+                    "NodeId": "external-smoke",
+                    "Uri": "https://localhost:51907"
+                }
+            ]
+        }
+    }
+}

@@ -5,6 +5,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Squirix;
+using Squirix.Client;
 using Squirix.Server;
 
 var requestedWorkingDirectory = Environment.GetEnvironmentVariable("SQUIRIX_TEST_HOST_WORKING_DIRECTORY");
@@ -12,7 +13,11 @@ if (!string.IsNullOrWhiteSpace(requestedWorkingDirectory))
     Directory.SetCurrentDirectory(requestedWorkingDirectory);
 
 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-await RunCommandAsync(Environment.GetCommandLineArgs().Skip(1).ToArray(), cts.Token);
+var allArgs = Environment.GetCommandLineArgs();
+var commandArgs = new string[allArgs.Length - 1];
+if (commandArgs.Length > 0)
+    Array.Copy(allArgs, 1, commandArgs, 0, commandArgs.Length);
+await RunCommandAsync(commandArgs, cts.Token);
 return;
 
 static async ValueTask RunCommandAsync(string[] args, CancellationToken cancellationToken)
@@ -106,9 +111,11 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
     }
 }
 
-static string LoadConfiguredEndpoint()
+static Uri LoadConfiguredEndpoint()
 {
     using var document = JsonDocument.Parse(File.ReadAllText("Squirix.settings.json"));
-    return document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Url").GetString() ??
-           throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Url.");
+    var cluster = document.RootElement.GetProperty("Squirix").GetProperty("Cluster");
+    var uri = cluster.GetProperty("Uri").GetString() ??
+              throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+    return new Uri(uri, UriKind.Absolute);
 }

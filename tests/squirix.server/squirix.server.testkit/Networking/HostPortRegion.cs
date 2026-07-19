@@ -1,7 +1,7 @@
 namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>Identifies a fixed-size host port region reserved for test infrastructure.</summary>
-internal enum HostPortRegion : byte
+internal enum HostPortRegion
 {
     /// <summary>End-to-end BenchmarkDotNet hosts.</summary>
     EndToEndBenchmarks = 0,

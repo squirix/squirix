@@ -71,10 +71,11 @@ nunit-*.xml
 *.sln.docstates
 
 #BenchmarkDotNet
-BenchmarkDotNet.Artifacts/*
+**/BenchmarkDotNet.Artifacts/*
 
-# External package smoke (generated at run time)
-samples/external-package-smoke/Squirix.settings.json
+# NDepend
+NDependOut/
+*.ndar
 
 # C# DevKit
 *.lscache

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Squirix.Server.Host (CLI / global tool) dependency policy.
+
+  The host project is a thin process entrypoint. It must call only the exported
+  Squirix.Server bootstrap surface (SquirixServerOptions, SquirixServerConfiguration,
+  AddSquirixServerAsync, MapSquirixServer) and must not reach into internal layers
+  of the server library directly.
+-->
+<NsDepCopConfig IsEnabled="true"
+                ChildCanDependOnParentImplicitly="true"
+                CheckAssemblyDependencies="true">
+
+  <Allowed From="*" To="*" />
+
+  <AllowedAssembly From="*" To="*" />
+
+  <!-- Tooling must not reference the client SDK assembly. -->
+  <DisallowedAssembly From="Squirix.Server.Host" To="Squirix" />
+
+  <!-- CLI must not bypass public bootstrap API and call persistence directly. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Storage.*" />
+
+  <!-- CLI must not wire cluster routing/client pool itself. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- CLI must not map REST/gRPC endpoints itself. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Adapters.*" />
+
+  <!-- CLI must not touch in-memory cache implementation. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.LocalCache.*" />
+
+  <!-- CLI must not register node services/decorators directly (only via AddSquirixServerAsync). -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Node.*" />
+
+  <!-- CLI must not depend on runtime adapter implementations. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Server.Runtime.*" />
+
+  <!-- Client SDK namespaces are out of scope for the server host process. -->
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Internal.*" />
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Core.*" />
+  <Disallowed From="Squirix.Server.Host.*" To="Squirix.Serialization.*" />
+
+</NsDepCopConfig>

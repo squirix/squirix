@@ -75,10 +75,16 @@ dotnet_diagnostic.IDE0055.severity = error
 dotnet_diagnostic.S3267.severity = none
 # Method overloads should be grouped together - conflicts with Rider/ReSharper file layout for object overrides.
 dotnet_diagnostic.S4136.severity = none
+# Prefer string.Create / FormattableString over alternatives - conflicts with BannedSymbols.txt string formatting policy.
+dotnet_diagnostic.S6618.severity = none
 
 # Performance
 # Mark members as static
-dotnet_diagnostic.CA1822.severity = warning
+dotnet_diagnostic.CA1822.severity = error
+# Use Span-based string append
+dotnet_diagnostic.CA1834.severity = error
+# Use SearchValues for char search
+dotnet_diagnostic.CA1861.severity = error
 # Unused private fields
 dotnet_diagnostic.CA1823.severity = warning
 # Avoid unnecessary zero-length array allocations
@@ -95,6 +101,16 @@ dotnet_diagnostic.CA1869.severity = warning
 dotnet_diagnostic.CA2201.severity = warning
 # Instantiate argument exceptions correctly
 dotnet_diagnostic.CA2208.severity = warning
+
+# Banned API symbols (BannedSymbols.txt)
+# ECMA documentation IDs with full parameter lists are required; partial names are ignored silently.
+# exclude_generated_code is in .globalconfig (EditorConfig does not apply to in-memory source generators).
+# Symbol has been banned
+dotnet_diagnostic.RS0030.severity = error
+# Symbol has been banned for use in declarations
+dotnet_diagnostic.RS0031.severity = error
+# Implicit culture ToString in interpolation - project standard is $"" instead of string.Format / FormattableString.
+dotnet_diagnostic.MA0076.severity = none
 
 # Async/Cancellation correctness
 # Forward CancellationToken
@@ -133,7 +149,11 @@ resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
 resharper_convert_if_statement_to_return_statement_highlighting = none
 resharper_convert_if_statement_to_switch_statement_highlighting = none
-resharper_lambda_expression_can_be_made_static_highlighting = warning
+# Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
+# Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
+resharper_lambda_expression_can_be_made_static_highlighting = error
+resharper_lambda_expression_must_be_static_highlighting = error
+resharper_lambda_should_not_capture_context_highlighting = error
 resharper_redundant_suppress_nullable_warning_expression_highlighting = warning
 resharper_switch_statement_missing_some_enum_cases_no_default_highlighting = warning
 resharper_switch_statement_handles_some_known_enum_values_with_default_highlighting = warning
@@ -145,6 +165,83 @@ csharp_indent_case_contents_when_block = false
 
 # Rider/ReSharper C# formatting
 [*.cs]
+
+# Roslynator (RCS): all rules at warning+ so they appear in dotnet build (TreatWarningsAsErrors => error).
+dotnet_analyzer_diagnostic.category-roslynator.severity = warning
+# Remove unnecessary case label — conflicts with exhaustive switch style in this codebase.
+dotnet_diagnostic.RCS1069.severity = none
+# Convert interpolated string to concatenation
+dotnet_diagnostic.RCS1217.severity = none
+# Remove redundant statement — conflicts with explicit control-flow in some methods.
+dotnet_diagnostic.RCS1134.severity = none
+# RCS1021: Use expression-bodied lambda, it makes XUnit box the value inside an assert
+dotnet_diagnostic.RCS1021.severity = none
+
+
+# ZeroAlloc.Analyzers (ZA): promote Info rules to warning for dotnet build (TreatWarningsAsErrors => error).
+# No single category-zeroalloc — rules use Performance.* subcategories (see ZeroAlloc DiagnosticCategories.cs).
+# Do NOT use category-Performance: that also elevates CA18xx/CA186x NetAnalyzers in the same bucket.
+dotnet_analyzer_diagnostic.category-Performance.Collections.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Strings.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Memory.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Logging.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Boxing.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Linq.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Regex.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Enums.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Sealing.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Serialization.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Async.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Delegates.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.ValueTypes.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.DataLayout.severity = warning
+dotnet_analyzer_diagnostic.category-Performance.Aot.severity = warning
+
+# ErrorProne.NET (EPC/ERP/EPS): all rules at warning for dotnet build (TreatWarningsAsErrors => error).
+# Docs: https://github.com/SergeyTeplyakov/ErrorProne.NET/tree/master/docs/Rules
+# Per-rule IDs avoid category-Performance bulk config (collides with CA18xx/CA186x and ZeroAlloc Performance.*).
+dotnet_diagnostic.EPC11.severity = warning
+dotnet_diagnostic.EPC12.severity = warning
+dotnet_diagnostic.EPC13.severity = warning
+dotnet_diagnostic.EPC14.severity = warning
+dotnet_diagnostic.EPC15.severity = warning
+dotnet_diagnostic.EPC16.severity = warning
+dotnet_diagnostic.EPC17.severity = warning
+dotnet_diagnostic.EPC18.severity = warning
+dotnet_diagnostic.EPC19.severity = warning
+dotnet_diagnostic.EPC20.severity = warning
+dotnet_diagnostic.EPC23.severity = warning
+dotnet_diagnostic.EPC24.severity = warning
+dotnet_diagnostic.EPC25.severity = warning
+dotnet_diagnostic.EPC26.severity = warning
+dotnet_diagnostic.EPC27.severity = warning
+dotnet_diagnostic.EPC28.severity = warning
+dotnet_diagnostic.EPC29.severity = warning
+dotnet_diagnostic.EPC30.severity = warning
+dotnet_diagnostic.EPC31.severity = warning
+dotnet_diagnostic.EPC32.severity = warning
+dotnet_diagnostic.EPC33.severity = warning
+dotnet_diagnostic.EPC34.severity = warning
+dotnet_diagnostic.EPC35.severity = warning
+dotnet_diagnostic.EPC36.severity = warning
+dotnet_diagnostic.EPC37.severity = warning
+dotnet_diagnostic.EPC38.severity = warning
+dotnet_diagnostic.EPC39.severity = warning
+dotnet_diagnostic.EPC40.severity = warning
+dotnet_diagnostic.EPC41.severity = warning
+dotnet_diagnostic.ERP021.severity = warning
+dotnet_diagnostic.ERP022.severity = warning
+dotnet_diagnostic.ERP031.severity = warning
+dotnet_diagnostic.ERP041.severity = warning
+dotnet_diagnostic.ERP042.severity = warning
+dotnet_diagnostic.EPS01.severity = warning
+dotnet_diagnostic.EPS05.severity = warning
+dotnet_diagnostic.EPS06.severity = warning
+dotnet_diagnostic.EPS09.severity = warning
+dotnet_diagnostic.EPS10.severity = warning
+dotnet_diagnostic.EPS11.severity = warning
+dotnet_diagnostic.EPS12.severity = warning
+dotnet_diagnostic.EPS13.severity = warning
 
 # General line break behavior
 resharper_csharp_keep_existing_linebreaks = false
@@ -206,14 +303,22 @@ resharper_place_constructor_initializer_on_same_line = false
 # Allow member access expressions (e.g. request.Definition) where the root is a parameter.
 MA0015.consider_member_access_as_parameter = true
 
+# MA0016: Prefer collection abstraction over concrete types on public API — conflicts with zero-allocation and concrete test helpers.
+dotnet_diagnostic.MA0016.severity = none
 # MA0003: Require named arguments when passing literal values to method calls.
 dotnet_diagnostic.MA0003.severity = none
 # MA0157: Methods returning IAsyncEnumerable must not use the Async suffix.
 dotnet_diagnostic.MA0157.severity = none
 # MA0038: Make instance method static (deprecated; prefer CA1822).
 dotnet_diagnostic.MA0038.severity = none
+# MA0111: Prefer string.Create over FormattableString - conflicts with BannedSymbols.txt string formatting policy.
+dotnet_diagnostic.MA0111.severity = none
 # MA0174: Record declarations should use explicit 'record class' keyword.
 dotnet_diagnostic.MA0174.severity = none
+# MA0192: Use HasFlag instead of bitwise checks; it adds extra allocations
+dotnet_diagnostic.MA0192.severity = none
+# MA0211: Require multi-line <summary> XML comments; single-line summaries are fine for short, obvious members.
+dotnet_diagnostic.MA0211.severity = none
 
 [tools/**]
 # MA0047: Types must be declared inside a namespace (file-based scripts use top-level statements).
@@ -222,18 +327,62 @@ dotnet_diagnostic.MA0047.severity = none
 dotnet_diagnostic.MA0048.severity = none
 # MA0051: Method exceeds configured line/statement limits (verify/pack scripts are intentionally long).
 dotnet_diagnostic.MA0051.severity = none
+# RCS1110: Declare type inside namespace (inline helper types in file-based scripts).
+dotnet_diagnostic.RCS1110.severity = none
+# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
+dotnet_diagnostic.ZA0901.severity = none
 
 [examples/**]
 # MA0048: File name must match the primary type name (script file names differ from inline types).
 dotnet_diagnostic.MA0048.severity = none
+# ZA0901: Seal class for JIT devirtualization (implicit Program from top-level statements cannot be sealed).
+dotnet_diagnostic.ZA0901.severity = none
 
 [{tests,benchmarks}/**]
 # SA1615: Element return value should be documented (async tests/benchmarks return Task; boilerplate <returns> is redundant).
 # Other paths (for example src/**) keep the default SA1615 severity when a member is already documented.
 dotnet_diagnostic.SA1615.severity = none
 
+[tests/**]
+# xUnit.net: dotnet build prints warning+ only. Info/Hidden rules stay silent until elevated.
+# These fire only on violations — clean tests => 0 xUnit lines in build output.
+dotnet_diagnostic.xUnit1030.severity = error
+dotnet_diagnostic.xUnit1031.severity = error
+dotnet_diagnostic.xUnit1049.severity = error
+dotnet_diagnostic.xUnit1051.severity = error
+dotnet_diagnostic.xUnit2000.severity = error
+dotnet_diagnostic.xUnit2002.severity = error
+dotnet_diagnostic.xUnit2003.severity = error
+dotnet_diagnostic.xUnit2004.severity = error
+dotnet_diagnostic.xUnit2006.severity = error
+dotnet_diagnostic.xUnit2012.severity = error
+dotnet_diagnostic.xUnit2017.severity = error
+dotnet_diagnostic.xUnit2021.severity = error
+
+[benchmarks/**]
+# BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig.
+dotnet_diagnostic.BDN1400.severity = error
+dotnet_diagnostic.BDN1500.severity = error
+
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none
+
+[**/XunitAutoGeneratedEntryPoint.cs]
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none
+
+[**/*.g.cs]
+# Source generators (System.Text.Json, gRPC, etc.) may call banned APIs such as String.Format.
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none
+# Generated sources often use bare [ExcludeFromCodeCoverage] without justification.
+dotnet_diagnostic.EPC29.severity = none
+
+[**/obj/**]
+# MSBuild intermediate output (source generators, gRPC, JSON context, etc.).
+dotnet_diagnostic.RS0030.severity = none
+dotnet_diagnostic.RS0031.severity = none
+dotnet_diagnostic.EPC29.severity = none
 
 # Analyzer execution settings
 # Enable concurrent execution and generated code handling are set via MSBuild props

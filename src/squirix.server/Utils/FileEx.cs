@@ -13,7 +13,7 @@ internal static class FileEx
     /// When <see langword="true" />, metadata differences between source and destination are ignored during
     /// <see cref="File.Replace(string, string, string?, bool)" />.
     /// </param>
-    public static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
+    internal static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
     {
         if (File.Exists(finalPath))
             File.Replace(tempPath, finalPath, backupPath, ignoreMetadataErrors);
@@ -37,9 +37,9 @@ internal static class FileEx
     /// Best-effort cleanup helper for teardown paths where callers ignore failures.
     /// For strict deletion semantics, use <see cref="File.Delete(string)" /> directly.
     /// </remarks>
-    public static bool TryDeleteFile(string? path) => string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || TryDeleteExistingFile(path);
+    internal static bool TryDeleteFile(string? path) => string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || TryDeleteExistingFile(path);
 
-    internal static string? FindFile(string[] paths)
+    internal static string? FindFile(ReadOnlySpan<string> paths)
     {
         var cwd = Directory.GetCurrentDirectory();
         foreach (var name in paths)

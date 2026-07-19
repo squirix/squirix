@@ -2,14 +2,16 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
-public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
+public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
 {
     private TempDirectory? _dir;
 
@@ -21,13 +23,13 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = PathKit.Combine(Dir, "man-current");
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        var currentPath = NodePathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000001.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
+        Assert.Equal(1, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -49,7 +51,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), string.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -60,7 +62,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllTextAsync(PathKit.Combine(Dir, "man-current"), "man-000123.msqx", DefaultCancellationToken);
+        WriteCurrentPointer(Dir, 123);
 
         _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -69,22 +71,12 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = new PersistenceOptions { DataDir = Dir };
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
-        await store.WriteAsync(new Manifest { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = PathKit.Combine(Dir, "man-current");
-
-        await store.WriteAsync(new Manifest { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.True(File.Exists(currentPath));
-        Assert.Equal("man-000002.msqx", (await File.ReadAllTextAsync(currentPath, DefaultCancellationToken)).Trim());
-    }
-
-    /// <summary>Cleans up the temporary directory after the test.</summary>
-    public ValueTask DisposeAsync()
-    {
-        _dir?.Dispose();
-        return ValueTask.CompletedTask;
+        await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
+        await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
+        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Creates a temporary directory for test storage.</summary>
@@ -92,5 +84,28 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Cleans up the temporary directory after the test.</summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            _dir?.Dispose();
+
+        base.Dispose(disposing);
+    }
+
+    private static void WriteCurrentPointer(TempDirectory dir, int manifestIndex)
+    {
+        Span<byte> pointerBuffer = stackalloc byte[Pointer.Size];
+        Pointer.Write(pointerBuffer, manifestIndex);
+        File.WriteAllBytes(NodePathKit.Combine(dir, "man-current"), pointerBuffer);
     }
 }

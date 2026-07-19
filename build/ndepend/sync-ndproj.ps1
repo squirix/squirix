@@ -1,0 +1,136 @@
+# Restores squirix.ndproj settings after Visual NDepend rewrites them.
+# Custom notmycode rules live in build/ndepend/squirix.ndrules and are inlined into
+# squirix.ndproj <Queries>/Defining JustMyCode — Visual NDepend drops external RuleFiles references on save.
+#
+# Usage:
+#   pwsh build/ndepend/sync-ndproj.ps1
+#
+# Close Visual NDepend before running; reopen squirix.ndproj after.
+# Prerequisite: dotnet build squirix.slnx -c Debug
+
+$ErrorActionPreference = 'Stop'
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$ndprojPath = Join-Path $repoRoot 'squirix.ndproj'
+$ndrulesPath = Join-Path $PSScriptRoot 'squirix.ndrules'
+$justMyCodeGroupName = 'Defining JustMyCode'
+$legacyCustomGroupName = 'squirix JustMyCode'
+$customQueryMarker = '// <Name>'
+
+[xml]$ndproj = Get-Content -LiteralPath $ndprojPath
+[xml]$ndrules = Get-Content -LiteralPath $ndrulesPath
+
+$runtimeProfileNode = $ndproj.NDepend.SelectSingleNode('RuntimeProfileDesc')
+if ($null -eq $runtimeProfileNode) {
+    throw 'Unexpected squirix.ndproj shape: RuntimeProfileDesc not found.'
+}
+
+$ideFilesNode = $ndproj.NDepend.SelectSingleNode('IDEFiles')
+if ($null -ne $ideFilesNode) {
+    $null = $ndproj.NDepend.RemoveChild($ideFilesNode)
+}
+
+$ideFilesNode = $ndproj.CreateElement('IDEFiles')
+$ideFile = $ndproj.CreateElement('IDEFile')
+$ideFile.SetAttribute('FilePath', '.\squirix.slnx')
+$ideFile.SetAttribute('Filters', '')
+$ideFile.SetAttribute('Configuration', 'DEBUG|AnyCPU')
+
+$rootInfo = $ndproj.CreateElement('RootDirResolvingInfo')
+$rootInfo.SetAttribute('Enabled', 'False')
+$rootInfo.SetAttribute('Hints', 'Debug|bin|.bin|b|AnyCPU|x64|x86|v*.*|net*')
+$rootInfo.SetAttribute('TimeOut', '10')
+
+$rootDir = $ndproj.CreateElement('RootDir')
+$rootDir.InnerText = '.'
+$null = $rootInfo.AppendChild($rootDir)
+$null = $ideFile.AppendChild($rootInfo)
+$null = $ideFilesNode.AppendChild($ideFile)
+$null = $ndproj.NDepend.InsertBefore($ideFilesNode, $runtimeProfileNode)
+
+$queriesNode = $ndproj.NDepend.SelectSingleNode('Queries')
+if ($null -eq $queriesNode) {
+    throw 'Unexpected squirix.ndproj shape: Queries not found.'
+}
+
+$customQueriesNode = $ndrules.NDepend.Queries.CustomJustMyCodeQueries
+if ($null -eq $customQueriesNode) {
+    throw "Unexpected $ndrulesPath shape: Queries/CustomJustMyCodeQueries not found."
+}
+
+$legacyGroup = $queriesNode.SelectSingleNode("Group[@Name='$legacyCustomGroupName']")
+if ($null -ne $legacyGroup) {
+    $null = $queriesNode.RemoveChild($legacyGroup)
+}
+
+$justMyCodeGroup = $queriesNode.SelectSingleNode("Group[@Name='$justMyCodeGroupName']")
+if ($null -eq $justMyCodeGroup) {
+    throw "Unexpected squirix.ndproj shape: group '$justMyCodeGroupName' not found."
+}
+
+$existingCustomQueries = @(
+    $justMyCodeGroup.SelectNodes('Query') |
+        Where-Object { $_.InnerText -like "$customQueryMarker*" }
+)
+foreach ($query in $existingCustomQueries) {
+    $null = $justMyCodeGroup.RemoveChild($query)
+}
+
+foreach ($query in $customQueriesNode.SelectNodes('Query')) {
+    $importedQuery = $ndproj.ImportNode($query, $true)
+    $null = $justMyCodeGroup.AppendChild($importedQuery)
+}
+
+$customRuleOverridesNode = $ndrules.NDepend.Queries.CustomRuleOverrides
+if ($null -ne $customRuleOverridesNode) {
+    foreach ($overrideQuery in $customRuleOverridesNode.SelectNodes('Query')) {
+        $ruleToken = $overrideQuery.GetAttribute('RuleToken')
+        $groupName = $overrideQuery.GetAttribute('Group')
+        if ([string]::IsNullOrWhiteSpace($ruleToken) -or [string]::IsNullOrWhiteSpace($groupName)) {
+            throw "CustomRuleOverrides Query must specify RuleToken and Group attributes."
+        }
+
+        $idTag = "// <Id>${ruleToken}:"
+        if ($overrideQuery.InnerText -notlike "*$idTag*") {
+            throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
+        }
+
+        $idTag = "// <Id>${ruleToken}:"
+        if ($overrideQuery.InnerText -notlike "*$idTag*") {
+            throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
+        }
+
+        $targetGroup = $queriesNode.SelectSingleNode("Group[@Name='$groupName']")
+        if ($null -eq $targetGroup) {
+            throw "Unexpected squirix.ndproj shape: group '$groupName' not found for rule override '$ruleToken'."
+        }
+
+        $placeholder = "`$${ruleToken}`$"
+        $overrideMarker = "// ${ruleToken} squirix override:"
+        $targetQuery = $targetGroup.SelectNodes('Query') | Where-Object {
+            $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*$overrideMarker*"
+        } | Select-Object -First 1
+        if ($null -eq $targetQuery) {
+            throw "Rule override '$ruleToken' placeholder '$placeholder' not found in group '$groupName'."
+        }
+
+        $importedQuery = $ndproj.ImportNode($overrideQuery, $true)
+        $null = $importedQuery.RemoveAttribute('RuleToken')
+        $null = $importedQuery.RemoveAttribute('Group')
+        $null = $targetGroup.ReplaceChild($importedQuery, $targetQuery)
+    }
+}
+
+$ruleFiles = $ndproj.NDepend.SelectSingleNode('RuleFiles')
+if ($null -ne $ruleFiles) {
+    $null = $ndproj.NDepend.RemoveChild($ruleFiles)
+}
+
+$ndproj.Save($ndprojPath)
+Write-Host "Updated $ndprojPath"
+Write-Host "  IDEFile: .\squirix.slnx | Filters='' | Configuration=DEBUG|AnyCPU"
+Write-Host "  Inlined $($customQueriesNode.SelectNodes('Query').Count) custom notmycode queries into '$justMyCodeGroupName'"
+if ($null -ne $customRuleOverridesNode) {
+    Write-Host "  Applied $($customRuleOverridesNode.SelectNodes('Query').Count) custom rule override(s) from squirix.ndrules"
+}
+Write-Host "  Removed legacy group '$legacyCustomGroupName' when present"
+Write-Host "  Removed RuleFiles (Visual NDepend overwrites external rule file paths)"
