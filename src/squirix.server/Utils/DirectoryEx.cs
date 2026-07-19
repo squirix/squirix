@@ -173,9 +173,75 @@ internal static class DirectoryEx
             if (!di.Exists) // Not yet existing — will be created as regular directories
                 break;
 
-            if (IsSymlink(di))
-                throw new IOException($"Symlink/junction detected in path: '{cur}'.");
+            if (!IsSymlink(di))
+                continue;
+
+            // macOS ships compatibility symlinks (/var -> /private/var, /tmp -> /private/tmp, /etc -> /private/etc).
+            // Rejecting them breaks every DataDir under Path.GetTempPath() (/var/folders/...). Follow only those
+            // well-known OS links; any other symlink/junction in the chain remains forbidden.
+            if (TryFollowMacOsCompatibilitySymlink(di, out var resolved))
+            {
+                cur = resolved;
+                continue;
+            }
+
+            throw new IOException($"Symlink/junction detected in path: '{cur}'.");
         }
+    }
+
+    private static bool TryFollowMacOsCompatibilitySymlink(DirectoryInfo directory, out string resolvedFullPath)
+    {
+        resolvedFullPath = string.Empty;
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
+            return false;
+
+        // Only the three historical Darwin compatibility links at the filesystem root.
+        var root = Path.GetPathRoot(directory.FullName);
+        var parent = directory.Parent;
+        if (root is null || parent is null)
+            return false;
+
+        var rootTrimmed = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parentTrimmed = parent.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!parentTrimmed.Equals(rootTrimmed, StringComparison.Ordinal)
+            && !parent.FullName.Equals(root, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var name = directory.Name;
+        if (name is not ("var" or "tmp" or "etc"))
+            return false;
+
+        FileSystemInfo? target;
+        try
+        {
+            target = directory.ResolveLinkTarget(returnFinalTarget: true);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        if (target is null)
+            return false;
+
+        var expected = Path.Combine(root, "private", name);
+        var expectedTrimmed = expected.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var targetFull = target.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!targetFull.Equals(expectedTrimmed, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        resolvedFullPath = expectedTrimmed;
+        return true;
     }
 
     private static void EnsureRegularDirectory(string full, bool created, bool forbidSymlinks)
