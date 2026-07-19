@@ -197,7 +197,8 @@ jobs:
     build:
         name: Build (${{ matrix.os }} / ${{ matrix.framework }})
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 25
+        # Windows/macOS cold restore+build regularly exceeds 25m on the main matrix.
+        timeout-minutes: 45
         needs: changes
         if: |
             needs.changes.outputs.code == 'true' ||
