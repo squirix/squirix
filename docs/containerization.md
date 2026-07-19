@@ -31,7 +31,7 @@ docker build -f docker/Dockerfile -t squirix-server .
 Published releases (nuget.org):
 
 ```bash
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.7 .
+docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.6 .
 ```
 
 Verify a not-yet-published tool package locally:
@@ -41,7 +41,7 @@ dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=0.1.0-preview.7 .
+  --build-arg SQUIRIX_VERSION=0.1.0-preview.6 .
 ```
 
 Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not

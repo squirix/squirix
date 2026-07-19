@@ -3,7 +3,7 @@
 NuGet global tool package for the **`squirix-server`** CLI (standalone process host).
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.6
 squirix-server run
 squirix-server run --persist --data-dir ./data
 ```

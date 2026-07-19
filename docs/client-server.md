@@ -33,16 +33,16 @@ All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profi
 
 | NuGet package | Role | nuget.org |
 | --- | --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.7` |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.7` |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.7` |
+| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.6` |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.6` |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.6` |
 
 Install:
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.7
-dotnet add package squirix.server --version 0.1.0-preview.7
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet add package squirix --version 0.1.0-preview.6
+dotnet add package squirix.server --version 0.1.0-preview.6
+dotnet tool install --global squirix.server.tool --version 0.1.0-preview.6
 ```
 
 During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
