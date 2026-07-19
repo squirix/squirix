@@ -729,17 +729,33 @@ jobs:
             -   name: Write Top 5 Slowest Tests To Summary
                 shell: pwsh
                 run: |
-                    $trxFiles = Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue
-                    if ($null -eq $trxFiles -or $trxFiles.Count -eq 0) {
+                    $trxFiles = @(Get-ChildItem -Path test-results -Recurse -Filter *.trx -ErrorAction SilentlyContinue)
+                    if ($trxFiles.Count -eq 0) {
                         "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                         "_No TRX files were found._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                         exit 0
                     }
 
                     $results = New-Object System.Collections.Generic.List[object]
+                    $skipped = New-Object System.Collections.Generic.List[string]
                     foreach ($trx in $trxFiles) {
-                        [xml]$doc = Get-Content -LiteralPath $trx.FullName
+                        try {
+                            # -Raw avoids Object[] cast failures; try/catch skips malformed TRX (e.g. duplicate attributes).
+                            $xmlText = Get-Content -LiteralPath $trx.FullName -Raw -ErrorAction Stop
+                            $doc = New-Object System.Xml.XmlDocument
+                            $doc.XmlResolver = $null
+                            $doc.LoadXml($xmlText)
+                        }
+                        catch {
+                            $skipped.Add(('{0}: {1}' -f $trx.Name, $_.Exception.Message))
+                            continue
+                        }
+
                         $nodes = $doc.SelectNodes("//*[local-name()='UnitTestResult']")
+                        if ($null -eq $nodes) {
+                            continue
+                        }
+
                         foreach ($node in $nodes) {
                             $durationText = $node.duration
                             if ([string]::IsNullOrWhiteSpace($durationText)) {
@@ -767,12 +783,21 @@ jobs:
                     "### Slowest tests (top 5)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     if ($results.Count -eq 0) {
                         "_No per-test durations found in TRX files._" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        if ($skipped.Count -gt 0) {
+                            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                            "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        }
                         exit 0
                     }
 
                     $top = $results | Sort-Object Duration -Descending | Select-Object -First 5
                     foreach ($item in $top) {
                         ('- {0} - {1}' -f $item.Name, $item.DurationText) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                    }
+
+                    if ($skipped.Count -gt 0) {
+                        "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                        "_Skipped malformed TRX: $($skipped.Count)_" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
                     }
 
     ci-success:
