@@ -1,6 +1,6 @@
 # Release image: install squirix-server from the squirix.server.tool NuGet package.
 # Default feed is nuget.org. Set LOCAL_PACKAGES=true and place *.nupkg in docker/nuget-packages/ to verify before publish.
-ARG SQUIRIX_VERSION=0.1.0-preview.5
+ARG SQUIRIX_VERSION=0.1.0-preview.6
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS tool-install
 ARG SQUIRIX_VERSION
 ARG LOCAL_PACKAGES=false
