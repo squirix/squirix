@@ -234,7 +234,7 @@ internal static class DirectoryEx
         if (target is null)
             return false;
 
-        var expected = Path.Combine(root, "private", name);
+        var expected = Path.Join(root, "private", name);
         var expectedTrimmed = expected.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var targetFull = target.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!targetFull.Equals(expectedTrimmed, StringComparison.OrdinalIgnoreCase))
