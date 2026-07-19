@@ -7,7 +7,7 @@ namespace Squirix.Server.Cluster.Transport;
 internal static class MtlsCertificateIdentity
 {
     /// <summary>
-    /// Reads the cluster <see cref="Membership.ServerPeer.NodeId" /> from the certificate common name.
+    /// Reads the cluster <see cref="ServerPeer.NodeId" /> from the certificate common name.
     /// </summary>
     /// <param name="certificate">ServerPeer or node certificate.</param>
     /// <param name="nodeId">Parsed node identifier when present.</param>

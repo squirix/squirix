@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Squirix.Server.Storage;
+using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Node.Services;
 
@@ -12,7 +12,7 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
 {
     private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
 
-    public RetentionCleanupReadinessCheck(IRetentionCleanupReadinessStatus retentionCleanup)
+    internal RetentionCleanupReadinessCheck(IRetentionCleanupReadinessStatus retentionCleanup)
     {
         _retentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
     }

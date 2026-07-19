@@ -7,7 +7,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Node.Services;
 
 /// <summary>Capacity and eviction tests for <see cref="RpcMutationIdempotencyStore" />.</summary>
-public sealed class RpcMutationIdempotencyStoreCapTests : UnitTestBase
+public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 {
     private static readonly byte[] ResponseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 

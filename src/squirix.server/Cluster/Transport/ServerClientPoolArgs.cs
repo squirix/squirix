@@ -1,7 +1,6 @@
 using System;
 using System.Net.Http;
 using Grpc.Core.Interceptors;
-using Squirix.Server.Cluster.Reliability;
 
 namespace Squirix.Server.Cluster.Transport;
 

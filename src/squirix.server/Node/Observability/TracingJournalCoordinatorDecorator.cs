@@ -14,7 +14,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     private readonly IJournalCoordinator _inner;
     private readonly IJournalOperationTracer _tracer;
 
-    public TracingJournalCoordinatorDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
+    internal TracingJournalCoordinatorDecorator(IJournalCoordinator inner, IJournalOperationTracer tracer)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
@@ -150,4 +150,29 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
 
     private void ForwardOnAppended(object? sender, EventArgs e) => OnAppendedInternal?.Invoke(this, e);
+
+    /// <summary>
+    /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.
+    /// </summary>
+    private static class JournalCoordinatorTracing
+    {
+        internal static JournalOperationTraceContext ForKey(CacheKey key) => new()
+        {
+            Key = key.Key,
+            Namespace = string.IsNullOrEmpty(key.Namespace) ? null : key.Namespace,
+        };
+
+        internal static JournalOperationTraceContext? WithDurability(in JournalOperationTraceContext? context, IJournalCoordinator coordinator)
+        {
+            if (context != null)
+            {
+                return context with
+                {
+                    GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
+                };
+            }
+
+            return null;
+        }
+    }
 }

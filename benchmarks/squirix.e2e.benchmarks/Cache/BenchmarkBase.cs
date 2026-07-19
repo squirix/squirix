@@ -18,7 +18,7 @@ public abstract class BenchmarkBase
     /// <summary>
     /// Number of cache operations performed per benchmark invocation.
     /// </summary>
-    protected const int BatchSize = 32;
+    private protected const int BatchSize = 32;
 
     private int _addOffset;
     private int _expiringHitOffset;

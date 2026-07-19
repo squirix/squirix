@@ -6,7 +6,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
-using Squirix.Server.Serialization;
+using Squirix.Server.Core;
+using Squirix.Server.Runtime;
 using Squirix.Transport.Grpc.Cache;
 using RpcEntry = Squirix.Transport.Grpc.Cache.CacheEntryWire;
 
@@ -120,7 +121,7 @@ internal static class ServerProtoEx
     private static async ValueTask<T?> DeserializeFromProtoValueAsync<T>(Value value)
     {
         var buffer = await WriteValueToBufferAsync(value).ConfigureAwait(false);
-        return ServerSerializationProvider.Deserialize<T>(buffer.WrittenSpan);
+        return SerializationProvider.Deserialize<T>(buffer.WrittenSpan);
     }
 
     private static async ValueTask<T?> FromStructAsync<T>(Struct s)
@@ -241,8 +242,8 @@ internal static class ServerProtoEx
                 return WrapAsStruct("value", Value.ForBool(boolean));
         }
 
-        // SerializeToElement uses the same JsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
-        var root = ServerSerializationProvider.Instance.SerializeToElement(value);
+        // SerializeToElement uses the same NodeJsonSerializer options as SerializeToUtf8Bytes but avoids an intermediate UTF-8 byte[].
+        var root = SerializationProvider.Instance.SerializeToElement(value);
         return root.ValueKind is JsonValueKind.Object ? StructFromJson(root) : WrapAsStruct("value", ValueFromJson(root));
     }
 

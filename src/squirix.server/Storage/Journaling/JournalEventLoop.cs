@@ -16,7 +16,7 @@ internal sealed class JournalEventLoop
     private long _activeSegmentWrittenBytes;
     private int _segmentRollCompletionPending;
 
-    public JournalEventLoop(
+    internal JournalEventLoop(
         IJournalEventLoopHost host,
         BoundedJournalRing ring,
         IJournalSegmentWriter segmentWriter,
@@ -38,8 +38,6 @@ internal sealed class JournalEventLoop
         DrainScheduler = new JournalEventLoopDrainScheduler(this, _segmentWriterOps);
     }
 
-    internal JournalEventLoopDrainScheduler DrainScheduler { get; }
-
     internal string? ActiveSegmentPath { get; private set; }
 
     internal long ActiveSegmentWrittenBytes => Volatile.Read(ref _activeSegmentWrittenBytes);
@@ -48,11 +46,11 @@ internal sealed class JournalEventLoop
 
     internal int CurrentSegmentIndex { get; private set; }
 
+    internal JournalEventLoopDrainScheduler DrainScheduler { get; }
+
     internal JournalDurabilityGroupCommit? GroupCommit { get; private set; }
 
     internal IJournalEventLoopHost Host { get; }
-
-    internal bool IsDurabilityFlushPending { get; private set; }
 
     internal int JournalSegmentCount { get; private set; }
 
@@ -73,6 +71,8 @@ internal sealed class JournalEventLoop
     internal IJournalSegmentWriter SegmentWriter { get; }
 
     internal JournalWriteBatchBuffer WriteBatch { get; }
+
+    private bool IsDurabilityFlushPending { get; set; }
 
     internal void AddJournalTotalBytes(long delta) => JournalTotalBytes += delta;
 

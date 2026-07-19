@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -14,7 +15,7 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     private readonly INodeLocator _locator;
     private readonly string _self;
 
-    public OwnershipGuardCacheDecorator(string self, INodeLocator locator, ILogicalNamespacedCache<T> inner)
+    internal OwnershipGuardCacheDecorator(string self, INodeLocator locator, ILogicalNamespacedCache<T> inner)
     {
         _self = self ?? throw new ArgumentNullException(nameof(self));
         _locator = locator ?? throw new ArgumentNullException(nameof(locator));

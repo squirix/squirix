@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Contracts;
+using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Adapters.Grpc;
@@ -13,7 +13,7 @@ internal sealed class RoutedCacheApi<T> : ICacheApi<T>
     private readonly string _cacheName;
     private readonly ILogicalNamespacedCache<T> _namespaced;
 
-    public RoutedCacheApi(ILogicalNamespacedCache<T> namespaced, string cacheName)
+    internal RoutedCacheApi(ILogicalNamespacedCache<T> namespaced, string cacheName)
     {
         _namespaced = namespaced ?? throw new ArgumentNullException(nameof(namespaced));
         _cacheName = cacheName ?? throw new ArgumentNullException(nameof(cacheName));

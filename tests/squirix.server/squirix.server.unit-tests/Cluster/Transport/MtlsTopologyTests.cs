@@ -1,5 +1,5 @@
 using System;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Xunit;
 
@@ -52,7 +52,7 @@ public sealed class MtlsTopologyTests
         Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
 
-    private static ClusterConfig CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
+    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
     {
         ClusterId = "test",
         NodeId = nodeId,

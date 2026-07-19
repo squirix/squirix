@@ -10,7 +10,7 @@ internal sealed class StateEvaluator : IMemoryPressureStateEvaluator
 {
     private readonly PressureOptions _options;
 
-    public StateEvaluator(IOptions<PressureOptions> options)
+    internal StateEvaluator(IOptions<PressureOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;

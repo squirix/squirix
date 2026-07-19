@@ -1,8 +1,7 @@
 using System;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Bootstrap;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -37,9 +36,9 @@ public sealed class MtlsOptionsTests
         using var missingRoot = new TempDirectory("squirix-cluster-mtls-missing");
         var options = new MtlsOptions
         {
-            CaPath = PathKit.Combine(missingRoot, "missing-ca.crt"),
-            CertPath = PathKit.Combine(missingRoot, "missing-node.crt"),
-            KeyPath = PathKit.Combine(missingRoot, "missing-node.key"),
+            CaPath = NodePathKit.Combine(missingRoot, "missing-ca.crt"),
+            CertPath = NodePathKit.Combine(missingRoot, "missing-node.crt"),
+            KeyPath = NodePathKit.Combine(missingRoot, "missing-node.key"),
             InternalListenPort = 6101,
         };
 
@@ -93,13 +92,13 @@ public sealed class MtlsOptionsTests
     [Fact]
     public void StartupValidatorAllowsStandaloneTopologyWithoutMtlsMaterial()
     {
-        var cluster = new ClusterConfig([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }])
+        var cluster = new TopologyOptions([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }])
         {
             ClusterId = "test",
             NodeId = "node-a",
             Uri = new Uri("https://localhost:6001"),
         };
-        var validator = new OptionsValidators.MtlsOptionsValidator(cluster);
+        var validator = new MtlsOptionsValidator(cluster);
 
         var result = validator.Validate(null, new MtlsOptions());
 

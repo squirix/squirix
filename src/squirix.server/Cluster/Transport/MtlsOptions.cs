@@ -8,24 +8,24 @@ namespace Squirix.Server.Cluster.Transport;
 internal sealed record MtlsOptions
 {
     /// <summary>Gets the path to the PEM-encoded node certificate.</summary>
-    public string? CertPath { get; init; }
+    internal string? CertPath { get; init; }
 
     /// <summary>
     /// Gets the optional password for <see cref="CertPfxPath" />.
     /// </summary>
-    public string? CertPfxPassword { get; init; }
+    internal string? CertPfxPassword { get; init; }
 
     /// <summary>Gets the path to the node certificate PFX/PKCS#12 file.</summary>
-    public string? CertPfxPath { get; init; }
+    internal string? CertPfxPath { get; init; }
 
     /// <summary>Gets the dedicated cluster/internal HTTPS listener port for inter-node mTLS.</summary>
-    public int InternalListenPort { get; init; }
+    internal int InternalListenPort { get; init; }
 
     /// <summary>Gets the path to the PEM-encoded node private key.</summary>
-    public string? KeyPath { get; init; }
+    internal string? KeyPath { get; init; }
 
     /// <summary>Gets the path to the PEM-encoded cluster CA / trust root certificate.</summary>
-    public string? CaPath { get; init; }
+    internal string? CaPath { get; init; }
 
     /// <summary>Validates configuration shape and file presence without loading certificates.</summary>
     /// <param name="primaryListenPort">Primary external HTTPS listener port.</param>

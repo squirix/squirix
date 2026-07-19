@@ -7,9 +7,9 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -18,7 +18,7 @@ namespace Squirix.Server.UnitTests.Persistence;
 /// <summary>
 /// Concurrency and lifecycle tests for <see cref="JournalCompactionController" />.
 /// </summary>
-public sealed class JournalCompactionControllerTests : UnitTestBase
+public sealed class JournalCompactionControllerTests : ServerUnitTestBase
 {
     /// <summary>Double dispose does not throw.</summary>
     [Fact]

@@ -46,6 +46,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Adapters\Endpoint\Rest\" />
+      <Folder Include="Serialization\" />
     </ItemGroup>
 </Project>

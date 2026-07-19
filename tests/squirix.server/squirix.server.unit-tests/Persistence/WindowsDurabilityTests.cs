@@ -4,13 +4,14 @@ using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit.IO;
+using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Durability behavior tests for manifest persistence and CURRENT pointer updates.</summary>
-public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
+public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
 {
     private TempDirectory? _dir;
 
@@ -22,13 +23,13 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreCreatesCurrentPointerOnFirstWrite()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir);
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
-        var currentPath = PathKit.Combine(Dir, "man-current");
+        var currentPath = NodePathKit.Combine(Dir, "man-current");
         Assert.True(File.Exists(currentPath));
-        Assert.Equal(1, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
+        Assert.Equal(1, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
@@ -50,7 +51,7 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
-        await File.WriteAllBytesAsync(PathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
         _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
@@ -70,12 +71,12 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     [Fact]
     public async Task ManifestStoreUpdatesCurrentPointerOnRewrite()
     {
-        var options = ManifestStoreTestSupport.CreateOptions(Dir);
+        var options = StoreTestSupport.CreateOptions(Dir);
         using var store = new ManifestStore(options);
 
         await store.WriteAsync(new State { CurrentJournal = 1, NextSequence = 1 }, DefaultCancellationToken);
         await store.WriteAsync(new State { CurrentJournal = 2, NextSequence = 10 }, DefaultCancellationToken);
-        Assert.Equal(2, await ManifestStoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
+        Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
     /// <summary>Creates a temporary directory for test storage.</summary>
@@ -105,6 +106,6 @@ public sealed class WindowsDurabilityTests : UnitTestBase, IAsyncLifetime
     {
         Span<byte> pointerBuffer = stackalloc byte[Pointer.Size];
         Pointer.Write(pointerBuffer, manifestIndex);
-        File.WriteAllBytes(PathKit.Combine(dir, "man-current"), pointerBuffer);
+        File.WriteAllBytes(NodePathKit.Combine(dir, "man-current"), pointerBuffer);
     }
 }

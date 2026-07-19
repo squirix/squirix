@@ -71,7 +71,7 @@ public static class DirectoryKit
         PathValidationKit.ValidateNoInvalidChars(path);
 
         var baseFull = PrepareBaseFullPath(baseDir, forbidSymlinks);
-        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : PathKit.Combine(baseFull ?? System.Environment.CurrentDirectory, path));
+        var full = Path.GetFullPath(Path.IsPathRooted(path) ? path : NodePathKit.Combine(baseFull ?? Environment.CurrentDirectory, path));
 
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
             throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
@@ -118,12 +118,12 @@ public static class DirectoryKit
     /// </remarks>
     /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
     /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
-    public static Task TryDeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => TryDeleteDirectoryCoreAsync(dir, cancellationToken);
+    public static Task DeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => DeleteDirectoryCoreAsync(dir, cancellationToken);
 
     /// <summary>Best-effort recursive delete of a directory.</summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>
-    /// <remarks>Prefer <see cref="TryDeleteDirectoryAsync" /> in async code paths.</remarks>
-    public static void TryDeleteDirectory(string dir)
+    /// <remarks>Prefer <see cref="DeleteDirectoryAsync" /> in async code paths.</remarks>
+    public static void DeleteDirectory(string dir)
     {
         for (var i = 0; i < 6; i++)
         {
@@ -148,7 +148,7 @@ public static class DirectoryKit
             Directory.Delete(dir, true);
     }
 
-    private static async Task TryDeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
+    private static async Task DeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
     {
         for (var i = 0; i < 6; i++)
         {
@@ -253,7 +253,7 @@ public static class DirectoryKit
 
         foreach (var p in parts)
         {
-            cur = PathKit.Combine(cur, p);
+            cur = NodePathKit.Combine(cur, p);
             var di = new DirectoryInfo(cur);
             if (!di.Exists)
                 break; // Not yet existing — will be created as regular directories

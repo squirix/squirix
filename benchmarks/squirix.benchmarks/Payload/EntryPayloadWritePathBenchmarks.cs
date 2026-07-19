@@ -2,9 +2,9 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
-using Squirix.Server.TestKit.Journaling;
-using NodeCacheEntry = Squirix.Server.NodeCacheEntry<string>;
+using NodeCacheEntry = Squirix.Server.Core.NodeCacheEntry<string>;
 
 namespace Squirix.Benchmarks.Payload;
 

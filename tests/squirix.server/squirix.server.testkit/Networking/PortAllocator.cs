@@ -130,7 +130,7 @@ public sealed class PortAllocator : IDisposable
     {
         unchecked
         {
-            var hash = System.Environment.ProcessId;
+            var hash = Environment.ProcessId;
             foreach (var ch in AppContext.BaseDirectory)
                 hash = (hash * 31) + ch;
 

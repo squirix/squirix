@@ -6,13 +6,13 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Cluster.Transport;
 
 /// <summary>Unit tests for inbound cluster mTLS client certificate validation.</summary>
-public sealed class MtlsClientCertificateValidatorTests
+public sealed class MtlsClientCertificateValidatorTests : ServerUnitTestBase
 {
     /// <summary>Ensures inbound validation accepts configured remote peer identities only.</summary>
     [Fact]
     public async Task ValidateForConfiguredRemotePeerAcceptsOnlyConfiguredNodeIds()
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-b", "node-c"]));
@@ -23,7 +23,7 @@ public sealed class MtlsClientCertificateValidatorTests
     [Fact]
     public async Task ValidateForExpectedNodeIdRejectsMismatchedIdentity()
     {
-        using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
+        using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-b"));

@@ -80,7 +80,7 @@ Within `Squirix.Server`, **Cluster** and **Node** are separate namespace roots:
 
 | Namespace | Responsibility |
 | --- | --- |
-| `Squirix.Server.Cluster` | Multi-node rules and peer communication: hash-ring ownership (`INodeLocator`), membership (`ClusterConfig`, peers), gRPC transport (`ClientPool`), remote routing (`ClusteredCache`), and call reliability (`CallPolicy`). |
+| `Squirix.Server.Cluster` | Multi-node rules and peer communication: hash-ring ownership (`INodeLocator`), topology (`TopologyOptions`, peers), gRPC transport (`ServerClientPool`), remote routing (`ClusteredCache`), and call reliability (`ServerCallPolicy`). |
 | `Squirix.Server.Node` | Single-process orchestration: ASP.NET Core hosting, cache pipeline decorators, background services, observability, backpressure, and memory pressure. `Node` does not own a `Cluster/` subtree. |
 
 `Squirix.Server.Cluster` is the home for all cluster-domain types; `Squirix.Server.Node` wires them into the host via DI

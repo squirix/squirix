@@ -116,7 +116,7 @@ internal static class FileCodec
         return FileHeaderSize + bodyLength + FooterSize;
     }
 
-    internal static int ComputeRollEncodedLength(State.SnapshotRef? snapshot, int snapshotPathUtf8Length)
+    internal static int ComputeRollEncodedLength(SnapshotRef? snapshot, int snapshotPathUtf8Length)
     {
         if (snapshotPathUtf8Length > ushort.MaxValue)
             throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
@@ -139,7 +139,7 @@ internal static class FileCodec
         int format,
         int currentJournal,
         ulong nextSequence,
-        State.SnapshotRef? snapshot,
+        SnapshotRef? snapshot,
         ReadOnlySpan<byte> snapshotPathUtf8,
         Span<byte> destination)
     {
@@ -198,7 +198,7 @@ internal static class FileCodec
         return encodedLength;
     }
 
-    private static State.SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)
+    private static SnapshotRef DecodeSnapshotRef(ReadOnlySpan<byte> body, ref int offset)
     {
         if (body.Length < offset + 4 + 8 + 4 + 8 + 2)
             throw new InvalidDataException("Manifest snapshot section is truncated.");
@@ -221,7 +221,7 @@ internal static class FileCodec
             path = Encoding.UTF8.GetString(body.Slice(offset, pathLen));
 
         offset += pathLen;
-        return new State.SnapshotRef
+        return new SnapshotRef
         {
             Index = snapshotIndex,
             LastAppliedSequence = lastAppliedSequence,

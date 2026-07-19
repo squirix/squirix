@@ -8,7 +8,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Hosting;
 
 /// <summary>Covers the public server configuration loader.</summary>
-public sealed class ConfiguratorTests : UnitTestBase
+public sealed class ConfiguratorTests : ServerUnitTestBase
 {
     /// <summary>Ensures cluster settings can be loaded from a settings file path.</summary>
     [Fact]
@@ -16,7 +16,7 @@ public sealed class ConfiguratorTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-server-config");
         const string json = """{"Squirix":{"Cluster":{"ClusterId":"c1","NodeId":"node-a","Uri":"https://localhost:5001","VirtualNodes":128,"Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]}}}""";
-        var path = PathKit.Combine(dir, "Squirix.settings.json");
+        var path = NodePathKit.Combine(dir, "Squirix.settings.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var options = await Configurator.LoadFromFileAsync(path, DefaultCancellationToken);
         Assert.Equal("node-a", options.NodeId);
@@ -29,7 +29,7 @@ public sealed class ConfiguratorTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-server-config-invalid");
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-b","Uri":"https://localhost:5002"}]}}}""";
-        var path = PathKit.Combine(dir, "invalid.json");
+        var path = NodePathKit.Combine(dir, "invalid.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, _, error) = await Configurator.TryLoadFromFileAsync(path, DefaultCancellationToken);
         Assert.False(success);
@@ -38,7 +38,7 @@ public sealed class ConfiguratorTests : UnitTestBase
 
     /// <summary>Ensures TryValidate surfaces multiple validation failures.</summary>
     [Fact]
-    public void TryValidateReturnsErrorsWithoutThrowing()
+    public void OptionsValidateReturnsErrorsWithoutThrowing()
     {
         var options = new SquirixServerOptions { NodeId = string.Empty, VirtualNodes = 0 };
         var ok = options.TryValidate(out var errors);
@@ -52,7 +52,7 @@ public sealed class ConfiguratorTests : UnitTestBase
     {
         using var dir = new TempDirectory("squirix-server-config-strict");
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";
-        var path = PathKit.Combine(dir, "strict.json");
+        var path = NodePathKit.Combine(dir, "strict.json");
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         var (success, error) = await Configurator.TryValidateSettingsFileAsync(path, true, DefaultCancellationToken);
         Assert.False(success);

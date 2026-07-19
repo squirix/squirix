@@ -9,7 +9,7 @@ namespace Squirix.Server.UnitTests.Support;
 
 internal static class MtlsTestCertificateFactory
 {
-    public static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
+    internal static X509Certificate2 CreatePeerCertificate(X509Certificate2 ca, string commonName, DateTimeOffset? notBefore = null, DateTimeOffset? notAfter = null)
     {
         ArgumentNullException.ThrowIfNull(ca);
         ArgumentException.ThrowIfNullOrWhiteSpace(commonName);

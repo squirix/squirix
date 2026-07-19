@@ -12,7 +12,7 @@ internal sealed class ItemsGaugeReporterService : BackgroundService
 {
     private readonly ILocalCacheStats _stats;
 
-    public ItemsGaugeReporterService(ILocalCacheStats stats)
+    internal ItemsGaugeReporterService(ILocalCacheStats stats)
     {
         _stats = stats;
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_items_total", ObserveCount, description: "Number of items in local cache");

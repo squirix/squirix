@@ -1,17 +1,16 @@
 using System;
 using System.Globalization;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Reliability;
+using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
-using Squirix.Server.TestKit.Diagnostics;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Cluster;
 
 /// <summary>Tests for ServerClientPool methods and metrics.</summary>
-public sealed class ClientPoolMetricsTests : UnitTestBase
+public sealed class ClientPoolMetricsTests : ServerUnitTestBase
 {
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
@@ -20,7 +19,7 @@ public sealed class ClientPoolMetricsTests : UnitTestBase
     [Fact]
     public async Task DisposeIncrementsDisposalsTotal()
     {
-        using var sink = new MeasurementSink(MeterName);
+        using var sink = new NodeMeasurementSink(MeterName);
         var peers = BuildPeers(2);
         var pool = new ServerClientPool(peers, PolicyOnlyArgs());
 

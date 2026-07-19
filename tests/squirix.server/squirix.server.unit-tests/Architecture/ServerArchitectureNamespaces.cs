@@ -1,7 +1,7 @@
 namespace Squirix.Server.UnitTests.Architecture;
 
 /// <summary>
-/// Canonical namespace roots for types compiled into <see cref="Squirix.Server" />.
+/// Canonical namespace roots for types compiled into <see cref="Server" />.
 /// </summary>
 internal static class ServerArchitectureNamespaces
 {

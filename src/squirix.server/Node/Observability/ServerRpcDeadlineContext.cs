@@ -43,7 +43,7 @@ internal static class ServerRpcDeadlineContext
     {
         private readonly DateTime? _previous;
 
-        public Scope(DateTime? previous)
+        internal Scope(DateTime? previous)
         {
             _previous = previous;
         }

@@ -1,17 +1,20 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace Squirix.Server.Storage.Journaling.Compaction;
 
 internal sealed class JournalCompactionOptions
 {
-    public JournalCompactionOptions()
+    [JsonConstructor]
+    internal JournalCompactionOptions()
     {
         MinGap = TimeSpan.FromMinutes(2);
         MinTailBytes = 64 * 1024 * 1024;
         MinTailSegments = 2;
     }
 
-    public TimeSpan MinGap
+    [JsonInclude]
+    internal TimeSpan MinGap
     {
         get;
         init
@@ -23,7 +26,8 @@ internal sealed class JournalCompactionOptions
         }
     }
 
-    public long MinTailBytes
+    [JsonInclude]
+    internal long MinTailBytes
     {
         get;
         init
@@ -35,7 +39,8 @@ internal sealed class JournalCompactionOptions
         }
     }
 
-    public int MinTailSegments
+    [JsonInclude]
+    internal int MinTailSegments
     {
         get;
         init
@@ -47,5 +52,6 @@ internal sealed class JournalCompactionOptions
         }
     }
 
-    public bool Enabled { get; init; } = true;
+    [JsonInclude]
+    internal bool Enabled { get; init; } = true;
 }

@@ -1,7 +1,5 @@
 using System;
 using System.Globalization;
-using Squirix.Server.Contracts;
-using Squirix.Server.Core;
 
 namespace Squirix.Server.Errors;
 
@@ -47,7 +45,7 @@ internal static class ServerOpContract
 
     internal static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 
-    internal static SquirixException InvalidCacheKey(string? key) => CacheKeyValidator.ToContractException(key);
+    internal static SquirixException InvalidCacheKey(string detail) => new(SquirixErrorCode.InvalidCacheKey, "InvalidCacheKey", detail);
 
     /// <summary>
     /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.

@@ -6,15 +6,15 @@ using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Regression tests for durable journal ordering: fsync before in-memory apply.</summary>
-public sealed class DurableMutationExecutorDurabilityTests : UnitTestBase
+public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
 {
     /// <summary>Ensures a failed in-memory apply after durable journal is not retried.</summary>
     /// <exception cref="InvalidOperationException">Thrown by the simulated in-memory apply delegate.</exception>

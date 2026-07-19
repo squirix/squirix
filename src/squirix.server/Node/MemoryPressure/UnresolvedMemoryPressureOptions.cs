@@ -8,18 +8,18 @@ internal sealed record UnresolvedMemoryPressureOptions
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.High" />.
     /// </summary>
-    public int HighPressureThresholdPercent { get; init; } = 80;
+    internal int HighPressureThresholdPercent { get; init; } = 80;
 
     /// <summary>
     /// Gets the optional explicit maximum estimated cache size in bytes.
     /// When unset, startup resolves the limit to <see cref="OptionsResolver.RamBudgetPercent" /> of available memory.
     /// </summary>
-    public long? MaxEstimatedCacheBytes { get; init; }
+    internal long? MaxEstimatedCacheBytes { get; init; }
 
     /// <summary>
     /// Gets the usage percentage at or above which state becomes <see cref="PressureLevel.Critical" />.
     /// </summary>
-    public int CriticalPressureThresholdPercent { get; init; } = 95;
+    internal int CriticalPressureThresholdPercent { get; init; } = 95;
 
     /// <summary>Validates unresolved scalars before RAM budget resolution.</summary>
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>

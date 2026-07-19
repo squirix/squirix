@@ -1,68 +1,48 @@
 using System;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Reliability;
-using Squirix.Server.Cluster.Transport;
-using Squirix.Server.Node.Backpressure;
+using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Node.MemoryPressure;
-using Squirix.Server.Storage;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
     internal static async Task<WebApplication> StartAsync(
-        ClusterConfig cluster,
-        Action<ILoggingBuilder>? configureLogging = null,
-        bool waitForRecovery = true,
-        TriggerOptions? snapshotOptions = null,
-        Func<string, ServerCallPolicy>? callPolicyFactory = null,
-        Action<GrpcServiceOptions>? configureGrpc = null,
-        Action<IServiceCollection>? servicesConfigure = null,
-        PersistenceOptions? persistenceOptionsOverride = null,
-        Func<string, HttpMessageHandler>? peerHandlerFactory = null,
-        AdmissionOptions? backpressureOptions = null,
-        PressureOptions? memoryPressureOptions = null,
-        SecurityOptions? securityOptionsOverride = null,
-        Action<SquirixServerExtensionOptions>? configureExtensions = null,
-        MtlsOptions? mtlsOptionsOverride = null,
-        MtlsCertificateMaterial? mtlsMaterialOverride = null,
+        TopologyOptions cluster,
+        NodeHostStartOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var builder = CreateBuilder(configureLogging);
-        SquirixServerExtensionOptions? extensions = null;
-        if (configureExtensions is not null)
+        options ??= new NodeHostStartOptions();
+        var builder = CreateBuilder(options.ConfigureLogging);
+        ExtensionOptions? extensions = null;
+        if (options.ConfigureExtensions is not null)
         {
-            extensions = new SquirixServerExtensionOptions();
-            configureExtensions(extensions);
+            extensions = new ExtensionOptions();
+            options.ConfigureExtensions(extensions);
         }
 
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
             cluster,
-            new CompositionArgs
+            args =>
             {
-                WaitForRecovery = waitForRecovery,
-                SnapshotOptions = snapshotOptions,
-                CallPolicyFactory = callPolicyFactory,
-                ConfigureGrpc = configureGrpc,
-                ServicesConfigure = servicesConfigure,
-                PersistenceOptions = persistenceOptionsOverride,
-                PeerHandlerFactory = peerHandlerFactory,
-                BackpressureOptions = backpressureOptions,
-                MemoryPressureOptions = memoryPressureOptions,
-                SecurityOptions = securityOptionsOverride,
-                Extensions = extensions,
-                MtlsOptions = mtlsOptionsOverride,
-                MtlsMaterial = mtlsMaterialOverride,
+                args.WaitForRecovery = options.WaitForRecovery;
+                args.SnapshotOptions = options.SnapshotOptions;
+                args.CallPolicyFactory = options.CallPolicyFactory;
+                args.ConfigureGrpc = options.ConfigureGrpc;
+                args.ServicesConfigure = options.ServicesConfigure;
+                args.PersistenceOptions = options.PersistenceOptions;
+                args.PeerHandlerFactory = options.PeerHandlerFactory;
+                args.BackpressureOptions = options.BackpressureOptions;
+                args.MemoryPressureOptions = options.MemoryPressureOptions;
+                args.SecurityOptions = options.SecurityOptions;
+                args.Extensions = extensions;
+                args.MtlsOptions = options.MtlsOptions;
+                args.MtlsMaterial = options.MtlsMaterial;
             },
             cancellationToken).ConfigureAwait(false);
 

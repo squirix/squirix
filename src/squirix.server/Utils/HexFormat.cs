@@ -7,7 +7,7 @@ internal static class HexFormat
 {
     /// <summary>
     /// Formats a 32-byte digest as 64 uppercase hexadecimal characters.
-    /// Matches <see cref="Convert.ToHexString(System.ReadOnlySpan{byte})" /> — required for stable idempotency fingerprints.
+    /// Matches <see cref="Convert.ToHexString(ReadOnlySpan{byte})" /> — required for stable idempotency fingerprints.
     /// </summary>
     /// <param name="digest">The 32-byte SHA-256 digest bytes.</param>
     /// <returns>A 64-character uppercase hexadecimal string.</returns>

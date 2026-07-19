@@ -4,19 +4,20 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Journaling.Read;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling;
 
 /// <summary>Verifies journal coordinator sequence initialization scans only the active manifest journal range.</summary>
-public sealed class JournalNextSequenceInitializationTests : UnitTestBase
+public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>
     [Fact]
@@ -93,7 +94,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
             Format = 1,
             CurrentJournal = 2,
             NextSequence = 1,
-            LastSnapshot = new State.SnapshotRef
+            LastSnapshot = new SnapshotRef
             {
                 Index = 0,
                 CreatedUtc = DateTime.UtcNow,
@@ -182,7 +183,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-obsolete-crc");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var obsoletePath = PathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
+        var obsoletePath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, [stale]);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
@@ -232,8 +233,10 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
         var maxSeq = 0UL;
-        foreach (var record in JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken))
+        using var records = JournalReadPath.ReadAll(persistence.DataDir, manifest.CurrentJournal, DefaultCancellationToken);
+        while (records.MoveNext())
         {
+            var record = records.Current;
             if (record.Sequence > maxSeq)
                 maxSeq = record.Sequence;
         }
@@ -250,7 +253,7 @@ public sealed class JournalNextSequenceInitializationTests : UnitTestBase
         using var dir = new TempDirectory("squirix-journal-next-seq-active-truncate");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
-        var path = PathKit.Combine(dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000002{FileExtensions.Journal}");
         var a = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "a", "x");
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);

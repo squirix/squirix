@@ -6,14 +6,13 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging.Abstractions;
-using Squirix.Server.Cluster.Membership;
 using Squirix.Server.Node.Observability;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
 
 /// <summary>
-/// Tests trace header propagation on outbound unary calls through <see cref="Correlation.ClientInterceptor" />.
+/// Tests trace header propagation on outbound unary calls through <see cref="ClientInterceptor" />.
 /// </summary>
 public sealed class CorrelationClientInterceptorTests
 {
@@ -148,17 +147,7 @@ public sealed class CorrelationClientInterceptorTests
             static () => { });
     }
 
-    private static Correlation.ClientInterceptor CreateInterceptor()
-    {
-        var cluster = new ClusterConfig([])
-        {
-            ClusterId = "c",
-            NodeId = "n1",
-            Uri = new Uri("https://localhost"),
-        };
-
-        return new Correlation.ClientInterceptor(NullLogger<Correlation.ClientInterceptor>.Instance, cluster);
-    }
+    private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
 
     private static ActivityListener CreateSquirixActivityListener()
     {

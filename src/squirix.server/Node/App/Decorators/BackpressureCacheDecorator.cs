@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Runtime.Contracts;
 
@@ -18,7 +18,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly IBackpressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    public BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate)
+    internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));

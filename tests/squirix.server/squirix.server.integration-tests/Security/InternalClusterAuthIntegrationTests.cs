@@ -3,11 +3,10 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Net.Client;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster.Transport;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.Limits;
-using Squirix.Server.TestKit.Auth;
-using Squirix.Server.TestKit.Cluster;
+using Squirix.Server.TestKit;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc;
 using Squirix.Transport.Grpc.Cache;
@@ -16,7 +15,7 @@ using Xunit;
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>Verifies external JWT auth and internal cluster mTLS auth remain separated.</summary>
-public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
+public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBase
 {
     /// <summary>Verifies an external caller cannot spoof internal owner-routing metadata without trusted cluster mTLS.</summary>
     [Fact]
@@ -25,7 +24,7 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "cluster-auth");
         var uri = GetNextHttpUri();
 
-        await using var node = await StartNodeAsync(uri, "node-a", security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, "node-a", new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -52,8 +51,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cluster-forward-jwt");
         const string value = "cluster-forwarded-with-jwt";
@@ -153,8 +152,8 @@ public sealed class InternalClusterAuthIntegrationTests : IntegrationTestBase
         var uriB = GetNextHttpUri();
         var peers = BuildClusterPeers([("node-a", uriA), ("node-b", uriB)]);
 
-        await using var nodeA = await StartNodeAsync(uriA, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
-        await using var nodeB = await StartNodeAsync(uriB, peers, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var nodeA = await StartNodeAsync(uriA, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
+        await using var nodeB = await StartNodeAsync(uriB, peers, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uriB);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

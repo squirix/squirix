@@ -1,5 +1,4 @@
 using System;
-using Squirix.Server.Errors;
 
 namespace Squirix.Server.Core;
 
@@ -50,22 +49,11 @@ internal static class CacheKeyValidator
     /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
     internal static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
 
-    /// <summary>
-    /// Maps a failed validation to a <see cref="SquirixException" /> for REST/gRPC contracts.
-    /// </summary>
-    /// <param name="key">The invalid key; may be null (message does not echo user input).</param>
-    /// <returns>A contract exception with <see cref="SquirixErrorCode.InvalidCacheKey" />.</returns>
-    internal static SquirixException ToContractException(string? key)
-    {
-        _ = TryValidate(key, out var error);
-        return new SquirixException(SquirixErrorCode.InvalidCacheKey, "InvalidCacheKey", GetMessage(error));
-    }
-
     /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
     /// <param name="error">The validation failure.</param>
     /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="error" /> is not a known validation failure.</exception>
-    private static string GetMessage(ServerKeyValidationError error) => error switch
+    internal static string GetMessage(ServerKeyValidationError error) => error switch
     {
         ServerKeyValidationError.Required => "Cache key is required.",
         ServerKeyValidationError.TooLong => $"Cache key exceeds the maximum length of {MaxLength} characters.",

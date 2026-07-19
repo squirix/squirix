@@ -1,14 +1,14 @@
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.IntegrationTests.Support;
-using Squirix.Server.TestKit.Auth;
+using Squirix.Server.TestKit;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>Verifies gRPC cache authentication when JWT is enabled.</summary>
-public sealed class GrpcAuthParityTests : IntegrationTestBase
+public sealed class GrpcAuthParityTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-grpc-parity";
 
@@ -18,7 +18,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -37,7 +37,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
@@ -53,7 +53,7 @@ public sealed class GrpcAuthParityTests : IntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials("https://integration.squirix.test", "grpc-cache");
         var uri = GetNextHttpUri();
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);

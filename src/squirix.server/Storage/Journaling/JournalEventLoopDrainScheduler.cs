@@ -9,7 +9,7 @@ internal sealed class JournalEventLoopDrainScheduler
     private readonly JournalEventLoop _owner;
     private readonly JournalEventLoopSegmentWriter _segmentWriter;
 
-    public JournalEventLoopDrainScheduler(JournalEventLoop owner, JournalEventLoopSegmentWriter segmentWriter)
+    internal JournalEventLoopDrainScheduler(JournalEventLoop owner, JournalEventLoopSegmentWriter segmentWriter)
     {
         _owner = owner;
         _segmentWriter = segmentWriter;

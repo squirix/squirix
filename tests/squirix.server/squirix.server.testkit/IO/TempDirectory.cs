@@ -33,5 +33,5 @@ public sealed class TempDirectory : IDisposable
     public override string ToString() => Path;
 
     /// <inheritdoc />
-    public void Dispose() => DirectoryKit.TryDeleteDirectory(Path);
+    public void Dispose() => DirectoryKit.DeleteDirectory(Path);
 }

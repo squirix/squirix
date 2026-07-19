@@ -10,12 +10,12 @@ Durability modes:
 
 ## Run metadata
 
-| Field      | Value                                                                                                                          |
-|------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Git SHA    | `714b99a1`                                                                                                                     |
-| Branch     | `feat/wire-alloc-benchmark-baseline`                                                                                           |
-| Date (UTC) | 2026-06-30 09:56:13                                                                                                            |
-| Command    | `dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*CacheWire*AllocBenchmarks*' --exporters json` |
+| Field      | Value                                                                                                                                  |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Git SHA    | `714b99a1`                                                                                                                             |
+| Branch     | `feat/wire-alloc-benchmark-baseline`                                                                                                   |
+| Date (UTC) | 2026-06-30 09:56:13                                                                                                                    |
+| Command    | `dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*Wire*AllocBenchmarks*' --exporters json`              |
 
 ## Scalar Ephemeral (`string`)
 
@@ -117,7 +117,7 @@ Per-operation values (`Batch = 512` per benchmark invocation).
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Wire*AllocBenchmarks*' `
   --warmupCount 1 `
   --iterationCount 3 `
   --exporters json

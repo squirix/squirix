@@ -23,7 +23,7 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
     private readonly INodeLocator _ring;
     private readonly string _self;
 
-    public MemoryAdmissionCacheDecorator(
+    internal MemoryAdmissionCacheDecorator(
         ILogicalNamespacedCache<T> inner,
         IMemoryPressureGate gate,
         ICacheEntrySizeEstimator<T> estimator,

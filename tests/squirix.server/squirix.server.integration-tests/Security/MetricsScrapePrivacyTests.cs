@@ -5,16 +5,16 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
-using Squirix.Server.TestKit.Auth;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests.Security;
 
 /// <summary>Verifies public HTTP Prometheus scrape redacts identifying labels.</summary>
-public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
+public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
 {
     private const string NodeId = "node-metrics-privacy";
 
@@ -27,10 +27,10 @@ public sealed class MetricsScrapePrivacyTests : IntegrationTestBase
         var uri = $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}";
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
-        await using var node = await StartNodeAsync(uri, NodeId, security: TestJwtHelper.ToSecurityOptions(credentials));
+        await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
-        await cache.SetEntryAsync(TestOperationIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
+        await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
 
         using var req = new HttpRequestMessage(HttpMethod.Get, $"{uri}/metrics");
         req.Version = HttpVersion.Version20;

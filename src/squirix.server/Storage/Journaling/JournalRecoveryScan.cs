@@ -25,8 +25,10 @@ internal static class JournalRecoveryScan
         ThrowIfJournalOnlyTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
 
         var scanStartSegment = firstAvailableSegment is 0 ? 1 : Math.Max(firstAvailableSegment, manifestCurrentJournal);
-        foreach (var record in JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None))
+        using var records = JournalReadPath.ReadAll(options.DataDir, scanStartSegment, CancellationToken.None);
+        while (records.MoveNext())
         {
+            var record = records.Current;
             if (record.Sequence >= next)
                 next = record.Sequence + 1UL;
         }

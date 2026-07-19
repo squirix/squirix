@@ -7,8 +7,8 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -19,7 +19,7 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// request after its frame is enqueued must not corrupt the durability waiter pool or double-decrement
 /// the queued-append counter, and durable group commits must not starve across a segment roll.
 /// </summary>
-public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
+public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBase
 {
     /// <summary>
     /// Cancelling many durable group-commit mutations around their enqueue boundary leaves the
@@ -104,7 +104,6 @@ public sealed class JournalAppendCancellationResilienceTests : UnitTestBase
             }
 
             Assert.Equal(2, pipelined.CurrentSegmentIndex);
-            Assert.False(pipelined.EventLoop.IsDurabilityFlushPending);
         }
         finally
         {

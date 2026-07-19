@@ -7,9 +7,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster.Membership;
+using Squirix.Server.Cluster;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling.Abstractions;
 
 namespace Squirix.Server.Node.Services;
 
@@ -31,7 +32,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
     private long _sizeBytes;
 
-    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, ClusterConfig cluster)
+    public JournalMetricsExporterService(PersistenceOptions opt, IOptionsMonitor<JournalMetricsExporterOptions> options, TopologyOptions cluster)
     {
         _opt = opt;
         _options = options;
@@ -39,7 +40,10 @@ internal sealed class JournalMetricsExporterService : BackgroundService
 
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_segments", ObserveSegments, description: "Number of journal segment files currently present on disk");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_journal_size_bytes", ObserveSize, description: "Total size of journal segment files currently present on disk");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
+            "squirix_journal_size_bytes",
+            ObserveSize,
+            description: "Total size of journal segment files currently present on disk");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

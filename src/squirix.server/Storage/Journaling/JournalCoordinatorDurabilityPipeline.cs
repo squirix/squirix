@@ -11,7 +11,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
 {
     private readonly JournalCoordinator _owner;
 
-    public JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
+    internal JournalCoordinatorDurabilityPipeline(JournalCoordinator owner)
     {
         _owner = owner;
     }
@@ -158,9 +158,9 @@ internal sealed class JournalCoordinatorDurabilityPipeline
     {
         while (true)
         {
-            await WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
+            await _owner.WaitForPendingMemoryApplyDrainAsync(cancellationToken).ConfigureAwait(false);
             await _owner.MutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (!HasPendingMemoryApply())
+            if (!_owner.HasPendingMemoryApply())
                 return;
 
             _ = _owner.MutationGate.Release();
@@ -195,32 +195,11 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    private bool HasPendingMemoryApply()
-    {
-        lock (_owner.PendingMemoryApplyLock)
-            return _owner.PendingMemoryApplyCountField > 0;
-    }
-
     private void RemoveDurabilityWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         if (!_owner.DurabilityWaiters.Remove(waiter))
             return;
 
         _ = waiter.TrySetCanceled(cancellationToken);
-    }
-
-    private ValueTask WaitForPendingMemoryApplyDrainAsync(CancellationToken cancellationToken)
-    {
-        Task waitTask;
-        lock (_owner.PendingMemoryApplyLock)
-        {
-            if (_owner.PendingMemoryApplyCountField is 0)
-                return ValueTask.CompletedTask;
-
-            _owner.PendingMemoryApplyDrainedField ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            waitTask = _owner.PendingMemoryApplyDrainedField.Task;
-        }
-
-        return new ValueTask(waitTask.WaitAsync(cancellationToken));
     }
 }

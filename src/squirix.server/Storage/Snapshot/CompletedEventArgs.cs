@@ -3,7 +3,12 @@ using Squirix.Server.Storage.Manifest;
 
 namespace Squirix.Server.Storage.Snapshot;
 
-internal sealed class CompletedEventArgs(State.SnapshotRef snapshotRef) : EventArgs
+internal sealed class CompletedEventArgs : EventArgs
 {
-    internal State.SnapshotRef SnapshotRef { get; } = snapshotRef;
+    internal CompletedEventArgs(SnapshotRef snapshotRef)
+    {
+        SnapshotRef = snapshotRef;
+    }
+
+    internal SnapshotRef SnapshotRef { get; }
 }

@@ -61,7 +61,7 @@ public class ComparisonBenchmarks
     public async Task GlobalSetupAsync()
     {
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
-        _cacheSession = await BenchmarkCacheSession.OpenAsync(_node, CacheName, CancellationToken.None).ConfigureAwait(false);
+        _cacheSession = await BenchmarkCacheSession.OpenAsync(_node.Uri, CacheName, CancellationToken.None).ConfigureAwait(false);
         await SharedCache.AddAsync(ExistingKey, "v", cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 

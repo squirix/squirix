@@ -10,9 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core.Interceptors;
 using Grpc.Net.Client;
-using Squirix.Server.Cluster.Membership;
-using Squirix.Server.Cluster.Reliability;
-using Squirix.Server.Limits;
+using Squirix.Server.Core;
 using Squirix.Server.Node.Observability;
 using Squirix.Transport.Grpc.Cache;
 
@@ -99,14 +97,12 @@ internal sealed class ServerClientPool : IServerClientPool
         MtlsCertificateMaterial? mtlsMaterial,
         Func<string, HttpMessageHandler>? peerHandlerFactory)
     {
-        HttpMessageHandler? peerHandler = null;
-        if (interNodeMtlsEnabled)
+        var peerHandler = interNodeMtlsEnabled switch
         {
-            if (mtlsMaterial is not { Enabled: true })
-                throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport.");
-
-            peerHandler = peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId);
-        }
+            true when mtlsMaterial is not { Enabled: true } => throw new InvalidOperationException("Cluster mTLS material must be loaded for inter-node transport."),
+            true => peerHandlerFactory?.Invoke(nodeId) ?? ServerGrpcEndpoints.CreateMtlsHandler(mtlsMaterial, nodeId),
+            _ => null,
+        };
 
         return new GrpcChannelOptions
         {

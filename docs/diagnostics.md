@@ -161,7 +161,7 @@ environment where local processes are trusted.
   [server-mode.md](server-mode.md#loopback-development-default-not-production-posture)).
 - Run one squirix node per dedicated VM or container with network policies that limit who can reach the listener.
 
-Implementation: `SquirixMetricsConnectionSecurity` in `src/squirix.server/Node/Observability/Metrics/`.
+Implementation: `ConnectionSecurity` in `src/squirix.server/Node/Observability/Metrics/`.
 
 Remote scrapers should use the same JWT as cache routes. Example header: `Authorization: Bearer <token>`. See
 [configuration — Prometheus metrics](configuration.md#prometheus-metrics-squirixsettingsjson)

@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
-using Squirix.Server.Limits;
-using Squirix.Server.Storage.Journaling.Entries;
+using Squirix.Server.Core;
+using Squirix.Server.Storage.Journaling;
 
 namespace Squirix.Server.TestKit.Benchmarks;
 

@@ -3,8 +3,8 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
+using Squirix.Server.Core;
 using Squirix.Server.Errors;
-using Squirix.Server.Node.App.Operations;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 
@@ -17,7 +17,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly string _nodeId;
 
-    public TracingCacheDecorator(ILogicalNamespacedCache<T> inner, string nodeId)
+    internal TracingCacheDecorator(ILogicalNamespacedCache<T> inner, string nodeId)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _nodeId = string.IsNullOrWhiteSpace(nodeId) ? throw new ArgumentException("Node id is required.", nameof(nodeId)) : nodeId;

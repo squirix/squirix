@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
+using Squirix.Server.Core;
+using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.Node.App.Decorators;
@@ -15,7 +17,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly ILogicalNamespacedCache<T> _inner;
     private readonly IOptions<CachePipelineDeadlineOptions> _options;
 
-    public DeadlineCacheDecorator(ILogicalNamespacedCache<T> inner, IOptions<CachePipelineDeadlineOptions> options)
+    internal DeadlineCacheDecorator(ILogicalNamespacedCache<T> inner, IOptions<CachePipelineDeadlineOptions> options)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _options = options ?? throw new ArgumentNullException(nameof(options));

@@ -19,8 +19,8 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | Type                                                | Role                                                                                                              |
 |-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
 | `SquirixServer`                                     | Test/sample lifetime: `StartAsync` + `DisposeAsync` (no exported configure callback; no listen URL on the handle) |
-| `SquirixServerAspNetCoreExtensions`                 | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
-| `SquirixServerConfiguration`                        | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
+| `AspNetCoreExtensions`                              | `AddSquirixServerAsync`, `MapSquirixServer` for custom ASP.NET Core hosts                                         |
+| `Configurator`                                      | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables journal/snapshot durability                                          |
 
 Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only; see
@@ -55,7 +55,7 @@ await builder.AddSquirixServerAsync(
 
 ## Tests and samples
 
-`SquirixServer.StartAsync` uses `SquirixServerConfiguration.LoadOrCreateDefaultAsync` (discovered settings file, else an
+`SquirixServer.StartAsync` uses `Configurator.LoadOrCreateDefaultAsync` (discovered settings file, else an
 ephemeral free HTTPS port). Pass the same URL to the client:
 
 ```csharp
@@ -67,7 +67,7 @@ await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellatio
 For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a
 `WebApplicationBuilder` instead of `SquirixServer.StartAsync`.
 
-Integration and smoke tests start nodes through `IntegrationTestBase.StartNodeAsync` or
+Integration and smoke tests start nodes through `NodeIntegrationTestBase.StartNodeAsync` or
 `SmokeTestBase.StartNodeAsync` with optional `TestNodeSecurityOptions`. Smoke tests default to unauthenticated nodes via
 an empty override; pass explicit JWT settings for auth scenarios. See
 [configuration.md](../../docs/configuration.md#in-process-test-hosts).

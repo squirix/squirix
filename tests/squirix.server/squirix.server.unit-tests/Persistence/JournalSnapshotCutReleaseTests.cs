@@ -5,15 +5,15 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
-using Squirix.Server.TestKit.Journaling;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
 
 /// <summary>Verifies journal snapshot cut error paths release the mutation gate.</summary>
-public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
+public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
 {
     /// <summary>Verifies durable memory applies can proceed while snapshot serialization runs outside the mutation gate.</summary>
     [Fact]
@@ -104,7 +104,7 @@ public sealed class JournalSnapshotCutReleaseTests : UnitTestBase
             journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
-                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.State.SnapshotRef>(new IOException("simulated snapshot failure")),
+                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.SnapshotRef>(new IOException("simulated snapshot failure")),
                 DefaultCancellationToken).AsTask());
 
         await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);

@@ -11,7 +11,7 @@ internal sealed class JournalRecoveryReadinessHealthCheck : IHealthCheck
 {
     private readonly JournalStartupGate _journalStartupGate;
 
-    public JournalRecoveryReadinessHealthCheck(JournalStartupGate journalStartupGate)
+    internal JournalRecoveryReadinessHealthCheck(JournalStartupGate journalStartupGate)
     {
         _journalStartupGate = journalStartupGate ?? throw new ArgumentNullException(nameof(journalStartupGate));
     }

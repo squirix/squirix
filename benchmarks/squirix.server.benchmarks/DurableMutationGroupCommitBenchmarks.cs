@@ -7,7 +7,6 @@ using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.TestKit.Benchmarks;
 

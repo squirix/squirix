@@ -24,7 +24,7 @@ dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks
 Run one small smoke benchmark:
 
 ```bash
-SQUIRIX_E2E_BENCHMARK_SMOKE=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHit*' --warmupCount 1 --iterationCount 1
+SQUIRIX_E2E_BENCHMARK_SMOKE=1 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- --filter '*GetValueShouldReturnHitAsync*' --warmupCount 1 --iterationCount 1
 ```
 
 Run a longer local job:
@@ -103,7 +103,7 @@ Smoke run (fast, one read path, persistence only):
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks.GetValueAsync*' `
+  --filter '*Wire*AllocBenchmarks.GetValueAsync*' `
   --filter '*Persistence*' `
   --warmupCount 1 `
   --iterationCount 3
@@ -114,7 +114,7 @@ re-seed 512 keys in `IterationSetup`):
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Wire*AllocBenchmarks*' `
   --warmupCount 1 `
   --iterationCount 3 `
   --exporters json
@@ -124,7 +124,7 @@ Persistence-only subset:
 
 ```powershell
 dotnet run -c Release --project benchmarks/squirix.e2e.benchmarks -- `
-  --filter '*CacheWire*AllocBenchmarks*' `
+  --filter '*Wire*AllocBenchmarks*' `
   --filter '*Persistence*' `
   --warmupCount 1 `
   --iterationCount 3 `
@@ -146,39 +146,39 @@ Update the committed baseline tables from BenchmarkDotNet JSON (one report file 
 
 Basic operations:
 
-- `SetShouldStoreValue`
-- `GetValueShouldReturnHit`
-- `GetValueShouldReturnMiss`
-- `GetEntryShouldReturnHit`
-- `TryAddShouldAddMissingValue`
-- `TryAddShouldReturnFalseForExistingValue`
-- `AddShouldStoreMissingValue`
-- `AddShouldThrowForExistingValue`
-- `UpdateShouldModifyExistingValue`
-- `UpdateShouldReturnFalseForMissingValue`
-- `RemoveShouldDeleteExistingValue`
-- `RemoveShouldReturnFalseForMissingValue`
+- `SetShouldStoreValueAsync`
+- `GetValueShouldReturnHitAsync`
+- `GetValueShouldReturnMissAsync`
+- `GetEntryShouldReturnHitAsync`
+- `TryAddShouldAddMissingValueAsync`
+- `TryAddShouldReturnFalseForExistingValueAsync`
+- `AddShouldStoreMissingValueAsync`
+- `AddShouldThrowForExistingValueAsync`
+- `UpdateShouldModifyExistingValueAsync`
+- `UpdateShouldReturnFalseForMissingValueAsync`
+- `RemoveShouldDeleteExistingValueAsync`
+- `RemoveShouldReturnFalseForMissingValueAsync`
 
 Expiration:
 
-- `TouchShouldUpdateRelativeExpiration`
-- `TouchShouldUpdateAbsoluteExpiration`
-- `GetExpirationShouldReturnExpiringEntry`
-- `GetExpirationShouldReturnNonExpiringEntry`
-- `RemoveExpirationShouldClearExpiration`
+- `TouchShouldUpdateRelativeExpirationAsync`
+- `TouchShouldUpdateAbsoluteExpirationAsync`
+- `GetExpirationShouldReturnExpiringEntryAsync`
+- `GetExpirationShouldReturnNonExpiringEntryAsync`
+- `RemoveExpirationShouldClearExpirationAsync`
 
 Get-or-add:
 
-- `GetOrAddShouldReturnExistingValue`
-- `GetOrAddShouldCreateMissingValue`
+- `GetOrAddShouldReturnExistingValueAsync`
+- `GetOrAddShouldCreateMissingValueAsync`
 
 Mixed workloads:
 
-- `ReadHeavy95To5ShouldExecute`
-- `ReadMostly80To15To5ShouldExecute`
-- `HotKeyReadMostlyShouldExecute`
-- `UniformTwoNodeReadMostlyShouldExecute`
-- `RemoteOwnerReadMostlyShouldExecute`
+- `ReadHeavy95To5ShouldExecuteAsync`
+- `ReadMostly80To15To5ShouldExecuteAsync`
+- `HotKeyReadMostlyShouldExecuteAsync`
+- `UniformTwoNodeReadMostlyShouldExecuteAsync`
+- `RemoteOwnerReadMostlyShouldExecuteAsync`
 
 ## Interpreting Output
 
