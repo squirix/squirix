@@ -310,8 +310,8 @@ jobs:
             -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
                     chmod +x tests/squirix.server/squirix.server.smoke-tests/bin/Release/net10.0/Squirix.Server.SmokeTests || true
@@ -425,10 +425,11 @@ jobs:
             -   name: Restore (Resolve Packages For Collectors)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
+                    # Artifact download drops +x; xUnit v3 launches the apphost and needs execute bits on Linux/macOS.
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
@@ -561,8 +562,8 @@ jobs:
             -   name: Restore (Resolve Packages For Test Host)
                 run: dotnet restore squirix.slnx
 
-            -   name: Restore Executable Bits For Test Hosts (Linux)
-                if: runner.os == 'Linux'
+            -   name: Restore Executable Bits For Test Hosts (Unix)
+                if: runner.os != 'Windows'
                 shell: bash
                 run: |
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
