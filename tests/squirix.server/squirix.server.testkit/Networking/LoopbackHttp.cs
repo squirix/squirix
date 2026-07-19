@@ -1,12 +1,16 @@
 using System;
 using System.Net.Http;
 using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace Squirix.Server.TestKit.Networking;
 
 /// <summary>Configures HTTP clients used by in-process and loopback integration tests so they do not route through a system proxy.</summary>
 public static class LoopbackHttp
 {
+    private static bool AllowUntrustedDevHttps =>
+        string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS"), "1", StringComparison.Ordinal);
+
     /// <summary>
     /// Creates a <see cref="SocketsHttpHandler" /> that bypasses the system proxy for loopback HTTPS gRPC clients.
     /// On developer machines this expects a trusted ASP.NET Core HTTPS development certificate
@@ -23,7 +27,10 @@ public static class LoopbackHttp
         };
 
         if (AllowUntrustedDevHttps)
-            handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, _) => true;
+        {
+            handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) =>
+                AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, allowNameMismatch: false);
+        }
 
         return handler;
     }
@@ -35,17 +42,38 @@ public static class LoopbackHttp
     public static SocketsHttpHandler CreateHandlerAllowingCertificateNameMismatch()
     {
         var handler = CreateHandler();
-        if (AllowUntrustedDevHttps)
-        {
-            // CreateHandler already accepts any certificate when CI opt-in is set.
-            return handler;
-        }
-
-        handler.SslOptions.RemoteCertificateValidationCallback = static (_, _, _, errors) =>
-            errors is SslPolicyErrors.None or SslPolicyErrors.RemoteCertificateNameMismatch;
+        handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) =>
+            AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, allowNameMismatch: true);
         return handler;
     }
 
-    private static bool AllowUntrustedDevHttps =>
-        string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_ALLOW_UNTRUSTED_DEV_HTTPS"), "1", StringComparison.Ordinal);
+    private static bool AcceptsAspNetCoreHttpsDevelopmentCertificate(
+        X509Certificate? certificate,
+        SslPolicyErrors errors,
+        bool allowNameMismatch)
+    {
+        if (errors is SslPolicyErrors.None)
+            return true;
+
+        if (allowNameMismatch && errors is SslPolicyErrors.RemoteCertificateNameMismatch)
+            return true;
+
+        if (!AllowUntrustedDevHttps || certificate is null)
+            return false;
+
+        // CI cannot interactively trust the ASP.NET Core HTTPS development certificate on Windows/macOS.
+        // Accept only that well-known localhost development certificate when the sole policy issues are
+        // untrusted root and/or name mismatch (IP hosts vs CN=localhost).
+        var tolerated = SslPolicyErrors.RemoteCertificateChainErrors;
+        if (allowNameMismatch)
+            tolerated |= SslPolicyErrors.RemoteCertificateNameMismatch;
+
+        if ((errors & ~tolerated) is not SslPolicyErrors.None)
+            return false;
+
+        return IsAspNetCoreHttpsDevelopmentCertificate(certificate);
+    }
+
+    private static bool IsAspNetCoreHttpsDevelopmentCertificate(X509Certificate certificate) =>
+        certificate.Subject.Equals("CN=localhost", StringComparison.OrdinalIgnoreCase);
 }
