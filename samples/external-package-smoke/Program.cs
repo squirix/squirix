@@ -50,9 +50,7 @@ internal static class Program
         await Task.Delay(200, ct).ConfigureAwait(false);
         var result = await cache.GetValueAsync("expiring", ct).ConfigureAwait(false);
         if (result.Found)
-        {
             throw new InvalidOperationException("Expected expiration key to be absent after wait.");
-        }
     }
 
     private static async Task RunIsolationAsync(ISquirixClient client, CancellationToken ct)
@@ -64,8 +62,6 @@ internal static class Program
         var v1 = (await a.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         var v2 = (await b.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
-        {
             throw new InvalidOperationException("Named cache isolation failed.");
-        }
     }
 }

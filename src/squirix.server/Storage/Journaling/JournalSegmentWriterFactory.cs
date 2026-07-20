@@ -24,13 +24,15 @@ internal static class JournalSegmentWriterFactory
     /// <summary><see cref="RandomAccess" />-based segment writer with write-through on Windows.</summary>
     private sealed class RandomAccessJournalSegmentWriter : IJournalSegmentWriter
     {
+        private const string SegmentNotOpenMessage = "segment is not open.";
+
         private SafeFileHandle? _handle;
 
         public long Length
         {
             get
             {
-                var handle = _handle ?? throw new InvalidOperationException("segment is not open.");
+                var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
                 return RandomAccess.GetLength(handle);
             }
         }
@@ -44,7 +46,7 @@ internal static class JournalSegmentWriterFactory
 
         public void Fsync()
         {
-            var handle = _handle ?? throw new InvalidOperationException("segment is not open.");
+            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
             if (OperatingSystem.IsWindows())
             {
                 // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
@@ -69,13 +71,13 @@ internal static class JournalSegmentWriterFactory
 
         public void Truncate(long length)
         {
-            var handle = _handle ?? throw new InvalidOperationException("segment is not open.");
+            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
             RandomAccess.SetLength(handle, length);
         }
 
         public void Write(ReadOnlySpan<byte> buffer, long fileOffset)
         {
-            var handle = _handle ?? throw new InvalidOperationException("segment is not open.");
+            var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
             RandomAccess.Write(handle, buffer, fileOffset);
         }
     }

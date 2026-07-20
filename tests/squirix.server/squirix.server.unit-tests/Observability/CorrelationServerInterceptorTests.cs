@@ -69,7 +69,7 @@ public sealed class CorrelationServerInterceptorTests
         var headers = new Metadata
         {
             { "traceparent", clientActivity.Id! },
-            { "tracestate", clientActivity.TraceStateString! },
+            { "tracestate", clientActivity.TraceStateString },
         };
 
         var observed = await interceptor.UnaryServerHandler(

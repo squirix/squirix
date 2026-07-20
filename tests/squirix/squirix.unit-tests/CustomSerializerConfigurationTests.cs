@@ -1,17 +1,34 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Squirix.Client;
 using Xunit;
 
 namespace Squirix.UnitTests;
 
 /// <summary>
-/// Verifies that <see cref="SquirixClientOptions.Serializer" /> remains settable (not init-only)
+/// Verifies that <see cref="SquirixClientOptions" /> configure-delegate properties remain settable (not init-only)
 /// and that client serializer scopes do not mutate the default serializer host.
 /// </summary>
 public sealed class CustomSerializerConfigurationTests
 {
+    /// <summary>
+    /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> keeps a public setter for configure-delegate assignment.
+    /// </summary>
+    [Fact]
+    public void BearerTokenProviderPropertyHasPublicSetterForConfigureDelegates()
+    {
+        Func<CancellationToken, ValueTask<string>> provider = static _ => new ValueTask<string>("token");
+        var options = new SquirixClientOptions
+        {
+            BearerTokenProvider = provider,
+        };
+
+        Assert.Same(provider, options.BearerTokenProvider);
+    }
+
     /// <summary>Verifies <see cref="SquirixClientOptions.Serializer" /> keeps a public setter for configure-delegate assignment.</summary>
     [Fact]
     public void SerializerPropertyHasPublicSetterForConfigureDelegates()

@@ -47,17 +47,11 @@ public class MixedWorkloadBenchmarks : BenchmarkBase
         for (var i = 0; i < BatchSize; i++)
         {
             if (i % 20 is 0)
-            {
                 Consumer.Consume(await Adapter.RemoveAsync(NextMissKey(), CancellationToken.None).ConfigureAwait(false));
-            }
             else if (i % 7 is 0 || i % 11 is 0 || i % 13 is 0)
-            {
                 await Adapter.SetAsync(NextAddKey(), i, CancellationToken.None).ConfigureAwait(false);
-            }
             else
-            {
                 Consumer.Consume(await Adapter.GetValueHitAsync(NextHitKey(), CancellationToken.None).ConfigureAwait(false));
-            }
         }
     }
 

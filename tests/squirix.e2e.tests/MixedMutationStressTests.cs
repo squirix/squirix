@@ -145,9 +145,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
         {
             var raw = Environment.GetEnvironmentVariable(ScaleVariable);
             if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0d)
-            {
                 return parsed;
-            }
 
 #if DEBUG
             return 0.1d;

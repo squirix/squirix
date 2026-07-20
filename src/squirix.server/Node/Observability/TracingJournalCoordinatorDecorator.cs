@@ -22,13 +22,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _inner.OnAppended += _forwardOnAppended;
     }
 
-    public event EventHandler? OnAppended
-    {
-        add => OnAppendedInternal += value;
-        remove => OnAppendedInternal -= value;
-    }
-
-    private event EventHandler? OnAppendedInternal;
+    public event EventHandler? OnAppended;
 
     public long AppendedBytes => _inner.AppendedBytes;
 
@@ -149,7 +143,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
 
-    private void ForwardOnAppended(object? sender, EventArgs e) => OnAppendedInternal?.Invoke(this, e);
+    private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
     /// <summary>
     /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.

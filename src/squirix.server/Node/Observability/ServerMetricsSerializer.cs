@@ -24,10 +24,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.Deserialize<T>(payload);
-            Record("deserialize", true, start);
+            Record(ServerSerializerMetrics.OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
         {
             throw;
         }
@@ -39,10 +39,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.Deserialize<T>(payload);
-            Record("deserialize", true, start);
+            Record(ServerSerializerMetrics.OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
         {
             throw;
         }
@@ -54,10 +54,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.Deserialize<T>(payload);
-            Record("deserialize", true, start);
+            Record(ServerSerializerMetrics.OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
         {
             throw;
         }
@@ -69,10 +69,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.Deserialize<T>(payload);
-            Record("deserialize", true, start);
+            Record(ServerSerializerMetrics.OpDeserialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpDeserialize, ex, start))
         {
             throw;
         }
@@ -84,9 +84,9 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             _inner.Serialize(destination, value);
-            Record("serialize", true, start);
+            Record(ServerSerializerMetrics.OpSerialize, true, start);
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
         {
             throw;
         }
@@ -98,10 +98,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.SerializeToElement(value);
-            Record("serialize", true, start);
+            Record(ServerSerializerMetrics.OpSerialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
         {
             throw;
         }
@@ -113,10 +113,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
         try
         {
             var result = _inner.SerializeToUtf8Bytes(value);
-            Record("serialize", true, start);
+            Record(ServerSerializerMetrics.OpSerialize, true, start);
             return result;
         }
-        catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+        catch (Exception ex) when (TryRecordSerializerFailure(ServerSerializerMetrics.OpSerialize, ex, start))
         {
             throw;
         }
@@ -156,6 +156,10 @@ internal sealed class ServerMetricsSerializer : IServerSerializer
     /// <summary>Metrics for serialization operations.</summary>
     private static class ServerSerializerMetrics
     {
+        internal const string OpDeserialize = "deserialize";
+
+        internal const string OpSerialize = "serialize";
+
         internal static readonly ServerCounter3Labels FailuresTotal = new(ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_failures_total"), "op", "exception_type", "impl");
         internal static readonly ServerHistogram2Labels OpDurationSeconds = new(ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_serializer_op_duration_seconds"), "op", "impl");
         internal static readonly ServerCounter3Labels OpsTotal = new(ServerMeterRegistry.Meter.CreateCounter<long>("squirix_serializer_ops_total"), "op", "result", "impl");

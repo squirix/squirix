@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
@@ -36,25 +37,42 @@ internal sealed class RetentionWorker
     {
         try
         {
-            while (_pendingRetentionManifest is { } manifest)
+            while (true)
             {
-                _pendingRetentionManifest = null;
+                var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
+                if (manifest is null)
+                    break;
+
                 var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
         finally
         {
+            // Release the "worker running" flag, then re-arm if ScheduleRetentionCleanup
+            // queued more work while this loop still held the flag.
             _ = Interlocked.Exchange(ref _retentionWorkerScheduled, 0);
-            if (_pendingRetentionManifest is not null && Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is 0)
-            {
-                _ = Task.Factory.StartNew(
-                    RunRetentionWorkerLoop,
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-                    TaskScheduler.Default);
-            }
+            _ = TryRestartIfPendingWorkRemains();
         }
+    }
+
+    /// <summary>Restarts the retention loop when pending work remains after the previous loop released its schedule flag.</summary>
+    /// <returns><see langword="true" /> when a new retention loop was scheduled; otherwise <see langword="false" />.</returns>
+    private bool TryRestartIfPendingWorkRemains()
+    {
+        // Another thread may publish work while the drain loop exits with the schedule flag still held.
+        if (_pendingRetentionManifest is null)
+            return false;
+
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
+            return false;
+
+        _ = Task.Factory.StartNew(
+            RunRetentionWorkerLoop,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        return true;
     }
 
     /// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
@@ -133,9 +151,6 @@ internal sealed class RetentionWorker
                     if (segment.Index >= replayFromSegment)
                         continue;
 
-                    if (segment.Index >= manifest.CurrentJournal)
-                        continue;
-
                     failed |= TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment);
                 }
 
@@ -157,7 +172,8 @@ internal sealed class RetentionWorker
         {
             try
             {
-                var files = Directory.GetFiles(context.DataDir, context.ManifestFileGlob);
+                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
+                var files = Directory.GetFiles(dataDir, context.ManifestFileGlob);
                 if (files.Length <= context.ManifestRetention)
                     return false;
 
@@ -171,6 +187,11 @@ internal sealed class RetentionWorker
                     failed |= TryDeleteRetentionArtifact(context, ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
 
                 return failed;
+            }
+            catch (ArgumentException ex)
+            {
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
+                return true;
             }
             catch (IOException ex)
             {
@@ -188,7 +209,8 @@ internal sealed class RetentionWorker
         {
             try
             {
-                var files = Directory.GetFiles(context.DataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
+                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
+                var files = Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
                 if (files.Length <= context.SnapshotRetention)
                     return false;
 
@@ -197,6 +219,11 @@ internal sealed class RetentionWorker
                     return false;
 
                 return DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+            }
+            catch (ArgumentException ex)
+            {
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
+                return true;
             }
             catch (IOException ex)
             {

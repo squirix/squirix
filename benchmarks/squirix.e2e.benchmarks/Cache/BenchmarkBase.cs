@@ -96,61 +96,42 @@ public abstract class BenchmarkBase
     {
         internal static readonly UninitializedBenchmarkValueAdapter Instance = new();
 
-        public Task AddAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException(NotInitialized());
+        public Task AddAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException(NotInitialized());
 
-        public Task<bool> AddConflictAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> AddConflictAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetEntryHitAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetEntryHitAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetExpirationAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetExpirationAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetOrAddHitAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetOrAddHitAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetOrAddMissAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetOrAddMissAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetValueHitAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetValueHitAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> GetValueMissAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> GetValueMissAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> RemoveAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> RemoveAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> RemoveExpirationAsync(string key, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task SeedAsync(string[] keys, CancellationToken cancellationToken) =>
-            Task.FromException(NotInitialized());
+        public Task SeedAsync(string[] keys, CancellationToken cancellationToken) => Task.FromException(NotInitialized());
 
-        public Task SeedExpiringAsync(string[] keys, TimeSpan expiration, CancellationToken cancellationToken) =>
-            Task.FromException(NotInitialized());
+        public Task SeedExpiringAsync(string[] keys, TimeSpan expiration, CancellationToken cancellationToken) => Task.FromException(NotInitialized());
 
-        public Task SetAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException(NotInitialized());
+        public Task SetAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException(NotInitialized());
 
-        public Task SetExpiringAsync(string key, int valueIndex, TimeSpan expiration, CancellationToken cancellationToken) =>
-            Task.FromException(NotInitialized());
+        public Task SetExpiringAsync(string key, int valueIndex, TimeSpan expiration, CancellationToken cancellationToken) => Task.FromException(NotInitialized());
 
-        public Task<bool> TouchAbsoluteAsync(string key, DateTimeOffset expiresAt, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> TouchAbsoluteAsync(string key, DateTimeOffset expiresAt, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> TouchRelativeAsync(string key, TimeSpan expiration, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> TouchRelativeAsync(string key, TimeSpan expiration, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> TryAddAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> TryAddAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        public Task<bool> UpdateAsync(string key, int valueIndex, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(NotInitialized());
+        public Task<bool> UpdateAsync(string key, int valueIndex, CancellationToken cancellationToken) => Task.FromException<bool>(NotInitialized());
 
-        private static InvalidOperationException NotInitialized() =>
-            new("E2E benchmark adapter is initialized in GlobalSetup only.");
+        private static InvalidOperationException NotInitialized() => new("E2E benchmark adapter is initialized in GlobalSetup only.");
     }
 }

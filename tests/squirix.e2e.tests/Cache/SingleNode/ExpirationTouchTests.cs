@@ -8,7 +8,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// <summary>Integration tests for single-node Touch expiration semantics.</summary>
 public sealed class ExpirationTouchTests : TestBase
 {
-    /// <summary>Initializes a new instance of the <see cref="ExpirationTouchTests"/> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ExpirationTouchTests" /> class.</summary>
     /// <param name="fixture">Shared single-node cluster fixture.</param>
     public ExpirationTouchTests(SingleNodeFixture fixture)
         : base(fixture)
@@ -81,7 +81,7 @@ public sealed class ExpirationTouchTests : TestBase
         Assert.Equal("v", touched.Value);
         Assert.True(
             touched.ExpiresUtc > originalExpiresUtc,
-            $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
+            $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc.Value.ToString("O", CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>

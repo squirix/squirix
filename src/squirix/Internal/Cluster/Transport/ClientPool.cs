@@ -142,40 +142,26 @@ internal sealed class ClientPool : IClientPool
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
             var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-
-            try
+            var failure = await TryWarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
+            if (failure is null)
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
-                ClientPoolMetrics.AddWarmup();
-
-                // Only the first successful peer keeps the full connect budget; later peers fail fast.
                 primaryNodeId ??= id;
+                continue;
             }
-            catch (RpcException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (IOException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (HttpRequestException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (InvalidOperationException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
+
+            lastFailure = failure;
+            failuresByNode[id] = failure;
         }
 
         if (primaryNodeId is null)
             throw lastFailure ?? new InvalidOperationException("No bootstrap endpoints are configured.");
 
+        RecordSecondaryWarmupFailures(primaryNodeId, failuresByNode);
+        return primaryNodeId;
+    }
+
+    private static void RecordSecondaryWarmupFailures(string primaryNodeId, Dictionary<string, Exception> failuresByNode)
+    {
         // Unreachable secondary peers are tolerated once a primary is known; diagnostics record each skip.
         foreach (var pair in failuresByNode)
         {
@@ -184,8 +170,24 @@ internal sealed class ClientPool : IClientPool
 
             ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped(pair.Key, pair.Value);
         }
+    }
 
-        return primaryNodeId;
+    private async ValueTask<Exception?> TryWarmPeerAsync(
+        GrpcChannel channel,
+        string id,
+        BootstrapConnectOptions connectOptions,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            ClientPoolMetrics.AddWarmup();
+            return null;
+        }
+        catch (Exception ex) when (ex is RpcException or IOException or HttpRequestException or InvalidOperationException)
+        {
+            return ex;
+        }
     }
 
     private void BeginDrain()

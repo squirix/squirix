@@ -258,9 +258,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-        {
             fs.SetLength(fs.Length - 1);
-        }
 
         await manifestStore.WriteAsync(
             new State

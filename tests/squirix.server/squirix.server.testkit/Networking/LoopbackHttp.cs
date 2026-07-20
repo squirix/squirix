@@ -29,7 +29,7 @@ public static class LoopbackHttp
         if (AllowUntrustedDevHttps)
         {
             handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) =>
-                AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, allowNameMismatch: false);
+                AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, false);
         }
 
         return handler;
@@ -43,7 +43,7 @@ public static class LoopbackHttp
     {
         var handler = CreateHandler();
         handler.SslOptions.RemoteCertificateValidationCallback = static (_, certificate, _, errors) =>
-            AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, allowNameMismatch: true);
+            AcceptsAspNetCoreHttpsDevelopmentCertificate(certificate, errors, true);
         return handler;
     }
 

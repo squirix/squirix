@@ -211,26 +211,15 @@ internal static class ProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
-    private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer)
+    private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer) => value.KindCase switch
     {
-        switch (value.KindCase)
-        {
-            case Value.KindOneofCase.StringValue:
-                return value.StringValue;
-            case Value.KindOneofCase.BoolValue:
-                return value.BoolValue;
-            case Value.KindOneofCase.NumberValue:
-                return NormalizeNumber(value.NumberValue);
-            case Value.KindOneofCase.NullValue:
-                return null;
-            case Value.KindOneofCase.StructValue:
-            case Value.KindOneofCase.ListValue:
-                return await DeserializeAsync<JsonElement>(value, serializer).ConfigureAwait(false);
-            case Value.KindOneofCase.None:
-            default:
-                return null;
-        }
-    }
+        Value.KindOneofCase.StringValue => value.StringValue,
+        Value.KindOneofCase.BoolValue => value.BoolValue,
+        Value.KindOneofCase.NumberValue => NormalizeNumber(value.NumberValue),
+        Value.KindOneofCase.NullValue or Value.KindOneofCase.None => null,
+        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => await DeserializeAsync<JsonElement>(value, serializer).ConfigureAwait(false),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported value kind."),
+    };
 
     /// <summary>
     /// Maps a <see cref="JsonElement" /> subtree into protobuf well-known <see cref="Value" /> form.

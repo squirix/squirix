@@ -206,14 +206,12 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var applied = await executor.ExecuteAsync(
             key,
             static _ => new ValueTask<DurableMutationCondition<int>>(DurableMutationCondition<int>.Apply()),
-            new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, ReadOnlyMemory<byte> Payload), AtomicCounter, int>(
-                journal,
-                (Key: key, Payload: payload),
-                static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
-                applyCount,
-                static (_, counter, _) =>
+            new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload, AtomicCounter ApplyCount), int>(
+                (journal, key, payload, applyCount),
+                static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                static (s, _) =>
                 {
-                    counter.Increment();
+                    s.ApplyCount.Increment();
                     return new ValueTask<int>(1);
                 }),
             DefaultCancellationToken);

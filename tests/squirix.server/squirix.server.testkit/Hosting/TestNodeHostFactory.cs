@@ -26,10 +26,7 @@ public static class TestNodeHostFactory
         ReadOnlySpan<(string NodeId, Uri Uri)> topology,
         TestNodeHostStartOptions? options,
         ClusterTls? sharedMtls,
-        CancellationToken cancellationToken = default)
-    {
-        return StartNodeAsync(nodeId, uri, CopyTopology(topology), options, sharedMtls, cancellationToken);
-    }
+        CancellationToken cancellationToken = default) => StartNodeAsync(nodeId, uri, CopyTopology(topology), options, sharedMtls, cancellationToken);
 
     /// <summary>Starts an ephemeral in-memory node with the provided cluster topology.</summary>
     /// <param name="nodeId">The node identifier.</param>

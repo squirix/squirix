@@ -174,10 +174,9 @@ public abstract class NodeIntegrationTestBase : IDisposable
         var scopeName = TestPersistenceScope.ResolvePersistenceScopeSegment(testName);
         PersistenceOptions? persistenceOptionsOverride = null;
         var dataDir = string.Empty;
-        if (options.UsePersistence || options.PersistenceOptions is not null)
+        if (options.UsePersistence)
         {
             persistenceOptionsOverride = await GetPersistenceOptionsAsync(
-                options.PersistenceOptions,
                 selfNodeId,
                 BuildTestScope(scopeName, options.ExtraScope),
                 options.CleanTestDir,
@@ -191,24 +190,18 @@ public abstract class NodeIntegrationTestBase : IDisposable
             clusterConfig,
             new NodeHostStartOptions
             {
-                ConfigureLogging = b =>
+                ConfigureLogging = static b =>
                 {
                     _ = b.ClearProviders();
                     _ = b.SetMinimumLevel(LogLevel.Debug);
                     _ = b.AddFilter("Grpc", LogLevel.Debug);
                     _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                     _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = options.Output is not null ? b.AddProvider(new LoggerProvider(options.Output)) : b.AddConsole().AddDebug();
+                    _ = b.AddConsole().AddDebug();
                 },
                 WaitForRecovery = options.WaitForRecovery,
-                SnapshotOptions = options.SnapshotOptions,
-                CallPolicyFactory = options.CallPolicyFactory,
-                ConfigureGrpc = options.ConfigureGrpc,
                 ServicesConfigure = options.ServicesConfigure,
                 PersistenceOptions = persistenceOptionsOverride,
-                PeerHandlerFactory = options.PeerHandlerFactory,
-                BackpressureOptions = options.BackpressureOptions,
-                MemoryPressureOptions = options.MemoryPressureOptions,
                 SecurityOptions = options.Security?.ToServerOptions(),
                 MtlsOptions = mtlsOptions,
                 MtlsMaterial = mtlsMaterial,
@@ -322,7 +315,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
     };
 
     private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
-        PersistenceOptions? persistenceOptions,
         string selfNodeId,
         string testScope,
         bool clean,
@@ -332,12 +324,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (clean && CleanedScopes.TryAdd(path, 0))
             await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = persistenceOptions?.DataDir ?? NodePathKit.Combine(true, path, selfNodeId);
-        DirectoryKit.CreateDirectory(effectiveDataDir);
+        var dataDir = NodePathKit.Combine(true, path, selfNodeId);
+        DirectoryKit.CreateDirectory(dataDir);
 
-        return persistenceOptions ?? new PersistenceOptions
+        return new PersistenceOptions
         {
-            DataDir = effectiveDataDir,
+            DataDir = dataDir,
             JournalMaxSegmentMb = 64,
         };
     }

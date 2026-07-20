@@ -134,9 +134,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
             ArgumentNullException.ThrowIfNull(options);
 
             if (!string.IsNullOrWhiteSpace(options.CertPfxPath))
-            {
                 return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.Exportable);
-            }
 
             var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
             return certificate.HasPrivateKey ? certificate : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");

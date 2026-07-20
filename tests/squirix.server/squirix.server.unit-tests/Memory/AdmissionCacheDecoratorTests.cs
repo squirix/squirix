@@ -281,9 +281,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var tasks = new Task<T>[concurrency];
         for (var i = 0; i < concurrency; i++)
-        {
             tasks[i] = RunAfterGateAsync(i);
-        }
 
         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
         _ = gate.TrySetResult();
@@ -301,9 +299,7 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var tasks = new Task[concurrency];
         for (var i = 0; i < concurrency; i++)
-        {
             tasks[i] = RunAfterGateAsync(i);
-        }
 
         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
         _ = gate.TrySetResult();

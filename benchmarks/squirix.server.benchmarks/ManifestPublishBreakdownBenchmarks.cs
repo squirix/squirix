@@ -106,11 +106,7 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(
-            TempDirectory dataDir,
-            ManifestStore store,
-            IManifestPointerWriter pointerWriter,
-            SessionWarmup warmup)
+        private Session(TempDirectory dataDir, ManifestStore store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
         {
             _dataDir = dataDir;
             _encodeBuffer = warmup.EncodeBuffer;

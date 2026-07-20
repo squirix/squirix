@@ -1,11 +1,9 @@
 using System;
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 
-namespace Squirix.Server.TestKit;
+namespace Squirix.Server.UnitTests.Support;
 
 /// <summary>Stackalloc / ArrayPool helpers for test encode buffers.</summary>
-[SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Squirix.Server.UnitTests via InternalsVisibleTo.")]
 internal static class BufferKit
 {
     private const int StackallocThreshold = 256;
