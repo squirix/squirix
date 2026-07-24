@@ -69,7 +69,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     [Fact]
-    public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
+    public async Task ConcurrentAcquireReleaseExceedConfiguredCapacity()
     {
         const int maxInFlight = 3;
         var backpressureOptions = new AdmissionOptions
@@ -257,7 +257,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
     [Fact]
-    public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
+    public async Task PerClientConcurrencyRejectsNodeCapacityIsExhausted()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(

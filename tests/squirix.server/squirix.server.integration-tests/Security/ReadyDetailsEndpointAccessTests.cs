@@ -21,7 +21,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies authenticated remote scrapes succeed when server auth is enabled.</summary>
     [Fact]
-    public async Task AuthenticatedReadyDetailsScrapeSucceedsOnNonLoopbackListenerWhenAuthEnabled()
+    public async Task AuthenticatedReadyDetailsScrapeListenerAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -40,7 +40,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
-    public async Task LoopbackReadyDetailsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
+    public async Task LoopbackReadyDetailsScrapeCredentialsAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -54,7 +54,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
-    public async Task RemoteReadyDetailsScrapeReturns401WithoutCredentialsWhenAuthEnabled()
+    public async Task RemoteReadyDetailsScrapeCredentialsAuthEnabled()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");

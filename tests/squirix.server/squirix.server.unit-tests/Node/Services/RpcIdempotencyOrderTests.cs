@@ -30,7 +30,7 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
     /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
     [Fact]
-    public async Task IdempotentMutationAppendsOutcomeBeforeDurabilityCommit()
+    public async Task IdempotentMutationAppendsOutcomeDurabilityCommit()
     {
         using var dir = new TempDirectory("squirix-idempotent-durability-order");
         var options = new PersistenceOptions

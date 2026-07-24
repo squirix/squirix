@@ -10,6 +10,34 @@ namespace Squirix.Server.TestKit.Mtls;
 /// <summary>Test-only certificate utilities for multi-node cluster mTLS scenarios. Not for production use.</summary>
 public static class TestCertificates
 {
+    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+    /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
+    public static SocketsHttpHandler CreateClusterCaTrustingHandlerNoClientCert(X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    {
+        ArgumentNullException.ThrowIfNull(trustAnchor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
+
+        return new SocketsHttpHandler
+        {
+            UseProxy = false,
+            EnableMultipleHttp2Connections = true,
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
+                RemoteCertificateValidationCallback = (_, certificate, _, _) =>
+                {
+                    if (certificate is null)
+                        return false;
+
+                    using var peerCertificate = new X509Certificate2(certificate);
+                    return MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, trustAnchor, expectedPeerNodeId);
+                },
+            },
+        };
+    }
+
     /// <summary>Creates the default HTTP handler for HTTPS gRPC channels in tests.</summary>
     /// <returns>A handler suitable for secure gRPC transport.</returns>
     public static SocketsHttpHandler CreateDefaultChannelHandler() => new();
@@ -34,48 +62,6 @@ public static class TestCertificates
                 ClientCertificates = [clientCertificate],
                 ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
                 RemoteCertificateValidationCallback = (_, certificate, _, _) => ValidatePeerServerCertificate(certificate, trustAnchor, expectedPeerNodeId),
-            },
-        };
-    }
-
-    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
-    /// <param name="serverCertificate">The presented peer server certificate.</param>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
-    public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        if (serverCertificate is null)
-            return false;
-
-        using var certificate = new X509Certificate2(serverCertificate);
-        return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
-    }
-
-    /// <summary>Creates an outbound handler that trusts the cluster CA but does not present a client certificate.</summary>
-    /// <param name="trustAnchor">Configured cluster trust root.</param>
-    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
-    /// <returns>A handler for negative inter-node mTLS client-auth tests.</returns>
-    public static SocketsHttpHandler CreateClusterCaTrustingHandlerWithoutClientCertificate(X509Certificate2 trustAnchor, string expectedPeerNodeId)
-    {
-        ArgumentNullException.ThrowIfNull(trustAnchor);
-        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPeerNodeId);
-
-        return new SocketsHttpHandler
-        {
-            UseProxy = false,
-            EnableMultipleHttp2Connections = true,
-            SslOptions = new SslClientAuthenticationOptions
-            {
-                ApplicationProtocols = [SslApplicationProtocol.Http2, SslApplicationProtocol.Http11],
-                RemoteCertificateValidationCallback = (_, certificate, _, _) =>
-                {
-                    if (certificate is null)
-                        return false;
-
-                    using var peerCertificate = new X509Certificate2(certificate);
-                    return MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, trustAnchor, expectedPeerNodeId);
-                },
             },
         };
     }
@@ -112,6 +98,20 @@ public static class TestCertificates
         var notBefore = DateTimeOffset.UtcNow.AddDays(-1);
         var notAfter = notBefore.AddDays(30);
         return caRequest.CreateSelfSigned(notBefore, notAfter);
+    }
+
+    /// <summary>Validates a peer server certificate against the configured cluster trust root.</summary>
+    /// <param name="serverCertificate">The presented peer server certificate.</param>
+    /// <param name="trustAnchor">Configured cluster trust root.</param>
+    /// <param name="expectedPeerNodeId">Configured cluster node identifier for the remote peer.</param>
+    /// <returns><see langword="true" /> when the certificate is trusted for inter-node traffic.</returns>
+    public static bool ValidatePeerServerCertificate(X509Certificate? serverCertificate, X509Certificate2 trustAnchor, string expectedPeerNodeId)
+    {
+        if (serverCertificate is null)
+            return false;
+
+        using var certificate = new X509Certificate2(serverCertificate);
+        return MtlsClientCertificateValidator.ValidateForExpectedNodeId(certificate, trustAnchor, expectedPeerNodeId);
     }
 
     /// <summary>Loads an exportable certificate copy suitable for Schannel client and server authentication.</summary>

@@ -10,7 +10,7 @@ public sealed class MtlsClientCertificateValidatorTests : ServerUnitTestBase
 {
     /// <summary>Ensures inbound validation accepts configured remote peer identities only.</summary>
     [Fact]
-    public async Task ValidateForConfiguredRemotePeerAcceptsOnlyConfiguredNodeIds()
+    public async Task ValidateConfiguredRemotePeerConfiguredNodeIds()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");

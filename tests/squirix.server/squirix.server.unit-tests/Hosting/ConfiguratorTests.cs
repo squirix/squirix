@@ -48,7 +48,7 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
 
     /// <summary>Ensures strict validation rejects invalid memory pressure thresholds.</summary>
     [Fact]
-    public async Task TryValidateSettingsFileStrictRejectsInvalidMemoryPressure()
+    public async Task TryValidateSettingsFileInvalidMemoryPressure()
     {
         using var dir = new TempDirectory("squirix-server-config-strict");
         const string json = """{"Squirix":{"Cluster":{"NodeId":"node-a","Uri":"https://localhost:5001","Peers":[{"NodeId":"node-a","Uri":"https://localhost:5001"}]},"MemoryPressure":{"highPressureThresholdPercent":95,"criticalPressureThresholdPercent":80}}}""";
@@ -70,7 +70,7 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
 
     /// <summary>Rejects command-line data directory overrides that contain parent-directory segments.</summary>
     [Fact]
-    public void ApplyCommandLineOverridesRejectsTraversalDataDirectory()
+    public void ApplyCommandLineOverridesTraversalDataDirectory()
     {
         var options = new SquirixServerOptions
         {
@@ -88,7 +88,7 @@ public sealed class ConfiguratorTests : ServerUnitTestBase
 
     /// <summary>Canonicalizes a safe data directory override to an absolute path.</summary>
     [Fact]
-    public void ApplyCommandLineOverridesCanonicalizesDataDirectory()
+    public void ApplyCommandLineCanonicalizesDataDirectory()
     {
         using var dir = new TempDirectory("squirix-server-config-datadir");
         var options = new SquirixServerOptions

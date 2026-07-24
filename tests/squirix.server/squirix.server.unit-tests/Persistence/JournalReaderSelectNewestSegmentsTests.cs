@@ -11,7 +11,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
 {
     /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
     [Fact]
-    public void EnumerateSegmentsRespectsFromSegmentAndSortsAscending()
+    public void EnumerateSegmentsRespectsSegmentAndSortsAscending()
     {
         using var dir = new TempDirectory("squirix-journal-enum-from");
         File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
@@ -35,7 +35,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
 
     /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>
     [Fact]
-    public void EnumerateSegmentsSkipsJournalFilesWithNonNumericIndex()
+    public void EnumerateSegmentsSkipsJournalFilesNonNumericIndex()
     {
         using var dir = new TempDirectory("squirix-journal-enum-filter");
         File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");

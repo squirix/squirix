@@ -16,7 +16,7 @@ public sealed class MemoryPressureErrorContractTests : ServerUnitTestBase
 {
     /// <summary>Verifies stable codes across REST and gRPC projections for memory pressure.</summary>
     [Fact]
-    public void MemoryPressureMapsToPublicCodeHttp429AndGrpcResourceExhausted()
+    public void MemoryPressureMapsPublicGrpcResourceExhausted()
     {
         var contract = ServerOpContract.MemoryPressure();
 

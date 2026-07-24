@@ -43,7 +43,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
     /// When the controller compaction mutex is already held, <see cref="JournalCompactionController.TryTriggerNowAsync" /> returns false without waiting.
     /// </summary>
     [Fact]
-    public async Task TryTriggerNowAsyncReturnsFalseWhenControllerMutexIsUnavailable()
+    public async Task TryTriggerNowAsyncFalseControllerMutexUnavailable()
     {
         using var dir = new TempDirectory("squirix-journal-compact-ctrl-mutex");
         var opt = new PersistenceOptions

@@ -70,7 +70,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
 
     /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>
     [Fact]
-    public async Task ReadAllYieldsFirstFrameWhenSecondFrameCrcIsTruncated()
+    public async Task ReadAllYieldsFirstFrameSecondFrameCrcIsTruncated()
     {
         using var dir = new TempDirectory("squirix-journal-trunc");
         var first = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k1", "a");

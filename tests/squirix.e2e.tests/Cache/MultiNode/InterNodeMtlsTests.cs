@@ -96,7 +96,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies node B rejects inter-node forwarding when node A presents a certificate signed by an untrusted CA.</summary>
     [Fact]
-    public async Task ForwardFailsWhenCallerPresentsUntrustedClientCertificate()
+    public async Task ForwardFailsCallerUntrustedClientCertificate()
     {
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeAProfile = TestNodeProfile.UntrustedOutboundClientCertificate });
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-client");
@@ -108,7 +108,7 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
 
     /// <summary>Verifies node A rejects inter-node forwarding when node B presents an untrusted server certificate.</summary>
     [Fact]
-    public async Task ForwardFailsWhenOwnerPresentsUntrustedServerCertificate()
+    public async Task ForwardFailsOwnerUntrustedServerCertificate()
     {
         await using var cluster = await StartTwoNodeCachesWithProfilesAsync(new TwoNodeStartOptions { NodeBProfile = TestNodeProfile.UntrustedInboundServerCertificate });
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "e2e-untrusted-server");

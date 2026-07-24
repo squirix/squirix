@@ -13,7 +13,7 @@ public sealed class RetentionWorkerTests : ServerUnitTestBase
 {
     /// <summary>Invalid DataDir causes cleanup failure reporting without crashing the worker.</summary>
     [Fact]
-    public async Task ScheduleRetentionCleanupWithInvalidDataDirRecordsFailure()
+    public async Task ScheduleRetentionCleanupInvalidDirRecordsFailure()
     {
         var readiness = new RecordingReadiness();
         var metrics = new RecordingFailureMetrics();

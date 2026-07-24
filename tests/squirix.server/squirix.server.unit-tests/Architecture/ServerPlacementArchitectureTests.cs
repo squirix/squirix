@@ -21,7 +21,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
     [Fact]
-    public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
+    public void HandlerTypesLiveInNodeHostingSecurityNamespace()
     {
         var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
                                           .WithoutRequiringPositiveResults();

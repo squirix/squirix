@@ -19,7 +19,7 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
 {
     /// <summary>Verifies a snapshot writer can create a new final snapshot file.</summary>
     [Fact]
-    public async Task WriteAsyncCreatesNewSnapshotWhenFinalFileDoesNotExist()
+    public async Task WriteAsyncCreatesNewSnapshotFinalFileDoesNotExist()
     {
         using var dir = new TempDirectory("squirix-snap-writer-create");
         var writer = new SnapshotWriter(dir);

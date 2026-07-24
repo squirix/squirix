@@ -40,4 +40,62 @@ public sealed class RemoteClientSerializerTests
         var serializer = RemoteClientSessionFactory.CreateSerializer();
         _ = Assert.ThrowsAny<JsonException>(() => serializer.Deserialize<Dictionary<string, int>>("{bad"));
     }
+
+    /// <summary>Metrics decoration can be disabled for custom serializers.</summary>
+    [Fact]
+    public void CreateSerializerWithoutMetricsReturnsInnerInstance()
+    {
+        var inner = new SystemTextJsonSerializer();
+        var serializer = RemoteClientSessionFactory.CreateSerializer(inner, enableMetrics: false);
+        Assert.Same(inner, serializer);
+    }
+
+    /// <summary>Wrapping an already metrics-decorated serializer is idempotent.</summary>
+    [Fact]
+    public void CreateSerializerDoesNotDoubleWrapMetricsDecorator()
+    {
+        var decorated = RemoteClientSessionFactory.CreateSerializer();
+        var again = RemoteClientSessionFactory.CreateSerializer(decorated);
+        Assert.Same(decorated, again);
+    }
+
+    /// <summary>NotSupportedException failures are recorded and rethrown.</summary>
+    [Fact]
+    public void CreateSerializerRethrowsNotSupportedFailures()
+    {
+        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
+        _ = Assert.Throws<NotSupportedException>(() => serializer.SerializeToUtf8Bytes("x"));
+    }
+
+    /// <summary>Unhandled exception types bypass the metrics failure filter.</summary>
+    [Fact]
+    public void CreateSerializerBypassesUnhandledExceptionFilter()
+    {
+        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
+        _ = Assert.Throws<InvalidCastException>(() => serializer.SerializeToUtf8Bytes("x"));
+    }
+
+    private sealed class ThrowingSerializer : ISquirixSerializer
+    {
+        private readonly Exception _exception;
+
+        internal ThrowingSerializer(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public T Deserialize<T>(string payload) => throw _exception;
+
+        public T Deserialize<T>(JsonElement payload) => throw _exception;
+
+        public T Deserialize<T>(ReadOnlySpan<byte> payload) => throw _exception;
+
+        public T Deserialize<T>(Stream payload) => throw _exception;
+
+        public void Serialize<T>(Stream destination, T? value) => throw _exception;
+
+        public JsonElement SerializeToElement<T>(T? value) => throw _exception;
+
+        public byte[] SerializeToUtf8Bytes<T>(T? value) => throw _exception;
+    }
 }

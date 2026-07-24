@@ -21,7 +21,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
     [Fact]
-    public async Task RepeatedRetentionFailuresDegradeReadinessWithoutBreakingWrites()
+    public async Task RepeatedRetentionFailuresReadinessBreakingWrites()
     {
         var logger = new CollectingLogger();
         using var dir = new TempDirectory("manifest-retention-readiness");
@@ -54,7 +54,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a failed obsolete journal segment delete emits the journal failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public async Task WriteSucceedsWhenJournalRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsJournalFailsFailureObservable()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
@@ -101,7 +101,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a read-only obsolete manifest is retained, emits a metric, and logs a warning while the new manifest commits.</summary>
     [Fact]
-    public async Task WriteSucceedsWhenManifestRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsManifestFailsFailureObservable()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();
@@ -138,7 +138,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 
     /// <summary>Ensures a failed snapshot retention delete emits the snapshot failure metric and log while the manifest commit succeeds.</summary>
     [Fact]
-    public async Task WriteSucceedsWhenSnapshotRetentionDeleteFailsAndFailureIsObservable()
+    public async Task WriteSucceedsSnapshotFailsFailureObservable()
     {
         using var sink = new NodeMeasurementSink("Squirix");
         var logger = new CollectingLogger();

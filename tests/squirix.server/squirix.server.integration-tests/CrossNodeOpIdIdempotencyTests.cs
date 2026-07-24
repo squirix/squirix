@@ -85,7 +85,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
 
     /// <summary>Verifies reusing an operation_id with a different fingerprint fails on the owner after entry-node forwarding.</summary>
     [Fact]
-    public async Task CrossNodeReusedOperationIdWithDifferentFingerprintReturnsFailedPrecondition()
+    public async Task CrossNodeReusedOperationReturnsFailedPrecondition()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();

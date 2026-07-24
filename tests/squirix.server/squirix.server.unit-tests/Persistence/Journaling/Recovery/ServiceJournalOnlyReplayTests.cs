@@ -15,7 +15,7 @@ public sealed class ServiceJournalOnlyReplayTests : ServerUnitTestBase
 {
     /// <summary>After a segment roll, keys in the closed segment are still required for cache rebuild when no snapshot exists.</summary>
     [Fact]
-    public async Task JournalOnlyRecoveryReplaysClosedSegmentBelowManifestCurrentJournal()
+    public async Task JournalRecoveryReplaysClosedManifestCurrentJournal()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-journal-only-roll");
         var seg1A = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "seg1-a", "a");

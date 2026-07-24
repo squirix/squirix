@@ -45,7 +45,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     /// return the pooled waiter early and poison later durability waits.
     /// </summary>
     [Fact]
-    public async Task GroupCommitCancelDuringInFlightBatchDoesNotPoisonPool()
+    public async Task GroupCommitCancelInFlightBatchDoesNotPoisonPool()
     {
         var options = new PersistenceOptions
         {
@@ -90,7 +90,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
     /// <summary>Ensures canceling the only pending waiter leaves the next group commit batch usable.</summary>
     [Fact]
-    public async Task GroupCommitCanceledOnlyWaiterDoesNotPoisonFutureBatch()
+    public async Task GroupCommitCanceledWaiterDoesNotPoisonFutureBatch()
     {
         var options = new PersistenceOptions
         {
@@ -148,7 +148,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
     /// <summary>Ensures cancellation of the first waiter does not cancel the shared delayed flush for other waiters.</summary>
     [Fact]
-    public async Task GroupCommitFirstWaiterCancellationDoesNotCancelOtherWaiters()
+    public async Task GroupCommitFirstWaiterCancelOtherWaiters()
     {
         var options = new PersistenceOptions
         {
@@ -286,7 +286,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
     /// <summary>When the journal pipeline fails, pending group-commit durability waits fail instead of hanging.</summary>
     [Fact]
-    public async Task JournalPipelineFailureFailsPendingGroupCommitDurabilityWait()
+    public async Task JournalPipelineFailureFailsCommitDurabilityWait()
     {
         using var dir = new TempDirectory("squirix-journal-gc-pipeline-fail");
         var options = new PersistenceOptions

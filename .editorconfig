@@ -109,6 +109,12 @@ dotnet_diagnostic.RCS1004.severity = error
 dotnet_diagnostic.RCS1007.severity = none
 # Squirix.Analyzers: outer for/foreach/while/do must omit braces when the body is only a nested loop.
 dotnet_diagnostic.SQR001.severity = error
+# Squirix.Analyzers: design/naming limits (SQR002–SQR006).
+dotnet_diagnostic.SQR002.severity = error
+dotnet_diagnostic.SQR003.severity = error
+dotnet_diagnostic.SQR004.severity = error
+dotnet_diagnostic.SQR005.severity = error
+dotnet_diagnostic.SQR006.severity = error
 # Prefix with this - disabled
 dotnet_diagnostic.SA1101.severity = none
 # Allow leading underscore fields

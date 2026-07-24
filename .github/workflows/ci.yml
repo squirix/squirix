@@ -6,6 +6,7 @@ on:
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
+    # Analyze (begin+build) runs in parallel with test-suites; upload (end) waits for OpenCover.
     push:
         branches: [ main, develop ]
     pull_request:
@@ -914,8 +915,10 @@ jobs:
     # https://sonarcloud.io → import GitHub org squirix → project key squirix
     # GitHub secret: SONAR_TOKEN (My Account → Security → Generate Tokens)
     # Optional repo variables: SONAR_ORGANIZATION, SONAR_PROJECT_KEY
-    # Coverage: wait for ubuntu test jobs, download Coverlet OpenCover reports, pass
-    # sonar.cs.opencover.reportsPaths before end (Cobertura alone is not imported for C#).
+    #
+    # Parallelism: sonarcloud-analyze (begin + instrumented build) starts after smoke, in parallel
+    # with test-suites / benchmarks / discovery. sonarcloud (end) waits for OpenCover artifacts and
+    # the .sonarqube working dir from analyze. Cobertura alone is not imported for C#.
     #
     # Quality gate: OSS plan cannot create custom gates (API actions.create=false; only built-in
     # "Sonar way" with Coverage on New Code ≥ 80%). CI Cobertura merge gate stays at 70% overall.
@@ -924,14 +927,14 @@ jobs:
     #   Quality Gates → Create "squirix-ci" (or copy Sonar way) → set new_coverage ≥ 50%
     #   (pragmatic) or ≥ 70% (align with Cobertura) → keep new_duplicated_lines_density ≤ 3%
     #   → assign to project key squirix → then re-enable wait=true below.
-    sonarcloud:
-        name: SonarCloud
+    sonarcloud-analyze:
+        name: SonarCloud Analyze
         runs-on: ubuntu-latest
         timeout-minutes: 45
         permissions:
             contents: read
             pull-requests: read
-        needs: [ changes, smoke-fast-fail, test-suites ]
+        needs: [ changes, smoke-fast-fail ]
         if: |
             (needs.changes.outputs.code == 'true' ||
              github.event_name == 'schedule' ||
@@ -1006,6 +1009,142 @@ jobs:
                       dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
                     fi
 
+            -   name: Restore
+                run: dotnet restore squirix.slnx
+
+            -   name: Begin And Build For SonarCloud
+                shell: bash
+                env:
+                    GITHUB_EVENT_NAME: ${{ github.event_name }}
+                    SONAR_PR_KEY: ${{ github.event.pull_request.number }}
+                    SONAR_PR_BRANCH: ${{ github.head_ref }}
+                    SONAR_PR_BASE: ${{ github.base_ref }}
+                    SONAR_PR_GITHUB_REPOSITORY: ${{ github.repository }}
+                run: |
+                    set -euo pipefail
+
+                    begin_args=(
+                      begin
+                      "/k:${SONAR_PROJECT_KEY}"
+                      "/o:${SONAR_ORGANIZATION}"
+                      "/d:sonar.token=${SONAR_TOKEN}"
+                      "/d:sonar.host.url=https://sonarcloud.io"
+                      "/d:sonar.qualitygate.wait=false"
+                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**"
+                      "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**"
+                      "/d:sonar.cs.opencover.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.opencover.xml"
+                    )
+
+                    if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+                      begin_args+=(
+                        "/d:sonar.pullrequest.key=${SONAR_PR_KEY}"
+                        "/d:sonar.pullrequest.branch=${SONAR_PR_BRANCH}"
+                        "/d:sonar.pullrequest.base=${SONAR_PR_BASE}"
+                        "/d:sonar.pullrequest.provider=GitHub"
+                        "/d:sonar.pullrequest.github.repository=${SONAR_PR_GITHUB_REPOSITORY}"
+                      )
+                    fi
+
+                    .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
+                    dotnet build squirix.slnx --configuration Release --no-restore
+
+            -   name: Upload Sonar Working Directory
+                uses: actions/upload-artifact@v7
+                with:
+                    name: sonar-working-dir
+                    retention-days: 1
+                    path: .sonarqube
+                    if-no-files-found: error
+
+    sonarcloud:
+        name: SonarCloud
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            contents: read
+            pull-requests: read
+        needs: [ changes, test-suites, sonarcloud-analyze ]
+        if: |
+            (needs.changes.outputs.code == 'true' ||
+             github.event_name == 'schedule' ||
+             github.event_name == 'workflow_dispatch') &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+            SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        steps:
+            -   name: Require SONAR_TOKEN
+                shell: bash
+                run: |
+                    if [[ -z "${SONAR_TOKEN}" ]]; then
+                      echo "Missing secrets.SONAR_TOKEN." >&2
+                      echo "1) Create a free SonarCloud org/project for public repo squirix/squirix" >&2
+                      echo "2) Generate a token (My Account → Security)" >&2
+                      echo "3) Add GitHub Actions secret SONAR_TOKEN" >&2
+                      exit 1
+                    fi
+
+            -   name: Checkout
+                uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+                with:
+                    fetch-depth: 0
+                    persist-credentials: false
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+                with:
+                    global-json-file: global.json
+
+            -   name: Cache SonarCloud Packages
+                uses: actions/cache@v5
+                with:
+                    path: ~/.sonar/cache
+                    key: ${{ runner.os }}-sonar
+                    restore-keys: |
+                        ${{ runner.os }}-sonar
+
+            -   name: Cache SonarCloud Scanner
+                id: cache-sonar-scanner
+                uses: actions/cache@v5
+                with:
+                    path: .sonar/scanner
+                    key: ${{ runner.os }}-sonar-scanner
+                    restore-keys: |
+                        ${{ runner.os }}-sonar-scanner
+
+            -   name: Install SonarCloud Scanner
+                if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+                shell: bash
+                run: |
+                    mkdir -p .sonar/scanner
+                    dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
+
+            -   name: Ensure SonarCloud Scanner Present
+                shell: bash
+                run: |
+                    if [[ ! -x .sonar/scanner/dotnet-sonarscanner ]]; then
+                      mkdir -p .sonar/scanner
+                      dotnet tool update dotnet-sonarscanner --tool-path .sonar/scanner
+                    fi
+
+            -   name: Download Sonar Working Directory
+                uses: actions/download-artifact@v7
+                with:
+                    name: sonar-working-dir
+                    path: .
+
+            -   name: Verify Sonar Working Directory
+                shell: bash
+                run: |
+                    if [[ ! -d .sonarqube ]]; then
+                      echo "Expected .sonarqube from sonarcloud-analyze artifact." >&2
+                      find . -maxdepth 2 -type d -name '.sonarqube' -print 2>/dev/null || true
+                      ls -la
+                      exit 1
+                    fi
+                    echo "Sonar working directory present."
+
             -   name: Download Coverage Reports
                 uses: actions/download-artifact@v7
                 with:
@@ -1025,44 +1164,9 @@ jobs:
                     fi
                     echo "Found ${#files[@]} OpenCover report(s) for SonarCloud."
 
-            -   name: Restore
-                run: dotnet restore squirix.slnx
-
-            -   name: Analyze With SonarCloud
+            -   name: Upload Analysis To SonarCloud
                 shell: bash
-                env:
-                    GITHUB_EVENT_NAME: ${{ github.event_name }}
-                    SONAR_PR_KEY: ${{ github.event.pull_request.number }}
-                    SONAR_PR_BRANCH: ${{ github.head_ref }}
-                    SONAR_PR_BASE: ${{ github.base_ref }}
-                    SONAR_PR_GITHUB_REPOSITORY: ${{ github.repository }}
-                run: |
-                    set -euo pipefail
-
-                    begin_args=(
-                      begin
-                      "/k:${SONAR_PROJECT_KEY}"
-                      "/o:${SONAR_ORGANIZATION}"
-                      "/d:sonar.token=${SONAR_TOKEN}"
-                      "/d:sonar.host.url=https://sonarcloud.io"
-                      "/d:sonar.qualitygate.wait=false"
-                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**"
-                      "/d:sonar.cs.opencover.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.opencover.xml"
-                    )
-
-                    if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-                      begin_args+=(
-                        "/d:sonar.pullrequest.key=${SONAR_PR_KEY}"
-                        "/d:sonar.pullrequest.branch=${SONAR_PR_BRANCH}"
-                        "/d:sonar.pullrequest.base=${SONAR_PR_BASE}"
-                        "/d:sonar.pullrequest.provider=GitHub"
-                        "/d:sonar.pullrequest.github.repository=${SONAR_PR_GITHUB_REPOSITORY}"
-                      )
-                    fi
-
-                    .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
-                    dotnet build squirix.slnx --configuration Release --no-restore
-                    .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
+                run: .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
 
     ci-success:
         name: CI success

@@ -27,7 +27,7 @@ public sealed class JournalAppendCancellationResilienceTests : ServerUnitTestBas
     /// without hanging.
     /// </summary>
     [Fact]
-    public async Task CancellingDurableGroupCommitsAroundEnqueueKeepsPipelineHealthy()
+    public async Task CancellingDurableGroupCommitsKeepsPipelineHealthy()
     {
         using var dir = new TempDirectory("squirix-journal-cancel-storm");
         var options = new PersistenceOptions

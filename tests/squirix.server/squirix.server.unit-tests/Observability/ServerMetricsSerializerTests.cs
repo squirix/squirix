@@ -12,6 +12,14 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>Covers metrics decorator paths around <see cref="ServerMetricsSerializer" />.</summary>
 public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
 {
+    /// <summary>Json failures are recorded and rethrown.</summary>
+    [Fact]
+    public void DeserializeInvalidJsonRethrowsJsonException()
+    {
+        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
+        _ = Assert.ThrowsAny<JsonException>(() => serializer.Deserialize<Dictionary<string, int>>("{not-json"));
+    }
+
     /// <summary>Successful serialize/deserialize overloads record without throwing.</summary>
     [Fact]
     public void RoundTripOverloadsSucceed()
@@ -39,14 +47,6 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
         using var destination = new MemoryStream();
         serializer.Serialize(destination, original);
         Assert.True(destination.Length > 0);
-    }
-
-    /// <summary>Json failures are recorded and rethrown.</summary>
-    [Fact]
-    public void DeserializeInvalidJsonRethrowsJsonException()
-    {
-        var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
-        _ = Assert.ThrowsAny<JsonException>(() => serializer.Deserialize<Dictionary<string, int>>("{not-json"));
     }
 
     /// <summary>Inner NotSupportedException failures are recorded and rethrown.</summary>
@@ -77,15 +77,18 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     {
         private readonly Exception _exception;
 
-        internal ThrowingSerializer(Exception exception) => _exception = exception;
+        internal ThrowingSerializer(Exception exception)
+        {
+            _exception = exception;
+        }
 
-        public T? Deserialize<T>(string payload) => throw _exception;
+        public T Deserialize<T>(string payload) => throw _exception;
 
-        public T? Deserialize<T>(JsonElement payload) => throw _exception;
+        public T Deserialize<T>(JsonElement payload) => throw _exception;
 
-        public T? Deserialize<T>(ReadOnlySpan<byte> payload) => throw _exception;
+        public T Deserialize<T>(ReadOnlySpan<byte> payload) => throw _exception;
 
-        public T? Deserialize<T>(Stream payload) => throw _exception;
+        public T Deserialize<T>(Stream payload) => throw _exception;
 
         public void Serialize<T>(Stream destination, T? value) => throw _exception;
 

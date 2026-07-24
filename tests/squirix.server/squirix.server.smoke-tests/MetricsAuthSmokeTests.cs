@@ -23,7 +23,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
+    public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");

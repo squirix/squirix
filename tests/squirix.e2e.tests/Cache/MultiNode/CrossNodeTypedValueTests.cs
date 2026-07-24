@@ -9,9 +9,9 @@ namespace Squirix.E2ETests.Cache.MultiNode;
 /// <param name="fixture">Shared two-node cluster fixture.</param>
 public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNodeTestBase(fixture)
 {
-    /// <summary>Verifies GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes.</summary>
+    /// <summary>Verifies GetOrAddStoreCustomRecordForRemoteOwnerTwoNodes.</summary>
     [Fact]
-    public async Task GetOrAddShouldStoreCustomRecordForRemoteOwnerAcrossTwoNodes()
+    public async Task GetOrAddStoreCustomRecordForRemoteOwnerTwoNodes()
     {
         var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "typed-remote-get-or-add");
@@ -32,9 +32,9 @@ public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNode
         TypedValueAssertions.AssertProfileEquals(expected, reread.Value!);
     }
 
-    /// <summary>Verifies LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.</summary>
+    /// <summary>Verifies LocalOwnerKeyRoundTripCustomRecordAcrossTwoNodes.</summary>
     [Fact]
-    public async Task LocalOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
+    public async Task LocalOwnerKeyRoundTripCustomRecordAcrossTwoNodes()
     {
         var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
         var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "typed-local-record");
@@ -47,9 +47,9 @@ public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNode
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes.</summary>
+    /// <summary>Verifies RemoteOwnerKeyRoundTripCustomRecordAcrossTwoNodes.</summary>
     [Fact]
-    public async Task RemoteOwnerKeyShouldRoundTripCustomRecordAcrossTwoNodes()
+    public async Task RemoteOwnerKeyRoundTripCustomRecordAcrossTwoNodes()
     {
         var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "typed-remote-record");
@@ -62,9 +62,9 @@ public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNode
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes.</summary>
+    /// <summary>Verifies RemoveDeleteRemoteOwnerCustomRecordAcrossTwoNodes.</summary>
     [Fact]
-    public async Task RemoveShouldDeleteRemoteOwnerCustomRecordAcrossTwoNodes()
+    public async Task RemoveDeleteRemoteOwnerCustomRecordAcrossTwoNodes()
     {
         var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "typed-remote-remove");
@@ -117,9 +117,9 @@ public sealed class CrossNodeTypedValueTests(TwoNodeFixture fixture) : CrossNode
         TypedValueAssertions.AssertCartEquals(nodeBValue, nodeBResult.Value!);
     }
 
-    /// <summary>Verifies UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes.</summary>
+    /// <summary>Verifies UpdatePreserveExpirationRemoteCustomRecordTwoNodes.</summary>
     [Fact]
-    public async Task UpdateShouldPreserveExpirationForRemoteOwnerCustomRecordAcrossTwoNodes()
+    public async Task UpdatePreserveExpirationRemoteCustomRecordTwoNodes()
     {
         var cluster = await GetNamedCachesAsync<TypedCustomerProfile>();
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "typed-remote-update");

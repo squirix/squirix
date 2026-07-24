@@ -11,7 +11,7 @@ public sealed class JournalEntryExpirationMaterializerTests
 {
     /// <summary>Verifies relative TTL is converted to absolute expiry before journal write.</summary>
     [Fact]
-    public void ForJournalWriteMaterializesRelativeExpirationToExpiresUtc()
+    public void ForJournalWriteMaterializesExpirationExpiresUtc()
     {
         var before = DateTime.UtcNow;
         var (expiresUtc, expiration) = JournalEntryExpirationMaterializer.ForJournalWrite(null, TimeSpan.FromMilliseconds(100));
@@ -24,7 +24,7 @@ public sealed class JournalEntryExpirationMaterializerTests
 
     /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
     [Fact]
-    public void IsExpiredForRecoveryUsesRecordTimestampForRelativeExpiration()
+    public void IsExpiredRecoveryUsesTimestampRelativeExpiration()
     {
         var writtenUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
 
@@ -34,7 +34,7 @@ public sealed class JournalEntryExpirationMaterializerTests
 
     /// <summary>Verifies recovery insert converts legacy relative TTL payloads to absolute expiry.</summary>
     [Fact]
-    public void ForRecoveryInsertMaterializesAbsoluteExpiryFromRecordTimestamp()
+    public void ForRecoveryInsertMaterializesExpiryRecordTimestamp()
     {
         var writtenUnixMs = DateTimeOffset.Parse("2020-01-01T00:00:00Z", CultureInfo.InvariantCulture).ToUnixTimeMilliseconds();
         var entry = new NodeCacheEntry<string> { Value = "v", Expiration = TimeSpan.FromSeconds(30) };

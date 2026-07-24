@@ -189,7 +189,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
 
     /// <summary>Ensures per-attempt timeout keeps existing retry behavior and can recover on a subsequent attempt.</summary>
     [Fact]
-    public async Task ExecuteAsyncRetriesPerAttemptTimeoutAndSucceedsOnNextAttempt()
+    public async Task ExecuteAsyncRetriesPerTimeoutSucceedsNextAttempt()
     {
         await using var policy = CreatePolicy(TimeSpan.FromMilliseconds(25), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-i", timeProvider: TimeProvider.System);
         var attempts = new InvocationCounter();

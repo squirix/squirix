@@ -103,7 +103,7 @@ public sealed class ClusterTls : IDisposable
         {
             TestNodeProfile.Normal => (options, material, null),
             TestNodeProfile.NoOutboundClientCertificate => (options, material,
-                peerNodeId => TestCertificates.CreateClusterCaTrustingHandlerWithoutClientCertificate(material.TrustAnchor!, peerNodeId)),
+                peerNodeId => TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(material.TrustAnchor!, peerNodeId)),
             TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
             TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
             TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
@@ -129,8 +129,7 @@ public sealed class ClusterTls : IDisposable
         return excludedPorts;
     }
 
-    private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) =>
-        new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
+    private static Uri CreateInterNodeUrl(Uri primaryUrl, int internalPort) => new UriBuilder(primaryUrl.Scheme, primaryUrl.Host, internalPort).Uri;
 
     private static bool HasRemotePeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology)
     {
@@ -139,10 +138,8 @@ public sealed class ClusterTls : IDisposable
 
         var firstNodeId = topology[0].NodeId;
         for (var i = 1; i < topology.Length; i++)
-        {
             if (!string.Equals(topology[i].NodeId, firstNodeId, StringComparison.Ordinal))
                 return true;
-        }
 
         return false;
     }
@@ -238,10 +235,7 @@ public sealed class ClusterTls : IDisposable
     /// <param name="uri">Primary listen URL for the node.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Options and material for host startup overrides.</returns>
-    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(
-        TopologyOptions cluster,
-        Uri uri,
-        CancellationToken cancellationToken)
+    private async Task<(MtlsOptions? Options, MtlsCertificateMaterial? Material)> ResolveAsync(TopologyOptions cluster, Uri uri, CancellationToken cancellationToken)
     {
         var (options, material, _) = await ResolveNodeStartupAsync(cluster, uri, TestNodeProfile.Normal, cancellationToken).ConfigureAwait(false);
         return (options, material);

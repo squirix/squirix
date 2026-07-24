@@ -78,7 +78,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
 
     /// <summary>Ensures standalone topology returns an empty material instance.</summary>
     [Fact]
-    public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
+    public void LoadReturnsDisabledMaterialInterNodeMtlsIsRequired()
     {
         var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
 

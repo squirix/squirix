@@ -103,7 +103,7 @@ public sealed class DirectoryExTests
 
     /// <summary>When <c>forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
     [Fact]
-    public async Task CreateDirectoryAsyncRejectsSymlinkOrJunctionInChain()
+    public async Task CreateDirectoryAsyncRejectsSymlinkJunctionInChain()
     {
         using var root = new TempDirectory("squirix-directoryex-symlink-async");
         var ct = TestContext.Current.CancellationToken;
@@ -140,7 +140,7 @@ public sealed class DirectoryExTests
 
     /// <summary>On non-Apple hosts, <see cref="MacOsCompatibilitySymlink.TryFollow(DirectoryInfo, out string)" /> returns false for a normal directory.</summary>
     [Fact]
-    public void MacOsCompatibilitySymlinkTryFollowReturnsFalseOffApple()
+    public void MacOsCompatibilitySymlinkTryReturnsFalseOffApple()
     {
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
             return;

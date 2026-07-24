@@ -17,14 +17,14 @@ public sealed class MixedMutationStressTests : LoadTestBase
     /// and a converged final value drawn from the writer set.
     /// </summary>
     [Fact]
-    public async Task ConcurrentMixedMutationsKeepClientVisibleInvariants()
+    public async Task ConcurrentMixedMutationsClientVisibleInvariants()
     {
         var profile = LoadProfiles.MixedMutation;
         using var deadline = CreateDeadline(profile);
         var token = deadline.Token;
 
         var keys = CreateKeySet(LoadProfiles.ScaleOperations(50));
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), cancellationToken: token);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsClientVisibleInvariants), cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);

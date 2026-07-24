@@ -41,4 +41,45 @@ public sealed class IdempotencyCodecTests : ServerUnitTestBase
     /// <summary>Truncated buffer must throw InvalidDataException.</summary>
     [Fact]
     public void ReadThrowsOnTruncatedBuffer() => _ = Assert.Throws<InvalidDataException>(static () => IdempotencyCodec.Read([]));
+
+    /// <summary>Empty response bytes are rejected during validation on read.</summary>
+    [Fact]
+    public void ReadThrowsWhenResponseBytesAreEmpty()
+    {
+        var record = new PersistedIdempotencyRecord(
+            "0123456789abcdef0123456789abcdef",
+            "try-add-entry-async|default|k|abc123",
+            [],
+            new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+
+        var length = IdempotencyCodec.ComputeEncodedLength(record);
+        Span<byte> buffer = stackalloc byte[length];
+        IdempotencyCodec.Write(record, buffer);
+
+        try
+        {
+            _ = IdempotencyCodec.Read(buffer);
+            Assert.Fail("Expected InvalidDataException for empty response bytes.");
+        }
+        catch (InvalidDataException)
+        {
+            // expected
+        }
+    }
+
+    /// <summary>Oversized UTF-8 fields are rejected by length computation.</summary>
+    [Fact]
+    public void ComputeEncodedLengthRejectsOversizedOperationId()
+    {
+        var ex = Assert.Throws<InvalidDataException>(static () =>
+        {
+            var record = new PersistedIdempotencyRecord(
+                new string('a', ushort.MaxValue + 1),
+                "fp",
+                [1],
+                new DateTime(2026, 7, 1, 12, 0, 0, DateTimeKind.Utc));
+            return IdempotencyCodec.ComputeEncodedLength(record);
+        });
+        Assert.Contains("maximum encoded length", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

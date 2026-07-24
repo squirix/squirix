@@ -21,7 +21,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host flag still rejects ordinary nested directories.</summary>
     [Fact]
-    public void TryFollowReturnsFalseForNonRootChildEvenOnAppleHost()
+    public void TryFollowReturnsFalseForNonRootChildOnAppleHost()
     {
         using var root = new TempDirectory("squirix-macos-follow-nested");
         Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), true, out var resolved));
@@ -84,7 +84,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Resolving a non-link directory returns false.</summary>
     [Fact]
-    public void TryResolveFinalTargetPathReturnsFalseForOrdinaryDirectory()
+    public void TryResolveFinalTargetReturnsFalseOrdinaryDirectory()
     {
         using var root = new TempDirectory("squirix-macos-resolve");
         Assert.False(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(root.Path), out var target));
@@ -93,7 +93,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host follow of a volume-root candidate fails when the entry is not a resolvable link.</summary>
     [Fact]
-    public void TryFollowOnAppleHostFailsWhenRootCandidateIsNotALink()
+    public void TryFollowOnAppleHostFailsRootCandidateIsNotALink()
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, "tmp");

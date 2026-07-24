@@ -20,7 +20,7 @@ public sealed class CorrelationClientInterceptorTests
     /// Verifies an active activity id is written to gRPC metadata as <c>traceparent</c>.
     /// </summary>
     [Fact]
-    public void ClientInterceptorAddsTraceParentFromCurrentActivity()
+    public void ClientInterceptorAddsTraceParentCurrentActivity()
     {
         using var listener = CreateSquirixActivityListener();
 

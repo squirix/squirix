@@ -69,7 +69,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
 
     /// <summary>Ensures SerializeToElement can still round-trip application payloads through reflection fallback.</summary>
     [Fact]
-    public void SerializeToElementKeepsReflectionFallbackForUnknownApplicationTypes()
+    public void SerializeElementKeepsUnknownApplicationTypes()
     {
         var serializer = new ServerJsonSerializer();
         var payload = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["value"] = 42 };

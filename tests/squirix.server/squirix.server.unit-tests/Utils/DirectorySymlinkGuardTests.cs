@@ -40,7 +40,7 @@ public sealed class DirectorySymlinkGuardTests : ServerUnitTestBase
 
     /// <summary>EnsureNoSymlinksInChain accepts paths with no existing intermediate links.</summary>
     [Fact]
-    public void EnsureNoSymlinksInChainAcceptsMissingIntermediateSegments()
+    public void EnsureSymlinksChainMissingIntermediateSegments()
     {
         using var root = new TempDirectory("squirix-symlink-guard-chain");
         var basePath = root.Path;

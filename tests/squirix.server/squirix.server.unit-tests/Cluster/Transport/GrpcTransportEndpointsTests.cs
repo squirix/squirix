@@ -15,7 +15,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     /// <summary>Ensures disabled material keeps the default HTTPS handler without a client certificate.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the created handler is not a <see cref="SocketsHttpHandler"/>.</exception>
     [Fact]
-    public void CreateChannelHandlerWithDisabledMaterialUsesDefaultHandler()
+    public void CreateChannelHandlerDisabledUsesDefaultHandler()
     {
         using var createdHandler = TestCertificates.CreateDefaultChannelHandler();
         Assert.Null(createdHandler.SslOptions.ClientCertificates);
@@ -47,7 +47,7 @@ public sealed class GrpcTransportEndpointsTests : ServerUnitTestBase
     /// <summary>Ensures the outbound handler rejects missing peer server certificates.</summary>
     /// <exception cref="InvalidOperationException">Thrown when the remote certificate validation callback was not configured.</exception>
     [Fact]
-    public async Task CreateMtlsHandlerRejectsMissingPeerServerCertificate()
+    public async Task CreateMtlsHandlerRejectsPeerServerCertificate()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(DefaultCancellationToken);
         using var material = MtlsCertificateMaterial.Load(

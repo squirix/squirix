@@ -141,7 +141,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
     [Fact]
-    public async Task PackageExtensionReceivesAuthenticationStateWhileMappingEndpoints()
+    public async Task PackageExtensionReceivesStateMappingEndpoints()
     {
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions

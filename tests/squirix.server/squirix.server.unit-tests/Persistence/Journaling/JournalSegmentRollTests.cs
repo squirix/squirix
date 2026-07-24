@@ -25,7 +25,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]
-    public async Task BlockedNextManifestFilePreventsOverflowFrameFromBeingAppended()
+    public async Task BlockedNextManifestFileOverflowFrameAppended()
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
@@ -74,7 +74,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
-    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
+    public async Task OverflowingAppendLandsOnNextSegmentManifestRoll()
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);

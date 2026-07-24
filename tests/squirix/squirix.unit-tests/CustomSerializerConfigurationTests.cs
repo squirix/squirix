@@ -18,7 +18,7 @@ public sealed class CustomSerializerConfigurationTests
     /// Verifies <see cref="SquirixClientOptions.BearerTokenProvider" /> keeps a public setter for configure-delegate assignment.
     /// </summary>
     [Fact]
-    public void BearerTokenProviderPropertyHasPublicSetterForConfigureDelegates()
+    public void BearerTokenProviderHasPublicSetterForConfigure()
     {
         Func<CancellationToken, ValueTask<string>> provider = static _ => new ValueTask<string>("token");
         var options = new SquirixClientOptions
@@ -31,7 +31,7 @@ public sealed class CustomSerializerConfigurationTests
 
     /// <summary>Verifies <see cref="SquirixClientOptions.Serializer" /> keeps a public setter for configure-delegate assignment.</summary>
     [Fact]
-    public void SerializerPropertyHasPublicSetterForConfigureDelegates()
+    public void SerializerPropertyHasPublicSetterForConfigure()
     {
         var custom = new MarkerSerializer();
         var options = new SquirixClientOptions

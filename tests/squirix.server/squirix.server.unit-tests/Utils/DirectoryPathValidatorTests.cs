@@ -12,7 +12,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 {
     /// <summary>Resolves a relative path under a base directory.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathAcceptsRelativeUnderBase()
+    public void ResolveValidatedDirectoryPathAcceptsRelativeBase()
     {
         using var root = new TempDirectory("squirix-dirpath-rel");
         var full = DirectoryPathValidator.ResolveValidatedDirectoryPath("child", root.Path, true);

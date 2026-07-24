@@ -260,7 +260,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies two cache facades for the same name share logical storage before client disposal.</summary>
     [Fact]
-    public async Task RepeatedGetCacheAsyncForSameNameSharesLogicalStorage()
+    public async Task RepeatedGetCacheAsyncSameNameSharesLogicalStorage()
     {
         var first = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
         var second = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
@@ -316,7 +316,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryPreservesExpirationThroughPublicApi()
+    public async Task TryAddAsyncEntryPreservesExpirationPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
 
