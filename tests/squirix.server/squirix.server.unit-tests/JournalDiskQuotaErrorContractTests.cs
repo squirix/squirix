@@ -16,25 +16,6 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Contract tests for journal disk quota mapped through shared error helpers.</summary>
 public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
 {
-    /// <summary>Verifies logical cache metrics/tracing classify journal quota as resource exhausted.</summary>
-    [Fact]
-    public void ClassifierMapsJournalCapacityToExhausted() => Assert.Equal(
-        CacheOperationResults.ResourceExhausted,
-        CacheOperationClassifier.ClassifyException(new JournalCapacityExceededException()));
-
-    /// <summary>Verifies message and message+inner constructor overloads keep the provided detail text.</summary>
-    [Fact]
-    public void JournalCapacityCtorsPreserveMessage()
-    {
-        var withMessage = new JournalCapacityExceededException("quota message");
-        Assert.Equal("quota message", withMessage.Message);
-
-        var inner = new InvalidOperationException("inner");
-        var withInner = new JournalCapacityExceededException("outer", inner);
-        Assert.Equal("outer", withInner.Message);
-        Assert.Same(inner, withInner.InnerException);
-    }
-
     /// <summary>Verifies stable codes across REST and gRPC projections for journal disk quota.</summary>
     [Fact]
     public void JournalDiskQuotaMapsToHttp429AndGrpcExhausted()
@@ -51,6 +32,28 @@ public sealed class JournalDiskQuotaErrorContractTests : ServerUnitTestBase
         var direct = new JournalCapacityExceededException().ToRpcException();
         Assert.Equal(StatusCode.ResourceExhausted, direct.StatusCode);
         Assert.Equal(JournalCapacityExceededException.StableDetail, direct.Status.Detail);
+    }
+
+    /// <summary>Verifies message and message+inner constructor overloads keep the provided detail text.</summary>
+    [Fact]
+    public void JournalCapacityCtorsPreserveMessage()
+    {
+        var withMessage = new JournalCapacityExceededException("quota message");
+        Assert.Equal("quota message", withMessage.Message);
+
+        var inner = new InvalidOperationException("inner");
+        var withInner = new JournalCapacityExceededException("outer", inner);
+        Assert.Equal("outer", withInner.Message);
+        Assert.Same(inner, withInner.InnerException);
+    }
+
+    /// <summary>Verifies logical cache metrics/tracing classify journal quota as resource exhausted.</summary>
+    [Fact]
+    public void ClassifierMapsJournalCapacityToExhausted()
+    {
+        Assert.Equal(
+            CacheOperationResults.ResourceExhausted,
+            CacheOperationClassifier.ClassifyException(new JournalCapacityExceededException()));
     }
 
     /// <summary>Verifies REST JSON matches canonical error shape for journal disk quota.</summary>

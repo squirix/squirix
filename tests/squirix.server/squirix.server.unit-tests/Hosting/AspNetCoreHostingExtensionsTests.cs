@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -135,6 +136,42 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         Assert.Equal(marker.Name, registeredMarker.Name);
         var endpoints = GetMappedEndpoints(app);
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) is true);
+    }
+
+    /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
+    [Fact]
+    public async Task MapSquirixServerMapsJournalCapacityToHttp429()
+    {
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
+        var uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+
+        _ = await builder.AddSquirixServerAsync(
+            options => options.Uri = uri,
+            loadDiscoveredSettings: false,
+            configureExtensions: static extensions =>
+                extensions.MapEndpoints = static app => app.MapGet(
+                    "/throw-journal-quota",
+                    static (HttpContext _) => throw new JournalCapacityExceededException()),
+            cancellationToken: DefaultCancellationToken);
+
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+        await app.StartAsync(DefaultCancellationToken);
+
+        using var handler = LoopbackHttp.CreateHandler();
+        using var client = new HttpClient(handler, disposeHandler: false)
+        {
+            BaseAddress = uri,
+        };
+        using var response = await client.GetAsync(new Uri(uri, "/throw-journal-quota"), DefaultCancellationToken);
+
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, response.StatusCode);
+        await app.StopAsync(DefaultCancellationToken);
     }
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>

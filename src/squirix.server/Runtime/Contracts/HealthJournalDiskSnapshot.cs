@@ -6,4 +6,9 @@ namespace Squirix.Server.Runtime.Contracts;
 /// <param name="UsedBytes">Current on-disk journal total bytes.</param>
 /// <param name="HighWaterBytes">Soft high-water mark bytes (80% of <paramref name="MaxBytes" />).</param>
 /// <param name="WriteRejectionActive">Whether durable writes are rejected because usage is at the hard limit.</param>
-internal readonly record struct HealthJournalDiskSnapshot(string State, long MaxBytes, long UsedBytes, long HighWaterBytes, bool WriteRejectionActive);
+internal readonly record struct HealthJournalDiskSnapshot(
+    string State,
+    long MaxBytes,
+    long UsedBytes,
+    long HighWaterBytes,
+    bool WriteRejectionActive);

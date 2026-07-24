@@ -213,7 +213,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
         await cts.CancelAsync();
 
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(pending.AsTask);
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => _ = await pending);
         Assert.Equal(1, attempts.Count);
     }
 

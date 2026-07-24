@@ -105,6 +105,70 @@ public sealed class CallPolicyTests
         Assert.Equal(2, box.Count);
     }
 
+    /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
+    [Fact]
+    public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
+    {
+        var timeout = TimeSpan.FromSeconds(5);
+        await using var policy = new CallPolicy(
+            timeout,
+            maxAttempts: 1,
+            baseBackoff: TimeSpan.Zero,
+            maxBackoff: TimeSpan.Zero,
+            maxConcurrentPerPeer: 1,
+            peer: "c-drain-queue");
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
+
+        var first = policy.ExecuteAsync(
+            static async (g, ct) =>
+            {
+                g.Entered.SetResult();
+                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
+                return 1;
+            },
+            gate,
+            CancellationToken.None);
+
+        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
+
+        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, CancellationToken.None);
+
+        policy.BeginDrain();
+        releaseFirst.SetResult();
+
+        Assert.Equal(1, await first);
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => _ = await queued);
+        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+    }
+
+    /// <summary>Rejects new calls after BeginDrain.</summary>
+    [Fact]
+    public async Task BeginDrainRejectsNewCalls()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
+        policy.BeginDrain();
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None).AsTask());
+        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
+    }
+
+    private sealed class EnterReleaseGate
+    {
+        internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
+        {
+            Entered = entered;
+            Release = release;
+        }
+
+        internal TaskCompletionSource Entered { get; }
+
+        internal TaskCompletionSource Release { get; }
+    }
+
     private sealed class IntBox
     {
         private int _count;

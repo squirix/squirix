@@ -197,7 +197,11 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `JournalBackend`              | string | `Pipelined`                                                | Pipelined binary journal (only supported backend)                                                                                          |
 | `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
-| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total on-disk size hard cap)                                                                                      |
+
+`JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
+that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (HTTP 429 / gRPC `ResourceExhausted`); readiness
+stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
 See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
 

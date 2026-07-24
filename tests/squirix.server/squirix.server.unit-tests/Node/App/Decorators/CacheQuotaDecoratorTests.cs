@@ -5,7 +5,6 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -21,9 +20,10 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
         var inner = new ThrowingLogicalCache();
         var cache = new MetricsCacheDecorator<string>(inner);
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JournalCapacityExceededException>(async () =>
+            await cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JournalCapacityExceededException>(async () =>
+            await cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
     }
 
     /// <summary>Tracing decorator rethrows journal capacity from void and result operations.</summary>
@@ -33,9 +33,10 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
         var inner = new ThrowingLogicalCache();
         var cache = new TracingCacheDecorator<string>(inner, "node-a");
 
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
-        _ = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException, bool>(
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JournalCapacityExceededException>(async () =>
+            await cache.SetEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
+        _ = await Assert.ThrowsAsync<JournalCapacityExceededException>(async () =>
+            await cache.TryAddEntryAsync(UnitMutationOpIds.Default, "c", "k", CreateEntry(), DefaultCancellationToken));
     }
 
     private static NodeCacheEntry<string> CreateEntry() => new() { Value = "v", Version = 1 };
@@ -48,12 +49,6 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromException<NodeCacheValueResult<string>>(new JournalCapacityExceededException());
 
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException());
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            ValueTask.FromException<bool>(new JournalCapacityExceededException());
-
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
             ValueTask.FromException(new JournalCapacityExceededException());
 
@@ -61,6 +56,12 @@ public sealed class CacheQuotaDecoratorTests : ServerUnitTestBase
             ValueTask.FromException<bool>(new JournalCapacityExceededException());
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
+            ValueTask.FromException<bool>(new JournalCapacityExceededException());
+
+        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            ValueTask.FromException<CacheRemoveResult<string>>(new JournalCapacityExceededException());
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
             ValueTask.FromException<bool>(new JournalCapacityExceededException());
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>

@@ -12,8 +12,6 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling;
 /// <summary>Covers on-disk journal byte accounting for newly created segment headers.</summary>
 public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
 {
-    private static readonly byte[] SamplePayload = [1, 2, 3];
-
     /// <summary>First append on a fresh journal includes the segment file header in UsedBytes.</summary>
     [Fact]
     public async Task FirstAppendCountsFileHeaderInUsedBytes()
@@ -35,7 +33,10 @@ public sealed class JournalBootstrapHeaderAccountingTests : ServerUnitTestBase
             new JournalStartupGate(),
             DefaultCancellationToken);
 
-        await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, "k"), SamplePayload, DefaultCancellationToken);
+        await journal.AppendPutAndAwaitDurabilityAsync(
+            new CacheKey(ServerCacheNames.DefaultNamespace, "k"),
+            new byte[] { 1, 2, 3 },
+            DefaultCancellationToken);
 
         Assert.True(journal.UsedBytes >= JournalFraming.FileHeaderSize);
         Assert.True(journal.UsedBytes > JournalFraming.FileHeaderSize);
