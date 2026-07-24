@@ -38,6 +38,61 @@ internal static class FrameworkServiceRegistration
         return services;
     }
 
+    internal sealed class ResourceExhaustedExceptionInterceptor : Interceptor
+    {
+        public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
+            TRequest request,
+            IServerStreamWriter<TResponse> responseStream,
+            ServerCallContext context,
+            ServerStreamingServerMethod<TRequest, TResponse> continuation)
+        {
+            try
+            {
+                await continuation(request, responseStream, context).ConfigureAwait(false);
+            }
+            catch (ResourceExhaustedException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (JournalCapacityExceededException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (ServerOpIdMismatchException)
+            {
+                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+            }
+            catch (SquirixException ex)
+            {
+                throw ex.ToRpcException();
+            }
+        }
+
+        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+        {
+            try
+            {
+                return await continuation(request, context).ConfigureAwait(false);
+            }
+            catch (ResourceExhaustedException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (JournalCapacityExceededException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (ServerOpIdMismatchException)
+            {
+                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+            }
+            catch (SquirixException ex)
+            {
+                throw ex.ToRpcException();
+            }
+        }
+    }
+
     private sealed class InvocationContextInterceptor : Interceptor
     {
         private readonly TopologyOptions _cluster;
@@ -119,61 +174,6 @@ internal static class FrameworkServiceRegistration
 
                 var certificate = httpContext.Connection.ClientCertificate;
                 return MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster));
-            }
-        }
-    }
-
-    private sealed class ResourceExhaustedExceptionInterceptor : Interceptor
-    {
-        public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
-            TRequest request,
-            IServerStreamWriter<TResponse> responseStream,
-            ServerCallContext context,
-            ServerStreamingServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                await continuation(request, responseStream, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
-            }
-        }
-
-        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                return await continuation(request, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
             }
         }
     }

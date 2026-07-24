@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Storage;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests;
@@ -63,6 +64,12 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.Equal(JsonValueKind.Object, journalDisk.ValueKind);
         Assert.True(journalDisk.TryGetProperty("state", out var state));
         Assert.Equal(JsonValueKind.String, state.ValueKind);
+        var stateValue = state.GetString();
+        Assert.True(
+            string.Equals(stateValue, "normal", StringComparison.Ordinal)
+            || string.Equals(stateValue, "high", StringComparison.Ordinal)
+            || string.Equals(stateValue, "critical", StringComparison.Ordinal),
+            $"Unexpected journalDisk.state '{stateValue}'.");
         Assert.True(journalDisk.TryGetProperty("maxBytes", out var maxBytes));
         Assert.Equal(JsonValueKind.Number, maxBytes.ValueKind);
         Assert.True(maxBytes.GetInt64() > 0);
@@ -70,6 +77,7 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         Assert.Equal(JsonValueKind.Number, usedBytes.ValueKind);
         Assert.True(journalDisk.TryGetProperty("highWaterBytes", out var highWater));
         Assert.Equal(JsonValueKind.Number, highWater.ValueKind);
+        Assert.Equal(maxBytes.GetInt64() * JournalSegmentLimits.HighWaterPercent / 100L, highWater.GetInt64());
         Assert.True(journalDisk.TryGetProperty("writeRejectionActive", out var rejection));
         Assert.True(rejection.ValueKind is JsonValueKind.True or JsonValueKind.False);
     }

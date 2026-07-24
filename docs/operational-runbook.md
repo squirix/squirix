@@ -134,10 +134,11 @@ Use `/health/ready/details` (`journalDisk`):
 
 Behavior:
 
-- Soft high-water (`high`) is observability only — writes continue.
-- Hard limit (`critical`): new durable writes that would grow the journal fail with stable `JOURNAL_DISK_QUOTA`
-  (HTTP 429 / gRPC `ResourceExhausted`). The process does not crash; `/health/ready` stays healthy so operators can
-  still scrape details and run cleanup.
+- Soft high-water (`high`) is observability only for pressure state — writes that still fit under `maxBytes` continue.
+- Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
+- Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
+  fail with stable `JOURNAL_DISK_QUOTA` (HTTP 429 / gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
+  stays healthy so operators can still scrape details and run cleanup.
 - This quota covers **journal segments only**, not snapshots or manifest files under the data directory.
 
 Operator actions when approaching or at quota:

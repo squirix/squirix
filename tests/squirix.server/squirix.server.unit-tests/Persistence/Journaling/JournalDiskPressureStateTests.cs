@@ -10,7 +10,7 @@ public sealed class JournalDiskPressureStateTests : ServerUnitTestBase
 {
     /// <summary>Verifies pressure labels for below high-water, high-water, and hard limit.</summary>
     [Fact]
-    public void EvaluatePressureStateTransitionsAcrossHighWaterAndHardLimit()
+    public void EvaluatePressureStateAcrossHighWaterAndHardLimit()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 10 });
         var max = policy.MaxTotalBytes;

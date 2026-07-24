@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -22,7 +21,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
     /// and verifies readiness plus <c>journalDisk</c> pressure details remain available.
     /// </summary>
     [Fact]
-    public async Task DurableWriteAtJournalCapFailsControlledAndReadyStaysHealthy()
+    public async Task DurableWriteAtCapFailsAndReadyStaysHealthy()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(

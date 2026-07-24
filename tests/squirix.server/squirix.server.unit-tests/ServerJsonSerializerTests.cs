@@ -28,6 +28,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
     [Fact]
     public void RestContextPreservesHealthJsonShape()
     {
+        var journalDiskDetails = new HealthJournalDiskDetails("normal", 2048L * 1024 * 1024, 128, 1638L * 1024 * 1024, false);
         var health = new HealthReadyDetailsResponse(
             7,
             12.5,
@@ -38,7 +39,7 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
                 new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
                 new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
                 new HealthRetentionCleanupDetails(false, 0, 0, null),
-                new HealthJournalDiskDetails("normal", 2048L * 1024 * 1024, 128, 1638L * 1024 * 1024, false)));
+                journalDiskDetails));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
@@ -46,7 +47,16 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         Assert.True(healthElement.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out _));
         Assert.True(healthElement.TryGetProperty("journalDisk", out var journalDisk));
-        Assert.True(journalDisk.TryGetProperty("usedBytes", out _));
+        Assert.Equal(journalDiskDetails.State, journalDisk.GetProperty("state").GetString());
+        Assert.Equal(journalDiskDetails.MaxBytes, journalDisk.GetProperty("maxBytes").GetInt64());
+        Assert.Equal(journalDiskDetails.UsedBytes, journalDisk.GetProperty("usedBytes").GetInt64());
+        Assert.Equal(journalDiskDetails.HighWaterBytes, journalDisk.GetProperty("highWaterBytes").GetInt64());
+        Assert.Equal(journalDiskDetails.WriteRejectionActive, journalDisk.GetProperty("writeRejectionActive").GetBoolean());
+        Assert.False(journalDisk.TryGetProperty("State", out _));
+        Assert.False(journalDisk.TryGetProperty("MaxBytes", out _));
+        Assert.False(journalDisk.TryGetProperty("UsedBytes", out _));
+        Assert.False(journalDisk.TryGetProperty("HighWaterBytes", out _));
+        Assert.False(journalDisk.TryGetProperty("WriteRejectionActive", out _));
         Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
         Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));

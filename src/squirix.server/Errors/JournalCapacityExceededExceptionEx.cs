@@ -2,7 +2,7 @@ using Grpc.Core;
 
 namespace Squirix.Server.Errors;
 
-internal static class JournalCapacityExceededExceptionExtensions
+internal static class JournalCapacityExceededExceptionEx
 {
     /// <summary>
     /// Maps <see cref="JournalCapacityExceededException" /> to transport-specific error representations.

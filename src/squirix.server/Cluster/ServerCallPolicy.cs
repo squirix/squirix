@@ -36,6 +36,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         var cap = Math.Max(1, maxConcurrentPerPeer);
         _semaphore = new SemaphoreSlim(cap, cap);
         _executor = new ServerCallPolicyExecutor(
+            this,
             new ServerCallPolicySettings(
                 _peer,
                 Math.Max(1, maxAttempts),
@@ -43,8 +44,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 baseBackoff ?? TimeSpan.FromMilliseconds(50),
                 maxBackoff ?? TimeSpan.FromMilliseconds(500)),
             timeProvider ?? TimeProvider.System,
-            _semaphore,
-            () => _draining);
+            _semaphore);
     }
 
     public void BeginDrain() => _draining = true;
@@ -168,16 +168,17 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private sealed class ServerCallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
-        private readonly Func<bool> _isDraining;
         private readonly int _maxAttempts;
         private readonly TimeSpan _maxBackoff;
+        private readonly ServerCallPolicy _owner;
         private readonly string _peer;
         private readonly SemaphoreSlim _semaphore;
         private readonly TimeSpan _timeoutPerAttempt;
         private readonly TimeProvider _timeProvider;
 
-        internal ServerCallPolicyExecutor(ServerCallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore, Func<bool> isDraining)
+        internal ServerCallPolicyExecutor(ServerCallPolicy owner, ServerCallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
         {
+            _owner = owner;
             _peer = settings.Peer;
             _maxAttempts = settings.MaxAttempts;
             _timeoutPerAttempt = settings.TimeoutPerAttempt;
@@ -185,7 +186,6 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             _maxBackoff = settings.MaxBackoff;
             _timeProvider = timeProvider;
             _semaphore = semaphore;
-            _isDraining = isDraining;
         }
 
         internal async ValueTask<T> RunQueuedExecutionAsync<TState, T>(
@@ -387,7 +387,7 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private void ThrowIfDraining()
         {
-            if (!_isDraining())
+            if (!_owner._draining)
                 return;
 
             ServerCallPolicyMetrics.IncrementDrainRejectsTotal(_peer, 1);
