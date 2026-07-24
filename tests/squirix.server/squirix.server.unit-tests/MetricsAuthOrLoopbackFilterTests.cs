@@ -11,7 +11,7 @@ public sealed class MetricsAuthOrLoopbackFilterTests
 {
     /// <summary>Verifies loopback clients can scrape metrics without authentication.</summary>
     [Fact]
-    public void IsRequestAuthorizedAllowsLoopbackWithoutAuthentication()
+    public void IsRequestAuthorizedAllowsLoopbackAuthentication()
     {
         var http = new DefaultHttpContext
         {
@@ -42,7 +42,7 @@ public sealed class MetricsAuthOrLoopbackFilterTests
 
     /// <summary>Verifies remote unauthenticated clients are rejected.</summary>
     [Fact]
-    public void IsRequestAuthorizedRejectsRemoteWithoutAuthentication()
+    public void IsRequestAuthorizedRejectsRemoteAuthentication()
     {
         var http = new DefaultHttpContext
         {

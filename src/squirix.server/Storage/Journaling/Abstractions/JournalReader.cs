@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
@@ -61,8 +62,14 @@ internal static class JournalReader
     {
         try
         {
-            files = Directory.GetFiles(dataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+            var validatedDataDir = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
+            files = Directory.GetFiles(validatedDataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
             return true;
+        }
+        catch (ArgumentException)
+        {
+            files = [];
+            return false;
         }
         catch (IOException)
         {

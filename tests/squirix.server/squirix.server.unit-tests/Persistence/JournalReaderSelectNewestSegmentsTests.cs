@@ -11,7 +11,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
 {
     /// <summary>EnumerateSegments returns sorted indices and respects the requested start segment.</summary>
     [Fact]
-    public void EnumerateSegmentsRespectsFromSegmentAndSortsAscending()
+    public void EnumerateSegmentsRespectsSegmentAndSortsAscending()
     {
         using var dir = new TempDirectory("squirix-journal-enum-from");
         File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{9.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"), "x");
@@ -35,7 +35,7 @@ public sealed class JournalReaderSelectNewestSegmentsTests
 
     /// <summary>EnumerateSegments ignores journal-shaped names whose numeric index does not parse.</summary>
     [Fact]
-    public void EnumerateSegmentsSkipsJournalFilesWithNonNumericIndex()
+    public void EnumerateSegmentsSkipsJournalFilesNonNumericIndex()
     {
         using var dir = new TempDirectory("squirix-journal-enum-filter");
         File.WriteAllText(NodePathKit.Combine(dir, $"{FilePrefixes.Journal}abcdef{FileExtensions.Journal}"), "x");
@@ -43,5 +43,26 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         var segments = JournalReader.EnumerateSegments(dir, 1);
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
+    }
+
+    /// <summary>EnumerateSegments returns empty for invalid operator paths without throwing.</summary>
+    /// <param name="path">Invalid directory path.</param>
+    [Theory]
+    [InlineData("..")]
+    [InlineData("a*b")]
+    [InlineData("")]
+    public void EnumerateSegmentsReturnsEmptyForInvalidPaths(string path)
+    {
+        var segments = JournalReader.EnumerateSegments(path, 1);
+        Assert.Empty(segments);
+    }
+
+    /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
+    [Fact]
+    public void GetOnDiskSegmentStatsReturnsDefaultForInvalidPath()
+    {
+        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats("..");
+        Assert.Equal(0, segmentCount);
+        Assert.Equal(0, totalBytes);
     }
 }

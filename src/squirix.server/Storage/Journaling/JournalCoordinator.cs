@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -30,6 +31,10 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private int _pendingMemoryApplyCount;
     private TaskCompletionSource? _pendingMemoryApplyDrained;
 
+    [SuppressMessage(
+        "NDepend",
+        "ND2500:DontCreateThreadsExplicitly",
+        Justification = "Single-writer journal event loop requires a dedicated long-lived I/O thread; Task.Run is banned on infrastructure paths.")]
     internal JournalCoordinator(PersistenceOptions opt, State manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
     {
         Options = opt;
@@ -121,9 +126,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         if (Options.IsJournalGroupCommitEnabled)
-        {
             return _appendPipeline.AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, cancellationToken);
-        }
 
         return _appendPipeline.AppendRecordWithDurabilityCoreAsync(_appendPipeline.AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Squirix.Server.Node.Hosting;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server;
 
@@ -69,11 +70,17 @@ public static class AspNetCoreExtensions
         if (!options.PersistenceEnabled)
             return null;
 
-        var resolvePersistenceOptions = new PersistenceOptions
+        var persistenceOptions = new PersistenceOptions
         {
             JournalMaxSegmentMb = 64,
             FlushIntervalMs = 10,
         };
-        return string.IsNullOrWhiteSpace(options.DataDirectory) ? resolvePersistenceOptions : new PersistenceOptions { DataDir = options.DataDirectory };
+        if (string.IsNullOrWhiteSpace(options.DataDirectory))
+            return persistenceOptions;
+
+        return persistenceOptions with
+        {
+            DataDir = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory),
+        };
     }
 }

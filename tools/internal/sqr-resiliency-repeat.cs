@@ -159,26 +159,20 @@ static string? ResolveDotnetPath()
 
 static async Task<int> RunDotnetAsync(string dotnetPath, string repoRoot, IReadOnlyList<string> args, CancellationToken cancellationToken)
 {
-    var quotedArgs = new string[args.Count];
-    for (var i = 0; i < args.Count; i++)
-        quotedArgs[i] = QuoteIfNeeded(args[i]);
-
-    using var proc = Process.Start(new ProcessStartInfo
+    var processStartInfo = new ProcessStartInfo
     {
         FileName = dotnetPath,
         WorkingDirectory = repoRoot,
         UseShellExecute = false,
-        Arguments = string.Join(' ', quotedArgs),
-    });
+    };
+    foreach (var arg in args)
+        processStartInfo.ArgumentList.Add(arg);
+
+    using var proc = Process.Start(processStartInfo);
     if (proc is not null)
         await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
-}
-
-static string QuoteIfNeeded(string value)
-{
-    return value.Contains(' ', StringComparison.Ordinal) ? $"\"{value}\"" : value;
 }
 
 static async Task<int> FailAsync(string message, int code = 1)

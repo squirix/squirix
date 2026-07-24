@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 
@@ -10,11 +11,15 @@ internal sealed class ManifestRollPublisher : IDisposable
 {
     private readonly ManifestStore _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
-    private readonly BlockingCollection<ManifestRollRequest> _queue = new();
+    private readonly BlockingCollection<ManifestRollRequest> _queue = [];
     private readonly Thread _thread;
     private int _disposed;
     private int _inFlight;
 
+    [SuppressMessage(
+        "NDepend",
+        "ND2500:DontCreateThreadsExplicitly",
+        Justification = "Dedicated manifest roll thread keeps WAL I/O off manifest disk writes; Task.Run is banned on infrastructure paths.")]
     internal ManifestRollPublisher(ManifestStore manifestStore, Action<Exception>? onRollFailed = null)
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));

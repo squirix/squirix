@@ -38,7 +38,7 @@ internal static class JournalCompactor
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = GetNextJournalSegmentIndex(journalSegments);
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
         var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
@@ -173,9 +173,9 @@ internal static class JournalCompactor
     {
         // Install the compacted journal before deleting any old segments.
         // Crash safety relies on each intermediate state remaining recoverable.
-        var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
-        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.bak");
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+        var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.bak");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
         _ = FileEx.TryDeleteFile(backupJournalPath);
         FileEx.PublishFile(tmpPath, path, backupJournalPath);
 

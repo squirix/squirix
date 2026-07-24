@@ -23,7 +23,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
+    public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
@@ -59,11 +59,9 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using (var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"))
-        {
-            remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
-            var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
-            Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
-        }
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics");
+        remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
+        var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
     }
 }

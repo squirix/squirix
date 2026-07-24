@@ -90,7 +90,7 @@ public sealed class RpcMutationIdempotencyIntegrationTests : NodeIntegrationTest
 
     /// <summary>Verifies reusing an operation id with a different mutation fingerprint fails with the stable contract.</summary>
     [Fact]
-    public async Task ReusedOperationIdWithDifferentFingerprintReturnsFailedPrecondition()
+    public async Task ReusedOperationIdReturnsFailedPrecondition()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, "node-a");

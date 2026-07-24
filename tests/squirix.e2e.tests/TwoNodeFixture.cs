@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Client;
@@ -9,7 +8,6 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
-[SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Instantiated by xUnit via IClassFixture<T>.")]
 public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private HostedCluster? _cluster;

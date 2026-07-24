@@ -76,7 +76,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies an external gRPC client connected to a non-owner node is routed through the server-side cluster pipeline.</summary>
     [Fact]
-    public async Task ExternalClientConnectedToNodeARoutesMutationToOwnerNodeB()
+    public async Task ExternalClientConnectedNodeMutationOwnerNodeB()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "external-client-route");
         await using var client = await LoopbackConnect.ConnectAsync(Cluster.NodeAAddress, DefaultCancellationToken);
@@ -114,7 +114,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies an update through one node is immediately visible when reading through another node.</summary>
     [Fact]
-    public async Task InsertOnNodeAUpdateOnNodeBGetOnNodeAReturnsLatestValue()
+    public async Task InsertNodeAUpdateNodeBGetOnNodeAReturnsLatestValue()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "cross-node-update");
 
@@ -126,7 +126,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies SetAsync(string, T) writes are visible from another node for the same named cache.</summary>
     [Fact]
-    public async Task InsertValueOnNodeAThenGetOnNodeBReturnsInsertedValue()
+    public async Task InsertValueOnNodeAGetOnNodeBReturnsInsertedValue()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-insert-get");
 
@@ -160,7 +160,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies the same key in different named caches remains isolated across cluster nodes.</summary>
     [Fact]
-    public async Task SameKeyInDifferentNamedCachesRemainsIsolatedAcrossNodes()
+    public async Task SameKeyInDifferentNamedCachesRemainsIsolatedNodes()
     {
         await Cluster.CacheA.SetAsync("same-key", "order-value", cancellationToken: DefaultCancellationToken);
         await Cluster.CustomerCacheA.SetAsync("same-key", "customer-value", cancellationToken: DefaultCancellationToken);
@@ -171,7 +171,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies TryAddAsync(string, T) observes existing named-cache values across nodes.</summary>
     [Fact]
-    public async Task TryAddValueOnNodeBReturnsFalseWhenKeyInsertedOnNodeA()
+    public async Task TryAddValueOnNodeBReturnsFalseKeyInsertedOnNodeA()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "cross-node-try-add");
 
@@ -182,7 +182,7 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
     /// <summary>Verifies a stored null value remains distinguishable from a missing key across nodes.</summary>
     [Fact]
-    public async Task TryGetValueOnNodeBReturnsFoundForNullValueInsertedOnNodeA()
+    public async Task TryGetValueNodeBReturnsFoundNullValueInsertedNodeA()
     {
         await Cluster.CacheA.SetAsync("null-key", null, cancellationToken: DefaultCancellationToken);
 

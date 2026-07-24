@@ -29,7 +29,7 @@ internal sealed class ClientInterceptor : Interceptor
         var updatedContext = new ClientInterceptorContext<TRequest, TResponse>(context.Method, context.Host, callOptions);
         var scope = Correlation.BeginStandardScope(_log, _nodeId, context.Method.FullName);
         var call = base.AsyncUnaryCall(request, updatedContext, continuation);
-        return WrapUnaryCallAsync(scope, ownedActivity, call);
+        return OutboundUnaryCallLease<TResponse>.WrapAsync(scope, ownedActivity, call);
     }
 
     private static CallOptions AttachTraceHeaders(CallOptions options, string method, out Activity? ownedActivity)
@@ -73,18 +73,41 @@ internal sealed class ClientInterceptor : Interceptor
         metadata.Add(new Metadata.Entry(key, value));
     }
 
-    private static AsyncUnaryCall<TResponse> WrapUnaryCallAsync<TResponse>(IDisposable scope, Activity? ownedActivity, AsyncUnaryCall<TResponse> inner)
+    /// <summary>Owns logging scope and optional client Activity for the lifetime of an outbound unary call.</summary>
+    /// <typeparam name="TResponse">Outbound unary response type.</typeparam>
+    private sealed class OutboundUnaryCallLease<TResponse>
     {
-        var disposed = 0;
+        private readonly AsyncUnaryCall<TResponse> _inner;
+        private readonly Activity? _ownedActivity;
+        private readonly IDisposable _scope;
+        private int _disposed;
 
-        async Task<TResponse> ResponseAsync()
+        private OutboundUnaryCallLease(IDisposable scope, Activity? ownedActivity, AsyncUnaryCall<TResponse> inner)
+        {
+            _scope = scope;
+            _ownedActivity = ownedActivity;
+            _inner = inner;
+        }
+
+        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable scope, Activity? ownedActivity, AsyncUnaryCall<TResponse> inner)
+        {
+            var lease = new OutboundUnaryCallLease<TResponse>(scope, ownedActivity, inner);
+            return new AsyncUnaryCall<TResponse>(
+                lease.ResponseAsync(),
+                inner.ResponseHeadersAsync,
+                inner.GetStatus,
+                inner.GetTrailers,
+                lease.DisposeCall);
+        }
+
+        private async Task<TResponse> ResponseAsync()
         {
             try
             {
 #pragma warning disable VSTHRD003
 
                 // Scope and owned client Activity must live until the outbound unary call completes.
-                return await inner.ResponseAsync.ConfigureAwait(false);
+                return await _inner.ResponseAsync.ConfigureAwait(false);
 #pragma warning restore VSTHRD003
             }
             finally
@@ -93,23 +116,19 @@ internal sealed class ClientInterceptor : Interceptor
             }
         }
 
-        return new AsyncUnaryCall<TResponse>(
-            ResponseAsync(),
-            inner.ResponseHeadersAsync,
-            inner.GetStatus,
-            inner.GetTrailers,
-            () =>
-            {
-                DisposeOnce();
-                inner.Dispose();
-            });
-
-        void DisposeOnce()
+        private void DisposeCall()
         {
-            if (Interlocked.Exchange(ref disposed, 1) is not 0)
+            DisposeOnce();
+            _inner.Dispose();
+        }
+
+        private void DisposeOnce()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) is not 0)
                 return;
-            scope.Dispose();
-            ownedActivity?.Dispose();
+
+            _scope.Dispose();
+            _ownedActivity?.Dispose();
         }
     }
 }

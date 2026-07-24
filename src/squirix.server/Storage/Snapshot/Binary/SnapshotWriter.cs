@@ -33,11 +33,11 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
-        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
         try
         {
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
-            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
+            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
             return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException($"Failed to publish snapshot to '{snap}'.");
         }
         finally

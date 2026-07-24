@@ -34,9 +34,7 @@ public static class InterNodeGrpcProbe
             headers.Add("authorization", $"Bearer {bearerToken}");
 
         if (includeInternalOwnerHeader)
-        {
             headers.Add(RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue);
-        }
 
         try
         {

@@ -11,7 +11,7 @@ public sealed class SettingsBindingTests : ServerUnitTestBase
 {
     /// <summary>Verifies strict settings validation includes a valid <c>Snapshot</c> section.</summary>
     [Fact]
-    public async Task TryValidateSettingsFileStrictAcceptsValidSnapshotSection()
+    public async Task TryValidateSettingsFileAcceptsValidSnapshotSection()
     {
         using var dir = new TempDirectory("squirix-snapshot-settings-strict");
         const string json =

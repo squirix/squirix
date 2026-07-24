@@ -19,7 +19,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Verifies cluster forwarding preserves ResourceExhausted when the remote owner rejects an oversized entry.</summary>
     [Fact]
-    public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwner()
+    public async Task ClusterForwardPreservesPayloadTooLargeRemoteOwner()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -54,7 +54,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Verifies gRPC insert above the limit returns ResourceExhausted and does not persist.</summary>
     [Fact]
-    public async Task GrpcInsertAboveLimitReturnsResourceExhaustedAndDoesNotPersist()
+    public async Task GrpcInsertAboveLimitResourceExhaustedPersist()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, NodeId);
@@ -83,7 +83,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Verifies cluster forwarding preserves ResourceExhausted when a remote owner rejects an oversized update.</summary>
     [Fact]
-    public async Task ClusterForwardPreservesPayloadTooLargeForRemoteOwnerUpdate()
+    public async Task ClusterForwardPreservesPayloadRemoteOwnerUpdate()
     {
         var uriA = GetNextHttpUri();
         var uriB = GetNextHttpUri();
@@ -128,7 +128,7 @@ public sealed class EntryPayloadLimitIntegrationTests : NodeIntegrationTestBase
 
     /// <summary>Verifies updating an existing entry above the limit returns ResourceExhausted and preserves the prior value.</summary>
     [Fact]
-    public async Task GrpcUpdateAboveLimitReturnsResourceExhaustedAndPreservesValue()
+    public async Task GrpcUpdateAboveLimitExhaustedPreservesValue()
     {
         var uri = GetNextHttpUri();
         await using var node = await StartNodeAsync(uri, NodeId);

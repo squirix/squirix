@@ -20,7 +20,7 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
     /// cache reads stay empty until replay, and durable writes wait for the startup gate.
     /// </summary>
     [Fact]
-    public async Task NonBlockingRecoveryKeepsReadyUnhealthyUntilGateOpensAndGatesCacheWrites()
+    public async Task NonBlockingRecoveryKeepsReadyOpensGatesCacheWrites()
     {
         var httpUri = GetNextHttpUri();
 

@@ -31,8 +31,17 @@
         <IsSquirixTestProject>false</IsSquirixTestProject>
         <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
         <IsSquirixProductionProject>false</IsSquirixProductionProject>
+        <IsSquirixAnalyzerProject>false</IsSquirixAnalyzerProject>
     </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/'))">
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.analyzers'))">
+        <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
+        <!-- Skip Sonar.NET on the Roslyn analyzer project itself. -->
+        <SonarQubeExclude>true</SonarQubeExclude>
+        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; deps.json is unused and races under parallel solution builds. -->
+        <GenerateDependencyFile>false</GenerateDependencyFile>
+        <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true'">
         <IsSquirixProductionProject>true</IsSquirixProductionProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">
@@ -50,8 +59,16 @@
         <NoWarn>$(NoWarn);CA1515;CA2007;MA0004</NoWarn>
     </PropertyGroup>
 
-    <!-- Solution-wide Roslyn analyzers (all projects). -->
-    <ItemGroup Label="GlobalAnalyzers">
+    <!-- In-repo Roslyn analyzers (skip the analyzer project itself). -->
+    <ItemGroup Label="SquirixAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
+        <ProjectReference Include="$(MSBuildThisFileDirectory)src\squirix.analyzers\Squirix.Analyzers.csproj"
+                          ReferenceOutputAssembly="false"
+                          OutputItemType="Analyzer"
+                          SetTargetFramework="TargetFramework=netstandard2.0"/>
+    </ItemGroup>
+
+    <!-- Solution-wide Roslyn analyzers (all projects except Squirix.Analyzers). -->
+    <ItemGroup Label="GlobalAnalyzers" Condition="'$(IsSquirixAnalyzerProject)' != 'true'">
         <PackageReference Include="AsyncFixer" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.CoreAnalyzers" PrivateAssets="all"/>
         <PackageReference Include="ErrorProne.NET.Structs" PrivateAssets="all"/>

@@ -22,7 +22,10 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
         /// <summary>
         /// Labels: node, result (success|failure).
         /// </summary>
-        internal static readonly ServerHistogram2Labels DurationSeconds = new(ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_snapshot_duration_seconds"), "node", "result");
+        internal static readonly ServerHistogram2Labels DurationSeconds = new(
+            ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_snapshot_duration_seconds"),
+            "node",
+            "result");
     }
 
     private sealed class Scope : ISnapshotTraceScope
@@ -36,6 +39,6 @@ internal sealed class OpenTelemetrySnapshotTelemetry : ISnapshotTelemetry
 
         public void Dispose() => _activity.Dispose();
 
-        public void SetTag(string key, object? value) => _ = _activity.SetTag(key, value);
+        public void SetTag(string key, string? value) => _ = _activity.SetTag(key, value);
     }
 }

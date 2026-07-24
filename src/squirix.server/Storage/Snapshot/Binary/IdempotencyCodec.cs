@@ -40,10 +40,17 @@ internal static class IdempotencyCodec
         var operationIdBytes = Encoding.UTF8.GetByteCount(record.OperationId);
         var fingerprintBytes = Encoding.UTF8.GetByteCount(record.Fingerprint);
         var responseBytes = record.ResponseBytes.Length;
-        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue || responseBytes > int.MaxValue - 8)
+        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue)
             throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
 
-        return 2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes;
+        try
+        {
+            return checked(2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes);
+        }
+        catch (OverflowException)
+        {
+            throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
+        }
     }
 
     private static DateTime ReadCreatedUtc(ReadOnlySpan<byte> source, ref int offset)

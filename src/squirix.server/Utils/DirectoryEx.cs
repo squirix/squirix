@@ -1,19 +1,13 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Squirix.Server.Utils;
 
+/// <summary>Safe directory creation with strict path validation and optional symlink rejection.</summary>
 internal static class DirectoryEx
 {
-    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
-    private static readonly char[] InvalidPathChars = Path.GetInvalidPathChars();
-
-    private static readonly StringComparison SubPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-        ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
     /// <param name="path">
     /// The target directory path. May be relative or absolute. Must not be <see langword="null" />, empty, or whitespace,
@@ -54,16 +48,8 @@ internal static class DirectoryEx
     /// </remarks>
     internal static string CreateDirectory(string path, string? baseDir = null, bool forbidSymlinks = true)
     {
-        var full = ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks);
-        if (!Directory.Exists(full))
-        {
-            _ = Directory.CreateDirectory(full);
-            EnsureRegularDirectory(full, true, forbidSymlinks);
-            return full;
-        }
-
-        EnsureRegularDirectory(full, false, forbidSymlinks);
-        return full;
+        var full = DirectoryPathValidator.ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks);
+        return EnsureDirectoryReady(full, forbidSymlinks);
     }
 
     /// <summary>Safely creates a directory with strict validation and returns its normalized absolute path.</summary>
@@ -79,10 +65,47 @@ internal static class DirectoryEx
         bool ensureEmpty = false,
         bool forbidSymlinks = true,
         CancellationToken cancellationToken = default) => EnsureDirectoryReadyAsync(
-        ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks),
+        DirectoryPathValidator.ResolveValidatedDirectoryPath(path, baseDir, forbidSymlinks),
         ensureEmpty,
         forbidSymlinks,
         cancellationToken);
+
+    private static async Task<string> EnsureDirectoryReadyAsync(
+        string full,
+        bool ensureEmpty,
+        bool forbidSymlinks,
+        CancellationToken cancellationToken)
+    {
+        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
+
+        if (!ensureEmpty)
+            return full;
+
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Refusing to clean a filesystem root.");
+
+        await CleanDirectoryContentsAsync(full, forbidSymlinks, cancellationToken).ConfigureAwait(false);
+        return full;
+    }
+
+    private static string EnsureDirectoryReady(string full, bool forbidSymlinks)
+    {
+        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
+        return full;
+    }
+
+    private static void EnsureDirectoryExistsAndIsRegular(string full, bool forbidSymlinks)
+    {
+        if (!Directory.Exists(full))
+        {
+            _ = Directory.CreateDirectory(full);
+            DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
+            return;
+        }
+
+        DirectorySymlinkGuard.EnsureRegularDirectory(full, false, forbidSymlinks);
+    }
 
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
@@ -107,10 +130,11 @@ internal static class DirectoryEx
                 {
                     var d = directories[i];
                     var di = new DirectoryInfo(d);
-                    if (forbidSymlinks && IsSymlink(di))
+                    if (forbidSymlinks && DirectorySymlinkGuard.IsSymlink(di))
                         throw new IOException($"Refusing to descend into symlink/junction: '{d}'.");
 
-                    Directory.Delete(d, true);
+                    var validated = FilePathValidator.ResolveValidatedDirectoryPath(d);
+                    Directory.Delete(validated, true);
                 }
 
                 return;
@@ -124,263 +148,6 @@ internal static class DirectoryEx
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
         }
-    }
-
-    private static async Task<string> EnsureDirectoryReadyAsync(string full, bool ensureEmpty, bool forbidSymlinks, CancellationToken cancellationToken)
-    {
-        if (!Directory.Exists(full))
-        {
-            _ = Directory.CreateDirectory(full);
-            EnsureRegularDirectory(full, true, forbidSymlinks);
-            return full;
-        }
-
-        EnsureRegularDirectory(full, false, forbidSymlinks);
-
-        if (!ensureEmpty)
-            return full;
-
-        var root = Path.GetPathRoot(full) ?? string.Empty;
-        if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Refusing to clean a filesystem root.");
-
-        await CleanDirectoryContentsAsync(full, forbidSymlinks, cancellationToken).ConfigureAwait(false);
-        return full;
-    }
-
-    private static void EnsureNoSymlinksInChain(string full, string? baseFull)
-    {
-        // Walk from base (if provided) or drive root towards the target, checking each existing segment.
-        var start = baseFull ?? Path.GetPathRoot(full)!;
-        var relative = full.AsSpan(start.Length);
-        while (relative.Length > 0 && IsDirectorySeparator(relative[0]))
-            relative = relative[1..];
-
-        if (relative.IsEmpty)
-            return;
-
-        var trimmedStart = start.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-        // Trimming trailing separators can turn a root-only path into an empty string
-        // (for example "/" on Unix). PathEx.Combine cannot start from empty, so when
-        // trimming empties a non-empty start, preserve the original root as the seed.
-        var cur = trimmedStart.Length is 0 && start.Length > 0 ? start : trimmedStart;
-
-        while (TryReadNextSegment(ref relative, out var segment))
-        {
-            cur = PathEx.Combine(cur, segment.ToString());
-            var di = new DirectoryInfo(cur);
-            if (!di.Exists) // Not yet existing — will be created as regular directories
-                break;
-
-            if (!IsSymlink(di))
-                continue;
-
-            // macOS ships compatibility symlinks (/var -> /private/var, /tmp -> /private/tmp, /etc -> /private/etc).
-            // Rejecting them breaks every DataDir under Path.GetTempPath() (/var/folders/...). Follow only those
-            // well-known OS links; any other symlink/junction in the chain remains forbidden.
-            if (TryFollowMacOsCompatibilitySymlink(di, out var resolved))
-            {
-                cur = resolved;
-                continue;
-            }
-
-            throw new IOException($"Symlink/junction detected in path: '{cur}'.");
-        }
-    }
-
-    private static bool TryFollowMacOsCompatibilitySymlink(DirectoryInfo directory, out string resolvedFullPath)
-    {
-        resolvedFullPath = string.Empty;
-        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
-            return false;
-
-        // Only the three historical Darwin compatibility links at the filesystem root.
-        var root = Path.GetPathRoot(directory.FullName);
-        var parent = directory.Parent;
-        if (root is null || parent is null)
-            return false;
-
-        var rootTrimmed = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var parentTrimmed = parent.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!parentTrimmed.Equals(rootTrimmed, StringComparison.Ordinal)
-            && !parent.FullName.Equals(root, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var name = directory.Name;
-        if (name is not ("var" or "tmp" or "etc"))
-            return false;
-
-        FileSystemInfo? target;
-        try
-        {
-            target = directory.ResolveLinkTarget(returnFinalTarget: true);
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-        catch (NotSupportedException)
-        {
-            return false;
-        }
-
-        if (target is null)
-            return false;
-
-        var expected = Path.Join(root, "private", name);
-        var expectedTrimmed = expected.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var targetFull = target.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!targetFull.Equals(expectedTrimmed, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        resolvedFullPath = expectedTrimmed;
-        return true;
-    }
-
-    private static void EnsureRegularDirectory(string full, bool created, bool forbidSymlinks)
-    {
-        if (!forbidSymlinks)
-            return;
-
-        var info = new DirectoryInfo(full);
-        if (!IsSymlink(info))
-            return;
-
-        throw new IOException(created ? $"Created directory resolved to a symlink/junction: '{full}'." : $"Target directory is a symlink/junction: '{full}'.");
-    }
-
-    private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
-
-    private static bool IsSubPathOf(string candidateFull, string baseFull)
-    {
-        if (candidateFull.Equals(baseFull, SubPathComparison))
-            return true;
-
-        if (baseFull.EndsWith(Path.DirectorySeparatorChar))
-            return candidateFull.StartsWith(baseFull, SubPathComparison);
-
-        if (candidateFull.Length <= baseFull.Length)
-            return false;
-
-        if (!candidateFull.AsSpan(0, baseFull.Length).Equals(baseFull.AsSpan(), SubPathComparison))
-            return false;
-
-        return IsDirectorySeparator(candidateFull[baseFull.Length]);
-    }
-
-    private static bool IsSymlink(FileSystemInfo fsi)
-    {
-        try
-        {
-            // .NET 6+ cross-platform symlink test
-            if (fsi.LinkTarget is not null)
-                return true;
-        }
-        catch (IOException)
-        {
-            // Some FS/providers may throw; fall back to attributes
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Some FS/providers may throw; fall back to attributes
-        }
-        catch (NotSupportedException)
-        {
-            // LinkTarget may be unsupported on some providers; fall back to attributes
-        }
-
-        try
-        {
-            return (fsi.Attributes & FileAttributes.ReparsePoint) is not FileAttributes.None;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsWindowsReservedName(ReadOnlySpan<char> segment)
-    {
-        var name = segment;
-        var dot = segment.IndexOf('.');
-        if (dot > 0)
-        {
-            name = segment[..dot];
-        }
-
-        if (name.Equals("CON", StringComparison.OrdinalIgnoreCase) || name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("AUX", StringComparison.OrdinalIgnoreCase) || name.Equals("NUL", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (name.Length < 4)
-            return false;
-
-        var prefix = name[..3];
-        if (!prefix.Equals("COM", StringComparison.OrdinalIgnoreCase) && !prefix.Equals("LPT", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
-    private static string? PrepareBaseDirectory(string? baseDir, bool forbidSymlinks)
-    {
-        if (string.IsNullOrWhiteSpace(baseDir))
-            return null;
-
-        ValidateNoInvalidChars(baseDir);
-        var baseFull = Path.GetFullPath(baseDir);
-
-        if (forbidSymlinks)
-        {
-            var baseInfo = new DirectoryInfo(baseFull);
-            if (baseInfo.Exists && IsSymlink(baseInfo))
-                throw new IOException($"Base directory is a symlink/junction: '{baseFull}'.");
-        }
-
-        if (!Directory.Exists(baseFull))
-            _ = Directory.CreateDirectory(baseFull);
-
-        return baseFull;
-    }
-
-    private static string ResolveFullPath(string path, string? baseFull) =>
-        Path.GetFullPath(Path.IsPathRooted(path) ? path : PathEx.Combine(baseFull ?? Environment.CurrentDirectory, path));
-
-    private static string ResolveValidatedDirectoryPath(string path, string? baseDir, bool forbidSymlinks)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            throw new ArgumentException("Path must be a non-empty string.", nameof(path));
-
-        ValidateNoInvalidChars(path);
-
-        var baseFull = PrepareBaseDirectory(baseDir, forbidSymlinks);
-        var full = ResolveFullPath(path, baseFull);
-
-        if (baseFull is not null && !IsSubPathOf(full, baseFull))
-            throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
-
-        ValidateSegments(full);
-
-        if (forbidSymlinks)
-            EnsureNoSymlinksInChain(full, baseFull);
-
-        if (File.Exists(full))
-            throw new IOException($"A file already exists at '{full}'.");
-
-        return full;
     }
 
     private static void ClearReadOnlyAttributes(string file)
@@ -399,67 +166,5 @@ internal static class DirectoryEx
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
         }
-    }
-
-    private static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
-    {
-        while (path.Length > 0 && IsDirectorySeparator(path[0]))
-            path = path[1..];
-
-        if (path.IsEmpty)
-        {
-            segment = default;
-            return false;
-        }
-
-        var end = path.IndexOfAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (end < 0)
-        {
-            segment = path.Trim();
-            path = default;
-            return !segment.IsEmpty;
-        }
-
-        segment = path[..end].Trim();
-        path = path[(end + 1)..];
-        return !segment.IsEmpty;
-    }
-
-    private static void ValidateNoInvalidChars(string path)
-    {
-        if (path.AsSpan().IndexOfAny(InvalidPathChars) >= 0)
-            throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
-
-        // Wildcards typically indicate a glob, not a concrete path
-        if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
-            throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
-    }
-
-    private static void ValidateSegment(ReadOnlySpan<char> segment, string fullPath)
-    {
-        if (segment.IsEmpty)
-            throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
-
-        // Windows-only constraints
-        if (OperatingSystem.IsWindows())
-        {
-            if (segment.EndsWith(' ') || segment.EndsWith('.'))
-                throw new ArgumentException($"Segment ends with space or dot: '{segment}' in '{fullPath}'.", nameof(fullPath));
-
-            if (IsWindowsReservedName(segment))
-                throw new ArgumentException($"Segment is a reserved Windows name: '{segment}' in '{fullPath}'.", nameof(fullPath));
-        }
-
-        // File-name level invalid chars (cross-platform)
-        if (segment.IndexOfAny(InvalidFileNameChars) >= 0)
-            throw new ArgumentException($"Segment contains invalid characters: '{segment}' in '{fullPath}'.", nameof(fullPath));
-    }
-
-    private static void ValidateSegments(string fullPath)
-    {
-        var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-        var rest = fullPath.AsSpan(root.Length);
-        while (TryReadNextSegment(ref rest, out var segment))
-            ValidateSegment(segment, fullPath);
     }
 }

@@ -68,7 +68,7 @@ internal static class IdempotencyMetrics
     {
         private int _instrumentsCreated;
 
-        private ImmutableArray<IdempotencyMetricRegistration> _items = ImmutableArray<IdempotencyMetricRegistration>.Empty;
+        private ImmutableArray<IdempotencyMetricRegistration> _items = [];
 
         internal void Add(IdempotencyMetricRegistration registration) => _items = _items.Add(registration);
 
@@ -80,7 +80,7 @@ internal static class IdempotencyMetrics
                 return;
 
             _items = previous.Length is 1
-                ? ImmutableArray<IdempotencyMetricRegistration>.Empty
+                ? []
                 : previous.RemoveAt(index);
         }
 

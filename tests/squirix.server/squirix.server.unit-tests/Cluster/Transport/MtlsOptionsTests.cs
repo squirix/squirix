@@ -15,7 +15,7 @@ public sealed class MtlsOptionsTests
 {
     /// <summary>Ensures multi-node topology rejects an internal port that matches the primary listener.</summary>
     [Fact]
-    public async Task RemotePeersRejectInternalPortMatchingPrimaryListener()
+    public async Task RemotePeersRejectInternalMatchingPrimaryListener()
     {
         using var bundle = await MtlsTestCertificateFactory.CreateAsync(TestContext.Current.CancellationToken);
         var options = new MtlsOptions
@@ -68,7 +68,7 @@ public sealed class MtlsOptionsTests
 
     /// <summary>Ensures multi-node topology requires CA, node certificate, and internal listen port.</summary>
     [Fact]
-    public void RemotePeersRequireCaNodeCertificateAndInternalListenPort()
+    public void RemotePeersRequireCaCertificateInternalListenPort()
     {
         var options = new MtlsOptions();
 
@@ -90,7 +90,7 @@ public sealed class MtlsOptionsTests
 
     /// <summary>Ensures startup validation allows standalone topology without mTLS material.</summary>
     [Fact]
-    public void StartupValidatorAllowsStandaloneTopologyWithoutMtlsMaterial()
+    public void StartupValidatorAllowsTopologyMtlsMaterial()
     {
         var cluster = new TopologyOptions([new ServerPeer { NodeId = "node-a", Uri = new Uri("https://localhost:6001") }])
         {

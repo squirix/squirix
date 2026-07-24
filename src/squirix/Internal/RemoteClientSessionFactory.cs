@@ -17,6 +17,13 @@ namespace Squirix.Internal;
 
 internal static class RemoteClientSessionFactory
 {
+    /// <summary>Creates the serializer used by remote client sessions (metrics-decorated by default).</summary>
+    /// <param name="serializer">Optional inner serializer; defaults to System.Text.Json.</param>
+    /// <param name="enableMetrics">When <see langword="true" />, wraps the serializer with metrics recording.</param>
+    /// <returns>Configured serializer instance.</returns>
+    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
+        SerializationProvider.Create(serializer, enableMetrics);
+
     internal static async ValueTask<IRemoteClientSession> ConnectAsync(
         IList<Uri> endpoints,
         Func<CancellationToken, ValueTask<string>>? bearerTokenProvider,
@@ -121,10 +128,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -136,10 +143,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -151,10 +158,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -166,10 +173,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -181,9 +188,9 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     _inner.Serialize(destination, value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }
@@ -195,10 +202,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.SerializeToElement(value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }
@@ -210,10 +217,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.SerializeToUtf8Bytes(value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }

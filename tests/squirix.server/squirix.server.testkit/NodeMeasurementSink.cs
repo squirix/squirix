@@ -81,9 +81,7 @@ public sealed class NodeMeasurementSink : IDisposable
         foreach (var measurement in events)
         {
             if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(measurement, tag1.Key, tag1.Value))
-            {
                 return true;
-            }
         }
 
         return false;

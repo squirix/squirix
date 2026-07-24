@@ -2,13 +2,11 @@ using System;
 using System.Net.Http;
 using Grpc.AspNetCore.Server;
 using Microsoft.Extensions.DependencyInjection;
-using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Backpressure;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Snapshot;
 
 namespace Squirix.Server.Node.Hosting;
 
@@ -16,8 +14,6 @@ namespace Squirix.Server.Node.Hosting;
 internal interface ICompositionArgs
 {
     AdmissionOptions? BackpressureOptions { get; set; }
-
-    Func<string, ServerCallPolicy>? CallPolicyFactory { get; set; }
 
     Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
@@ -36,8 +32,6 @@ internal interface ICompositionArgs
     SecurityOptions? SecurityOptions { get; set; }
 
     Action<IServiceCollection>? ServicesConfigure { get; set; }
-
-    TriggerOptions? SnapshotOptions { get; set; }
 
     bool WaitForRecovery { get; set; }
 }

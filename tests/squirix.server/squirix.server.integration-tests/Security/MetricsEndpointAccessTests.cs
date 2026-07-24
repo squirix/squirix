@@ -21,7 +21,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies authenticated scrapes succeed against a non-loopback listener when server auth is enabled.</summary>
     [Fact]
-    public async Task AuthenticatedMetricsScrapeSucceedsOnNonLoopbackListenerWhenAuthEnabled()
+    public async Task AuthenticatedMetricsScrapeListenerAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -40,7 +40,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
-    public async Task LoopbackMetricsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
+    public async Task LoopbackMetricsScrapeCredentialsAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
@@ -54,7 +54,7 @@ public sealed class MetricsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
-    public async Task RemoteMetricsScrapeReturns401WithoutCredentialsWhenAuthEnabled()
+    public async Task RemoteMetricsScrapeCredentialsAuthEnabled()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");

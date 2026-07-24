@@ -28,7 +28,7 @@ public sealed class JournalCompactionServiceShutdownTests : ServerUnitTestBase
 {
     /// <summary>Compaction started after a snapshot is canceled when the host stops.</summary>
     [Fact]
-    public async Task SnapshotTriggeredCompactionCancelsOnShutdownAndClearsInFlight()
+    public async Task SnapshotTriggeredCompactionShutdownClearsFlight()
     {
         using var dir = new TempDirectory("squirix-journal-compact-shutdown");
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };

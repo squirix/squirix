@@ -63,7 +63,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
     [Fact]
-    public async Task ServerBootstrapSourcesShouldUseServerPackageHostStartupApi()
+    public async Task ServerBootstrapSourcesUsePackageHostStartupApi()
     {
         var sources = await ServerArchitectureFixtures.ReadServerBootstrapSourceTextsAsync(DefaultCancellationToken);
         var combined = string.Join(Environment.NewLine, Array.ConvertAll(sources, static source => source.Text));
@@ -74,7 +74,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the standalone process host stays separate from the packable server runtime.</summary>
     [Fact]
-    public void ServerHostProjectShouldBePackableGlobalToolExecutable()
+    public void ServerHostProjectBePackableGlobalToolExecutable()
     {
         var index = ServerArchitectureFixtures.ParseMsbuildProject(ServerArchitectureFixtures.LoadProject("src/squirix.server.host/Squirix.Server.Host.csproj"));
 
@@ -92,7 +92,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
     [Fact]
-    public async Task ServerInternalsVisibleToShouldMatchApprovedAllowlist()
+    public async Task ServerInternalsVisibleToMatchApprovedAllowlist()
     {
         string[] approved =
         [
@@ -145,7 +145,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
     [Fact]
-    public void ServerProjectShouldKeepApprovedHostingDependencyBaseline()
+    public void ServerProjectKeepApprovedHostingDependencyBaseline()
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
         var frameworkIncludes = index.GetIncludes("FrameworkReference");

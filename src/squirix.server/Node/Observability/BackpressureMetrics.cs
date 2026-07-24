@@ -42,9 +42,7 @@ internal static class BackpressureMetrics
         var observerId = ObserversState.AllocateObserverId();
         var entry = new ObserverEntry(observeInFlight, observeQueueDepth, observeTrackedClients);
         lock (ObserverGate)
-        {
             Observers[observerId] = entry;
-        }
 
         if (!ObserversState.TryRegisterObservers())
             return new ObserverRegistration(observerId);
@@ -71,9 +69,7 @@ internal static class BackpressureMetrics
     {
         ObserverEntry[] snapshot;
         lock (ObserverGate)
-        {
             snapshot = [.. Observers.Values];
-        }
 
         var total = 0;
         foreach (var observer in snapshot)
@@ -152,9 +148,7 @@ internal static class BackpressureMetrics
                 return;
 
             lock (ObserverGate)
-            {
                 _ = Observers.Remove(_observerId);
-            }
         }
     }
 }

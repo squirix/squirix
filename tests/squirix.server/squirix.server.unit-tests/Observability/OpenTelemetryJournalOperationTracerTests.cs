@@ -28,8 +28,8 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
-        Assert.Equal(128, Assert.IsType<int>(activity.GetTagItem("journal.bytes_payload")));
-        Assert.Equal(136, Assert.IsType<int>(activity.GetTagItem("journal.frame.total_bytes")));
+        Assert.Equal("128", Assert.IsType<string>(activity.GetTagItem("journal.bytes_payload")));
+        Assert.Equal("136", Assert.IsType<string>(activity.GetTagItem("journal.frame.total_bytes")));
     }
 
     /// <summary>Ensures durability settings on <see cref="JournalOperationTraceContext" /> are exported as span tags.</summary>
@@ -48,8 +48,8 @@ public sealed class OpenTelemetryJournalOperationTracerTests
 
         Assert.NotNull(scope);
         var activity = AssertActivity("journal.put");
-        Assert.True(Assert.IsType<bool>(activity.GetTagItem("journal.strict_fsync")));
-        Assert.False(Assert.IsType<bool>(activity.GetTagItem("journal.group_commit")));
+        Assert.Equal(ActivityTagValues.True, Assert.IsType<string>(activity.GetTagItem("journal.strict_fsync")));
+        Assert.Equal(ActivityTagValues.False, Assert.IsType<string>(activity.GetTagItem("journal.group_commit")));
     }
 
     /// <summary>Ensures unset durability settings do not emit durability span tags.</summary>

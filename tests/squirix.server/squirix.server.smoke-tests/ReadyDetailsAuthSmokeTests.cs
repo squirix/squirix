@@ -23,7 +23,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     /// Ensures <c>/health/ready/details</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task ReadyDetailsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
+    public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
         Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");

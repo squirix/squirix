@@ -237,9 +237,7 @@ public abstract class WireAllocBenchmarkBase<T>
         var cache = Cache!;
         var offset = Interlocked.Add(ref _removeExpirationOffset, Batch);
         for (var i = 0; i < Batch; i++)
-        {
             await cache.SetAsync(_expiringKeys[i], CreateValue(offset + i), new CacheEntryOptions { Expiration = _longExpiration }, CancellationToken.None).ConfigureAwait(false);
-        }
     }
 
     /// <summary>Re-seeds hit keys outside the measured body for <see cref="RemoveAsync" />.</summary>

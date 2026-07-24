@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Transport;
@@ -42,8 +43,8 @@ internal static class RuntimeServiceRegistration
     /// <param name="nodes">Distinct node identifiers.</param>
     /// <param name="virtualNodes">Virtual nodes per physical node.</param>
     /// <returns>A locator using the same ring algorithm as cluster hosting.</returns>
-    internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) =>
-        new ConsistentHashNodeLocator(nodes, virtualNodes);
+    [PublicAPI]
+    internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) => new ConsistentHashNodeLocator(nodes, virtualNodes);
 
     private static ServerPeer[] CopyPeers(TopologyOptions cluster)
     {

@@ -16,7 +16,7 @@ public sealed class CorrelationServerInterceptorTests
 {
     /// <summary>Verifies the server interceptor creates an activity when no incoming correlation headers exist.</summary>
     [Fact]
-    public async Task ServerInterceptorCreatesActivityWhenHeadersAreMissing()
+    public async Task ServerInterceptorCreatesActivityHeadersAreMissing()
     {
         using var listener = CreateSquirixActivityListener();
         var interceptor = CreateInterceptor();
@@ -34,7 +34,7 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.</summary>
     [Fact]
-    public async Task ServerInterceptorIgnoresInvalidOrEmptyCorrelationHeaders()
+    public async Task ServerInterceptorIgnoresEmptyCorrelationHeaders()
     {
         using var listener = CreateSquirixActivityListener();
         var interceptor = CreateInterceptor();
@@ -69,7 +69,7 @@ public sealed class CorrelationServerInterceptorTests
         var headers = new Metadata
         {
             { "traceparent", clientActivity.Id! },
-            { "tracestate", clientActivity.TraceStateString! },
+            { "tracestate", clientActivity.TraceStateString },
         };
 
         var observed = await interceptor.UnaryServerHandler(

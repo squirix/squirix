@@ -83,9 +83,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
         using (lease)
-        {
             await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     private async ValueTask<TResult> WithBackpressureAsync<TState, TResult>(
@@ -99,9 +97,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 
         using (lease)
-        {
             return await invoke(_inner, state, cancellationToken).ConfigureAwait(false);
-        }
     }
 
     private readonly record struct MutationKeyArgs(string OperationId, string CacheName, string Key);

@@ -15,7 +15,7 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : ServerUnitTestBas
 {
     /// <summary>Verifies dispatch through the interface runs the supplied callback (same gate semantics as a direct coordinator call).</summary>
     [Fact]
-    public async Task ExclusiveMaintenanceExecutorDispatchRunsSuppliedAction()
+    public async Task ExclusiveMaintenanceExecutorRunsSuppliedAction()
     {
         using var dir = new TempDirectory("squirix-journal-maint-iface");
         var persistence = new PersistenceOptions

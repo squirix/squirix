@@ -25,9 +25,7 @@ internal static class OptionsResolver
 
         var availableBytes = budgetProvider.GetTotalAvailableBytes();
         if (availableBytes <= 0)
-        {
             throw new InvalidOperationException("MemoryPressure cannot resolve RAM budget: available process memory is zero.");
-        }
 
         var capBytes = ComputeRamCapBytes(availableBytes);
         var maxBytes = raw.MaxEstimatedCacheBytes switch

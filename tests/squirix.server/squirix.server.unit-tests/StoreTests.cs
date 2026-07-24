@@ -53,7 +53,7 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
     [Fact]
-    public async Task WriteAsyncUpdatesCurrentPointerInPlaceWithoutTmpFile()
+    public async Task WriteAsyncUpdatesCurrentPointerInPlaceTmpFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);

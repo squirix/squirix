@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
@@ -68,7 +69,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     [Fact]
-    public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
+    public async Task ConcurrentAcquireReleaseExceedConfiguredCapacity()
     {
         const int maxInFlight = 3;
         var backpressureOptions = new AdmissionOptions
@@ -86,9 +87,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         var observedMax = new int[1];
         var clients = new Task[24];
         for (var i = 0; i < clients.Length; i++)
-        {
             clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
-        }
 
         var runClients = Task.WhenAll(clients);
 
@@ -258,7 +257,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
     [Fact]
-    public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
+    public async Task PerClientConcurrencyRejectsNodeCapacityIsExhausted()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
@@ -398,9 +397,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         var (decision, secondLease) = await queuedTask;
         using (secondLease)
-        {
             Assert.True(decision.IsAccepted);
-        }
     }
 
     /// <summary>Verifies queued admission observes caller cancellation and records queue cancellation metrics.</summary>
@@ -478,8 +475,8 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         using (lease)
         {
-            var now = Interlocked.Increment(ref current[0]);
-            UpdateMax(ref observedMax[0], now);
+            var now = Interlocked.Increment(ref MemoryMarshal.GetArrayDataReference(current));
+            UpdateMax(ref MemoryMarshal.GetArrayDataReference(observedMax), now);
 
             try
             {
@@ -487,7 +484,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             }
             finally
             {
-                _ = Interlocked.Decrement(ref current[0]);
+                _ = Interlocked.Decrement(ref MemoryMarshal.GetArrayDataReference(current));
             }
         }
     }

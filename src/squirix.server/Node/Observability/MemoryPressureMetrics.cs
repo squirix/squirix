@@ -107,7 +107,7 @@ internal static class MemoryPressureMetrics
     {
         private int _instrumentsCreated;
 
-        private ImmutableArray<MetricRegistration> _items = ImmutableArray<MetricRegistration>.Empty;
+        private ImmutableArray<MetricRegistration> _items = [];
 
         internal void Add(MetricRegistration registration) => _items = _items.Add(registration);
 
@@ -119,7 +119,7 @@ internal static class MemoryPressureMetrics
                 return;
 
             _items = previous.Length is 1
-                ? ImmutableArray<MetricRegistration>.Empty
+                ? []
                 : previous.RemoveAt(index);
         }
 

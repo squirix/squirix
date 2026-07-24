@@ -34,7 +34,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies that first boot without a current pointer returns a default manifest.</summary>
     [Fact]
-    public async Task ManifestStoreReturnsDefaultWhenCurrentPointerIsMissing()
+    public async Task ManifestStoreReturnsDefaultCurrentPointerIsMissing()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);
@@ -58,7 +58,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
     [Fact]
-    public async Task ManifestStoreThrowsWhenCurrentPointerTargetIsMissing()
+    public async Task ManifestStoreThrowsCurrentPointerTargetIsMissing()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);

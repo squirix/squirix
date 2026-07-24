@@ -10,7 +10,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     [Fact]
-    public async Task HealthProbesRemainAccessibleWithoutJwtWhenAuthEnabled()
+    public async Task HealthProbesRemainAccessibleJwtWhenAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var uri = GetNextHttpUri();

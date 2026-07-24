@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -71,7 +72,7 @@ internal sealed class Coordinator
                 static async (state, _, ct) =>
                 {
                     var captured = await state.Coordinator.CaptureSnapshotBundleAsync(state.Journal, ct).ConfigureAwait(false);
-                    state.Activity?.SetTag("snapshot.items_count", captured.Items.Count);
+                    state.Activity?.SetTag("snapshot.items_count", captured.Items.Count.ToString(CultureInfo.InvariantCulture));
                     return captured;
                 },
                 static (state, seqAtFlush, captured, ct) => state.Coordinator.PublishSnapshotAsync(seqAtFlush, captured, state.Activity, ct),
@@ -88,7 +89,7 @@ internal sealed class Coordinator
             _telemetry.RecordDuration(_nodeId, result, elapsed);
 
             activity?.SetTag("snapshot.result", result);
-            activity?.SetTag("snapshot.duration_ms", elapsed.TotalMilliseconds);
+            activity?.SetTag("snapshot.duration_ms", elapsed.TotalMilliseconds.ToString("G17", CultureInfo.InvariantCulture));
 
             Volatile.Write(ref _snapshotInFlight, 0);
         }
@@ -110,11 +111,11 @@ internal sealed class Coordinator
         ISnapshotTraceScope? currentActivity,
         CancellationToken cancellationToken)
     {
-        currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush);
+        currentActivity?.SetTag("snapshot.seq_at_flush", seqAtFlush.ToString(CultureInfo.InvariantCulture));
 
         var prev = await _manifestStore.ReadCurrentOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         var nextIndex = (prev.LastSnapshot?.Index ?? 0) + 1;
-        currentActivity?.SetTag("snapshot.index", nextIndex);
+        currentActivity?.SetTag("snapshot.index", nextIndex.ToString(CultureInfo.InvariantCulture));
 
         var path = await _snapWriter.WriteAsync(nextIndex, captured.Items, captured.IdempotencyRecordsAtFlush, cancellationToken).ConfigureAwait(false);
         currentActivity?.SetTag("snapshot.path", path);

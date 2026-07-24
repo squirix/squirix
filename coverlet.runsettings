@@ -4,7 +4,8 @@
     <DataCollectors>
       <DataCollector friendlyName="XPlat Code Coverage">
         <Configuration>
-          <Format>cobertura</Format>
+          <!-- Cobertura for the CI coverage gate; OpenCover for SonarCloud (sonar.cs.opencover.reportsPaths). -->
+          <Format>cobertura,opencover</Format>
           <Include>[Squirix]*,[Squirix.Server]*</Include>
           <Exclude>[Squirix.TestKit]*,[Squirix.Server.TestKit]*,[Squirix]JetBrains.Annotations.*,[Squirix.Server]JetBrains.Annotations.*,[JetBrains.Annotations]*,[Squirix]Squirix.Grpc.*,[Squirix.Server]Squirix.Server.Storage.JournalProto.*</Exclude>
           <ExcludeByFile>**/bin/**,**/obj/**,**/*.g.cs</ExcludeByFile>

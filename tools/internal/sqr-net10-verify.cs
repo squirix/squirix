@@ -59,15 +59,13 @@ return 0;
 string ResolveDefaultRepoRoot()
 {
     var entryDir = AppContext.GetData("EntryPointFileDirectoryPath") as string;
-    if (!string.IsNullOrWhiteSpace(entryDir))
-    {
-        var internalDir = Directory.GetParent(entryDir);
-        var toolsDir = internalDir?.Parent;
-        var repoDir = toolsDir?.Parent;
-        if (repoDir is not null)
-            return repoDir.FullName;
-    }
-
+    if (string.IsNullOrWhiteSpace(entryDir))
+        return Environment.CurrentDirectory;
+    var internalDir = Directory.GetParent(entryDir);
+    var toolsDir = internalDir?.Parent;
+    var repoDir = toolsDir?.Parent;
+    if (repoDir is not null)
+        return repoDir.FullName;
     return Environment.CurrentDirectory;
 }
 
@@ -145,17 +143,13 @@ void ValidateFile(string repoRoot, string path, List<string> outFailures)
         var localName = element.Name.LocalName;
         if (!string.Equals(localName, "TargetFramework", StringComparison.Ordinal)
             && !string.Equals(localName, "TargetFrameworks", StringComparison.Ordinal))
-        {
             continue;
-        }
 
         foreach (var framework in element.Value.Split(';'))
         {
             var value = framework.Trim();
             if (value.Length is 0 || string.Equals(value, supportedTargetFramework, StringComparison.Ordinal))
-            {
                 continue;
-            }
 
             outFailures.Add(
                 $"{Path.GetRelativePath(repoRoot, path)}: unsupported target framework '{value}'. squirix projects must target net10.0 only.");

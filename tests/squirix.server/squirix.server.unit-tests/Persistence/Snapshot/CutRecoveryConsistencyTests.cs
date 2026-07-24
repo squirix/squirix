@@ -36,7 +36,7 @@ public sealed class CutRecoveryConsistencyTests : ServerUnitTestBase
     /// records from the closed segment. Replay-from segment and next sequence are frozen at flush time under the mutation gate.
     /// </summary>
     [Fact]
-    public async Task SegmentRollDuringSnapshotBuildLosesJournalTailOnRecovery()
+    public async Task SegmentRollSnapshotBuildLosesJournalTailOnRecovery()
     {
         using var dir = new TempDirectory("squirix-snap-cut-roll-recovery");
         var persistence = new PersistenceOptions

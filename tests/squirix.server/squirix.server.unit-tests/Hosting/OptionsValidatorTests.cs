@@ -19,7 +19,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 {
     /// <summary>Verifies backpressure validator accepts boundary thresholds at the inclusive limits.</summary>
     [Fact]
-    public void BackpressureValidatorAcceptsInclusiveThresholdBoundaries()
+    public void BackpressureValidatorAcceptsThresholdBoundaries()
     {
         var v = new AdmissionOptionsValidator();
         var options = new AdmissionOptions
@@ -66,7 +66,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies backpressure validator rejects per-client inflight values above the node cap.</summary>
     [Fact]
-    public void BackpressureValidatorRejectsPerClientInFlightAboveNodeCap()
+    public void BackpressureValidatorRejectsPerFlightAboveNodeCap()
     {
         var v = new AdmissionOptionsValidator();
         var bad = new AdmissionOptions
@@ -188,7 +188,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies journal metrics exporter validator accepts valid intervals after setter validation.</summary>
     [Fact]
-    public void JournalMetricsExporterValidatorAcceptsValidInterval()
+    public void JournalMetricsExporterAcceptsValidInterval()
     {
         var v = new JournalMetricsExporterOptionsValidator();
         var options = new JournalMetricsExporterOptions { Interval = TimeSpan.FromTicks(1) };
@@ -200,7 +200,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
 
     /// <summary>Verifies memory pressure cross-property validation stays in the validator path.</summary>
     [Fact]
-    public void MemoryPressureValidatorRejectsHighThresholdNotBelowCritical()
+    public void MemoryPressureValidatorThresholdBelowCritical()
     {
         var v = new PressureOptionsValidator();
         var bad = new PressureOptions

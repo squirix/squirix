@@ -12,7 +12,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Total byte cap rejects an append that would exceed configured journal size.</summary>
     [Fact]
-    public void EnsureAppendCapacityOrThrowThrowsWhenAppendExceedsTotalByteCap()
+    public void EnsureAppendCapacityThrowThrowsExceedsTotalByteCap()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
         var error = Assert.Throws<JournalCapacityExceededException>(() => policy.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
@@ -21,7 +21,7 @@ public sealed class JournalSegmentRollCapacityTests
 
     /// <summary>Per-segment byte cap triggers roll before the next frame would overflow the active segment.</summary>
     [Fact]
-    public void ShouldRollSegmentWhenIncomingFrameExceedsSegmentByteCap()
+    public void ShouldRollSegmentIncomingExceedsSegmentByteCap()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = 1 });
         Assert.True(policy.ShouldRollSegment(OneMegabyte, 1));
