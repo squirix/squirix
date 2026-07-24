@@ -1054,6 +1054,8 @@ jobs:
                     name: sonar-working-dir
                     retention-days: 1
                     path: .sonarqube
+                    # Dot-directories (.sonarqube) are excluded unless this is true.
+                    include-hidden-files: true
                     if-no-files-found: error
 
     sonarcloud:
