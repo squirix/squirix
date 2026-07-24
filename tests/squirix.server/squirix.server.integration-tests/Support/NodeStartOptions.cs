@@ -1,5 +1,6 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
+using Squirix.Server.Storage;
 using Squirix.Server.TestKit.Hosting;
 
 namespace Squirix.Server.IntegrationTests.Support;
@@ -8,6 +9,8 @@ namespace Squirix.Server.IntegrationTests.Support;
 internal sealed class NodeStartOptions
 {
     internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    internal PersistenceOptions? PersistenceOptions { get; init; }
 
     internal bool UsePersistence { get; init; }
 

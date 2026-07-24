@@ -66,13 +66,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
+    public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
+
     public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
 
     public bool IsJournalGroupCommitEnabled => Options.IsJournalGroupCommitEnabled;
 
+    public long MaxBytes => EventLoop.Policy.MaxTotalBytes;
+
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
+
+    public long UsedBytes => EventLoop.JournalTotalBytes;
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 

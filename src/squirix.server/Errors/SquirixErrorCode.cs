@@ -41,4 +41,7 @@ public enum SquirixErrorCode
 
     /// <summary>Cache entry tags exceed configured count or UTF-8 size limits.</summary>
     InvalidEntryTags = 12,
+
+    /// <summary>On-disk journal size reached the configured hard limit; durable writes are rejected.</summary>
+    JournalDiskQuota = 13,
 }

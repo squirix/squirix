@@ -58,6 +58,10 @@ internal static class ServerHostingComposition
             {
                 await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
             }
+            catch (JournalCapacityExceededException ex)
+            {
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+            }
             catch (SquirixException ex)
             {
                 await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);

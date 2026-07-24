@@ -19,6 +19,7 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.OperationIdTooLong => "OPERATION_ID_TOO_LONG",
         SquirixErrorCode.OperationIdReuseMismatch => "OPERATION_ID_REUSE_MISMATCH",
         SquirixErrorCode.InvalidEntryTags => "INVALID_ENTRY_TAGS",
+        SquirixErrorCode.JournalDiskQuota => "JOURNAL_DISK_QUOTA",
         _ => "INTERNAL_ERROR",
     };
 
@@ -32,6 +33,7 @@ internal static class SquirixErrorMapper
         SquirixErrorCode.PayloadTooLarge => StatusCode.ResourceExhausted,
         SquirixErrorCode.TooManyRequests => StatusCode.ResourceExhausted,
         SquirixErrorCode.MemoryPressure => StatusCode.ResourceExhausted,
+        SquirixErrorCode.JournalDiskQuota => StatusCode.ResourceExhausted,
         SquirixErrorCode.OperationIdRequired => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdInvalidFormat => StatusCode.InvalidArgument,
         SquirixErrorCode.OperationIdTooLong => StatusCode.InvalidArgument,

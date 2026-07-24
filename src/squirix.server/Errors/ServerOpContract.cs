@@ -24,6 +24,8 @@ internal static class ServerOpContract
 
     internal static SquirixException MemoryPressure() => new(SquirixErrorCode.MemoryPressure, "MemoryPressure", ResourceExhaustedException.StableDetail);
 
+    internal static SquirixException JournalDiskQuota() => new(SquirixErrorCode.JournalDiskQuota, "JournalDiskQuota", JournalCapacityExceededException.StableDetail);
+
     internal static SquirixException OperationIdInvalidFormat() => new(
         SquirixErrorCode.OperationIdInvalidFormat,
         "OperationIdInvalidFormat",

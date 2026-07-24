@@ -85,6 +85,12 @@ internal static class SquirixEndpointMapping
                     snapshot.MemoryPressure.EntryCount,
                     snapshot.MemoryPressure.RejectedWriteCount,
                     snapshot.MemoryPressure.WriteRejectionActive);
+                var journalDisk = new HealthJournalDiskDetails(
+                    snapshot.JournalDisk.State,
+                    snapshot.JournalDisk.MaxBytes,
+                    snapshot.JournalDisk.UsedBytes,
+                    snapshot.JournalDisk.HighWaterBytes,
+                    snapshot.JournalDisk.WriteRejectionActive);
                 var retentionCleanup = new HealthRetentionCleanupDetails(
                     snapshot.RetentionCleanup.Degraded,
                     snapshot.RetentionCleanup.ConsecutiveWriteFailures,
@@ -96,7 +102,7 @@ internal static class SquirixEndpointMapping
                         snapshot.JournalBacklogOps,
                         snapshot.SnapshotAgeSeconds,
                         snapshot.SnapshotInFlight,
-                        new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup)),
+                        new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk)),
                     RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
             });
     }

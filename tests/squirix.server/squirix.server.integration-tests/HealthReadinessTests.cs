@@ -53,7 +53,25 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         AssertClientPoolReadiness(json);
         AssertCoordinationReadiness(json);
         AssertMemoryPressureReadiness(json);
+        AssertJournalDiskReadiness(json);
         AssertRetentionCleanupReadiness(json);
+    }
+
+    private static void AssertJournalDiskReadiness(JsonElement json)
+    {
+        Assert.True(json.TryGetProperty("journalDisk", out var journalDisk));
+        Assert.Equal(JsonValueKind.Object, journalDisk.ValueKind);
+        Assert.True(journalDisk.TryGetProperty("state", out var state));
+        Assert.Equal(JsonValueKind.String, state.ValueKind);
+        Assert.True(journalDisk.TryGetProperty("maxBytes", out var maxBytes));
+        Assert.Equal(JsonValueKind.Number, maxBytes.ValueKind);
+        Assert.True(maxBytes.GetInt64() > 0);
+        Assert.True(journalDisk.TryGetProperty("usedBytes", out var usedBytes));
+        Assert.Equal(JsonValueKind.Number, usedBytes.ValueKind);
+        Assert.True(journalDisk.TryGetProperty("highWaterBytes", out var highWater));
+        Assert.Equal(JsonValueKind.Number, highWater.ValueKind);
+        Assert.True(journalDisk.TryGetProperty("writeRejectionActive", out var rejection));
+        Assert.True(rejection.ValueKind is JsonValueKind.True or JsonValueKind.False);
     }
 
     private static void AssertRetentionCleanupReadiness(JsonElement json)

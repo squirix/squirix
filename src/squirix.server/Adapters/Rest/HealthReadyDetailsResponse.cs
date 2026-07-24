@@ -14,6 +14,7 @@ internal sealed class HealthReadyDetailsResponse
         Coordination = sections.Coordination;
         MemoryPressure = sections.MemoryPressure;
         RetentionCleanup = sections.RetentionCleanup;
+        JournalDisk = sections.JournalDisk;
     }
 
     [JsonInclude]
@@ -28,6 +29,9 @@ internal sealed class HealthReadyDetailsResponse
     [JsonInclude]
     [JsonPropertyName("journalBacklogOps")]
     internal ulong JournalBacklogOps { get; }
+
+    [JsonInclude]
+    internal HealthJournalDiskDetails JournalDisk { get; }
 
     [JsonInclude]
     internal HealthMemoryPressureDetails MemoryPressure { get; }

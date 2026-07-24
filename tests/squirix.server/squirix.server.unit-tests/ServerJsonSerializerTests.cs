@@ -37,13 +37,16 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
                 new HealthClientPoolDetails(true, 2),
                 new HealthCoordinationDetails(new HealthLeaseDetails(false, 0, 0, 0), new HealthWatchDetails(false, 0, 0, 0)),
                 new HealthMemoryPressureDetails("normal", 1024, 128, 3, 0, false),
-                new HealthRetentionCleanupDetails(false, 0, 0, null)));
+                new HealthRetentionCleanupDetails(false, 0, 0, null),
+                new HealthJournalDiskDetails("normal", 2048L * 1024 * 1024, 128, 1638L * 1024 * 1024, false)));
         var healthElement = JsonSerializer.SerializeToElement(health, RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
 
         Assert.True(healthElement.TryGetProperty("journalBacklogOps", out var backlog));
         Assert.Equal(7UL, backlog.GetUInt64());
         Assert.True(healthElement.TryGetProperty("memoryPressure", out var memoryPressure));
         Assert.True(memoryPressure.TryGetProperty("estimatedCacheBytes", out _));
+        Assert.True(healthElement.TryGetProperty("journalDisk", out var journalDisk));
+        Assert.True(journalDisk.TryGetProperty("usedBytes", out _));
         Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
         Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));

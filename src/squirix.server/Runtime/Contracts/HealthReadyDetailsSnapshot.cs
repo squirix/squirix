@@ -9,6 +9,8 @@ internal sealed class HealthReadyDetailsSnapshot
 
     internal required ulong JournalBacklogOps { get; init; }
 
+    internal required HealthJournalDiskSnapshot JournalDisk { get; init; }
+
     internal required HealthMemoryPressureSnapshot MemoryPressure { get; init; }
 
     internal required HealthRetentionCleanupSnapshot RetentionCleanup { get; init; }

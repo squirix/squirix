@@ -1,4 +1,5 @@
 using System;
+using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Xunit;

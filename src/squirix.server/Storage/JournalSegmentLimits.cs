@@ -14,4 +14,7 @@ internal static class JournalSegmentLimits
     public const int DefaultMaxTotalBytesMb = 2048;
 
     public const int HardMaxTotalBytesMb = 65536;
+
+    /// <summary>Soft high-water mark as a percent of <see cref="DefaultMaxTotalBytesMb" /> / configured max (details only).</summary>
+    public const int HighWaterPercent = 80;
 }

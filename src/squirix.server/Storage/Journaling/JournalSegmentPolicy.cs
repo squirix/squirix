@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Squirix.Server.Errors;
 
 namespace Squirix.Server.Storage.Journaling;
 
@@ -7,25 +8,40 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalSegmentPolicy
 {
     private readonly long _maxSegmentBytes;
-    private readonly long _maxTotalBytes;
 
     internal JournalSegmentPolicy(PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _maxSegmentBytes = ClampMb(options.JournalMaxSegmentMb, JournalSegmentLimits.DefaultMaxSegmentMb, JournalSegmentLimits.HardMaxSegmentMb);
         SegmentCountProbeLimit = Clamp(options.JournalMaxSegmentCount, JournalSegmentLimits.DefaultMaxSegmentCount, JournalSegmentLimits.HardMaxSegmentCount);
-        _maxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
+        MaxTotalBytes = ClampMb(options.JournalMaxTotalBytesMb, JournalSegmentLimits.DefaultMaxTotalBytesMb, JournalSegmentLimits.HardMaxTotalBytesMb);
+        HighWaterBytes = (MaxTotalBytes * JournalSegmentLimits.HighWaterPercent) / 100L;
     }
 
+    internal long HighWaterBytes { get; }
+
+    internal long MaxTotalBytes { get; }
+
     private int SegmentCountProbeLimit { get; }
+
+    internal static string EvaluatePressureState(long usedBytes, long highWaterBytes, long maxBytes)
+    {
+        if (usedBytes >= maxBytes)
+            return "critical";
+
+        if (usedBytes >= highWaterBytes)
+            return "high";
+
+        return "normal";
+    }
 
     internal void EnsureAppendCapacityOrThrow(long onDiskTotalBytes, int incomingFrameBytes)
     {
         var totalAfterAppend = onDiskTotalBytes + incomingFrameBytes;
-        if (totalAfterAppend > _maxTotalBytes)
+        if (totalAfterAppend > MaxTotalBytes)
         {
             throw new JournalCapacityExceededException(
-                $"journal total bytes {totalAfterAppend.ToString(CultureInfo.InvariantCulture)} exceed limit {_maxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
+                $"journal total bytes {totalAfterAppend.ToString(CultureInfo.InvariantCulture)} exceed limit {MaxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 
@@ -55,10 +71,10 @@ internal sealed class JournalSegmentPolicy
                 $"journal segment count {segmentCount.ToString(CultureInfo.InvariantCulture)} exceeds limit {SegmentCountProbeLimit.ToString(CultureInfo.InvariantCulture)}.");
         }
 
-        if (totalBytes > _maxTotalBytes)
+        if (totalBytes > MaxTotalBytes)
         {
             throw new JournalCapacityExceededException(
-                $"journal total bytes {totalBytes.ToString(CultureInfo.InvariantCulture)} exceed limit {_maxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
+                $"journal total bytes {totalBytes.ToString(CultureInfo.InvariantCulture)} exceed limit {MaxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
         }
     }
 }

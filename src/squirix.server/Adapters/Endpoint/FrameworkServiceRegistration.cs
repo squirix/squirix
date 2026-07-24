@@ -139,6 +139,10 @@ internal static class FrameworkServiceRegistration
             {
                 throw ex.ToRpcException();
             }
+            catch (JournalCapacityExceededException ex)
+            {
+                throw ex.ToRpcException();
+            }
             catch (ServerOpIdMismatchException)
             {
                 throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
@@ -156,6 +160,10 @@ internal static class FrameworkServiceRegistration
                 return await continuation(request, context).ConfigureAwait(false);
             }
             catch (ResourceExhaustedException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (JournalCapacityExceededException ex)
             {
                 throw ex.ToRpcException();
             }
