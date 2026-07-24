@@ -20,7 +20,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
 {
     /// <summary>Loads a binary snapshot watermark and replays only journal records after it.</summary>
     [Fact]
-    public async Task BinarySnapshotRecoveryReplaysJournalTailAfterWatermark()
+    public async Task BinarySnapshotRecoveryReplaysJournalTailWatermark()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-binary-snapshot");
         var persistence = new PersistenceOptions { DataDir = scenario.DataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };

@@ -30,7 +30,7 @@ public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
 
     /// <summary>GetOnDiskSegmentStats returns an empty result when the directory does not exist.</summary>
     [Fact]
-    public void GetOnDiskSegmentStatsReturnsEmptyWhenDirectoryMissing()
+    public void GetOnDiskSegmentStatsReturnsEmptyDirectoryMissing()
     {
         var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
 

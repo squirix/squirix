@@ -13,9 +13,7 @@ internal static class GrpcTransportEndpoints
     {
         ArgumentNullException.ThrowIfNull(uri);
         if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
             throw new ArgumentException($"Squirix transport requires HTTPS endpoints. Plaintext 'http://' is not supported: '{uri}'.", nameof(uri));
-        }
     }
 
     /// <summary>Creates the default HTTP handler for HTTPS gRPC channels.</summary>

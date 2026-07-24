@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Text;
 using Squirix.Server.Storage.Manifest;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -15,25 +14,23 @@ public sealed class FileCodecTests : ServerUnitTestBase
     [Fact]
     public void ComputeEncodedLengthRejectsOversizedSnapshotPath()
     {
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            ushort.MaxValue + 1,
-            static length =>
+        var ex = Assert.Throws<InvalidDataException>(static () =>
+        {
+            var manifest = new State
             {
-                var manifest = new State
+                Format = 1,
+                CurrentJournal = 1,
+                NextSequence = 1,
+                LastSnapshot = new SnapshotRef
                 {
-                    Format = 1,
-                    CurrentJournal = 1,
-                    NextSequence = 1,
-                    LastSnapshot = new SnapshotRef
-                    {
-                        Path = new string('a', length),
-                        Index = 1,
-                        LastAppliedSequence = 1,
-                        CreatedUtc = DateTime.UtcNow,
-                    },
-                };
-                _ = FileCodec.ComputeEncodedLength(manifest);
-            });
+                    Path = new string('a', ushort.MaxValue + 1),
+                    Index = 1,
+                    LastAppliedSequence = 1,
+                    CreatedUtc = DateTime.UtcNow,
+                },
+            };
+            return FileCodec.ComputeEncodedLength(manifest);
+        });
         Assert.Contains("maximum encoded length", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -41,9 +38,7 @@ public sealed class FileCodecTests : ServerUnitTestBase
     [Fact]
     public void ComputeRollEncodedLengthRejectsOversizedPathLength()
     {
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            ushort.MaxValue + 1,
-            static length => FileCodec.ComputeRollEncodedLength(new SnapshotRef { Path = "x" }, length));
+        var ex = Assert.Throws<InvalidDataException>(static () => FileCodec.ComputeRollEncodedLength(new SnapshotRef { Path = "x" }, ushort.MaxValue + 1));
         Assert.Contains("maximum encoded length", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -52,7 +47,7 @@ public sealed class FileCodecTests : ServerUnitTestBase
     public void WriteRollEncodedRejectsOversizedSnapshotPathUtf8()
     {
         var bytes = Encoding.UTF8.GetBytes(new string('b', ushort.MaxValue + 1));
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bytes, static value => FileCodec.WriteRollEncoded(1, 1, 1, new SnapshotRef { Path = "x" }, value, []));
+        var ex = Assert.Throws<InvalidDataException>(() => FileCodec.WriteRollEncoded(1, 1, 1, new SnapshotRef { Path = "x" }, bytes, []));
         Assert.Contains("maximum encoded length", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

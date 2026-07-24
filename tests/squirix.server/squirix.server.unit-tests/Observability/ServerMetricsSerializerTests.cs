@@ -4,7 +4,6 @@ using System.IO;
 using System.Text.Json;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime;
-using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -18,7 +17,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void DeserializeInvalidJsonRethrowsJsonException()
     {
         var serializer = new ServerMetricsSerializer(new ServerJsonSerializer());
-        _ = NodeExceptionAssert.For<JsonException>().ThrowsAny(serializer, static value => value.Deserialize<Dictionary<string, int>>("{not-json"));
+        _ = Assert.ThrowsAny<JsonException>(() => serializer.Deserialize<Dictionary<string, int>>("{not-json"));
     }
 
     /// <summary>Successful serialize/deserialize overloads record without throwing.</summary>
@@ -55,7 +54,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void SerializeFailureFromInnerIsRethrown()
     {
         var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
-        _ = NodeExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = Assert.Throws<NotSupportedException>(() => serializer.SerializeToUtf8Bytes("x"));
     }
 
     /// <summary>IOException failures are recorded and rethrown.</summary>
@@ -63,7 +62,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void SerializeIoFailureFromInnerIsRethrown()
     {
         var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new IOException("io")));
-        _ = NodeExceptionAssert.For<IOException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = Assert.Throws<IOException>(() => serializer.SerializeToUtf8Bytes("x"));
     }
 
     /// <summary>Unhandled exception types are not filtered by the metrics decorator.</summary>
@@ -71,7 +70,7 @@ public sealed class ServerMetricsSerializerTests : ServerUnitTestBase
     public void UnhandledExceptionBypassesFailureFilter()
     {
         var serializer = new ServerMetricsSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
-        _ = NodeExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+        _ = Assert.Throws<InvalidCastException>(() => serializer.SerializeToUtf8Bytes("x"));
     }
 
     private sealed class ThrowingSerializer : IServerSerializer

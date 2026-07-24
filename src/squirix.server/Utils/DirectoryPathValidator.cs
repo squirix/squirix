@@ -9,11 +9,6 @@ internal static class DirectoryPathValidator
     private static readonly StringComparison SubPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
         ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    /// <summary>Returns whether <paramref name="value" /> is a directory separator.</summary>
-    /// <param name="value">Character to test.</param>
-    /// <returns><see langword="true" /> when the character is a directory separator.</returns>
-    internal static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
-
     /// <summary>Validates <paramref name="path" />, optionally constrains it under <paramref name="baseDir" />, and returns the absolute path.</summary>
     /// <param name="path">Target directory path.</param>
     /// <param name="baseDir">Optional base directory; when set, the target must remain under it.</param>
@@ -33,7 +28,7 @@ internal static class DirectoryPathValidator
         var full = ResolveFullPath(path, baseFull);
 
         if (baseFull is not null && !IsSubPathOf(full, baseFull))
-            throw new UnauthorizedAccessException("Target path escapes base directory.");
+            throw new UnauthorizedAccessException($"Target path escapes base directory: '{full}' not under '{baseFull}'.");
 
         ValidateSegments(full);
 
@@ -41,22 +36,16 @@ internal static class DirectoryPathValidator
             DirectorySymlinkGuard.EnsureNoSymlinksInChain(full, baseFull);
 
         if (File.Exists(full))
-            throw new IOException("A file already exists at the target path.");
+            throw new IOException($"A file already exists at '{full}'.");
 
         return full;
     }
 
-    /// <summary>Removes trailing directory separators without allocating a separator <see cref="char" /> array.</summary>
-    /// <param name="path">Path that may end with separators.</param>
-    /// <returns>The original string when no trailing separators exist; otherwise a trimmed copy.</returns>
-    internal static string TrimTrailingSeparators(string path)
-    {
-        var length = path.Length;
-        while (length > 0 && IsDirectorySeparator(path[length - 1]))
-            length--;
-
-        return length == path.Length ? path : path[..length];
-    }
+    /// <summary>Returns whether <paramref name="value" /> is a directory separator.</summary>
+    /// <param name="value">Character to test.</param>
+    /// <returns><see langword="true" /> when the character is a directory separator.</returns>
+    internal static bool IsDirectorySeparator(char value) =>
+        value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
     /// <summary>Reads the next non-empty path segment from <paramref name="path" />.</summary>
     /// <param name="path">Remaining path span; advanced past the consumed segment.</param>
@@ -118,7 +107,7 @@ internal static class DirectoryPathValidator
             {
                 // Align with EnsureNoSymlinksInChain: allow only Darwin root compatibility links as DataDir bases.
                 if (!MacOsCompatibilitySymlink.TryFollow(baseInfo, out var resolvedBase))
-                    throw new IOException("Base directory is a symlink/junction.");
+                    throw new IOException($"Base directory is a symlink/junction: '{baseFull}'.");
 
                 baseFull = resolvedBase;
             }
@@ -140,6 +129,6 @@ internal static class DirectoryPathValidator
         var root = Path.GetPathRoot(fullPath) ?? string.Empty;
         var rest = fullPath.AsSpan(root.Length);
         while (TryReadNextSegment(ref rest, out var segment))
-            PathValidation.ValidateSegment(segment, nameof(fullPath), false);
+            PathValidation.ValidateSegment(segment, fullPath, nameof(fullPath), false);
     }
 }

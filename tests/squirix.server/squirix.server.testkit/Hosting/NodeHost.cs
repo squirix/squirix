@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.TestKit.Hosting;
 
@@ -18,12 +17,6 @@ internal static class NodeHost
     {
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
-        ExtensionOptions? extensions = null;
-        if (options.ConfigureExtensions is not null)
-        {
-            extensions = new ExtensionOptions();
-            options.ConfigureExtensions(extensions);
-        }
 
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
@@ -31,8 +24,6 @@ internal static class NodeHost
             args =>
             {
                 args.WaitForRecovery = options.WaitForRecovery;
-                args.SnapshotOptions = options.SnapshotOptions;
-                args.CallPolicyFactory = options.CallPolicyFactory;
                 args.ConfigureGrpc = options.ConfigureGrpc;
                 args.ServicesConfigure = options.ServicesConfigure;
                 args.PersistenceOptions = options.PersistenceOptions;
@@ -40,7 +31,6 @@ internal static class NodeHost
                 args.BackpressureOptions = options.BackpressureOptions;
                 args.MemoryPressureOptions = options.MemoryPressureOptions;
                 args.SecurityOptions = options.SecurityOptions;
-                args.Extensions = extensions;
                 args.MtlsOptions = options.MtlsOptions;
                 args.MtlsMaterial = options.MtlsMaterial;
             },

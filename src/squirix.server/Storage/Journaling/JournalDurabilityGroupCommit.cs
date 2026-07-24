@@ -126,6 +126,45 @@ internal sealed class JournalDurabilityGroupCommit
         // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
     }
 
+    private static void CompleteBatchWithFailure(List<JournalDurabilityWaiter> batch, Exception ex)
+    {
+        // Flush failures fail the whole batch so no waiter observes partial durability.
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var waiter = batch[i];
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetException(ex);
+        }
+
+        for (var i = 0; i < batch.Count; i++)
+        {
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+        }
+
+        batch.Clear();
+    }
+
+    private static void CompleteBatchWithSuccess(List<JournalDurabilityWaiter> batch)
+    {
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var waiter = batch[i];
+
+            // Callers that canceled before the flush still own returning their waiter to the pool.
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetResult();
+        }
+
+        for (var i = 0; i < batch.Count; i++)
+        {
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+        }
+
+        batch.Clear();
+    }
+
     private bool CancelWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
     {
         bool removed;
@@ -149,58 +188,16 @@ internal sealed class JournalDurabilityGroupCommit
             // One journal-thread fsync covers every waiter captured in this due batch.
             _journalThreadFlush();
         }
-        catch (IOException ex)
+        catch (Exception ex)
         {
-            FailBatch(ex);
-            return;
-        }
-        catch (ObjectDisposedException ex)
-        {
-            FailBatch(ex);
-            return;
-        }
-        catch (InvalidOperationException ex)
-        {
-            FailBatch(ex);
+            CompleteBatchWithFailure(batch, ex);
+            if (ex is not (IOException or ObjectDisposedException or InvalidOperationException))
+                throw;
+
             return;
         }
 
-        for (var i = 0; i < batch.Count; i++)
-        {
-            var waiter = batch[i];
-
-            // Callers that canceled before the flush still own returning their waiter to the pool.
-            if (!waiter.IsAbandonedByCaller())
-                waiter.SetResult();
-        }
-
-        for (var i = 0; i < batch.Count; i++)
-        {
-            if (batch[i].IsAbandonedByCaller())
-                batch[i].ReturnToPool();
-        }
-
-        batch.Clear();
-        return;
-
-        void FailBatch(Exception ex)
-        {
-            // Flush failures fail the whole batch so no waiter observes partial durability.
-            for (var i = 0; i < batch.Count; i++)
-            {
-                var waiter = batch[i];
-                if (!waiter.IsAbandonedByCaller())
-                    waiter.SetException(ex);
-            }
-
-            for (var i = 0; i < batch.Count; i++)
-            {
-                if (batch[i].IsAbandonedByCaller())
-                    batch[i].ReturnToPool();
-            }
-
-            batch.Clear();
-        }
+        CompleteBatchWithSuccess(batch);
     }
 
     private bool TryTakeDueBatch(out List<JournalDurabilityWaiter> batch)

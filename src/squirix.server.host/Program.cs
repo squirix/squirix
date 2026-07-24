@@ -83,13 +83,13 @@ internal static class Program
 
         private static async Task<int> InitializeAsync(SquirixServerCommand command)
         {
-            var path = command.SettingsPath ?? "Squirix.settings.json";
+            var path = Configurator.ResolveSettingsPath(command.SettingsPath ?? "Squirix.settings.json")!;
             if (File.Exists(path))
-                throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
+                throw new InvalidOperationException($"Settings file already exists: {path}");
 
             File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
             _ = await LoadSettingsAsync(path, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
             return 0;
         }
 
@@ -156,11 +156,11 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
                 return;
 
-            var dataDirectoryPath = options.DataDirectory;
+            var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
             try
             {
                 _ = Directory.CreateDirectory(dataDirectoryPath);
-                var probe = Path.Join(dataDirectoryPath, ".squirix-doctor-probe");
+                var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectoryPath, ".squirix-doctor-probe"));
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);
                 await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);

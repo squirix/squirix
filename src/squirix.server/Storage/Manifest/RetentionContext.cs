@@ -13,34 +13,15 @@ internal sealed record RetentionContext
         ILogger? logger,
         Func<string, int> parseManifestIndex,
         IManifestRetentionFailureMetrics failureMetrics)
-        : this(
-            settings.DataDir,
-            settings.ManifestRetention,
-            settings.SnapshotRetention,
-            fileOperations,
-            logger,
-            settings.ManifestFileGlob,
-            parseManifestIndex,
-            failureMetrics ?? throw new ArgumentNullException(nameof(failureMetrics)))
     {
-    }
-
-    private RetentionContext(
-        string dataDir,
-        int manifestRetention,
-        int snapshotRetention,
-        IStorageFileOperations? fileOperations,
-        ILogger? logger,
-        string manifestFileGlob,
-        Func<string, int> parseManifestIndex,
-        IManifestRetentionFailureMetrics failureMetrics)
-    {
-        DataDir = dataDir;
-        ManifestRetention = manifestRetention;
-        SnapshotRetention = snapshotRetention;
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(failureMetrics);
+        DataDir = settings.DataDir;
+        ManifestRetention = settings.ManifestRetention;
+        SnapshotRetention = settings.SnapshotRetention;
         FileOperations = fileOperations ?? new FileOperations();
         Logger = logger;
-        ManifestFileGlob = manifestFileGlob;
+        ManifestFileGlob = settings.ManifestFileGlob;
         ParseManifestIndex = parseManifestIndex;
         FailureMetrics = failureMetrics;
     }

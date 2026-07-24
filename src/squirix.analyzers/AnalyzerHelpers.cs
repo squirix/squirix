@@ -7,17 +7,6 @@ namespace Squirix.Analyzers;
 /// </summary>
 internal static class AnalyzerHelpers
 {
-    internal static Location? GetBestLocation(ISymbol symbol)
-    {
-        foreach (var location in symbol.Locations)
-        {
-            if (location.IsInSource)
-                return location;
-        }
-
-        return null;
-    }
-
     internal static bool IsCompilerOrGenerated(ISymbol symbol)
     {
         if (symbol.IsImplicitlyDeclared)
@@ -31,5 +20,16 @@ internal static class AnalyzerHelpers
         }
 
         return false;
+    }
+
+    internal static Location? GetBestLocation(ISymbol symbol)
+    {
+        foreach (var location in symbol.Locations)
+        {
+            if (location.IsInSource)
+                return location;
+        }
+
+        return null;
     }
 }

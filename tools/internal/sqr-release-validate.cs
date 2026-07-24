@@ -352,16 +352,11 @@ static string? ResolveDotnetPath()
 
 static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
 {
-    var quotedArgs = new string[args.Count];
-    for (var i = 0; i < args.Count; i++)
-        quotedArgs[i] = QuoteIfNeeded(args[i]);
-
     var processStartInfo = new ProcessStartInfo
     {
         FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
-        Arguments = string.Join(' ', quotedArgs),
     };
     foreach (var arg in args)
         processStartInfo.ArgumentList.Add(arg);

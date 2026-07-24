@@ -3,6 +3,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
@@ -49,61 +50,55 @@ public sealed class BinaryJournalCodecRoundTripTests
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
         var key = new CacheKey("ns", "codec-key");
-        switch (operation)
+        return operation switch
         {
-            case JournalOperationKind.Put:
-                return new JournalRecord
-                {
-                    Sequence = 1,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.Put,
-                    Key = key,
-                    PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
-                };
-            case JournalOperationKind.Remove:
-                return new JournalRecord
-                {
-                    Sequence = 2,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.Remove,
-                    Key = key,
-                };
-            case JournalOperationKind.RemoveExpiration:
-                return new JournalRecord
-                {
-                    Sequence = 3,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.RemoveExpiration,
-                    Key = key,
-                };
-            case JournalOperationKind.TouchExpiration:
-                return new JournalRecord
-                {
-                    Sequence = 4,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.TouchExpiration,
-                    Key = key,
-                    TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
-                };
-            case JournalOperationKind.IdempotencyOutcome:
-                return new JournalRecord
-                {
-                    Sequence = 5,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.IdempotencyOutcome,
-                    Key = new CacheKey(string.Empty, string.Empty),
-                    IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
-                    IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
-                    IdempotencyResponseBytes = new byte[] { 0x08, 0x01 },
-                };
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
-            default:
-                throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation.");
-        }
+            JournalOperationKind.Put => new JournalRecord
+            {
+                Sequence = 1,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Put,
+                Key = key,
+                PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
+            },
+            JournalOperationKind.Remove => new JournalRecord
+            {
+                Sequence = 2,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Remove,
+                Key = key,
+            },
+            JournalOperationKind.RemoveExpiration => new JournalRecord
+            {
+                Sequence = 3,
+                UnixMs = 123,
+                Operation = JournalOperationKind.RemoveExpiration,
+                Key = key,
+            },
+            JournalOperationKind.TouchExpiration => new JournalRecord
+            {
+                Sequence = 4,
+                UnixMs = 123,
+                Operation = JournalOperationKind.TouchExpiration,
+                Key = key,
+                TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
+            },
+            JournalOperationKind.IdempotencyOutcome => new JournalRecord
+            {
+                Sequence = 5,
+                UnixMs = 123,
+                Operation = JournalOperationKind.IdempotencyOutcome,
+                Key = new CacheKey(string.Empty, string.Empty),
+                IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
+                IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
+                IdempotencyResponseBytes = new byte[] { 0x08, 0x01 },
+            },
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive
+                or JournalOperationKind.SnapshotCut or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(
+                nameof(operation),
+                operation,
+                "Unsupported encodable operation."),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
+        };
     }
 
     private static void PrepareEncodeRoundTripsDecodeCore(JournalOperationKind operation)

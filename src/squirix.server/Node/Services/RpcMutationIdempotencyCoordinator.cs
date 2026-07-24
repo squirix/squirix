@@ -41,12 +41,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         if (_journal is not null)
         {
-            using var scope = RpcMutationIdempotencyExecutionScope.Begin(
-                _store,
-                operationId,
-                fingerprint,
-                _journal,
-                static (TResponse typedResponse) => RpcMutationIdempotencyStore.SerializeResponseBytes(typedResponse));
+            using var scope = RpcMutationIdempotencyExecutionScope.Begin(_store, operationId, fingerprint, _journal);
             var durableResponse = await execute(state, cancellationToken).ConfigureAwait(false);
             await scope.CompleteBeforeDurabilityAsync(durableResponse, cancellationToken).ConfigureAwait(false);
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
@@ -59,7 +54,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     }
 
     private static class DefaultParser<T>
-        where T : IMessage<T>, new()
+        where T : class, IMessage<T>, new()
     {
         internal static readonly MessageParser<T> Instance = new(static () => new T());
     }
@@ -67,49 +62,49 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
     /// <summary>Defers journal durability until idempotency outcome frames are appended for the active RPC.</summary>
     private sealed class RpcMutationIdempotencyExecutionScope : IDisposable
     {
-        private readonly Func<object, CancellationToken, ValueTask> _completeAsync;
+        private readonly string _fingerprint;
+        private readonly IJournalCoordinator _journal;
+        private readonly string _operationId;
+        private readonly RpcMutationIdempotencyStore _store;
 
-        private RpcMutationIdempotencyExecutionScope(Func<object, CancellationToken, ValueTask> completeAsync)
+        private RpcMutationIdempotencyExecutionScope(
+            RpcMutationIdempotencyStore store,
+            string operationId,
+            string fingerprint,
+            IJournalCoordinator journal)
         {
-            _completeAsync = completeAsync ?? throw new ArgumentNullException(nameof(completeAsync));
+            _store = store;
+            _operationId = operationId;
+            _fingerprint = fingerprint;
+            _journal = journal;
         }
 
         void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
 
-        internal static RpcMutationIdempotencyExecutionScope Begin<TResponse>(
+        internal static RpcMutationIdempotencyExecutionScope Begin(
             RpcMutationIdempotencyStore store,
             string operationId,
             string fingerprint,
-            IJournalCoordinator journal,
-            Func<TResponse, byte[]> serializeResponse)
-            where TResponse : IMessage<TResponse>
+            IJournalCoordinator journal)
         {
             ArgumentNullException.ThrowIfNull(store);
             ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
             ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
             ArgumentNullException.ThrowIfNull(journal);
-            ArgumentNullException.ThrowIfNull(serializeResponse);
 
-            var scope = new RpcMutationIdempotencyExecutionScope(CompleteAsync);
+            var scope = new RpcMutationIdempotencyExecutionScope(store, operationId, fingerprint, journal);
             RpcMutationIdempotencyExecutionAmbient.Activate(scope);
             return scope;
-
-            ValueTask CompleteAsync(object response, CancellationToken cancellationToken)
-            {
-                if (response is not TResponse typedResponse)
-                    throw new InvalidOperationException("Idempotency response type does not match the active execution scope.");
-
-                var responseBytes = serializeResponse(typedResponse);
-                store.RecordSuccess(operationId, fingerprint, responseBytes);
-                return journal.AppendIdempotencyOutcomeAsync(operationId, fingerprint, responseBytes, cancellationToken);
-            }
         }
 
         internal ValueTask CompleteBeforeDurabilityAsync<TResponse>(TResponse response, CancellationToken cancellationToken)
-            where TResponse : IMessage<TResponse>
+            where TResponse : class, IMessage<TResponse>
         {
             ArgumentNullException.ThrowIfNull(response);
-            return _completeAsync(response, cancellationToken);
+
+            var responseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(response);
+            _store.RecordSuccess(_operationId, _fingerprint, responseBytes);
+            return _journal.AppendIdempotencyOutcomeAsync(_operationId, _fingerprint, responseBytes, cancellationToken);
         }
     }
 }

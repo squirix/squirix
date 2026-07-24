@@ -275,15 +275,30 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
         return withExpiration - withoutExpiration;
     }
 
-    private static async Task<bool> KeyExistsAsync(ClientCache<string> cache, string cacheName, string key, CancellationToken cancellationToken) =>
-        (await cache.GetValueAsync(cacheName, key, cancellationToken).ConfigureAwait(false)).Found;
+    private static async Task<T[]> RunSynchronizedConcurrentlyAsync<T>(int concurrency, Func<int, Task<T>> operation, CancellationToken cancellationToken)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tasks = new Task<T>[concurrency];
+        for (var i = 0; i < concurrency; i++)
+            tasks[i] = RunAfterGateAsync(i);
+
+        await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        _ = gate.TrySetResult();
+        return await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        async Task<T> RunAfterGateAsync(int index)
+        {
+            await gate.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await operation(index).ConfigureAwait(false);
+        }
+    }
 
     private static async Task RunSynchronizedConcurrentVoidAsync(int concurrency, Func<int, Task> operation, CancellationToken cancellationToken)
     {
         var runner = new SynchronizedConcurrentVoidRunner(operation, cancellationToken);
         var tasks = new Task[concurrency];
         for (var i = 0; i < concurrency; i++)
-            tasks[i] = runner.RunAfterGateAsync(i);
+            tasks[i] = RunAfterGateAsync(i);
 
         await Task.Delay(50, cancellationToken).ConfigureAwait(false);
         runner.Release();

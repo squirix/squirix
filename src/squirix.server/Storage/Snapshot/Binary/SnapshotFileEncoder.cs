@@ -1,7 +1,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +10,6 @@ using Squirix.Server.Utils;
 namespace Squirix.Server.Storage.Snapshot.Binary;
 
 /// <summary>Shared binary snapshot file encode/write helpers.</summary>
-[SuppressMessage("Design", "MA0182:Avoid unused internal types", Justification = "Used by Binary.SnapshotWriter and snapshot breakdown benchmarks.")]
 internal static class SnapshotFileEncoder
 {
     internal static async Task WriteFileAsync(

@@ -157,7 +157,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
         }
 
         LastRunUtc = DateTime.UtcNow;

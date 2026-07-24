@@ -15,18 +15,12 @@ public sealed class ActivityTagValuesTests : ServerUnitTestBase
         Assert.Equal(ActivityTagValues.False, ActivityTagValues.Bool(false));
     }
 
-    /// <summary>Cached non-negative integers reuse interned digit strings.</summary>
+    /// <summary>Numeric formatters use invariant culture.</summary>
     [Fact]
-    public void NonNegativeIntegersReuseCachedStrings()
+    public void NumericFormattersUseInvariantCulture()
     {
-        Assert.Same(ActivityTagValues.Int32(0), ActivityTagValues.Int32(0));
-        Assert.Same(ActivityTagValues.Int32(42), ActivityTagValues.Int64(42));
-        Assert.Same(ActivityTagValues.Int32(42), ActivityTagValues.UInt64(42));
+        Assert.Equal("42", ActivityTagValues.Int32(42));
         Assert.Equal("-7", ActivityTagValues.Int64(-7));
-        Assert.Equal("2048", ActivityTagValues.Int32(2048));
+        Assert.Equal("1.5", ActivityTagValues.Double(1.5));
     }
-
-    /// <summary>Double formatting delegates to invariant digit helpers.</summary>
-    [Fact]
-    public void DoubleFormatsInvariantValue() => Assert.Equal("1.5", ActivityTagValues.Double(1.5d));
 }

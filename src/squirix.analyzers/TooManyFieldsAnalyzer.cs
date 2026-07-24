@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -13,13 +12,22 @@ public sealed class TooManyFieldsAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR003";
 
-    private static readonly LocalizableString Description = "Types with more than 15 non-literal, non-static-readonly fields tend to hold too much state.";
-
-    private static readonly LocalizableString MessageFormat = "Type '{0}' has {1} fields (limit {2}); prefer splitting state or introducing collaborators";
-
     private static readonly LocalizableString Title = "Avoid types with too many fields";
-    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Design", DiagnosticSeverity.Warning, true, Description);
 
+    private static readonly LocalizableString MessageFormat =
+        "Type '{0}' has {1} fields (limit {2}); prefer splitting state or introducing collaborators";
+
+    private static readonly LocalizableString Description =
+        "Types with more than 15 non-literal, non-static-readonly fields tend to hold too much state.";
+
+    private static readonly DiagnosticDescriptor Rule = new(
+        DiagnosticId,
+        Title,
+        MessageFormat,
+        "Design",
+        DiagnosticSeverity.Warning,
+        true,
+        description: Description);
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -28,7 +36,7 @@ public sealed class TooManyFieldsAnalyzer : DiagnosticAnalyzer
     public override void Initialize(AnalysisContext context)
     {
         if (context is null)
-            throw new ArgumentNullException(nameof(context));
+            throw new System.ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
@@ -63,7 +71,13 @@ public sealed class TooManyFieldsAnalyzer : DiagnosticAnalyzer
         if (location is null)
             return;
 
-        context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, fieldCount, AnalyzerLimits.MaxFieldsPerType));
+        context.ReportDiagnostic(
+            Diagnostic.Create(
+                Rule,
+                location,
+                type.Name,
+                fieldCount,
+                AnalyzerLimits.MaxFieldsPerType));
     }
 
     private static bool ShouldCountField(IFieldSymbol field)

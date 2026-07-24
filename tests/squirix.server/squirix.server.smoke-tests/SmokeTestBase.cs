@@ -1,12 +1,10 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,10 +16,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
-using Squirix.Server.Storage;
-using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
-using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
 using Xunit;
@@ -34,8 +29,6 @@ namespace Squirix.Server.SmokeTests;
 /// </summary>
 public abstract class SmokeTestBase : IDisposable
 {
-    private static readonly ConcurrentDictionary<string, byte> CleanedScopes = new(StringComparer.Ordinal);
-
     private static readonly TestNodeSecurityOptions UnauthenticatedSecurity = new();
 
     private readonly SocketsHttpHandler _socketsHttpHandler = LoopbackHttp.CreateHandler();
@@ -74,12 +67,10 @@ public abstract class SmokeTestBase : IDisposable
         string uri,
         string nodeId,
         SmokeNodeStartOptions? options = null,
-        [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         uri,
         BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]),
         options,
-        testName,
         cancellationToken);
 
     [SuppressMessage(
@@ -90,12 +81,10 @@ public abstract class SmokeTestBase : IDisposable
         Uri uri,
         string nodeId,
         SmokeNodeStartOptions? options = null,
-        [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         uri,
         BuildClusterPeers([(nodeId, uri)]),
         options,
-        testName,
         cancellationToken);
 
     [SuppressMessage(
@@ -106,7 +95,6 @@ public abstract class SmokeTestBase : IDisposable
         Uri uri,
         ServerPeer[] peers,
         SmokeNodeStartOptions? options = null,
-        [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default)
     {
         options ??= new SmokeNodeStartOptions();
@@ -121,34 +109,22 @@ public abstract class SmokeTestBase : IDisposable
             VirtualNodes = 128,
         };
 
-        var scope = BuildTestScope(TestPersistenceScope.ResolvePersistenceScopeSegment(testName), options.ExtraScope);
-        PersistenceOptions? persistenceOptionsOverride = null;
-        var dataDir = string.Empty;
-        if (options.UsePersistence || options.PersistenceOptions is not null)
-        {
-            persistenceOptionsOverride = await GetPersistenceOptionsAsync(options.PersistenceOptions, selfNodeId, scope, options.CleanTestDir, cancellationToken).ConfigureAwait(false);
-            dataDir = persistenceOptionsOverride.DataDir;
-        }
-
         (_mtls, var mtlsOptions, var mtlsMaterial) = await ClusterTls.ResolveForNodeAsync(_mtls, clusterConfig, canonicalUri, cancellationToken).ConfigureAwait(false);
         var app = await NodeHost.StartAsync(
             clusterConfig,
             new NodeHostStartOptions
             {
-                ConfigureLogging = b =>
+                ConfigureLogging = static b =>
                 {
                     _ = b.ClearProviders();
                     _ = b.SetMinimumLevel(LogLevel.Debug);
                     _ = b.AddFilter("Grpc", LogLevel.Debug);
                     _ = b.AddFilter("Grpc.AspNetCore.Server", LogLevel.Debug);
                     _ = b.AddFilter("Squirix", LogLevel.Debug);
-                    _ = options.Output is not null ? b.AddProvider(new LoggerProvider(options.Output)) : b.AddConsole().AddDebug();
+                    _ = b.AddConsole().AddDebug();
                 },
-                SnapshotOptions = options.SnapshotOptions,
-                CallPolicyFactory = options.CallPolicyFactory,
                 ConfigureGrpc = options.ConfigureGrpc,
                 ServicesConfigure = options.ServicesConfigure,
-                PersistenceOptions = persistenceOptionsOverride,
                 BackpressureOptions = options.BackpressureOptions,
                 MemoryPressureOptions = options.MemoryPressureOptions,
                 SecurityOptions = (options.Security ?? UnauthenticatedSecurity).ToServerOptions(),
@@ -157,7 +133,7 @@ public abstract class SmokeTestBase : IDisposable
             },
             cancellationToken);
 
-        return new TestNodeHost(app, canonicalUri, dataDir, persistenceOptionsOverride is not null);
+        return new TestNodeHost(app, canonicalUri, string.Empty);
     }
 
     /// <summary>Creates a gRPC channel configured for HTTPS against a test node URL.</summary>
@@ -243,13 +219,6 @@ public abstract class SmokeTestBase : IDisposable
         return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
-    private static string BuildTestScope(string? testName, string? extra)
-    {
-        var baseName = string.IsNullOrWhiteSpace(testName) ? "unknown" : testName;
-        var combined = string.IsNullOrWhiteSpace(extra) ? baseName : $"{baseName}__{extra}";
-        return $"{combined}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
-    }
-
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
@@ -263,32 +232,6 @@ public abstract class SmokeTestBase : IDisposable
         return null;
     }
 
-    /// <summary>
-    /// Gets the root directory for test persistence. Uses <c>XUNIT_TEST_ROOT</c> env variable if set,
-    /// otherwise falls back to <c>%LOCALAPPDATA%\SquirixSmoke</c>.
-    /// </summary>
-    /// <returns>A stable root path for smoke-test data.</returns>
-    private static string GetStableRoot()
-    {
-        var fromEnv = EnvVar.Get("XUNIT_TEST_ROOT");
-        if (!string.IsNullOrWhiteSpace(fromEnv))
-            return fromEnv;
-
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return NodePathKit.Combine(true, appData, "SquirixSmoke");
-    }
-
-    private async Task<string> ConstructDataDirAsync(string? dataDir, string selfNodeId, string testScope, bool clean, CancellationToken cancellationToken)
-    {
-        var dataRoot = NodePathKit.Combine(true, GetStableRoot(), GetType().Name, testScope, "cluster");
-        if (clean && CleanedScopes.TryAdd(dataRoot, 0))
-            await DirectoryKit.DeleteDirectoryAsync(dataRoot, cancellationToken).ConfigureAwait(false);
-
-        var combine = dataDir ?? NodePathKit.Combine(true, dataRoot, selfNodeId);
-        DirectoryKit.CreateDirectory(combine);
-        return combine;
-    }
-
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
         DefaultRequestVersion = HttpVersion.Version20,
@@ -296,32 +239,13 @@ public abstract class SmokeTestBase : IDisposable
         Timeout = TimeSpan.FromSeconds(30),
     };
 
-    private async Task<PersistenceOptions> GetPersistenceOptionsAsync(
-        PersistenceOptions? persistenceOptions,
-        string selfNodeId,
-        string testScope,
-        bool clean,
-        CancellationToken cancellationToken)
-    {
-        var dataDir = await ConstructDataDirAsync(persistenceOptions?.DataDir, selfNodeId, testScope, clean, cancellationToken).ConfigureAwait(false);
-        return persistenceOptions ?? new PersistenceOptions
-        {
-            DataDir = dataDir,
-            JournalMaxSegmentMb = 64,
-            FlushIntervalMs = 10,
-        };
-    }
-
     /// <summary>
     /// Starts a new <see cref="NodeHost" /> instance configured for testing,
-    /// using the provided peers, persistence, snapshot and service options.
+    /// using the provided peers and service options.
     /// </summary>
     /// <param name="uri">The URL this node should bind to.</param>
     /// <param name="peers">Cluster peers including this node.</param>
-    /// <param name="options">Optional startup knobs (persistence, security, policies, etc.).</param>
-    /// <param name="testName">
-    /// Optional caller hint; under xUnit, <see cref="TestPersistenceScope.ResolvePersistenceScopeSegment" /> prefers the active test case id.
-    /// </param>
+    /// <param name="options">Optional startup knobs (security, gRPC, services, etc.).</param>
     /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
     [SuppressMessage(
@@ -332,11 +256,9 @@ public abstract class SmokeTestBase : IDisposable
         string uri,
         ServerPeer[] peers,
         SmokeNodeStartOptions? options = null,
-        [CallerMemberName] string? testName = null,
         CancellationToken cancellationToken = default) => StartNodeAsync(
         new Uri(uri, UriKind.Absolute),
         peers,
         options,
-        testName,
         cancellationToken);
 }

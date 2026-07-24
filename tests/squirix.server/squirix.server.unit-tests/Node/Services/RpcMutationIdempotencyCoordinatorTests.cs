@@ -79,6 +79,17 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.True(response.Added);
     }
 
+    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
+    [Fact]
+    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
     /// <summary>Ensures conforming operation ids pass validation.</summary>
     [Fact]
     public void RequireOperationIdAcceptsValidValue()
@@ -157,17 +168,6 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         });
 
         Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
-    }
-
-    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
-    [Fact]
-    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
-    {
-        var store = new RpcMutationIdempotencyStore();
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.False(replayed);
-        Assert.Null(response);
     }
 
     private sealed class ExecutionCounter

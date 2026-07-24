@@ -61,7 +61,7 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, remoteMetricsUrl);
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics");
         remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
         var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);

@@ -15,10 +15,13 @@ internal static class FileEx
     /// </param>
     internal static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
     {
-        if (File.Exists(finalPath))
-            File.Replace(tempPath, finalPath, backupPath, ignoreMetadataErrors);
+        var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
+        var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
+        var validatedBackup = backupPath is null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
+        if (File.Exists(validatedFinal))
+            File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
         else
-            File.Move(tempPath, finalPath);
+            File.Move(validatedTemp, validatedFinal);
     }
 
     /// <summary>
@@ -37,7 +40,20 @@ internal static class FileEx
     /// Best-effort cleanup helper for teardown paths where callers ignore failures.
     /// For strict deletion semantics, use <see cref="File.Delete(string)" /> directly.
     /// </remarks>
-    internal static bool TryDeleteFile(string? path) => string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || TryDeleteExistingFile(path);
+    internal static bool TryDeleteFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+            return true;
+
+        try
+        {
+            return TryDeleteExistingFile(FilePathValidator.ResolveValidatedFilePath(path));
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
 
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {

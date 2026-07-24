@@ -24,7 +24,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After compaction and SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
     [Fact]
-    public async Task ForceKillCompactionReplayTryAddOperationIdResponse()
+    public async Task ForceKillRestartReplayTryAddOperationIdResponse()
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest
@@ -64,7 +64,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After SIGKILL-style restart a retry with the same operation id must replay the original Set response.</summary>
     [Fact]
-    public async Task ForceKillRestartShouldReplaySetEntryOperationIdResponse()
+    public async Task ForceKillRestartReplaySetEntryOperationIdResponse()
     {
         var uri = GetNextHttpUri();
         var request = new SetEntryAsyncRequest
@@ -103,7 +103,7 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
 
     /// <summary>After compaction and SIGKILL-style restart a retry with the same operation id must replay Added=true.</summary>
     [Fact]
-    public async Task ForceKillAfterCompactionShouldReplayTryAddOperationIdResponse()
+    public async Task ForceKillCompactionReplayTryAddOperationIdResponse()
     {
         var uri = GetNextHttpUri();
         var request = new TryAddEntryAsyncRequest

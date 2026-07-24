@@ -68,10 +68,7 @@ internal static class BackpressureMetrics
     private static int Aggregate(Func<ObserverEntry, int> selector)
     {
         lock (ObserverGate)
-        {
-            var count = Observers.Count;
-            if (count is 0)
-                return 0;
+            snapshot = [.. Observers.Values];
 
             var snapshot = _snapshotBuffer;
             if (snapshot.Length < count)

@@ -13,7 +13,7 @@ public sealed class OperationCancellationClassifierTests : ServerUnitTestBase
 {
     /// <summary>gRPC caller cancellation is detected only when status is Canceled and the caller token is canceled.</summary>
     [Fact]
-    public void IsCallerInitiatedGrpcCancellationRequiresCanceledStatusAndCallerToken()
+    public void IsCallerInitiatedGrpcCanceledStatusCallerToken()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();

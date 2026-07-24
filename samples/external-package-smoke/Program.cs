@@ -63,6 +63,5 @@ internal static class Program
         var v2 = (await b.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
             throw new InvalidOperationException("Named cache isolation failed.");
-        }
     }
 }

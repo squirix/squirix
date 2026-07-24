@@ -2,6 +2,7 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -87,9 +88,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         var observedMax = new int[1];
         var clients = new Task[24];
         for (var i = 0; i < clients.Length; i++)
-        {
             clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
-        }
 
         var runClients = Task.WhenAll(clients);
 

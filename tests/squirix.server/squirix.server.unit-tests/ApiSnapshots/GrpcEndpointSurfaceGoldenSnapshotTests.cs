@@ -104,7 +104,6 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
             var methods = new List<string>();
             foreach (var source in routeBuilder.DataSources)
-            {
                 for (var index = 0; index < source.Endpoints.Count; index++)
                 {
                     var endpoint = source.Endpoints[index];
@@ -117,7 +116,6 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
                     methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
                 }
-            }
 
             methods.Sort(StringComparer.Ordinal);
             return methods;

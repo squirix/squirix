@@ -37,7 +37,7 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions is not null)
-            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, args.SnapshotOptions, cancellationToken).ConfigureAwait(false);
+            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, null, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);

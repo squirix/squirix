@@ -1,5 +1,5 @@
-using System;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -11,16 +11,21 @@ namespace Squirix.Analyzers;
 /// Flags outer loops whose block contains only a nested loop — braces must be omitted.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
+[SuppressMessage("ReSharper", "MemberCanBePrivate.Global")]
 public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
 {
-    private const string DiagnosticId = "SQR001";
+    /// <summary>
+    /// Diagnostic id for redundant outer-loop braces around a nested loop.
+    /// </summary>
+    public const string DiagnosticId = "SQR001";
+
+    private static readonly LocalizableString Title = "Omit braces from outer loop that only contains a nested loop";
+
+    private static readonly LocalizableString MessageFormat = "Omit braces from outer {0} when it only contains a nested loop";
 
     private static readonly LocalizableString Description = "When an outer loop's body is only a nested loop (no other statements), omit the outer braces.";
 
-    private static readonly LocalizableString MessageFormat = "Omit braces from outer {0} when it only contains a nested loop";
-    private static readonly LocalizableString Title = "Omit braces from outer loop that only contains a nested loop";
-    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", DiagnosticSeverity.Error, true, Description);
-
+    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", defaultSeverity: DiagnosticSeverity.Error, true, description: Description);
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -29,7 +34,7 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
     public override void Initialize(AnalysisContext context)
     {
         if (context is null)
-            throw new ArgumentNullException(nameof(context));
+            throw new System.ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
@@ -70,6 +75,15 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
         };
     }
 
+    private static bool IsLoopStatement(StatementSyntax statement)
+    {
+        return statement.Kind() switch
+        {
+            SyntaxKind.ForStatement or SyntaxKind.ForEachStatement or SyntaxKind.ForEachVariableStatement or SyntaxKind.WhileStatement or SyntaxKind.DoStatement => true,
+            _ => false,
+        };
+    }
+
     private static string GetLoopKindName(SyntaxNode node)
     {
         return node.Kind() switch
@@ -79,15 +93,6 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
             SyntaxKind.WhileStatement => "while",
             SyntaxKind.DoStatement => "do",
             _ => "loop",
-        };
-    }
-
-    private static bool IsLoopStatement(StatementSyntax statement)
-    {
-        return statement.Kind() switch
-        {
-            SyntaxKind.ForStatement or SyntaxKind.ForEachStatement or SyntaxKind.ForEachVariableStatement or SyntaxKind.WhileStatement or SyntaxKind.DoStatement => true,
-            _ => false,
         };
     }
 }

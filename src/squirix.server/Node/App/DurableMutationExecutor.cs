@@ -11,6 +11,8 @@ namespace Squirix.Server.Node.App;
 
 internal sealed class DurableMutationExecutor
 {
+    private const string SkipResultRequiresShouldApplyFalse = "SkipResult is only set when ShouldApply is false.";
+
     private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
     private readonly IJournalCoordinator _journal;
 
@@ -19,10 +21,10 @@ internal sealed class DurableMutationExecutor
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    internal async ValueTask<TResult> ExecuteAsync<TContext, TAppendState, TApplyState, TResult>(
+    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        DurableMutationPipeline<TContext, TAppendState, TApplyState, TResult> pipeline,
+        DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(precondition);
@@ -36,13 +38,12 @@ internal sealed class DurableMutationExecutor
             : await ExecuteMonolithicAsync(precondition, pipeline, cancellationToken).ConfigureAwait(false);
     }
 
-    internal async ValueTask<TResult> ExecuteAsync<TContext, TState, TResult>(
+    internal async ValueTask<TResult> ExecuteAsync<TState, TResult>(
         CacheKey? conflictKey,
-        TContext context,
         TState state,
-        Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        Func<TContext, TState, CancellationToken, ValueTask> appendJournal,
-        Func<TContext, TState, CancellationToken, ValueTask<TResult>> applyMemory,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask> appendJournal,
+        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(precondition);
@@ -52,18 +53,17 @@ internal sealed class DurableMutationExecutor
         await _journal.WaitForStartupAsync(cancellationToken).ConfigureAwait(false);
 
         return _journal.IsJournalGroupCommitEnabled && conflictKey is not null
-            ? await ExecuteGroupCommitAsync(conflictKey, context, state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
-            : await ExecuteMonolithicAsync(context, state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
+            ? await ExecuteGroupCommitAsync(conflictKey, state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false)
+            : await ExecuteMonolithicAsync(state, precondition, appendJournal, applyMemory, cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsIdempotentDurabilityDeferred() => RpcMutationIdempotencyExecutionAmbient.IsDeferred;
 
-    private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TContext, TApplyState, TResult>(
+    private async ValueTask<TResult> ApplyGroupCommitPlanAsync<TState, TResult>(
         DurableMutationPlan<TResult> plan,
         GroupCommitExecutionState state,
-        TContext context,
-        TApplyState applyState,
-        Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> applyMemory,
+        TState mutationState,
+        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken)
     {
         if (!plan.ShouldApply)
@@ -73,14 +73,14 @@ internal sealed class DurableMutationExecutor
         {
             if (IsIdempotentDurabilityDeferred())
             {
-                var withState = new GroupCommitApplyWithState<TContext, TApplyState, TResult>(context, applyState, applyMemory);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.Context, s.ApplyState, ct), cancellationToken)
+                var withState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
+                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken)
                                      .ConfigureAwait(false);
             }
 
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-            var withStateDeferred = new GroupCommitApplyWithState<TContext, TApplyState, TResult>(context, applyState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.Context, s.ApplyState, ct), cancellationToken)
+            var withStateDeferred = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken)
                                  .ConfigureAwait(false);
         }
         finally
@@ -90,28 +90,27 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private async ValueTask<TResult> ExecuteGroupCommitAsync<TContext, TAppendState, TApplyState, TResult>(
+    private async ValueTask<TResult> ExecuteGroupCommitAsync<TState, TResult>(
         CacheKey conflictKey,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        DurableMutationPipeline<TContext, TAppendState, TApplyState, TResult> pipeline,
+        DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken)
     {
         var state = new GroupCommitExecutionState();
         try
         {
             var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                new GroupCommitPrepareWithAppendState<TContext, TAppendState, TResult>(
+                new GroupCommitPrepareWithPipelineState<TState, TResult>(
                     this,
                     conflictKey,
                     state,
                     precondition,
-                    pipeline.Context,
-                    pipeline.AppendState,
+                    pipeline.State,
                     pipeline.AppendJournal),
-                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.Context, s.AppendState, s.AppendJournal, ct),
+                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.Context, pipeline.ApplyState, pipeline.ApplyMemory, cancellationToken).ConfigureAwait(false);
+            return await ApplyGroupCommitPlanAsync(plan, state, pipeline.State, pipeline.ApplyMemory, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -120,24 +119,23 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private async ValueTask<TResult> ExecuteGroupCommitAsync<TContext, TState, TResult>(
+    private async ValueTask<TResult> ExecuteGroupCommitAsync<TState, TResult>(
         CacheKey conflictKey,
-        TContext context,
         TState mutationState,
-        Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        Func<TContext, TState, CancellationToken, ValueTask> appendJournal,
-        Func<TContext, TState, CancellationToken, ValueTask<TResult>> applyMemory,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask> appendJournal,
+        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken)
     {
         var state = new GroupCommitExecutionState();
         try
         {
             var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                new GroupCommitPrepareWithMutationState<TContext, TState, TResult>(this, conflictKey, state, context, mutationState, precondition, appendJournal),
-                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Context, s.MutationState, s.Precondition, s.AppendJournal, ct),
+                new GroupCommitPrepareWithMutationState<TState, TResult>(this, conflictKey, state, mutationState, precondition, appendJournal),
+                static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.State, s.Precondition, s.AppendJournal, ct),
                 cancellationToken).ConfigureAwait(false);
 
-            return await ApplyGroupCommitPlanAsync(plan, state, context, mutationState, applyMemory, cancellationToken).ConfigureAwait(false);
+            return await ApplyGroupCommitPlanAsync(plan, state, mutationState, applyMemory, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -146,71 +144,67 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private ValueTask<TResult> ExecuteMonolithicAsync<TContext, TAppendState, TApplyState, TResult>(
+    private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        DurableMutationPipeline<TContext, TAppendState, TApplyState, TResult> pipeline,
+        DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
-        new MonolithicWithAppendState<TContext, TAppendState, TApplyState, TResult>(
+        new MonolithicWithPipelineState<TState, TResult>(
             this,
             precondition,
-            pipeline.Context,
-            pipeline.AppendState,
+            pipeline.State,
             pipeline.AppendJournal,
-            pipeline.ApplyState,
             pipeline.ApplyMemory),
         static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
         cancellationToken);
 
-    private ValueTask<TResult> ExecuteMonolithicAsync<TContext, TState, TResult>(
-        TContext context,
+    private ValueTask<TResult> ExecuteMonolithicAsync<TState, TResult>(
         TState state,
-        Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        Func<TContext, TState, CancellationToken, ValueTask> appendJournal,
-        Func<TContext, TState, CancellationToken, ValueTask<TResult>> applyMemory,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask> appendJournal,
+        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory,
         CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
-        new MonolithicWithMutationState<TContext, TState, TResult>(this, context, state, precondition, appendJournal, applyMemory),
+        new MonolithicWithMutationState<TState, TResult>(this, state, precondition, appendJournal, applyMemory),
         static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
         cancellationToken);
 
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TContext, TAppendState, TApplyState, TResult>(
-        MonolithicWithAppendState<TContext, TAppendState, TApplyState, TResult> state,
+    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(
+        MonolithicWithPipelineState<TState, TResult> state,
         CancellationToken cancellationToken)
     {
         var decision = await state.Precondition(cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
-            return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
+            return decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse);
 
-        await state.AppendJournal(state.Context, state.AppendState, cancellationToken).ConfigureAwait(false);
+        await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
         if (IsIdempotentDurabilityDeferred())
-            return await state.ApplyMemory(state.Context, state.ApplyState, cancellationToken).ConfigureAwait(false);
+            return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
 
         await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-        return await state.ApplyMemory(state.Context, state.ApplyState, cancellationToken).ConfigureAwait(false);
+        return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TContext, TState, TResult>(
-        MonolithicWithMutationState<TContext, TState, TResult> state,
+    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(
+        MonolithicWithMutationState<TState, TResult> state,
         CancellationToken cancellationToken)
     {
-        var decision = await state.Precondition(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+        var decision = await state.Precondition(state.State, cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
-            return decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false.");
+            return decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse);
 
-        await state.AppendJournal(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+        await state.AppendJournal(state.State, cancellationToken).ConfigureAwait(false);
         if (IsIdempotentDurabilityDeferred())
-            return await state.ApplyMemory(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+            return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
 
         await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
-        return await state.ApplyMemory(state.Context, state.MutationState, cancellationToken).ConfigureAwait(false);
+        return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TContext, TAppendState, TResult>(
+    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
         CacheKey conflictKey,
         GroupCommitExecutionState state,
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        TContext context,
-        TAppendState appendState,
-        Func<TContext, TAppendState, CancellationToken, ValueTask> appendJournal,
+        TState mutationState,
+        Func<TState, CancellationToken, ValueTask> appendJournal,
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
@@ -224,12 +218,12 @@ internal sealed class DurableMutationExecutor
             {
                 _ = _inFlight.TryRemove(conflictKey, out _);
                 state.Admitted = false;
-                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false."));
+                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
             }
 
             _journal.BeginPendingMemoryApply();
             state.PendingMemoryApply = true;
-            await appendJournal(context, appendState, cancellationToken).ConfigureAwait(false);
+            await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
@@ -239,13 +233,12 @@ internal sealed class DurableMutationExecutor
         }
     }
 
-    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TContext, TState, TResult>(
+    private async ValueTask<DurableMutationPlan<TResult>> PrepareGroupCommitPlanCoreAsync<TState, TResult>(
         CacheKey conflictKey,
         GroupCommitExecutionState state,
-        TContext context,
         TState mutationState,
-        Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-        Func<TContext, TState, CancellationToken, ValueTask> appendJournal,
+        Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+        Func<TState, CancellationToken, ValueTask> appendJournal,
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
@@ -254,17 +247,17 @@ internal sealed class DurableMutationExecutor
         state.Admitted = true;
         try
         {
-            var decision = await precondition(context, mutationState, cancellationToken).ConfigureAwait(false);
+            var decision = await precondition(mutationState, cancellationToken).ConfigureAwait(false);
             if (!decision.ShouldApply)
             {
                 _ = _inFlight.TryRemove(conflictKey, out _);
                 state.Admitted = false;
-                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException("SkipResult is only set when ShouldApply is false."));
+                return DurableMutationPlan<TResult>.Skip(decision.SkipResult ?? throw new InvalidOperationException(SkipResultRequiresShouldApplyFalse));
             }
 
             _journal.BeginPendingMemoryApply();
             state.PendingMemoryApply = true;
-            await appendJournal(context, mutationState, cancellationToken).ConfigureAwait(false);
+            await appendJournal(mutationState, cancellationToken).ConfigureAwait(false);
             return DurableMutationPlan<TResult>.Apply();
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or InvalidDataException or OperationCanceledException)
@@ -286,20 +279,17 @@ internal sealed class DurableMutationExecutor
         state.Admitted = false;
     }
 
-    private sealed record GroupCommitApplyWithState<TContext, TApplyState, TResult>
+    private sealed record GroupCommitApplyWithState<TState, TResult>
     {
-        internal GroupCommitApplyWithState(TContext context, TApplyState applyState, Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> applyMemory)
+        internal GroupCommitApplyWithState(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
-            Context = context;
-            ApplyState = applyState;
+            State = state;
             ApplyMemory = applyMemory;
         }
 
-        internal Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
+        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
-        internal TApplyState ApplyState { get; }
-
-        internal TContext Context { get; }
+        internal TState State { get; }
     }
 
     private sealed class GroupCommitExecutionState
@@ -309,140 +299,120 @@ internal sealed class DurableMutationExecutor
         internal bool PendingMemoryApply { get; set; }
     }
 
-    private sealed record GroupCommitPrepareWithAppendState<TContext, TAppendState, TResult>
+    private sealed record GroupCommitPrepareWithPipelineState<TState, TResult>
     {
-        internal GroupCommitPrepareWithAppendState(
+        internal GroupCommitPrepareWithPipelineState(
             DurableMutationExecutor mutator,
             CacheKey conflictKey,
             GroupCommitExecutionState executionState,
             Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            TContext context,
-            TAppendState appendState,
-            Func<TContext, TAppendState, CancellationToken, ValueTask> appendJournal)
+            TState state,
+            Func<TState, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
             ConflictKey = conflictKey;
             ExecutionState = executionState;
             Precondition = precondition;
-            Context = context;
-            AppendState = appendState;
+            State = state;
             AppendJournal = appendJournal;
         }
 
-        internal Func<TContext, TAppendState, CancellationToken, ValueTask> AppendJournal { get; }
-
-        internal TAppendState AppendState { get; }
+        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
         internal CacheKey ConflictKey { get; }
-
-        internal TContext Context { get; }
 
         internal GroupCommitExecutionState ExecutionState { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
         internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+
+        internal TState State { get; }
     }
 
-    private sealed record GroupCommitPrepareWithMutationState<TContext, TState, TResult>
+    private sealed record GroupCommitPrepareWithMutationState<TState, TResult>
     {
         internal GroupCommitPrepareWithMutationState(
             DurableMutationExecutor mutator,
             CacheKey conflictKey,
             GroupCommitExecutionState executionState,
-            TContext context,
-            TState mutationState,
-            Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            Func<TContext, TState, CancellationToken, ValueTask> appendJournal)
+            TState state,
+            Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            Func<TState, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
             ConflictKey = conflictKey;
             ExecutionState = executionState;
-            Context = context;
-            MutationState = mutationState;
+            State = state;
             Precondition = precondition;
             AppendJournal = appendJournal;
         }
 
-        internal Func<TContext, TState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
         internal CacheKey ConflictKey { get; }
 
-        internal TContext Context { get; }
-
         internal GroupCommitExecutionState ExecutionState { get; }
-
-        internal TState MutationState { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
-        internal Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+        internal Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+
+        internal TState State { get; }
     }
 
-    private sealed record MonolithicWithAppendState<TContext, TAppendState, TApplyState, TResult>
+    private sealed record MonolithicWithPipelineState<TState, TResult>
     {
-        internal MonolithicWithAppendState(
+        internal MonolithicWithPipelineState(
             DurableMutationExecutor mutator,
             Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            TContext context,
-            TAppendState appendState,
-            Func<TContext, TAppendState, CancellationToken, ValueTask> appendJournal,
-            TApplyState applyState,
-            Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> applyMemory)
+            TState state,
+            Func<TState, CancellationToken, ValueTask> appendJournal,
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
             Mutator = mutator;
             Precondition = precondition;
-            Context = context;
-            AppendState = appendState;
+            State = state;
             AppendJournal = appendJournal;
-            ApplyState = applyState;
             ApplyMemory = applyMemory;
         }
 
-        internal Func<TContext, TAppendState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
-        internal TAppendState AppendState { get; }
-
-        internal Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
-
-        internal TApplyState ApplyState { get; }
-
-        internal TContext Context { get; }
+        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
         internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+
+        internal TState State { get; }
     }
 
-    private sealed record MonolithicWithMutationState<TContext, TState, TResult>
+    private sealed record MonolithicWithMutationState<TState, TResult>
     {
         internal MonolithicWithMutationState(
             DurableMutationExecutor mutator,
-            TContext context,
-            TState mutationState,
-            Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            Func<TContext, TState, CancellationToken, ValueTask> appendJournal,
-            Func<TContext, TState, CancellationToken, ValueTask<TResult>> applyMemory)
+            TState state,
+            Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            Func<TState, CancellationToken, ValueTask> appendJournal,
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
             Mutator = mutator;
-            Context = context;
-            MutationState = mutationState;
+            State = state;
             Precondition = precondition;
             AppendJournal = appendJournal;
             ApplyMemory = applyMemory;
         }
 
-        internal Func<TContext, TState, CancellationToken, ValueTask> AppendJournal { get; }
+        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
-        internal Func<TContext, TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
-
-        internal TContext Context { get; }
-
-        internal TState MutationState { get; }
+        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
-        internal Func<TContext, TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+        internal Func<TState, CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+
+        internal TState State { get; }
     }
 
     /// <summary>Result of the journal append phase of a durable mutation.</summary>

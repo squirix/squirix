@@ -186,8 +186,12 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             var client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
             await using (client.ConfigureAwait(false))
             {
-                var key = _keys[i];
-                await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                var cache = await client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
+                for (var i = 0; i < KeyCount; i++)
+                {
+                    var key = _keys[i];
+                    await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                }
             }
         }
     }

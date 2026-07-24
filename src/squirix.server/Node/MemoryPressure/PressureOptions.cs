@@ -35,9 +35,7 @@ internal sealed record PressureOptions
         ValidatePercent(nameof(CriticalPressureThresholdPercent), CriticalPressureThresholdPercent);
 
         if (HighPressureThresholdPercent >= CriticalPressureThresholdPercent)
-        {
             throw new InvalidOperationException("MemoryPressure HighPressureThresholdPercent must be less than CriticalPressureThresholdPercent.");
-        }
     }
 
     private static void ValidatePercent(string name, int value)

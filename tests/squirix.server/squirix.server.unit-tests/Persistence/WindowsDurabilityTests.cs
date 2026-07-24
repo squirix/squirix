@@ -69,7 +69,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
 
     /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
     [Fact]
-    public async Task ManifestStoreThrowsWhenCurrentPointerTargetIsMissing()
+    public async Task ManifestStoreThrowsCurrentPointerTargetIsMissing()
     {
         var options = new PersistenceOptions { DataDir = Dir };
         using var store = new ManifestStore(options);

@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -13,14 +12,23 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR005";
 
-    private static readonly LocalizableString Description =
-        "Method simple names must be at most 50 characters " + "(excluding explicit interface implementations). Applies to production and test code.";
-
-    private static readonly LocalizableString MessageFormat = "Method name '{0}' length is {1} (limit {2})";
-
     private static readonly LocalizableString Title = "Avoid methods with name too long";
-    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Naming", DiagnosticSeverity.Warning, true, Description);
 
+    private static readonly LocalizableString MessageFormat =
+        "Method name '{0}' length is {1} (limit {2})";
+
+    private static readonly LocalizableString Description =
+        "Method simple names must be at most 50 characters " +
+        "(excluding explicit interface implementations). Applies to production and test code.";
+
+    private static readonly DiagnosticDescriptor Rule = new(
+        DiagnosticId,
+        Title,
+        MessageFormat,
+        "Naming",
+        DiagnosticSeverity.Warning,
+        true,
+        description: Description);
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -29,7 +37,7 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
     public override void Initialize(AnalysisContext context)
     {
         if (context is null)
-            throw new ArgumentNullException(nameof(context));
+            throw new System.ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
@@ -59,6 +67,12 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
         if (location is null)
             return;
 
-        context.ReportDiagnostic(Diagnostic.Create(Rule, location, name, effectiveLength, AnalyzerLimits.MaxMethodNameLength));
+        context.ReportDiagnostic(
+            Diagnostic.Create(
+                Rule,
+                location,
+                name,
+                effectiveLength,
+                AnalyzerLimits.MaxMethodNameLength));
     }
 }

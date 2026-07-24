@@ -23,5 +23,5 @@ internal interface IRpcMutationIdempotencyCoordinator
         TState state,
         Func<TState, CancellationToken, Task<TResponse>> execute,
         CancellationToken cancellationToken)
-        where TResponse : IMessage<TResponse>, new();
+        where TResponse : class, IMessage<TResponse>, new();
 }

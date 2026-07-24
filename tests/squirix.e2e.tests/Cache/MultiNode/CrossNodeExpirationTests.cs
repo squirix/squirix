@@ -104,7 +104,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
     [Fact]
-    public async Task PersistOnNodeBNonExpiringRemoteKeyReturnsFalseAndKeepsKeyLive()
+    public async Task PersistNodeBNonExpiringReturnsFalseKeepsKeyLive()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-non-expiring");
 
@@ -117,7 +117,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies RemoveExpirationAsync can remove expiration from a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task PersistOnNodeBRemovesExpirationFromEntryInsertedOnNodeA()
+    public async Task PersistNodeBRemovesExpirationEntryInsertedOnNodeA()
     {
         var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
 

@@ -180,9 +180,7 @@ internal static class NodeEndpointServiceRegistration
 
             double? snapshotAgeSeconds = null;
             if (manifest.LastSnapshot?.Path is not null)
-            {
                 snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
-            }
 
             var compactionState = _compaction.State switch
             {

@@ -9,17 +9,17 @@ namespace Squirix.Server.Utils;
 /// </summary>
 internal static class FilePathValidator
 {
-    /// <summary>Validates and canonicalizes an operator-supplied directory path.</summary>
-    /// <param name="path">Absolute or relative directory path.</param>
-    /// <returns>Normalized absolute path.</returns>
-    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
-    internal static string ResolveValidatedDirectoryPath(string path) => ResolveValidatedPath(path, nameof(path));
-
     /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
     /// <param name="path">Absolute or relative file path.</param>
     /// <returns>Normalized absolute path.</returns>
     /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
     internal static string ResolveValidatedFilePath(string path) => ResolveValidatedPath(path, nameof(path));
+
+    /// <summary>Validates and canonicalizes an operator-supplied directory path.</summary>
+    /// <param name="path">Absolute or relative directory path.</param>
+    /// <returns>Normalized absolute path.</returns>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    internal static string ResolveValidatedDirectoryPath(string path) => ResolveValidatedPath(path, nameof(path));
 
     private static string ResolveValidatedPath(string path, string paramName)
     {
@@ -36,6 +36,6 @@ internal static class FilePathValidator
         var root = Path.GetPathRoot(path) ?? string.Empty;
         var rest = path.AsSpan(root.Length);
         while (DirectoryPathValidator.TryReadNextSegment(ref rest, out var segment))
-            PathValidation.ValidateSegment(segment, paramName, true);
+            PathValidation.ValidateSegment(segment, path, paramName, true);
     }
 }

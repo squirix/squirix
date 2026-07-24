@@ -63,7 +63,7 @@ public sealed class PrometheusMetricsSettingsTests
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
     [Fact]
-    public async Task DeserializeAndMergeIntoKeepsBaselineForAbsentFields()
+    public async Task DeserializeAndMergeKeepsBaselineForAbsentFields()
     {
         var baseline = new PrometheusMetricsEndpointOptions
         {

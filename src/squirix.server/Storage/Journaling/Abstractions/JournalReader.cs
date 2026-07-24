@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 

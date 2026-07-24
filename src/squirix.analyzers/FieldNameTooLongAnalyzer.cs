@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -13,13 +12,22 @@ public sealed class FieldNameTooLongAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR006";
 
-    private static readonly LocalizableString Description = "Field names must be at most 50 characters.";
-
-    private static readonly LocalizableString MessageFormat = "Field name '{0}' length is {1} (limit {2})";
-
     private static readonly LocalizableString Title = "Avoid fields with name too long";
-    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Naming", DiagnosticSeverity.Warning, true, Description);
 
+    private static readonly LocalizableString MessageFormat =
+        "Field name '{0}' length is {1} (limit {2})";
+
+    private static readonly LocalizableString Description =
+        "Field names must be at most 50 characters.";
+
+    private static readonly DiagnosticDescriptor Rule = new(
+        DiagnosticId,
+        Title,
+        MessageFormat,
+        "Naming",
+        DiagnosticSeverity.Warning,
+        true,
+        description: Description);
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -28,7 +36,7 @@ public sealed class FieldNameTooLongAnalyzer : DiagnosticAnalyzer
     public override void Initialize(AnalysisContext context)
     {
         if (context is null)
-            throw new ArgumentNullException(nameof(context));
+            throw new System.ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
@@ -49,6 +57,12 @@ public sealed class FieldNameTooLongAnalyzer : DiagnosticAnalyzer
         if (location is null)
             return;
 
-        context.ReportDiagnostic(Diagnostic.Create(Rule, location, name, name.Length, AnalyzerLimits.MaxFieldNameLength));
+        context.ReportDiagnostic(
+            Diagnostic.Create(
+                Rule,
+                location,
+                name,
+                name.Length,
+                AnalyzerLimits.MaxFieldNameLength));
     }
 }

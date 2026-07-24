@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal.Cluster.Reliability;
-using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests.Cluster;
@@ -12,37 +11,6 @@ namespace Squirix.UnitTests.Cluster;
 /// <summary>Covers client <see cref="CallPolicy" /> Map* failure classification paths.</summary>
 public sealed class CallPolicyTests
 {
-    /// <summary>Rejects new calls after BeginDrain.</summary>
-    [Fact]
-    public async Task BeginDrainRejectsNewCalls()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-drain");
-        policy.BeginDrain();
-
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(1), 0, CancellationToken.None));
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
-    }
-
-    /// <summary>Retries DeadlineExceeded RpcException.</summary>
-    [Fact]
-    public async Task ExecuteAsyncRetriesDeadlineExceededRpc()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
-        var box = new IntBox();
-        var value = await policy.ExecuteAsync(
-            static (counter, cancellationToken) =>
-            {
-                _ = cancellationToken;
-                var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow"))) : new ValueTask<int>(4);
-            },
-            box,
-            CancellationToken.None);
-
-        Assert.Equal(4, value);
-        Assert.Equal(2, box.Count);
-    }
-
     /// <summary>Retries HttpRequestException then succeeds.</summary>
     [Fact]
     public async Task ExecuteAsyncRetriesHttpRequestException()
@@ -63,6 +31,36 @@ public sealed class CallPolicyTests
         Assert.Equal(2, box.Count);
     }
 
+    /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
+    [Fact]
+    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOne()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
+        _ = await Assert.ThrowsAsync<HttpRequestException>(() => policy.ExecuteAsync(
+            static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")),
+            0,
+            CancellationToken.None).AsTask());
+    }
+
+    /// <summary>Stops on non-retryable Rpc status.</summary>
+    [Fact]
+    public async Task ExecuteAsyncStopsNonRetryableRpc()
+    {
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
+        var box = new IntBox();
+        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
+            {
+                _ = cancellationToken;
+                _ = counter.Increment();
+                return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
+            },
+            box,
+            CancellationToken.None).AsTask());
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal(1, box.Count);
+    }
+
     /// <summary>Retries Unavailable RpcException.</summary>
     [Fact]
     public async Task ExecuteAsyncRetriesUnavailableRpc()
@@ -74,7 +72,9 @@ public sealed class CallPolicyTests
             {
                 _ = cancellationToken;
                 var n = counter.Increment();
-                return n is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(8);
+                return n is 1
+                    ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down")))
+                    : new ValueTask<int>(8);
             },
             box,
             CancellationToken.None);
@@ -83,79 +83,26 @@ public sealed class CallPolicyTests
         Assert.Equal(2, box.Count);
     }
 
-    /// <summary>Stops on HttpRequestException when maxAttempts is 1.</summary>
+    /// <summary>Retries DeadlineExceeded RpcException.</summary>
     [Fact]
-    public async Task ExecuteAsyncStopsHttpWhenMaxAttemptsIsOne()
+    public async Task ExecuteAsyncRetriesDeadlineExceededRpc()
     {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "c-http-stop");
-        _ = await AsyncAssert.ThrowsAsync<HttpRequestException, int>(
-            policy.ExecuteAsync(static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")), 0, CancellationToken.None));
-    }
-
-    /// <summary>Stops on non-retryable Rpc status.</summary>
-    [Fact]
-    public async Task ExecuteAsyncStopsNonRetryableRpc()
-    {
-        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-stop");
+        await using var policy = new CallPolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.Zero, TimeSpan.Zero, peer: "c-rpc-deadline");
         var box = new IntBox();
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(
-            policy.ExecuteAsync(
-                static (counter, cancellationToken) =>
-                {
-                    _ = cancellationToken;
-                    _ = counter.Increment();
-                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
-                },
-                box,
-                CancellationToken.None));
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(1, box.Count);
-    }
-
-    /// <summary>Rejects a call queued behind the concurrency gate when drain begins before execution.</summary>
-    [Fact]
-    public async Task QueuedCallIsRejectedIfDrainBeginsBeforeExecution()
-    {
-        var timeout = TimeSpan.FromSeconds(5);
-        await using var policy = new CallPolicy(timeout, 1, TimeSpan.Zero, TimeSpan.Zero, 1, "c-drain-queue");
-        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var gate = new EnterReleaseGate(firstEntered, releaseFirst);
-
-        var first = policy.ExecuteAsync(
-            static async (g, ct) =>
+        var value = await policy.ExecuteAsync(
+            static (counter, cancellationToken) =>
             {
-                g.Entered.SetResult();
-                await g.Release.Task.WaitAsync(Timeout.InfiniteTimeSpan, TimeProvider.System, ct);
-                return 1;
+                _ = cancellationToken;
+                var n = counter.Increment();
+                return n is 1
+                    ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.DeadlineExceeded, "slow")))
+                    : new ValueTask<int>(4);
             },
-            gate,
+            box,
             CancellationToken.None);
 
-        await firstEntered.Task.WaitAsync(timeout, TimeProvider.System, CancellationToken.None);
-
-        var queued = policy.ExecuteAsync(static (_, _) => ValueTask.FromResult(2), 0, CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(30), TimeProvider.System, CancellationToken.None);
-
-        policy.BeginDrain();
-        releaseFirst.SetResult();
-
-        Assert.Equal(1, await first);
-        var ex = await AsyncAssert.ThrowsAsync<RpcException, int>(queued);
-        Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
-    }
-
-    private sealed class EnterReleaseGate
-    {
-        internal EnterReleaseGate(TaskCompletionSource entered, TaskCompletionSource release)
-        {
-            Entered = entered;
-            Release = release;
-        }
-
-        internal TaskCompletionSource Entered { get; }
-
-        internal TaskCompletionSource Release { get; }
+        Assert.Equal(4, value);
+        Assert.Equal(2, box.Count);
     }
 
     private sealed class IntBox

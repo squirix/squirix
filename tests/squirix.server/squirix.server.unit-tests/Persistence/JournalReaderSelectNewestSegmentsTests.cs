@@ -56,4 +56,25 @@ public sealed class JournalReaderSelectNewestSegmentsTests
         var seg = Assert.Single(segments);
         Assert.Equal(42, seg.Index);
     }
+
+    /// <summary>EnumerateSegments returns empty for invalid operator paths without throwing.</summary>
+    /// <param name="path">Invalid directory path.</param>
+    [Theory]
+    [InlineData("..")]
+    [InlineData("a*b")]
+    [InlineData("")]
+    public void EnumerateSegmentsReturnsEmptyForInvalidPaths(string path)
+    {
+        var segments = JournalReader.EnumerateSegments(path, 1);
+        Assert.Empty(segments);
+    }
+
+    /// <summary>GetOnDiskSegmentStats returns zeros for invalid operator paths.</summary>
+    [Fact]
+    public void GetOnDiskSegmentStatsReturnsDefaultForInvalidPath()
+    {
+        var (segmentCount, totalBytes) = JournalReader.GetOnDiskSegmentStats("..");
+        Assert.Equal(0, segmentCount);
+        Assert.Equal(0, totalBytes);
+    }
 }

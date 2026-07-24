@@ -210,13 +210,13 @@ internal static class ProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
-    private static object? ToUntypedValue(Value value, ISquirixSerializer serializer) => value.KindCase switch
+    private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer) => value.KindCase switch
     {
         Value.KindOneofCase.StringValue => value.StringValue,
         Value.KindOneofCase.BoolValue => value.BoolValue,
         Value.KindOneofCase.NumberValue => NormalizeNumber(value.NumberValue),
         Value.KindOneofCase.NullValue or Value.KindOneofCase.None => null,
-        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => Deserialize<JsonElement>(value, serializer),
+        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => await DeserializeAsync<JsonElement>(value, serializer).ConfigureAwait(false),
         _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported value kind."),
     };
 

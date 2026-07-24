@@ -12,7 +12,7 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
     public async Task ClientContinuesAlternateActiveEndpointLoss()
     {
         await using var cluster = await HostedCluster.StartTwoNodeAsync(
-            nameof(ClientContinuesOnAlternateBootstrapAfterActiveEndpointLoss),
+            nameof(ClientContinuesAlternateActiveEndpointLoss),
             cancellationToken: DefaultCancellationToken);
         var uriA = cluster.GetUri("nodeA");
         var uriB = cluster.GetUri("nodeB");

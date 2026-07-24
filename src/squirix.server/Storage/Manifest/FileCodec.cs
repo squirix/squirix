@@ -17,6 +17,8 @@ internal static class FileCodec
 
     private const int RollSnapshotSectionFixedLength = 4 + 8 + 4 + 8 + 2;
 
+    private const string SnapshotPathExceedsMaxEncodedLength = "Manifest snapshot path exceeds maximum encoded length.";
+
     private const byte Version = 1;
 
     private static ReadOnlySpan<byte> Magic => "SQMF"u8;
@@ -52,7 +54,7 @@ internal static class FileCodec
         var path = manifest.LastSnapshot?.Path;
         var pathByteCount = GetSnapshotPathUtf8ByteCount(path);
         if (pathByteCount > ushort.MaxValue)
-            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
         if (destination.Length < ComputeEncodedLength(manifest))
             throw new ArgumentException("Destination span is too small for the encoded manifest.", nameof(destination));
@@ -110,7 +112,7 @@ internal static class FileCodec
     {
         var pathByteCount = GetSnapshotPathUtf8ByteCount(manifest.LastSnapshot?.Path);
         if (pathByteCount > ushort.MaxValue)
-            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
         var bodyLength = 4 + 4 + 8 + 1 + (manifest.LastSnapshot is null ? 0 : 4 + 8 + 4 + 8 + 2 + pathByteCount);
         return FileHeaderSize + bodyLength + FooterSize;
@@ -119,7 +121,7 @@ internal static class FileCodec
     internal static int ComputeRollEncodedLength(SnapshotRef? snapshot, int snapshotPathUtf8Length)
     {
         if (snapshotPathUtf8Length > ushort.MaxValue)
-            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
         var bodyLength = snapshot is null ? RollBodyWithoutSnapshotLength : RollBodyWithoutSnapshotLength + RollSnapshotSectionFixedLength + snapshotPathUtf8Length;
         return FileHeaderSize + bodyLength + FooterSize;
@@ -144,7 +146,7 @@ internal static class FileCodec
         Span<byte> destination)
     {
         if (snapshotPathUtf8.Length > ushort.MaxValue)
-            throw new InvalidDataException("Manifest snapshot path exceeds maximum encoded length.");
+            throw new InvalidDataException(SnapshotPathExceedsMaxEncodedLength);
 
         var encodedLength = ComputeRollEncodedLength(snapshot, snapshotPathUtf8.Length);
         if (destination.Length < encodedLength)

@@ -62,33 +62,39 @@ internal static class TopologyValidator
         // Empty peer list means single-node mode; otherwise the local node id must appear in Peers.
         var localNodePresent = peers.Length is 0;
         for (var i = 0; i < peers.Length; i++)
-        {
-            var peer = peers[i];
-            var (peerNodeId, uri) = readPeer(peer);
-            ValidateIdentifier(failures, peerNodeId, "Peers[].NodeId");
-            ValidateUri(failures, uri, "Peers[].Uri");
-            if (peerNodeId is not null && !peerIds.Add(peerNodeId))
-                failures.Add($"Peers contains duplicate NodeId '{peerNodeId}'.");
-            if (uri is not null)
-            {
-                var peerOrigin = uri.AbsoluteUri;
-                if (!peerUris.Add(peerOrigin))
-                    failures.Add($"Peers contains duplicate Uri '{peerOrigin}'.");
-            }
-
-            if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
-                continue;
-            localNodePresent = true;
-
-            // The self peer entry must advertise the same origin Uri as the local listener configuration.
-            if (nodeUri is not null && uri is not null && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
-            {
-                failures.Add("Peers entry for the local NodeId must use the same Uri as Uri.");
-            }
-        }
+            localNodePresent |= ValidatePeerEntry(failures, nodeId, nodeUri, readPeer(peers[i]), peerIds, peerUris);
 
         if (!localNodePresent)
             failures.Add("Peers must include the local NodeId.");
+    }
+
+    private static bool ValidatePeerEntry(
+        List<string> failures,
+        string? nodeId,
+        Uri? nodeUri,
+        (string? NodeId, Uri? Uri) peer,
+        HashSet<string> peerIds,
+        HashSet<string> peerUris)
+    {
+        var (peerNodeId, uri) = peer;
+        ValidateIdentifier(failures, peerNodeId, "Peers[].NodeId");
+        ValidateUri(failures, uri, "Peers[].Uri");
+        if (peerNodeId is not null && !peerIds.Add(peerNodeId))
+            failures.Add($"Peers contains duplicate NodeId '{peerNodeId}'.");
+        if (uri is { IsAbsoluteUri: true } && !peerUris.Add(uri.AbsoluteUri))
+            failures.Add($"Peers contains duplicate Uri '{uri.AbsoluteUri}'.");
+
+        if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
+            return false;
+
+        // The self peer entry must advertise the same origin Uri as the local listener configuration.
+        if (nodeUri is { IsAbsoluteUri: true } && uri is { IsAbsoluteUri: true } &&
+            !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("Peers entry for the local NodeId must use the same Uri as Uri.");
+        }
+
+        return true;
     }
 
     private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)

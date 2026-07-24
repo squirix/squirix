@@ -9,5 +9,5 @@ internal static class JournalPaths
 {
     internal static string BuildSegmentPath(string dataDir, int segmentIndex) => PathEx.Combine(
         dataDir,
-        $"{FilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{segmentIndex.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
 }

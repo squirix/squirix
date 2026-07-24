@@ -116,10 +116,8 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
             var routes = new List<string>();
             foreach (var source in routeBuilder.DataSources)
-            {
                 for (var index = 0; index < source.Endpoints.Count; index++)
                     AppendRouteEndpoint(source.Endpoints[index], routes);
-            }
 
             routes.Sort(StringComparer.Ordinal);
             return routes;

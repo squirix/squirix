@@ -9,29 +9,6 @@ namespace Squirix.Server.Utils;
 /// </summary>
 internal static class MacOsCompatibilitySymlink
 {
-    /// <summary>Returns whether <paramref name="name" /> is a Darwin root compatibility link name.</summary>
-    /// <param name="name">Directory name.</param>
-    /// <returns><see langword="true" /> for var, tmp, or etc.</returns>
-    internal static bool IsAllowlistedRootLinkName(string name) => string.Equals(name, "var", StringComparison.Ordinal) || string.Equals(name, "tmp", StringComparison.Ordinal) ||
-                                                                   string.Equals(name, "etc", StringComparison.Ordinal);
-
-    /// <summary>Returns whether <paramref name="targetFull" /> equals the expected private path.</summary>
-    /// <param name="targetFull">Resolved symlink target.</param>
-    /// <param name="expectedFull">Expected <c>{root}private/{name}</c> path.</param>
-    /// <returns><see langword="true" /> when the paths match under ordinal-ignore-case comparison.</returns>
-    internal static bool IsExpectedPrivateTarget(string targetFull, string expectedFull) => targetFull.Equals(expectedFull, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Builds the expected absolute path <c>{root}private/{name}</c> with trailing separators removed.</summary>
-    /// <param name="root">Volume root path.</param>
-    /// <param name="name">Allowlisted link name (<c>var</c>, <c>tmp</c>, or <c>etc</c>).</param>
-    /// <param name="expectedFull">Trimmed expected path when this method returns <see langword="true" />.</param>
-    /// <returns><see langword="true" /> when a non-empty expected path was produced.</returns>
-    internal static bool TryBuildExpectedPrivatePath(string root, string name, out string expectedFull)
-    {
-        expectedFull = DirectoryPathValidator.TrimTrailingSeparators(Path.Join(root, "private", name));
-        return expectedFull.Length > 0;
-    }
-
     /// <summary>
     /// Attempts to follow a Darwin root compatibility symlink to its canonical <c>/private/...</c> path.
     /// </summary>
@@ -44,10 +21,8 @@ internal static class MacOsCompatibilitySymlink
     /// <see langword="true" /> only on macOS/Mac Catalyst when <paramref name="directory" /> is an allowlisted
     /// root link that resolves to <c>{root}private/{name}</c>.
     /// </returns>
-    internal static bool TryFollow(DirectoryInfo directory, out string resolvedFullPath) => TryFollow(
-        directory,
-        OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst(),
-        out resolvedFullPath);
+    internal static bool TryFollow(DirectoryInfo directory, out string resolvedFullPath) =>
+        TryFollow(directory, OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst(), out resolvedFullPath);
 
     /// <summary>Attempts to follow a Darwin root compatibility symlink, with an explicit host-platform flag for tests.</summary>
     /// <param name="directory">Directory entry already known to be a symlink.</param>
@@ -79,6 +54,24 @@ internal static class MacOsCompatibilitySymlink
         return true;
     }
 
+    /// <summary>Returns whether <paramref name="targetFull" /> equals the expected private path.</summary>
+    /// <param name="targetFull">Resolved symlink target.</param>
+    /// <param name="expectedFull">Expected <c>{root}private/{name}</c> path.</param>
+    /// <returns><see langword="true" /> when the paths match under ordinal-ignore-case comparison.</returns>
+    internal static bool IsExpectedPrivateTarget(string targetFull, string expectedFull) =>
+        targetFull.Equals(expectedFull, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Builds the expected absolute path <c>{root}private/{name}</c> with trailing separators removed.</summary>
+    /// <param name="root">Volume root path.</param>
+    /// <param name="name">Allowlisted link name (<c>var</c>, <c>tmp</c>, or <c>etc</c>).</param>
+    /// <param name="expectedFull">Trimmed expected path when this method returns <see langword="true" />.</param>
+    /// <returns><see langword="true" /> when a non-empty expected path was produced.</returns>
+    internal static bool TryBuildExpectedPrivatePath(string root, string name, out string expectedFull)
+    {
+        expectedFull = Path.Join(root, "private", name).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return expectedFull.Length > 0;
+    }
+
     /// <summary>Returns whether <paramref name="directory" /> is a root child named <c>var</c>, <c>tmp</c>, or <c>etc</c>.</summary>
     /// <param name="directory">Directory to inspect.</param>
     /// <param name="root">Volume root when the check succeeds; otherwise <see cref="string.Empty" />.</param>
@@ -95,10 +88,13 @@ internal static class MacOsCompatibilitySymlink
             return false;
 
         // Compare trimmed and raw root forms: Path.GetPathRoot may keep a trailing separator.
-        var rootTrimmed = DirectoryPathValidator.TrimTrailingSeparators(pathRoot);
-        var parentTrimmed = DirectoryPathValidator.TrimTrailingSeparators(parent.FullName);
-        if (!parentTrimmed.Equals(rootTrimmed, StringComparison.Ordinal) && !parent.FullName.Equals(pathRoot, StringComparison.Ordinal))
+        var rootTrimmed = pathRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var parentTrimmed = parent.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!parentTrimmed.Equals(rootTrimmed, StringComparison.Ordinal)
+            && !parent.FullName.Equals(pathRoot, StringComparison.Ordinal))
+        {
             return false;
+        }
 
         // Only the three historical Darwin compatibility names are allowlisted.
         if (!IsAllowlistedRootLinkName(directory.Name))
@@ -108,6 +104,14 @@ internal static class MacOsCompatibilitySymlink
         name = directory.Name;
         return true;
     }
+
+    /// <summary>Returns whether <paramref name="name" /> is a Darwin root compatibility link name.</summary>
+    /// <param name="name">Directory name.</param>
+    /// <returns><see langword="true" /> for var, tmp, or etc.</returns>
+    internal static bool IsAllowlistedRootLinkName(string name) =>
+        string.Equals(name, "var", StringComparison.Ordinal)
+        || string.Equals(name, "tmp", StringComparison.Ordinal)
+        || string.Equals(name, "etc", StringComparison.Ordinal);
 
     /// <summary>Resolves the final symlink target path (full chain) with trailing separators removed.</summary>
     /// <param name="directory">Symlink directory entry.</param>
@@ -138,7 +142,7 @@ internal static class MacOsCompatibilitySymlink
         if (target is null)
             return false;
 
-        targetFull = DirectoryPathValidator.TrimTrailingSeparators(target.FullName);
+        targetFull = target.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return true;
     }
 }
