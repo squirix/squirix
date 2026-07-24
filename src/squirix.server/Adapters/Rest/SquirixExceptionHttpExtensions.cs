@@ -19,6 +19,7 @@ internal static class SquirixExceptionHttpExtensions
                 SquirixErrorCode.PayloadTooLarge => StatusCodes.Status413PayloadTooLarge,
                 SquirixErrorCode.TooManyRequests => StatusCodes.Status429TooManyRequests,
                 SquirixErrorCode.MemoryPressure => StatusCodes.Status429TooManyRequests,
+                SquirixErrorCode.JournalDiskQuota => StatusCodes.Status429TooManyRequests,
                 _ => StatusCodes.Status500InternalServerError,
             };
 

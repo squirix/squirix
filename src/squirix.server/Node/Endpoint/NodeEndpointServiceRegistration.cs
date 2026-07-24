@@ -7,6 +7,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
@@ -134,6 +135,7 @@ internal static class NodeEndpointServiceRegistration
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
+                JournalDisk = new HealthJournalDiskSnapshot("normal", 0, 0, 0, false),
                 RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
             };
             return Task.FromResult(healthReadyDetailsSnapshot);
@@ -196,6 +198,7 @@ internal static class NodeEndpointServiceRegistration
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var memoryPressure = BuildMemoryPressureSnapshot();
+            var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
 
             return new HealthReadyDetailsSnapshot
@@ -207,8 +210,18 @@ internal static class NodeEndpointServiceRegistration
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
+                JournalDisk = journalDisk,
                 RetentionCleanup = retentionCleanup,
             };
+        }
+
+        private HealthJournalDiskSnapshot BuildJournalDiskSnapshot()
+        {
+            var usedBytes = _journal.UsedBytes;
+            var maxBytes = _journal.MaxBytes;
+            var highWaterBytes = _journal.HighWaterBytes;
+            var state = JournalSegmentPolicy.EvaluatePressureState(usedBytes, highWaterBytes, maxBytes);
+            return new HealthJournalDiskSnapshot(state, maxBytes, usedBytes, highWaterBytes, usedBytes >= maxBytes);
         }
 
         private HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot()

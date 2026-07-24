@@ -46,7 +46,7 @@ public sealed class RemoteClientSerializerTests
     public void CreateSerializerWithoutMetricsReturnsInnerInstance()
     {
         var inner = new SystemTextJsonSerializer();
-        var serializer = RemoteClientSessionFactory.CreateSerializer(inner, enableMetrics: false);
+        var serializer = RemoteClientSessionFactory.CreateSerializer(inner, false);
         Assert.Same(inner, serializer);
     }
 

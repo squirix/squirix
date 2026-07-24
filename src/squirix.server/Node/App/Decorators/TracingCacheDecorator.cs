@@ -139,6 +139,11 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;
         }
+        catch (JournalCapacityExceededException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
         catch (RpcException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
@@ -181,6 +186,11 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw;
         }
         catch (ResourceExhaustedException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
+        catch (JournalCapacityExceededException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;

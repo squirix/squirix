@@ -48,7 +48,9 @@ Collect:
 - Serializer and journal JSON codec failures
 - Correlation or trace ids for failing requests
 - `memoryPressure` on `/health/ready/details` (state, resolved byte limit, estimated usage, entry count, rejections;
-  `writeRejectionActive` is always `true`)
+  write rejection active). See [configuration.md](configuration.md#memory-pressure-squirixsettingsjson).
+- `journalDisk` on `/health/ready/details` (state, max/used/high-water bytes, write rejection active). See
+  [Journal disk quota](#journal-disk-quota).
 
 Trace ownership during triage:
 
@@ -113,6 +115,41 @@ Kubernetes / containers:
   counters.
 - Size pod memory limits and `MaxEstimatedCacheBytes` together; critical pressure is a **policy** signal, not a
   substitute for correct RAM limits.
+
+## Journal disk quota
+
+Persistent nodes (`--persist` / Persistence section) enforce an on-disk journal total size cap via
+`JournalMaxTotalBytesMb` (default 2048 MiB). Segment count and per-segment size caps also apply; see
+[configuration.md](configuration.md).
+
+Use `/health/ready/details` (`journalDisk`):
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `normal`, `high` (≥ 80% of max), or `critical` (at hard limit) |
+| `maxBytes` | Configured hard cap |
+| `usedBytes` | Current on-disk journal total |
+| `highWaterBytes` | Soft mark at 80% of `maxBytes` |
+| `writeRejectionActive` | `true` when `usedBytes >= maxBytes` |
+
+Behavior:
+
+- Soft high-water (`high`) is observability only for pressure state — writes that still fit under `maxBytes` continue.
+- Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
+- Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
+  fail with stable `JOURNAL_DISK_QUOTA` (HTTP 429 / gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
+  stays healthy so operators can still scrape details and run cleanup.
+- This quota covers **journal segments only**, not snapshots or manifest files under the data directory.
+
+Operator actions when approaching or at quota:
+
+1. Confirm `journalDisk` and journal backlog on `/health/ready/details`.
+2. Trigger or wait for snapshot + journal compaction/retention so obsolete segments can be removed (see
+   [storage-maintenance.md](storage-maintenance.md)).
+3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` (and related segment caps)
+   in settings and restart, after confirming disk capacity.
+4. Clients should treat `JOURNAL_DISK_QUOTA` like other capacity rejections — back off and retry after operators reclaim
+   space or raise the limit.
 
 ## Runtime backpressure
 

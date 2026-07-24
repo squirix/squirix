@@ -123,13 +123,19 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
 
+        public long HighWaterBytes => _inner.HighWaterBytes;
+
         public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
 
         public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
+        public long MaxBytes => _inner.MaxBytes;
+
         public ulong NextSequence => _inner.NextSequence;
 
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
+
+        public long UsedBytes => _inner.UsedBytes;
 
         public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
         {

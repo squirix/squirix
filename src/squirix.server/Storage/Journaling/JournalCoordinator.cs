@@ -66,13 +66,19 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
+    public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
+
     public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
 
     public bool IsJournalGroupCommitEnabled => Options.IsJournalGroupCommitEnabled;
 
+    public long MaxBytes => EventLoop.Policy.MaxTotalBytes;
+
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
+
+    public long UsedBytes => EventLoop.JournalTotalBytes;
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
@@ -439,8 +445,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
                 if (appendCompleted is not null)
                 {
-                    await appendWaitTask.ConfigureAwait(false);
-                    appendCompleted.ReturnToPool();
+                    try
+                    {
+                        await appendWaitTask.ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        // Return after GetResult (success or fault from FailAppendWorkItem) so quota
+                        // rejection cannot leak the pooled Completion waiter.
+                        appendCompleted.ReturnToPool();
+                    }
                 }
             }
             catch when (!enqueued)
