@@ -17,9 +17,9 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
     private readonly ServerCallPolicyExecutor _executor;
     private readonly string _peer;
     private readonly SemaphoreSlim _semaphore;
-    private bool _disposed;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
+    private bool _disposed;
     private volatile bool _draining;
     private bool _semaphoreDisposed;
 
@@ -173,8 +173,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
         private readonly ServerCallPolicy _owner;
         private readonly string _peer;
         private readonly SemaphoreSlim _semaphore;
-        private readonly TimeSpan _timeoutPerAttempt;
         private readonly TimeProvider _timeProvider;
+        private readonly TimeSpan _timeoutPerAttempt;
 
         internal ServerCallPolicyExecutor(ServerCallPolicy owner, ServerCallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
         {
@@ -286,6 +286,17 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
             }
         }
 
+        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+        {
+            if (remaining is null)
+                return _timeoutPerAttempt;
+
+            if (remaining <= TimeSpan.Zero)
+                return TimeSpan.Zero;
+
+            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+        }
+
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
             if (attempt >= _maxAttempts || !ServerCancelClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
@@ -329,17 +340,6 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
                 return AttemptOutcome<T>.Stop(rx);
             ServerCallPolicyMetrics.IncrementRetriesTotal(_peer, ServerCallPolicyRetryClassifier.ClassifyRetryReason(rx));
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
-        }
-
-        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
-        {
-            if (remaining is null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
         }
 
         private async ValueTask<T> RunRetryLoopAsync<TState, T>(
@@ -441,9 +441,8 @@ internal sealed class ServerCallPolicy : IServerCallPolicy
 
         private static class ServerCallPolicyRetryClassifier
         {
-            internal const string DeadlineExceeded = "deadline_exceeded";
-
             internal const string Canceled = "canceled";
+            internal const string DeadlineExceeded = "deadline_exceeded";
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {

@@ -224,6 +224,18 @@ Backpressure limits tune runtime cache-operation admission when present in setti
 writes under load. REST/gRPC adapters still enforce transport-level limits (auth, payload size, deadlines,
 cancellation). Memory pressure is a separate policy and is not configured by these fields.
 
+Per-client limits (`PerClientMaxInFlight`, `PerClientMaxQueue`, `PerClientRateLimit*`) key off a **backpressure client
+id** resolved for each cache operation:
+
+| Source | Client id | When |
+| ------ | --------- | ---- |
+| JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
+| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, internal owner RPCs without JWT, authenticated token missing `sub`) |
+| In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
+
+v0.1 external auth is JWT-only; there is no API-key principal. Inter-node cluster forwarding uses mTLS on the internal
+listener and typically lands in the `conn:` or `runtime` bucket rather than a shared external JWT subject.
+
 | Field                         | Type            | Default        | Validation                                    |
 | ----------------------------- | --------------- | -------------- | --------------------------------------------- |
 | `Enabled`                     | bool            | `true`         | Any boolean                                   |

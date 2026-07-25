@@ -1,51 +1,24 @@
 using System;
-using System.Globalization;
 
 namespace Squirix.Server.Errors;
 
 internal static class ServerOpContract
 {
+    private const string EntryTagCountExceededDetail = "Entry tag count exceeds the maximum of 32.";
+
+    private const string EntryTagKeyTooLargeDetail = "Entry tag key exceeds the maximum UTF-8 size of 256 bytes.";
+
+    private const string EntryTagValueTooLargeDetail = "Entry tag value exceeds the maximum UTF-8 size of 1024 bytes.";
+
     private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
 
-    internal static SquirixException EntryTagCountExceeded(int maxCount) => new(
-        SquirixErrorCode.InvalidEntryTags,
-        "InvalidEntryTags",
-        $"Entry tag count exceeds the maximum of {maxCount.ToString(CultureInfo.InvariantCulture)}.");
+    private const string PayloadTooLargeDetail = "Payload size limit is 4194304 bytes.";
 
-    internal static SquirixException EntryTagKeyTooLarge(int maxUtf8Bytes) => new(
-        SquirixErrorCode.InvalidEntryTags,
-        "InvalidEntryTags",
-        $"Entry tag key exceeds the maximum UTF-8 size of {maxUtf8Bytes.ToString(CultureInfo.InvariantCulture)} bytes.");
+    internal static SquirixException EntryTagCountExceeded() => new(SquirixErrorCode.InvalidEntryTags, "InvalidEntryTags", EntryTagCountExceededDetail);
 
-    internal static SquirixException EntryTagValueTooLarge(int maxUtf8Bytes) => new(
-        SquirixErrorCode.InvalidEntryTags,
-        "InvalidEntryTags",
-        $"Entry tag value exceeds the maximum UTF-8 size of {maxUtf8Bytes.ToString(CultureInfo.InvariantCulture)} bytes.");
+    internal static SquirixException EntryTagKeyTooLarge() => new(SquirixErrorCode.InvalidEntryTags, "InvalidEntryTags", EntryTagKeyTooLargeDetail);
 
-    internal static SquirixException MemoryPressure() => new(SquirixErrorCode.MemoryPressure, "MemoryPressure", ResourceExhaustedException.StableDetail);
-
-    internal static SquirixException JournalDiskQuota() => new(SquirixErrorCode.JournalDiskQuota, "JournalDiskQuota", JournalCapacityExceededException.StableDetail);
-
-    internal static SquirixException OperationIdInvalidFormat() => new(
-        SquirixErrorCode.OperationIdInvalidFormat,
-        "OperationIdInvalidFormat",
-        RpcMutationContracts.OperationIdInvalidFormatDetail);
-
-    internal static SquirixException OperationIdRequired() => new(SquirixErrorCode.OperationIdRequired, "OperationIdRequired", RpcMutationContracts.OperationIdRequiredDetail);
-
-    internal static SquirixException OperationIdReuseMismatch() => new(
-        SquirixErrorCode.OperationIdReuseMismatch,
-        "OperationIdReuseMismatch",
-        ServerOpIdMismatchException.StableDetail);
-
-    internal static SquirixException OperationIdTooLong() => new(SquirixErrorCode.OperationIdTooLong, "OperationIdTooLong", RpcMutationContracts.OperationIdTooLongDetail);
-
-    internal static SquirixException PayloadTooLarge(int maxBytes) => new(
-        SquirixErrorCode.PayloadTooLarge,
-        "PayloadTooLarge",
-        $"Payload size limit is {maxBytes.ToString(CultureInfo.InvariantCulture)} bytes.");
-
-    internal static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
+    internal static SquirixException EntryTagValueTooLarge() => new(SquirixErrorCode.InvalidEntryTags, "InvalidEntryTags", EntryTagValueTooLargeDetail);
 
     internal static SquirixException InvalidCacheKey(string detail) => new(SquirixErrorCode.InvalidCacheKey, "InvalidCacheKey", detail);
 
@@ -71,4 +44,26 @@ internal static class ServerOpContract
     internal static bool IsOperationIdReuseMismatchMessage(string? message) => string.Equals(message, ServerOpIdMismatchException.StableDetail, StringComparison.Ordinal);
 
     internal static bool IsOperationIdTooLongMessage(string? message) => string.Equals(message, RpcMutationContracts.OperationIdTooLongDetail, StringComparison.Ordinal);
+
+    internal static SquirixException JournalDiskQuota() => new(SquirixErrorCode.JournalDiskQuota, "JournalDiskQuota", JournalCapacityExceededException.StableDetail);
+
+    internal static SquirixException MemoryPressure() => new(SquirixErrorCode.MemoryPressure, "MemoryPressure", ResourceExhaustedException.StableDetail);
+
+    internal static SquirixException OperationIdInvalidFormat() => new(
+        SquirixErrorCode.OperationIdInvalidFormat,
+        "OperationIdInvalidFormat",
+        RpcMutationContracts.OperationIdInvalidFormatDetail);
+
+    internal static SquirixException OperationIdRequired() => new(SquirixErrorCode.OperationIdRequired, "OperationIdRequired", RpcMutationContracts.OperationIdRequiredDetail);
+
+    internal static SquirixException OperationIdReuseMismatch() => new(
+        SquirixErrorCode.OperationIdReuseMismatch,
+        "OperationIdReuseMismatch",
+        ServerOpIdMismatchException.StableDetail);
+
+    internal static SquirixException OperationIdTooLong() => new(SquirixErrorCode.OperationIdTooLong, "OperationIdTooLong", RpcMutationContracts.OperationIdTooLongDetail);
+
+    internal static SquirixException PayloadTooLarge() => new(SquirixErrorCode.PayloadTooLarge, "PayloadTooLarge", PayloadTooLargeDetail);
+
+    internal static SquirixException TooManyRequests(string reason) => new(SquirixErrorCode.TooManyRequests, "TooManyRequests", $"Server is overloaded ({reason}).");
 }

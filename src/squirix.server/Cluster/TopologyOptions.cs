@@ -12,6 +12,12 @@ internal sealed class TopologyOptions
         Peers = peers;
     }
 
+    [SetsRequiredMembers]
+    internal TopologyOptions(ServerPeer peer)
+    {
+        Peers = [peer];
+    }
+
     internal required string ClusterId { get; init; } = "cluster";
 
     internal required string NodeId { get; init; } = "node";

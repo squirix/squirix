@@ -39,7 +39,7 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         var clientUri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", mainPort).Uri;
         using var channel = CreateGrpcChannel(clientUri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetEntryAsync(new GetEntryAsyncRequest { CacheName = "default", Key = "auth-required" }, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
@@ -51,8 +51,8 @@ public sealed class ExternalAccessHardeningTests : NodeIntegrationTestBase
         var mainPort = AllocateDedicatedPort();
         var uri = new UriBuilder(Uri.UriSchemeHttps, "0.0.0.0", mainPort).Uri;
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }).AsTask());
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException, TestNodeHost>(
+            StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = new TestNodeSecurityOptions() }));
         Assert.Contains("JWT", ex.Message, StringComparison.Ordinal);
     }
 }

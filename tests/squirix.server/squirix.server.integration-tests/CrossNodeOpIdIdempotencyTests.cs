@@ -27,7 +27,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
 
-        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-a", "bootstrap-idempotency");
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-a", "bootstrap-idempotency");
         var request = new SetEntryAsyncRequest
         {
             OperationId = ValidOperationId,
@@ -59,7 +59,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
 
-        var key = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-idempotency");
+        var key = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-idempotency");
         var request = new TryAddEntryAsyncRequest
         {
             OperationId = ValidOperationId,
@@ -94,8 +94,8 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
         await using var nodeA = await StartNodeAsync(uriA, peers);
         await using var nodeB = await StartNodeAsync(uriB, peers);
 
-        var keyA = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-a");
-        var keyB = new TestKeyOwnerHelper(["node-a", "node-b"]).FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-b");
+        var keyA = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-a");
+        var keyB = TestKeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "node-b", "cross-node-mismatch-b");
 
         using var channelA = CreateGrpcChannel(uriA);
         var clientA = new SquirixCacheService.SquirixCacheServiceClient(channelA);
@@ -110,7 +110,7 @@ public sealed class CrossNodeOpIdIdempotencyTests : NodeIntegrationTestBase
             },
             cancellationToken: DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             clientA.TryAddEntryAsync(
                 new TryAddEntryAsyncRequest
                 {

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using BenchmarkDotNet.Attributes;
@@ -10,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
@@ -21,8 +21,34 @@ namespace Squirix.Server.Benchmarks;
 [SimpleJob(warmupCount: 1, iterationCount: 2)]
 public class SnapshotWriteBreakdownBenchmarks
 {
-    private Session? _session;
     private int _operationsPerInvoke;
+    private Session? _session;
+
+    /// <summary>Disposes the breakdown session and temporary data directory.</summary>
+    [GlobalCleanup]
+    public void GlobalCleanup()
+    {
+        _session?.Dispose();
+        _session = null;
+    }
+
+    /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
+    [GlobalSetup]
+    public void GlobalSetup()
+    {
+        _operationsPerInvoke = SnapshotBenchmarkSupport.ResolveOperationsPerInvoke(2);
+        _session = Session.Create(SnapshotBenchmarkSupport.ResolveEntryCount());
+    }
+
+    /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
+    [Benchmark]
+    public void ManifestWriteOnly()
+    {
+        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
+        for (var i = 0; i < _operationsPerInvoke; i++)
+            session.WriteManifestOnly();
+    }
 
     /// <summary>Full binary snapshot publish path (tmp write + rename).</summary>
     /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
@@ -44,32 +70,6 @@ public class SnapshotWriteBreakdownBenchmarks
             session.WriteTempFileOnly();
     }
 
-    /// <summary>Manifest store update after snapshot (encode + durable manifest file + pointer; no snapshot file I/O).</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the benchmark session was not initialized.</exception>
-    [Benchmark]
-    public void ManifestWriteOnly()
-    {
-        var session = _session ?? throw new InvalidOperationException("Benchmark session was not initialized.");
-        for (var i = 0; i < _operationsPerInvoke; i++)
-            session.WriteManifestOnly();
-    }
-
-    /// <summary>Disposes the breakdown session and temporary data directory.</summary>
-    [GlobalCleanup]
-    public void GlobalCleanup()
-    {
-        _session?.Dispose();
-        _session = null;
-    }
-
-    /// <summary>Creates a warmed binary snapshot breakdown session.</summary>
-    [GlobalSetup]
-    public void GlobalSetup()
-    {
-        _operationsPerInvoke = SnapshotBenchmarkSupport.ResolveOperationsPerInvoke(2);
-        _session = Session.Create(SnapshotBenchmarkSupport.ResolveEntryCount());
-    }
-
     /// <summary>Hosts warmed binary snapshot items for write-path breakdown benchmarks.</summary>
     [SuppressMessage("AsyncUsage", "MA0045:Use await instead of GetResult()", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
     [SuppressMessage("Usage", "VSTHRD002:Avoid problematic synchronous waits", Justification = "Benchmark breakdown APIs run synchronously without a synchronization context.")]
@@ -83,12 +83,7 @@ public class SnapshotWriteBreakdownBenchmarks
         private int _nextFileIndex = 10_000;
         private int _nextSnapshotIndex = 1;
 
-        private Session(
-            TempDirectory dataDir,
-            List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items,
-            byte[] encodeBuffer,
-            SnapshotWriter writer,
-            ManifestStore manifestStore)
+        private Session(TempDirectory dataDir, List<(CacheKey Key, NodeCacheEntry<object?> Entry)> items, byte[] encodeBuffer, SnapshotWriter writer, ManifestStore manifestStore)
         {
             _dataDir = dataDir;
             _items = items;
@@ -114,11 +109,11 @@ public class SnapshotWriteBreakdownBenchmarks
             {
                 object? value = (i % 3) switch
                 {
-                    0 => $"value-{i}",
+                    0 => $"value-{InvariantIndexStrings.Format(i)}",
                     1 => i,
                     _ => i * 1.5d,
                 };
-                items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+                items.Add((CacheKey.Default($"key-{InvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
             }
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
@@ -173,11 +168,9 @@ public class SnapshotWriteBreakdownBenchmarks
             WriteFileBlocking(fs, totalFileSize);
         }
 
-        private string BuildSnapshotPath(int index) => PathEx.Combine(
-            _dataDir.Path,
-            $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
+        private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
-        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}.tmp");
+        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}.tmp");
 
         private void WriteFileBlocking(FileStream destination, long totalFileSize) =>
             SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).GetAwaiter().GetResult();

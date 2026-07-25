@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Globalization;
 using System.IO;
 using System.Text;
 using Squirix.Server.Core;
@@ -62,7 +61,7 @@ internal static class BinaryJournalCodec
                 TouchExpirationUtc = DateTimeOffset.FromUnixTimeMilliseconds(BinaryPrimitives.ReadInt64LittleEndian(frameBody.Slice(offset, 8))).UtcDateTime,
             },
             JournalOpcode.IdempotencyOutcome => DecodeIdempotencyOutcome(seq, unixMs, cacheKey, frameBuffer, frameBody, offset, payloadLen),
-            _ => throw new InvalidDataException($"unknown journal opcode {Enum.GetName(opcode)}."),
+            _ => throw new InvalidDataException("Unknown journal opcode."),
         };
     }
 
@@ -161,14 +160,16 @@ internal static class BinaryJournalCodec
             JournalOperationKind.RemoveExpiration => JournalOpcode.RemoveExpiration,
             JournalOperationKind.TouchExpiration => JournalOpcode.TouchExpiration,
             JournalOperationKind.IdempotencyOutcome => JournalOpcode.IdempotencyOutcome,
-            JournalOperationKind.AwaitDurabilityCommit => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
-            JournalOperationKind.WaitForStartup => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
-            JournalOperationKind.MaintenanceExclusive => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
-            JournalOperationKind.SnapshotCut => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
-            JournalOperationKind.UnderSnapshotBarrier => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
-            _ => throw new NotSupportedException($"journal operation {operation} cannot be encoded."),
+            JournalOperationKind.AwaitDurabilityCommit => throw CreateOperationNotEncodableException(),
+            JournalOperationKind.WaitForStartup => throw CreateOperationNotEncodableException(),
+            JournalOperationKind.MaintenanceExclusive => throw CreateOperationNotEncodableException(),
+            JournalOperationKind.SnapshotCut => throw CreateOperationNotEncodableException(),
+            JournalOperationKind.UnderSnapshotBarrier => throw CreateOperationNotEncodableException(),
+            _ => throw CreateOperationNotEncodableException(),
         };
     }
+
+    private static NotSupportedException CreateOperationNotEncodableException() => new("Journal operation cannot be encoded.");
 
     private static void WriteFixedPrefix(Span<byte> destination, JournalRecord record, int nsLen, int keyLen, int payloadLen)
     {
@@ -206,7 +207,7 @@ internal static class BinaryJournalCodec
             case JournalOperationKind.SnapshotCut:
             case JournalOperationKind.UnderSnapshotBarrier:
             default:
-                throw new NotSupportedException($"journal operation {record.Operation} cannot be encoded.");
+                throw CreateOperationNotEncodableException();
         }
     }
 
@@ -219,7 +220,7 @@ internal static class BinaryJournalCodec
             3 => JournalOpcode.RemoveExpiration,
             4 => JournalOpcode.TouchExpiration,
             5 => JournalOpcode.IdempotencyOutcome,
-            _ => throw new InvalidDataException($"unknown journal opcode {value.ToString(CultureInfo.InvariantCulture)}."),
+            _ => throw new InvalidDataException("Unknown journal opcode."),
         };
 
         internal static byte ToWireValue(JournalOpcode opcode) => opcode switch
@@ -229,7 +230,7 @@ internal static class BinaryJournalCodec
             JournalOpcode.RemoveExpiration => 3,
             JournalOpcode.TouchExpiration => 4,
             JournalOpcode.IdempotencyOutcome => 5,
-            _ => throw new InvalidDataException($"unknown journal opcode {Enum.GetName(opcode)}."),
+            _ => throw new InvalidDataException("Unknown journal opcode."),
         };
     }
 }

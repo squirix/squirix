@@ -212,7 +212,7 @@ public class ManifestPublishBreakdownBenchmarks
             FileDurability.WriteCurrentPointerBlocking(PointerWriter, pointerBuffer);
         }
 
-        /// <summary>Non-owned warmup values for <see cref="Session"/> construction (avoids an 8+ parameter ctor).</summary>
+        /// <summary>Non-owned warmup values for <see cref="Session" /> construction (avoids an 8+ parameter ctor).</summary>
         private sealed class SessionWarmup
         {
             internal required byte[] EncodeBuffer { get; init; }

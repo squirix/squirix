@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
@@ -7,6 +8,22 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 /// <summary>Tests for the lazily allocated, configurable journal write-coalescing buffer.</summary>
 public sealed class JournalWriteBatchBufferTests
 {
+    private static readonly byte[] TwoTabFrame = [0x09, 0x09];
+
+    /// <summary>Clearing resets staged bytes and pending appends for reuse.</summary>
+    [Fact]
+    public void ClearResetsBuffer()
+    {
+        var buffer = new JournalWriteBatchBuffer(64);
+        _ = buffer.TryStageAppend(MakeItem(TwoTabFrame));
+
+        buffer.Clear();
+
+        Assert.True(buffer.IsEmpty);
+        Assert.Equal(0, buffer.StagedByteLength);
+        Assert.Empty(buffer.PendingAppends);
+    }
+
     /// <summary>A freshly constructed buffer is empty and exposes no staged bytes.</summary>
     [Fact]
     public void NewBufferIsEmpty()
@@ -18,6 +35,10 @@ public sealed class JournalWriteBatchBufferTests
         Assert.True(buffer.ActiveSpan.IsEmpty);
         Assert.Empty(buffer.PendingAppends);
     }
+
+    /// <summary>A non-positive capacity is rejected.</summary>
+    [Fact]
+    public void NonPositiveCapacityThrows() => _ = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(0, static value => _ = new JournalWriteBatchBuffer(value));
 
     /// <summary>Staging copies the frame into the buffer and tracks the pending append.</summary>
     [Fact]
@@ -44,24 +65,5 @@ public sealed class JournalWriteBatchBufferTests
         Assert.True(buffer.IsEmpty);
     }
 
-    /// <summary>Clearing resets staged bytes and pending appends for reuse.</summary>
-    [Fact]
-    public void ClearResetsBuffer()
-    {
-        var buffer = new JournalWriteBatchBuffer(64);
-        _ = buffer.TryStageAppend(MakeItem([.. "\t\t"u8]));
-
-        buffer.Clear();
-
-        Assert.True(buffer.IsEmpty);
-        Assert.Equal(0, buffer.StagedByteLength);
-        Assert.Empty(buffer.PendingAppends);
-    }
-
-    /// <summary>A non-positive capacity is rejected.</summary>
-    [Fact]
-    public void NonPositiveCapacityThrows() => Assert.Throws<ArgumentOutOfRangeException>(static () => new JournalWriteBatchBuffer(0));
-
-    private static JournalWorkItem MakeItem(byte[] frame) =>
-        new(JournalWorkKind.Append, frameBytes: frame, frameLength: frame.Length);
+    private static JournalWorkItem MakeItem(byte[] frame) => new(JournalWorkKind.Append, frameBytes: frame, frameLength: frame.Length);
 }

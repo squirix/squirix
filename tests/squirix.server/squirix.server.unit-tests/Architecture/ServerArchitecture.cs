@@ -19,8 +19,6 @@ internal static class ServerArchitecture
         if (!File.Exists(dllPath))
             throw new InvalidOperationException($"Expected Squirix.Server.dll in test output directory '{directory}'.");
 
-        return new ArchLoader()
-            .LoadFilteredDirectory(directory, "Squirix.Server.dll")
-            .Build();
+        return new ArchLoader().LoadFilteredDirectory(directory, "Squirix.Server.dll").Build();
     }
 }

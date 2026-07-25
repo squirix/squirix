@@ -9,12 +9,12 @@ internal static class EntryPayloadSizeGuard
     internal static void EnsureEntryBytesWithinLimit(ReadOnlySpan<byte> entryBytes)
     {
         if (entryBytes.Length > EntryLimits.MaxEntrySizeBytes)
-            throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
+            throw ServerOpContract.PayloadTooLarge();
     }
 
     internal static void EnsureLengthWithinLimit(int encodedLength)
     {
         if (encodedLength > EntryLimits.MaxEntrySizeBytes)
-            throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
+            throw ServerOpContract.PayloadTooLarge();
     }
 }

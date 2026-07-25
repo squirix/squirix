@@ -37,7 +37,7 @@ internal sealed record EncodeContext
         JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => 0,
         JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
                                                    Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
-        _ => throw new NotSupportedException($"the length of operation {record.Operation} cannot be determined."),
+        _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
     };
 
     private sealed record Utf8KeyLengths

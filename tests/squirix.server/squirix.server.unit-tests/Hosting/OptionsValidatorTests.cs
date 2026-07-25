@@ -85,7 +85,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     public void ConfigValidatorAcceptsWellFormedCluster()
     {
         var v = new ConfigValidator();
-        var cfg = new TopologyOptions([new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") }])
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") })
         {
             ClusterId = "c1",
             NodeId = "n1",
@@ -104,10 +104,10 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     {
         var v = new ConfigValidator();
         var cfg = new TopologyOptions(
-            [
-                new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
-                new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6002") },
-            ])
+        [
+            new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6001") },
+            new ServerPeer { NodeId = "n1", Uri = new Uri("https://localhost:6002") },
+        ])
         {
             ClusterId = "c1",
             NodeId = "n1",
@@ -125,7 +125,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     public void ConfigValidatorRejectsEmptyNodeId()
     {
         var v = new ConfigValidator();
-        var cfg = new TopologyOptions([new ServerPeer { NodeId = "x", Uri = new Uri("https://localhost:6001") }])
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "x", Uri = new Uri("https://localhost:6001") })
         {
             ClusterId = "c1",
             NodeId = " ",
@@ -143,7 +143,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     public void ConfigValidatorRejectsInvalidPeerUrls()
     {
         var v = new ConfigValidator();
-        var cfg = new TopologyOptions([new ServerPeer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") }])
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("ftp://bad.example/") })
         {
             ClusterId = "c1",
             NodeId = "n1",
@@ -161,7 +161,7 @@ public sealed class OptionsValidatorTests : ServerUnitTestBase
     public void ConfigValidatorRejectsPlaintextHttpPeerUrls()
     {
         var v = new ConfigValidator();
-        var cfg = new TopologyOptions([new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") }])
+        var cfg = new TopologyOptions(new ServerPeer { NodeId = "n1", Uri = new Uri("http://localhost:6001") })
         {
             ClusterId = "c1",
             NodeId = "n1",

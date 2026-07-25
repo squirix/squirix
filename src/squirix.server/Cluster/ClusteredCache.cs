@@ -201,8 +201,9 @@ internal sealed class ClusteredCache<T> : ILogicalNamespacedCache<T>
                 (OperationId: operationId, CacheName: cacheName, Key: key, Value: value),
                 static (client, s, ct) =>
                 {
-                    var updateAsyncRequest = new UpdateAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Entry = new NodeCacheEntry<T> { Value = s.Value }.MapToProto() };
-                    var responseAsync = client.UpdateAsync(updateAsyncRequest, cancellationToken: ct).ResponseAsync;
+                    var nodeCacheEntry = new NodeCacheEntry<T> { Value = s.Value };
+                    var request = new UpdateAsyncRequest { OperationId = s.OperationId, CacheName = s.CacheName, Key = s.Key, Entry = nodeCacheEntry.MapToProto() };
+                    var responseAsync = client.UpdateAsync(request, cancellationToken: ct).ResponseAsync;
                     return new ValueTask<UpdateAsyncResponse>(responseAsync);
                 },
                 cancellationToken).ConfigureAwait(false);

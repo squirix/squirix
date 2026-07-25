@@ -12,6 +12,15 @@ internal static class Program
 {
     private const string IsolationSharedKey = "shared-key";
 
+    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
+    {
+        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(json);
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
+                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        return new Uri(uri, UriKind.Absolute);
+    }
+
     private static async Task<int> Main()
     {
         var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
@@ -32,15 +41,6 @@ internal static class Program
         {
             testRoot.Delete(true);
         }
-    }
-
-    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
-    {
-        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
-        using var document = JsonDocument.Parse(json);
-        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
-                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
-        return new Uri(uri, UriKind.Absolute);
     }
 
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)

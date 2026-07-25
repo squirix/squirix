@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -31,7 +32,11 @@ public sealed class PressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsConfiguredMaxAboveRamCap()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 900_000 }, new FixedMemoryBudgetProvider(1_000_000)));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            900_000L,
+            static value => _ = OptionsResolver.Resolve(
+                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
+                new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("exceeds the 80% RAM cap", ex.Message, StringComparison.Ordinal);
     }
@@ -40,7 +45,11 @@ public sealed class PressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsNonPositiveConfiguredMax()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = 0 }, new FixedMemoryBudgetProvider(1_000_000)));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            0L,
+            static value => _ = OptionsResolver.Resolve(
+                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
+                new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("must be positive", ex.Message, StringComparison.Ordinal);
     }
@@ -49,7 +58,9 @@ public sealed class PressureOptionsResolverTests
     [Fact]
     public void ResolveRejectsZeroAvailableMemory()
     {
-        var ex = Assert.Throws<InvalidOperationException>(static () => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(0)));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
+            0L,
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(value)));
 
         Assert.Contains("available process memory is zero", ex.Message, StringComparison.Ordinal);
     }
@@ -58,7 +69,10 @@ public sealed class PressureOptionsResolverTests
     {
         private readonly long _availableBytes;
 
-        internal FixedMemoryBudgetProvider(long availableBytes) => _availableBytes = availableBytes;
+        internal FixedMemoryBudgetProvider(long availableBytes)
+        {
+            _availableBytes = availableBytes;
+        }
 
         long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
     }

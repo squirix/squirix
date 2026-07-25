@@ -5,6 +5,27 @@ namespace Squirix.Server.Utils;
 
 internal static class FileEx
 {
+    internal static string? FindFile(ReadOnlySpan<string> paths)
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        foreach (var name in paths)
+        {
+            var p = PathEx.Combine(cwd, name);
+            if (File.Exists(p))
+                return p;
+        }
+
+        var baseDir = AppContext.BaseDirectory;
+        foreach (var name in paths)
+        {
+            var p = PathEx.Combine(baseDir, name);
+            if (File.Exists(p))
+                return p;
+        }
+
+        return null;
+    }
+
     /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
     /// <param name="tempPath">Path to the fully written temp file.</param>
     /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
@@ -53,27 +74,6 @@ internal static class FileEx
         {
             return true;
         }
-    }
-
-    internal static string? FindFile(ReadOnlySpan<string> paths)
-    {
-        var cwd = Directory.GetCurrentDirectory();
-        foreach (var name in paths)
-        {
-            var p = PathEx.Combine(cwd, name);
-            if (File.Exists(p))
-                return p;
-        }
-
-        var baseDir = AppContext.BaseDirectory;
-        foreach (var name in paths)
-        {
-            var p = PathEx.Combine(baseDir, name);
-            if (File.Exists(p))
-                return p;
-        }
-
-        return null;
     }
 
     private static bool TryDeleteExistingFile(string validatedPath)

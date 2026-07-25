@@ -16,7 +16,10 @@ public sealed class ExpirationOperationsTests : ServerUnitTestBase
     public async Task RemoveExpirationAsyncClearsExpirationAndKeepsKey()
     {
         await using var cache = new PhysicalCache<string>();
-        await cache.SetAsync(CacheKey.Default("k1"), new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMilliseconds(150), Version = 1 }, DefaultCancellationToken);
+        await cache.SetAsync(
+            CacheKey.Default("k1"),
+            new NodeCacheEntry<string> { Value = "v", ExpiresUtc = DateTime.UtcNow.AddMilliseconds(150), Version = 1 },
+            DefaultCancellationToken);
 
         var entryBefore = await cache.GetEntryAsync(CacheKey.Default("k1"), DefaultCancellationToken);
         Assert.NotNull(entryBefore);

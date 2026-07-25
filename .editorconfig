@@ -99,22 +99,26 @@ dotnet_diagnostic.SA1124.severity = error
 # SA1503 always-require-braces / SA1519 multi-line-child braces conflict with nested-loop no-braces style
 dotnet_diagnostic.SA1503.severity = none
 dotnet_diagnostic.SA1519.severity = none
+# SA1520: if/else siblings must use braces consistently (multi-statement if ⇒ braced else).
+# Keep as error; do not strip single-statement else braces when the if branch uses braces.
+dotnet_diagnostic.SA1520.severity = error
 # Roslynator: remove braces from single-line single-statement bodies.
-# RCS1002/RCS1004 are disabled by default — category elevation alone does not enable them.
-# RCS1001/RCS1003/RCS1007 would re-add braces around multi-line nested children — keep off.
+# RCS1002 fights SA1520 on mixed if/else (multi-statement if + single-statement else) — keep off.
+# RCS1004 is switch sections only. RCS1001/RCS1003/RCS1007 re-add braces around multi-line nested children — keep off.
 dotnet_diagnostic.RCS1001.severity = none
-dotnet_diagnostic.RCS1002.severity = error
+dotnet_diagnostic.RCS1002.severity = none
 dotnet_diagnostic.RCS1003.severity = none
 dotnet_diagnostic.RCS1004.severity = error
 dotnet_diagnostic.RCS1007.severity = none
 # Squirix.Analyzers: outer for/foreach/while/do must omit braces when the body is only a nested loop.
 dotnet_diagnostic.SQR001.severity = error
-# Squirix.Analyzers: design/naming limits (SQR002–SQR006).
+# Squirix.Analyzers: design/naming limits (SQR002–SQR007).
 dotnet_diagnostic.SQR002.severity = error
 dotnet_diagnostic.SQR003.severity = error
 dotnet_diagnostic.SQR004.severity = error
 dotnet_diagnostic.SQR005.severity = error
 dotnet_diagnostic.SQR006.severity = error
+dotnet_diagnostic.SQR007.severity = error
 # Prefix with this - disabled
 dotnet_diagnostic.SA1101.severity = none
 # Allow leading underscore fields
@@ -200,8 +204,10 @@ resharper_arguments_style_other_highlighting = suggestion
 resharper_arguments_style_string_literal_highlighting = suggestion
 resharper_arguments_style_literal_highlighting = suggestion
 # Align Rider with csharp_prefer_braces=false: omit braces for single embedded statements
-# (including outer nested loops); flag redundant braces.
+# (including outer nested loops). Do NOT enable braces_redundant — Rider cleanup would strip a
+# single-statement else while leaving a braced multi-statement if, which breaks SA1520.
 resharper_enforce_if_statement_braces_highlighting = none
+resharper_remove_redundant_braces_highlighting = none
 resharper_convert_to_primary_constructor_highlighting = none
 resharper_braces_for_ifelse = not_required
 resharper_braces_for_for = not_required
@@ -211,7 +217,15 @@ resharper_braces_for_dowhile = not_required
 resharper_braces_for_using = not_required
 resharper_braces_for_lock = not_required
 resharper_braces_for_fixed = not_required
-resharper_braces_redundant = true
+resharper_braces_redundant = false
+# Keep nested brace-less loops indented (Rider default false flattens them and trips Sonar S3973).
+# using/lock/fixed chains stay flat: they share one braced block, so S3973 does not apply.
+resharper_csharp_indent_nested_foreach_stmt = true
+resharper_csharp_indent_nested_for_stmt = true
+resharper_csharp_indent_nested_while_stmt = true
+resharper_csharp_indent_nested_usings_stmt = false
+resharper_csharp_indent_nested_lock_stmt = false
+resharper_csharp_indent_nested_fixed_stmt = false
 resharper_loop_can_be_converted_to_query_highlighting = none
 resharper_loop_can_be_partly_converted_to_query_highlighting = none
 resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none
@@ -220,6 +234,8 @@ resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
 resharper_convert_if_statement_to_return_statement_highlighting = none
 resharper_convert_if_statement_to_switch_statement_highlighting = none
+# Keep explicit byte[] fixtures; do not nudge collection expressions toward "..."u8.
+resharper_use_utf8_string_literal_highlighting = none
 # Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
 # Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
 resharper_lambda_expression_can_be_made_static_highlighting = error
@@ -438,6 +454,10 @@ dotnet_diagnostic.xUnit2021.severity = error
 # BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig.
 dotnet_diagnostic.BDN1400.severity = error
 dotnet_diagnostic.BDN1500.severity = error
+
+[**/{AsyncAssert,NodeAsyncAssert}.cs]
+# VSTHRD003: The closure-free exception assertions exist to observe an operation the caller already started.
+dotnet_diagnostic.VSTHRD003.severity = none
 
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none

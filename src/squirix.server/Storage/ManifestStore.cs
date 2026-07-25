@@ -22,11 +22,11 @@ namespace Squirix.Server.Storage;
     Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class ManifestStore : IDisposable
 {
-    private readonly Index _index = new();
-    private readonly Lock _cacheSync = new();
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly string _currentPath;
     private readonly IndexAllocator _allocator;
+    private readonly Lock _cacheSync = new();
+    private readonly string _currentPath;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Index _index = new();
     private readonly Publisher _publisher;
     private readonly RetentionWorker _retentionWorker;
     private bool _disposed;
@@ -46,12 +46,7 @@ internal sealed class ManifestStore : IDisposable
             PathEx.Combine(dataDir, FilePrefixes.Manifest),
             $"{FilePrefixes.Manifest}*{FileExtensions.Manifest}",
             ReadCurrentIndexForInit);
-        _publisher = new Publisher(
-            dataDir,
-            _currentPath,
-            _allocator,
-            SetCache,
-            ReadRollBaselineLocked);
+        _publisher = new Publisher(dataDir, _currentPath, _allocator, SetCache, ReadRollBaselineLocked);
         var retentionContext = new RetentionContext(
             new RetentionSettings(
                 dataDir,
@@ -75,6 +70,13 @@ internal sealed class ManifestStore : IDisposable
         _disposed = true;
     }
 
+    internal void PublishRollBlocking(int currentJournal, ulong nextSequence)
+    {
+        var nextIndex = _allocator.AllocateNextManifestIndex();
+        var manifest = _publisher.PublishRollCoreBlocking(currentJournal, nextSequence, nextIndex);
+        _retentionWorker.ScheduleRetentionCleanup(manifest);
+    }
+
     internal async Task<State> ReadCurrentOrDefaultAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -91,6 +93,8 @@ internal sealed class ManifestStore : IDisposable
         }
     }
 
+    internal State ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
+
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -106,15 +110,6 @@ internal sealed class ManifestStore : IDisposable
             _ = _gate.Release();
         }
     }
-
-    internal void PublishRollBlocking(int currentJournal, ulong nextSequence)
-    {
-        var nextIndex = _allocator.AllocateNextManifestIndex();
-        var manifest = _publisher.PublishRollCoreBlocking(currentJournal, nextSequence, nextIndex);
-        _retentionWorker.ScheduleRetentionCleanup(manifest);
-    }
-
-    internal State ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
 
     private async Task<State> LoadCurrentFromDiskAsync(CancellationToken cancellationToken)
     {
@@ -136,6 +131,23 @@ internal sealed class ManifestStore : IDisposable
         return manifest;
     }
 
+    private int? ReadCurrentIndexForInit()
+    {
+        lock (_cacheSync)
+            return _index.IsInitialized ? _index.CurrentIndex : null;
+    }
+
+    private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
+    {
+        lock (_cacheSync)
+        {
+            if (!_index.IsInitialized)
+                return (new State(), ReadOnlyMemory<byte>.Empty);
+
+            return (_index.Current, _index.SnapshotPathUtf8);
+        }
+    }
+
     private void SetCache(State manifest, int index)
     {
         lock (_cacheSync)
@@ -154,23 +166,6 @@ internal sealed class ManifestStore : IDisposable
 
             manifest = _index.Current;
             return true;
-        }
-    }
-
-    private int? ReadCurrentIndexForInit()
-    {
-        lock (_cacheSync)
-            return _index.IsInitialized ? _index.CurrentIndex : null;
-    }
-
-    private (State Previous, ReadOnlyMemory<byte> SnapshotPathUtf8) ReadRollBaselineLocked()
-    {
-        lock (_cacheSync)
-        {
-            if (!_index.IsInitialized)
-                return (new State(), ReadOnlyMemory<byte>.Empty);
-
-            return (_index.Current, _index.SnapshotPathUtf8);
         }
     }
 }

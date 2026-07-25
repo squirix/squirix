@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
@@ -26,16 +27,27 @@ public sealed class JournalExclusiveMaintenanceExecutorTests : ServerUnitTestBas
         };
 
         using var manifestStore = new ManifestStore(persistence);
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(persistence, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        var executed = false;
-        await journal.ExecuteMaintenanceExclusiveAsync(
-            _ =>
-            {
-                executed = true;
-                return ValueTask.CompletedTask;
-            },
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
             DefaultCancellationToken);
+        var executed = new ExecutionFlag();
+        await journal.ExecuteMaintenanceExclusiveAsync(executed.MarkExecutedAsync, DefaultCancellationToken);
 
-        Assert.True(executed);
+        Assert.True(executed.WasExecuted);
+    }
+
+    private sealed class ExecutionFlag
+    {
+        internal bool WasExecuted { get; private set; }
+
+        internal ValueTask MarkExecutedAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            WasExecuted = true;
+            return ValueTask.CompletedTask;
+        }
     }
 }

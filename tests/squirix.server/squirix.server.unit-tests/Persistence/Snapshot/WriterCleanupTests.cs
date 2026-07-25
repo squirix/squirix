@@ -8,6 +8,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -24,11 +25,11 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-snap-writer-create");
         var writer = new SnapshotWriter(dir);
 
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("a"), BuildEntry("first"))], [], DefaultCancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("a"), BuildEntry("first"), DefaultCancellationToken);
 
         Assert.True(File.Exists(path));
         Assert.EndsWith(".bsqx", path, StringComparison.Ordinal);
-        Assert.Equal(["a"], await ReadSnapshotKeysAsync(path));
+        Assert.Equal("a", Assert.Single(await ReadSnapshotKeysAsync(path)));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
@@ -38,13 +39,13 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-snap-writer-finalize-fail");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stable"), BuildEntry("old"))], [], DefaultCancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stable"), BuildEntry("old"), DefaultCancellationToken);
 
         var failingWriter = new SnapshotWriter(dir, new PublishFailingStorageFileOperations());
-        _ = await Assert.ThrowsAnyAsync<IOException>(async () => _ = await failingWriter.WriteAsync(1, [(CacheKey.Default("replacement"), BuildEntry("new"))], [], DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<IOException>(failingWriter.WriteSingleAsync(1, CacheKey.Default("replacement"), BuildEntry("new"), DefaultCancellationToken));
 
         Assert.True(File.Exists(path));
-        Assert.Equal(["stable"], await ReadSnapshotKeysAsync(path));
+        Assert.Equal("stable", Assert.Single(await ReadSnapshotKeysAsync(path)));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
@@ -55,7 +56,7 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-snap-writer-tmp");
         var writer = new SnapshotWriter(dir);
         var items = FailingItems();
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteAsync(1, items, [], DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidOperationException>(writer.WriteAsync(1, items, [], DefaultCancellationToken));
         Assert.Contains("serialization", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
@@ -66,13 +67,13 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
     {
         using var dir = new TempDirectory("squirix-snap-writer-replace");
         var writer = new SnapshotWriter(dir);
-        var path = await writer.WriteAsync(1, [(CacheKey.Default("stale"), BuildEntry("old"))], [], DefaultCancellationToken);
+        var path = await writer.WriteSingleAsync(1, CacheKey.Default("stale"), BuildEntry("old"), DefaultCancellationToken);
 
-        var rewrittenPath = await writer.WriteAsync(1, [(CacheKey.Default("fresh"), BuildEntry("new"))], [], DefaultCancellationToken);
+        var rewrittenPath = await writer.WriteSingleAsync(1, CacheKey.Default("fresh"), BuildEntry("new"), DefaultCancellationToken);
 
         Assert.Equal(path, rewrittenPath);
         Assert.True(File.Exists(path));
-        Assert.Equal(["fresh"], await ReadSnapshotKeysAsync(path));
+        Assert.Equal("fresh", Assert.Single(await ReadSnapshotKeysAsync(path)));
         Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
@@ -96,11 +97,12 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
     {
         public int Count => 2;
 
-        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] => index switch
-        {
-            0 => (new CacheKey("default", "a"), BuildEntry(1)),
-            _ => throw new InvalidOperationException("simulated serialization failure"),
-        };
+        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] =>
+            index switch
+            {
+                0 => (new CacheKey("default", "a"), BuildEntry(1)),
+                _ => throw new InvalidOperationException("simulated serialization failure"),
+            };
 
         public IEnumerator<(CacheKey Key, NodeCacheEntry<object?> Entry)> GetEnumerator()
         {

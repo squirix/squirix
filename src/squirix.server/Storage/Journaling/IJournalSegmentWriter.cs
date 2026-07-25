@@ -7,11 +7,11 @@ internal interface IJournalSegmentWriter : IAsyncDisposable
 {
     long Length { get; }
 
-    void OpenSegment(string path, bool append);
-
-    void Write(ReadOnlySpan<byte> buffer, long fileOffset);
-
     void Fsync();
 
+    void OpenSegment(string path, bool append);
+
     void Truncate(long length);
+
+    void Write(ReadOnlySpan<byte> buffer, long fileOffset);
 }

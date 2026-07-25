@@ -16,15 +16,15 @@ internal static class EntryTagsGuard
             return;
 
         if (tags.Count > EntryLimits.MaxEntryTagCount)
-            throw ServerOpContract.EntryTagCountExceeded(EntryLimits.MaxEntryTagCount);
+            throw ServerOpContract.EntryTagCountExceeded();
 
         foreach (var pair in tags)
         {
             if (Encoding.UTF8.GetByteCount(pair.Key) > EntryLimits.MaxEntryTagKeyUtf8Bytes)
-                throw ServerOpContract.EntryTagKeyTooLarge(EntryLimits.MaxEntryTagKeyUtf8Bytes);
+                throw ServerOpContract.EntryTagKeyTooLarge();
 
             if (Encoding.UTF8.GetByteCount(pair.Value) > EntryLimits.MaxEntryTagValueUtf8Bytes)
-                throw ServerOpContract.EntryTagValueTooLarge(EntryLimits.MaxEntryTagValueUtf8Bytes);
+                throw ServerOpContract.EntryTagValueTooLarge();
         }
     }
 }

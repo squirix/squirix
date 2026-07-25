@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -36,7 +37,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
 
         for (var i = 0; i < cap * 3; i++)
-            store.RecordSuccess($"op-{i:D4}", $"fp-{i:D4}", ResponseBytes);
+            store.RecordSuccess($"op-{InvariantIndexStrings.FormatD4(i)}", $"fp-{InvariantIndexStrings.FormatD4(i)}", ResponseBytes);
 
         Assert.Equal(cap, store.RecordCount);
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
@@ -66,16 +67,15 @@ internal static class EndpointExtensions
         private static void AppendExportedMetrics(StringBuilder sb, Dictionary<string, Dictionary<string, double>> exported, string? suffix)
         {
             foreach (var (metric, byLabels) in exported)
-            {
-                var metricName = suffix is null ? metric : metric + suffix;
                 foreach (var (labels, value) in byLabels)
-                    AppendMetricLine(sb, metricName, labels, value);
-            }
+                    AppendMetricLine(sb, metric, suffix, labels, value);
         }
 
-        private static void AppendMetricLine(StringBuilder sb, string metric, string labels, double value)
+        private static void AppendMetricLine(StringBuilder sb, string metric, string? suffix, string labels, double value)
         {
             _ = sb.Append(metric);
+            if (suffix is not null)
+                _ = sb.Append(suffix);
             if (labels.Length > 0)
             {
                 _ = sb.Append('{');
@@ -125,7 +125,7 @@ internal static class EndpointExtensions
 
         private void RecordMeasurement(string metric, ReadOnlySpan<KeyValuePair<string, object?>> tags, double value)
         {
-            var exportLabels = PrometheusScrapeLabelPolicy.BuildLabelKey(PrometheusScrapeLabelPolicy.FilterPublicTags(tags));
+            var exportLabels = PrometheusScrapeLabelPolicy.BuildPublicLabelKey(tags);
             lock (_lock)
             {
                 if (!_sums.TryGetValue(metric, out var byLabels))
@@ -160,68 +160,63 @@ internal static class EndpointExtensions
         /// <summary>Label filtering for the public HTTP Prometheus scrape profile.</summary>
         private static class PrometheusScrapeLabelPolicy
         {
-            private static readonly FrozenSet<string> ExcludedLabelNames = new[]
-            {
-                "cache",
-                "exception_type",
-            }.ToFrozenSet(StringComparer.Ordinal);
+            private static readonly FrozenSet<string> ExcludedLabelNames = new[] { "cache", "exception_type" }.ToFrozenSet(StringComparer.Ordinal);
 
-            /// <summary>Builds a Prometheus label set string from sorted tags.</summary>
-            /// <param name="tags">Sorted tag list.</param>
+            /// <summary>Builds a Prometheus label set string from public tags (sorted by key).</summary>
+            /// <param name="tags">Full instrument tags.</param>
             /// <returns>Prometheus label set without outer braces.</returns>
-            internal static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+            internal static string BuildPublicLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
             {
                 if (tags.Length is 0)
                     return string.Empty;
 
-                var sb = new StringBuilder();
-                for (var i = 0; i < tags.Length; i++)
+                var rented = ArrayPool<KeyValuePair<string, object?>>.Shared.Rent(tags.Length);
+                try
                 {
-                    if (i > 0)
-                        _ = sb.Append(',');
-                    _ = sb.Append(tags[i].Key);
-                    _ = sb.Append("=\"");
-                    _ = sb.Append(Escape(Convert.ToString(tags[i].Value, CultureInfo.InvariantCulture) ?? string.Empty));
-                    _ = sb.Append('"');
-                }
+                    var writeIndex = 0;
+                    foreach (var tag in tags)
+                    {
+                        if (ExcludedLabelNames.Contains(tag.Key))
+                            continue;
 
-                return sb.ToString();
+                        rented[writeIndex++] = tag;
+                    }
+
+                    if (writeIndex is 0)
+                        return string.Empty;
+
+                    var filtered = rented.AsSpan(0, writeIndex);
+                    filtered.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+                    return BuildLabelKey(filtered);
+                }
+                finally
+                {
+                    ArrayPool<KeyValuePair<string, object?>>.Shared.Return(rented, true);
+                }
             }
 
-            /// <summary>Returns tags with identifying labels removed for public HTTP export.</summary>
-            /// <param name="tags">Full instrument tags.</param>
-            /// <returns>Filtered tag list sorted by key.</returns>
-            internal static KeyValuePair<string, object?>[] FilterPublicTags(ReadOnlySpan<KeyValuePair<string, object?>> tags)
-            {
-                if (tags.Length is 0)
-                    return [];
-
-                var filtered = new KeyValuePair<string, object?>[tags.Length];
-                var writeIndex = 0;
-                foreach (var tag in tags)
-                {
-                    if (!ExcludedLabelNames.Contains(tag.Key))
-                        filtered[writeIndex++] = tag;
-                }
-
-                if (writeIndex is 0)
-                    return [];
-
-                if (writeIndex != filtered.Length)
-                    Array.Resize(ref filtered, writeIndex);
-
-                Array.Sort(filtered, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
-                return filtered;
-            }
-
-            private static string Escape(string s)
+            private static void AppendEscaped(StringBuilder sb, string s)
             {
                 if (s.Length is 0)
-                    return string.Empty;
+                    return;
 
-                var sb = new StringBuilder(s.Length);
+                var needsEscape = false;
                 for (var i = 0; i < s.Length; i++)
                 {
+                    var ch = s[i];
+                    if (ch is not ('\\' or '\n' or '"'))
+                        continue;
+                    needsEscape = true;
+                    break;
+                }
+
+                if (!needsEscape)
+                {
+                    _ = sb.Append(s);
+                    return;
+                }
+
+                for (var i = 0; i < s.Length; i++)
                     _ = s[i] switch
                     {
                         '\\' => sb.Append(@"\\"),
@@ -229,6 +224,22 @@ internal static class EndpointExtensions
                         '"' => sb.Append(@"\"""),
                         _ => sb.Append(s[i]),
                     };
+            }
+
+            /// <summary>Builds a Prometheus label set string from sorted tags.</summary>
+            /// <param name="tags">Sorted tag list.</param>
+            /// <returns>Prometheus label set without outer braces.</returns>
+            private static string BuildLabelKey(ReadOnlySpan<KeyValuePair<string, object?>> tags)
+            {
+                var sb = new StringBuilder(tags.Length * 24);
+                for (var i = 0; i < tags.Length; i++)
+                {
+                    if (i > 0)
+                        _ = sb.Append(',');
+                    _ = sb.Append(tags[i].Key);
+                    _ = sb.Append("=\"");
+                    AppendEscaped(sb, Convert.ToString(tags[i].Value, CultureInfo.InvariantCulture) ?? string.Empty);
+                    _ = sb.Append('"');
                 }
 
                 return sb.ToString();

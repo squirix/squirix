@@ -10,12 +10,42 @@ namespace Squirix.Server.UnitTests.Utils;
 /// <summary>Covers Darwin compatibility symlink helpers without requiring a macOS host.</summary>
 public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 {
-    /// <summary>Non-Apple hosts always fail follow.</summary>
+    /// <summary>Allowlisted root link names are recognized.</summary>
+    /// <param name="name">Candidate name.</param>
+    /// <param name="expected">Expected allowlist result.</param>
+    [Theory]
+    [InlineData("var", true)]
+    [InlineData("tmp", true)]
+    [InlineData("etc", true)]
+    [InlineData("usr", false)]
+    [InlineData("VAR", false)]
+    public void IsAllowlistedRootLinkNameMatches(string name, bool expected) => Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
+
+    /// <summary>Private-target comparison is case-insensitive.</summary>
     [Fact]
-    public void TryFollowReturnsFalseWhenNotAppleHost()
+    public void IsExpectedPrivateTargetIgnoresCase()
     {
-        using var root = new TempDirectory("squirix-macos-follow-off");
-        Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), false, out var resolved));
+        Assert.True(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP"));
+        Assert.False(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var"));
+    }
+
+    /// <summary>Expected private paths are built under the volume root.</summary>
+    [Fact]
+    public void TryBuildExpectedPrivatePathBuildsCanonicalPath()
+    {
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        Assert.True(MacOsCompatibilitySymlink.TryBuildExpectedPrivatePath(root, "tmp", out var expected));
+        Assert.Contains("private", expected, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith("tmp", expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Apple-host follow of a volume-root candidate fails when the entry is not a resolvable link.</summary>
+    [Fact]
+    public void TryFollowOnAppleHostFailsRootCandidateIsNotALink()
+    {
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+        var candidate = Path.Join(root, "tmp");
+        Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(candidate), true, out var resolved));
         Assert.Equal(string.Empty, resolved);
     }
 
@@ -28,34 +58,13 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         Assert.Equal(string.Empty, resolved);
     }
 
-    /// <summary>Allowlisted root link names are recognized.</summary>
-    /// <param name="name">Candidate name.</param>
-    /// <param name="expected">Expected allowlist result.</param>
-    [Theory]
-    [InlineData("var", true)]
-    [InlineData("tmp", true)]
-    [InlineData("etc", true)]
-    [InlineData("usr", false)]
-    [InlineData("VAR", false)]
-    public void IsAllowlistedRootLinkNameMatches(string name, bool expected) =>
-        Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
-
-    /// <summary>Expected private paths are built under the volume root.</summary>
+    /// <summary>Non-Apple hosts always fail follow.</summary>
     [Fact]
-    public void TryBuildExpectedPrivatePathBuildsCanonicalPath()
+    public void TryFollowReturnsFalseWhenNotAppleHost()
     {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
-        Assert.True(MacOsCompatibilitySymlink.TryBuildExpectedPrivatePath(root, "tmp", out var expected));
-        Assert.Contains("private", expected, StringComparison.OrdinalIgnoreCase);
-        Assert.EndsWith("tmp", expected, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Private-target comparison is case-insensitive.</summary>
-    [Fact]
-    public void IsExpectedPrivateTargetIgnoresCase()
-    {
-        Assert.True(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP"));
-        Assert.False(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var"));
+        using var root = new TempDirectory("squirix-macos-follow-off");
+        Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), false, out var resolved));
+        Assert.Equal(string.Empty, resolved);
     }
 
     /// <summary>Root-link identity accepts volume-root children named var/tmp/etc.</summary>
@@ -89,15 +98,5 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-macos-resolve");
         Assert.False(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(root.Path), out var target));
         Assert.Equal(string.Empty, target);
-    }
-
-    /// <summary>Apple-host follow of a volume-root candidate fails when the entry is not a resolvable link.</summary>
-    [Fact]
-    public void TryFollowOnAppleHostFailsRootCandidateIsNotALink()
-    {
-        var root = Path.GetPathRoot(Path.GetTempPath())!;
-        var candidate = Path.Join(root, "tmp");
-        Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(candidate), true, out var resolved));
-        Assert.Equal(string.Empty, resolved);
     }
 }

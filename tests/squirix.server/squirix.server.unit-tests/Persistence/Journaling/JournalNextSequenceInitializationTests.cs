@@ -27,7 +27,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [only]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, only);
         await manifestStore.WriteAsync(
             new State
             {
@@ -39,16 +39,10 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
-            JournalCoordinatorFactory.CreateAsync(
-                persistence,
-                manifest,
-                manifestStore,
-                new JournalStartupGate(),
-                DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(
+            JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, new JournalStartupGate(), DefaultCancellationToken));
 
-        Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("cannot determine a valid replay start", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
@@ -61,7 +55,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [old]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, old);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
         var manifest = new State
         {
@@ -88,7 +82,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [envelope]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -121,7 +115,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, [envelope]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -151,7 +145,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
         var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
         var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [s1]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, s1);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
         var manifest = new State
         {
@@ -185,13 +179,13 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         using var manifestStore = new ManifestStore(persistence);
         var obsoletePath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, [stale]);
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [live]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, live);
         var manifest = new State
         {
             Format = 1,

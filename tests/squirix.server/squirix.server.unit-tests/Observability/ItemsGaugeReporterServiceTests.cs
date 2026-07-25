@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -39,7 +40,7 @@ public sealed class ItemsGaugeReporterServiceTests
 
         using var faulting = new ItemsGaugeReporterService(new FaultingStats());
         await faulting.StartAsync(CancellationToken.None);
-        var aggregate = Assert.Throws<AggregateException>(listener.RecordObservableInstruments);
+        var aggregate = NodeExceptionAssert.For<AggregateException>().Throws(listener, static value => value.RecordObservableInstruments());
         var inner = Assert.Single(aggregate.InnerExceptions);
         var statsDown = Assert.IsType<InvalidOperationException>(inner);
         Assert.Equal("stats-down", statsDown.Message);
@@ -48,29 +49,45 @@ public sealed class ItemsGaugeReporterServiceTests
 
     private static MeterListener CreateListener(NodeMeasurementSink sink)
     {
+        var subscription = new ItemsGaugeSubscription(sink.Values);
         var listener = new MeterListener
         {
-            InstrumentPublished = static (instrument, meterListener) =>
-            {
-                if (IsItemsTotal(instrument))
-                    meterListener.EnableMeasurementEvents(instrument);
-            },
+            InstrumentPublished = subscription.OnInstrumentPublished,
         };
 
-        listener.SetMeasurementEventCallback<long>((instrument, measurement, _, _) =>
+        listener.SetMeasurementEventCallback<long>(static (instrument, measurement, _, state) =>
         {
-            if (IsItemsTotal(instrument))
-                sink.Values.Add(measurement);
+            if (ItemsGaugeSubscription.IsItemsTotal(instrument) && state is List<long> target)
+                target.Add(measurement);
         });
 
         listener.Start();
         return listener;
+    }
 
-        static bool IsItemsTotal(Instrument instrument)
+    private sealed class ItemsGaugeSubscription
+    {
+        private readonly List<long> _values;
+
+        internal ItemsGaugeSubscription(List<long> values)
         {
-            return string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase)
-                   && string.Equals(instrument.Name, "squirix_items_total", StringComparison.OrdinalIgnoreCase);
+            _values = values;
         }
+
+        internal static bool IsItemsTotal(Instrument instrument) =>
+            string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(instrument.Name, "squirix_items_total", StringComparison.OrdinalIgnoreCase);
+
+        internal void OnInstrumentPublished(Instrument instrument, MeterListener listener)
+        {
+            if (IsItemsTotal(instrument))
+                listener.EnableMeasurementEvents(instrument, _values);
+        }
+    }
+
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 
     private sealed class NodeMeasurementSink : IDisposable
@@ -88,10 +105,5 @@ public sealed class ItemsGaugeReporterServiceTests
         }
 
         public int EntryCount { get; }
-    }
-
-    private sealed class FaultingStats : ILocalCacheStats
-    {
-        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 }

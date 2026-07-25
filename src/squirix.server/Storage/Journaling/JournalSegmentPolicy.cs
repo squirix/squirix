@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using Squirix.Server.Errors;
 
 namespace Squirix.Server.Storage.Journaling;
@@ -7,6 +6,9 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Enforces Pipelined segment count and total byte caps.</summary>
 internal sealed class JournalSegmentPolicy
 {
+    private const string SegmentCountExceededMessage = "journal segment count exceeds configured limit.";
+    private const string TotalBytesExceededMessage = "journal total bytes exceed configured limit.";
+
     private readonly long _maxSegmentBytes;
 
     internal JournalSegmentPolicy(PersistenceOptions options)
@@ -39,10 +41,7 @@ internal sealed class JournalSegmentPolicy
     {
         var totalAfterAppend = onDiskTotalBytes + incomingFrameBytes;
         if (totalAfterAppend > MaxTotalBytes)
-        {
-            throw new JournalCapacityExceededException(
-                $"journal total bytes {totalAfterAppend.ToString(CultureInfo.InvariantCulture)} exceed limit {MaxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
-        }
+            throw new JournalCapacityExceededException(TotalBytesExceededMessage);
     }
 
     internal void EnsureRollCapacityOrThrow(int onDiskSegmentCount, long onDiskTotalBytes) => EnsureCapacityOrThrow(onDiskSegmentCount + 1, onDiskTotalBytes);
@@ -66,15 +65,9 @@ internal sealed class JournalSegmentPolicy
     private void EnsureCapacityOrThrow(int segmentCount, long totalBytes)
     {
         if (segmentCount > SegmentCountProbeLimit)
-        {
-            throw new JournalCapacityExceededException(
-                $"journal segment count {segmentCount.ToString(CultureInfo.InvariantCulture)} exceeds limit {SegmentCountProbeLimit.ToString(CultureInfo.InvariantCulture)}.");
-        }
+            throw new JournalCapacityExceededException(SegmentCountExceededMessage);
 
         if (totalBytes > MaxTotalBytes)
-        {
-            throw new JournalCapacityExceededException(
-                $"journal total bytes {totalBytes.ToString(CultureInfo.InvariantCulture)} exceed limit {MaxTotalBytes.ToString(CultureInfo.InvariantCulture)}.");
-        }
+            throw new JournalCapacityExceededException(TotalBytesExceededMessage);
     }
 }

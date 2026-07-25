@@ -9,6 +9,31 @@ namespace Squirix.E2EBenchmarks.Scenarios;
 /// <param name="DurabilityMode">The durability mode.</param>
 public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValueShape ValueShape, E2EBenchmarkDurabilityMode DurabilityMode)
 {
+    private static readonly BenchmarkValueShape[] DefaultShapes =
+    [
+        BenchmarkValueShape.PrimitiveLong,
+        BenchmarkValueShape.SmallString,
+        BenchmarkValueShape.SmallCustomRecord,
+        BenchmarkValueShape.NestedCustomClass,
+    ];
+
+    private static readonly BenchmarkTopology[] DefaultTopologies =
+    [
+        BenchmarkTopology.SingleNode,
+        BenchmarkTopology.TwoNodeLocalOwner,
+        BenchmarkTopology.TwoNodeRemoteOwner,
+        BenchmarkTopology.TwoNodeUniformKeys,
+        BenchmarkTopology.TwoNodeHotKeys,
+    ];
+
+    private static readonly E2EBenchmarkDurabilityMode[] EphemeralAndPersistent =
+    [
+        E2EBenchmarkDurabilityMode.Ephemeral,
+        E2EBenchmarkDurabilityMode.Persistence,
+    ];
+
+    private static readonly E2EBenchmarkDurabilityMode[] EphemeralOnly = [E2EBenchmarkDurabilityMode.Ephemeral];
+
     /// <summary>Creates the default diagnostic scenario matrix.</summary>
     /// <returns>The default scenario matrix.</returns>
     public static IReadOnlyList<BenchmarkScenario> CreateDefaultMatrix()
@@ -16,29 +41,12 @@ public sealed record BenchmarkScenario(BenchmarkTopology Topology, BenchmarkValu
         if (string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_SMOKE"), "1", StringComparison.Ordinal))
             return CreateDurabilityComparisonMatrix();
 
-        var durabilityModes = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_DURABILITY"), "1", StringComparison.Ordinal)
-            ? new[] { E2EBenchmarkDurabilityMode.Ephemeral, E2EBenchmarkDurabilityMode.Persistence } : [E2EBenchmarkDurabilityMode.Ephemeral];
+        var durabilityModes = string.Equals(Environment.GetEnvironmentVariable("SQUIRIX_E2E_BENCHMARK_DURABILITY"), "1", StringComparison.Ordinal) ? EphemeralAndPersistent
+            : EphemeralOnly;
 
-        var topologies = new[]
-        {
-            BenchmarkTopology.SingleNode,
-            BenchmarkTopology.TwoNodeLocalOwner,
-            BenchmarkTopology.TwoNodeRemoteOwner,
-            BenchmarkTopology.TwoNodeUniformKeys,
-            BenchmarkTopology.TwoNodeHotKeys,
-        };
-
-        var shapes = new[]
-        {
-            BenchmarkValueShape.PrimitiveLong,
-            BenchmarkValueShape.SmallString,
-            BenchmarkValueShape.SmallCustomRecord,
-            BenchmarkValueShape.NestedCustomClass,
-        };
-
-        var scenarios = new List<BenchmarkScenario>(topologies.Length * shapes.Length * durabilityModes.Length);
-        foreach (var topology in topologies)
-            foreach (var shape in shapes)
+        var scenarios = new List<BenchmarkScenario>(DefaultTopologies.Length * DefaultShapes.Length * durabilityModes.Length);
+        foreach (var topology in DefaultTopologies)
+            foreach (var shape in DefaultShapes)
                 foreach (var durabilityMode in durabilityModes)
                     scenarios.Add(new BenchmarkScenario(topology, shape, durabilityMode));
 

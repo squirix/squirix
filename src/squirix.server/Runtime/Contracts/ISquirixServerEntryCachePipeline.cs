@@ -22,6 +22,22 @@ public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeli
     /// <returns>The value lookup result.</returns>
     ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken);
 
+    /// <summary>Removes an entry.</summary>
+    /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
+    /// <param name="cacheName">Cache name.</param>
+    /// <param name="key">Cache key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The remove result.</returns>
+    ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
+
+    /// <summary>Removes expiration from an entry.</summary>
+    /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
+    /// <param name="cacheName">Cache name.</param>
+    /// <param name="key">Cache key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the key was found.</returns>
+    ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
+
     /// <summary>Creates or overwrites an entry.</summary>
     /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
     /// <param name="cacheName">Cache name.</param>
@@ -39,22 +55,6 @@ public interface ISquirixServerEntryCachePipeline<T> : ISquirixServerCachePipeli
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True when the entry was added.</returns>
     ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken);
-
-    /// <summary>Removes an entry.</summary>
-    /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
-    /// <param name="cacheName">Cache name.</param>
-    /// <param name="key">Cache key.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The remove result.</returns>
-    ValueTask<CacheRemoveResult<T>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
-
-    /// <summary>Removes expiration from an entry.</summary>
-    /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>
-    /// <param name="cacheName">Cache name.</param>
-    /// <param name="key">Cache key.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when the key was found.</returns>
-    ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken);
 
     /// <summary>Updates the value of an existing entry.</summary>
     /// <param name="operationId">Client mutation id for idempotent RPC replay.</param>

@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Squirix.Client;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;
@@ -12,8 +13,7 @@ public sealed class ConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncOptionsRejectNoEndpoints()
     {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(static () =>
-            SquirixClient.ConnectAsync(static _ => { }, DefaultCancellationToken).AsTask());
+        var ex = await AsyncAssert.ThrowsAsync<InvalidOperationException, ISquirixClient>(SquirixClient.ConnectAsync(static _ => { }, DefaultCancellationToken));
 
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -22,8 +22,8 @@ public sealed class ConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncOptionsRejectPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken).AsTask());
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("http://127.0.0.1:1")), DefaultCancellationToken));
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -32,8 +32,7 @@ public sealed class ConnectTests : UnitTestBase
     [Fact]
     public async Task ConnectAsyncRejectsPlaintextHttpEndpoint()
     {
-        var ex = await Assert.ThrowsAsync<ArgumentException>(static () =>
-            SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), DefaultCancellationToken).AsTask());
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(SquirixClient.ConnectAsync(new Uri("http://127.0.0.1:1"), DefaultCancellationToken));
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }

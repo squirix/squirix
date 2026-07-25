@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Squirix.Internal;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests.Internal;
@@ -10,6 +11,39 @@ namespace Squirix.UnitTests.Internal;
 /// <summary>Covers metrics-decorated serializer paths used by remote client sessions.</summary>
 public sealed class RemoteClientSerializerTests
 {
+    /// <summary>Unhandled exception types bypass the metrics failure filter.</summary>
+    [Fact]
+    public void CreateSerializerBypassesUnhandledExceptionFilter()
+    {
+        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
+        _ = ExceptionAssert.For<InvalidCastException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+    }
+
+    /// <summary>Wrapping an already metrics-decorated serializer is idempotent.</summary>
+    [Fact]
+    public void CreateSerializerDoesNotDoubleWrapMetricsDecorator()
+    {
+        var decorated = RemoteClientSessionFactory.CreateSerializer();
+        var again = RemoteClientSessionFactory.CreateSerializer(decorated);
+        Assert.Same(decorated, again);
+    }
+
+    /// <summary>JSON failures are recorded and rethrown by the metrics decorator.</summary>
+    [Fact]
+    public void CreateSerializerRethrowsJsonFailures()
+    {
+        var serializer = RemoteClientSessionFactory.CreateSerializer();
+        _ = ExceptionAssert.For<JsonException>().ThrowsAny(serializer, static value => value.Deserialize<Dictionary<string, int>>("{bad"));
+    }
+
+    /// <summary>NotSupportedException failures are recorded and rethrown.</summary>
+    [Fact]
+    public void CreateSerializerRethrowsNotSupportedFailures()
+    {
+        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
+        _ = ExceptionAssert.For<NotSupportedException>().Throws(serializer, static value => value.SerializeToUtf8Bytes("x"));
+    }
+
     /// <summary>Round-trips through the metrics decorator overloads.</summary>
     [Fact]
     public void CreateSerializerRoundTripsPayloads()
@@ -33,14 +67,6 @@ public sealed class RemoteClientSerializerTests
         Assert.Equal(5, serializer.Deserialize<Dictionary<string, int>>("""{"value":5}""")!["value"]);
     }
 
-    /// <summary>Json failures are recorded and rethrown by the metrics decorator.</summary>
-    [Fact]
-    public void CreateSerializerRethrowsJsonFailures()
-    {
-        var serializer = RemoteClientSessionFactory.CreateSerializer();
-        _ = Assert.ThrowsAny<JsonException>(() => serializer.Deserialize<Dictionary<string, int>>("{bad"));
-    }
-
     /// <summary>Metrics decoration can be disabled for custom serializers.</summary>
     [Fact]
     public void CreateSerializerWithoutMetricsReturnsInnerInstance()
@@ -48,31 +74,6 @@ public sealed class RemoteClientSerializerTests
         var inner = new SystemTextJsonSerializer();
         var serializer = RemoteClientSessionFactory.CreateSerializer(inner, false);
         Assert.Same(inner, serializer);
-    }
-
-    /// <summary>Wrapping an already metrics-decorated serializer is idempotent.</summary>
-    [Fact]
-    public void CreateSerializerDoesNotDoubleWrapMetricsDecorator()
-    {
-        var decorated = RemoteClientSessionFactory.CreateSerializer();
-        var again = RemoteClientSessionFactory.CreateSerializer(decorated);
-        Assert.Same(decorated, again);
-    }
-
-    /// <summary>NotSupportedException failures are recorded and rethrown.</summary>
-    [Fact]
-    public void CreateSerializerRethrowsNotSupportedFailures()
-    {
-        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new NotSupportedException("boom")));
-        _ = Assert.Throws<NotSupportedException>(() => serializer.SerializeToUtf8Bytes("x"));
-    }
-
-    /// <summary>Unhandled exception types bypass the metrics failure filter.</summary>
-    [Fact]
-    public void CreateSerializerBypassesUnhandledExceptionFilter()
-    {
-        var serializer = RemoteClientSessionFactory.CreateSerializer(new ThrowingSerializer(new InvalidCastException("nope")));
-        _ = Assert.Throws<InvalidCastException>(() => serializer.SerializeToUtf8Bytes("x"));
     }
 
     private sealed class ThrowingSerializer : ISquirixSerializer

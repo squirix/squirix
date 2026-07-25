@@ -22,17 +22,17 @@ internal sealed class CoordinatorDependencies
         Telemetry = telemetry ?? new NoOpSnapshotTelemetry();
     }
 
+    internal IBackgroundSnapshotMemoryThrottle BackgroundSnapshotMemoryThrottle { get; }
+
     internal ISnapshotEntryCapture EntryCapture { get; }
-
-    internal ISnapshotWriter SnapWriter { get; }
-
-    internal ManifestStore ManifestStore { get; }
 
     internal IIdempotencySnapshotExporter Idempotency { get; }
 
+    internal ManifestStore ManifestStore { get; }
+
     internal string NodeId { get; }
 
-    internal IBackgroundSnapshotMemoryThrottle BackgroundSnapshotMemoryThrottle { get; }
+    internal ISnapshotWriter SnapWriter { get; }
 
     internal ISnapshotTelemetry Telemetry { get; }
 

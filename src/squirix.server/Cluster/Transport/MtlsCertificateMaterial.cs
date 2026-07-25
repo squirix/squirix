@@ -120,8 +120,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
             if (MtlsCertificateIdentity.MatchesNodeId(nodeCertificate, nodeId))
                 return;
 
-            var certificateNodeId = MtlsCertificateIdentity.TryGetNodeId(nodeCertificate, out var parsedNodeId) ? parsedNodeId : "<missing>";
-            throw new InvalidOperationException($"Cluster mTLS node certificate identity '{certificateNodeId}' does not match configured NodeId '{nodeId}'.");
+            throw new InvalidOperationException("Cluster mTLS node certificate identity does not match configured NodeId.");
         }
 
         /// <summary>Loads the local node certificate and private key.</summary>

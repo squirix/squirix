@@ -6,17 +6,17 @@ namespace Squirix.Server.Cluster.Transport;
 
 internal sealed class ServerClientPoolArgs
 {
-    internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
-
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
+    internal bool InterNodeMtlsEnabled { get; init; }
 
     internal Interceptor? Interceptor { get; init; }
 
-    internal MtlsOptions? MtlsOptions { get; init; }
+    internal Interceptor? InternalOwnerInterceptor { get; init; }
 
     internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
 
-    internal bool InterNodeMtlsEnabled { get; init; }
+    internal MtlsOptions? MtlsOptions { get; init; }
 
-    internal Interceptor? InternalOwnerInterceptor { get; init; }
+    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
+
+    internal required Func<string, IServerCallPolicy> PolicyFactory { get; init; }
 }

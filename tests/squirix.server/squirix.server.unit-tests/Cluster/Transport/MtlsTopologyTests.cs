@@ -32,7 +32,7 @@ public sealed class MtlsTopologyTests
     [Fact]
     public void RequiresInterNodeMtlsFalseStandaloneTopology()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, [new ServerPeer { NodeId = "node-a", Uri = NodeAUrl }]);
+        var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
 
         Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
@@ -51,6 +51,13 @@ public sealed class MtlsTopologyTests
 
         Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
+
+    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer peer) => new(peer)
+    {
+        ClusterId = "test",
+        NodeId = nodeId,
+        Uri = uri,
+    };
 
     private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
     {

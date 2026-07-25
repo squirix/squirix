@@ -26,17 +26,17 @@ internal sealed class JournalCompactionDependencies
         TimeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    internal Coordinator Snapshot { get; }
+    internal TopologyOptions Cluster { get; }
 
     internal IExclusiveMaintenanceExecutor JournalMaintenance { get; }
 
     internal ManifestStore Manifest { get; }
 
-    internal ISnapshotReader SnapshotReader { get; }
-
     internal PersistenceOptions Persistence { get; }
 
-    internal TopologyOptions Cluster { get; }
+    internal Coordinator Snapshot { get; }
+
+    internal ISnapshotReader SnapshotReader { get; }
 
     internal TimeProvider TimeProvider { get; }
 }

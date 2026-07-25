@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.Utils;
 using Xunit;
@@ -12,110 +13,6 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Unit tests for <see cref="DirectoryEx" /> path validation and creation behavior.</summary>
 public sealed class DirectoryExTests
 {
-    /// <summary>Creates under a temp path and returns an absolute existing directory.</summary>
-    [Fact]
-    public void CreateDirectoryReturnsAbsoluteExistingDirectory()
-    {
-        using var root = new TempDirectory("squirix-directoryex-create");
-        var created = DirectoryEx.CreateDirectory("child", root.Path);
-
-        Assert.True(Path.IsPathRooted(created));
-        Assert.True(Directory.Exists(created));
-        Assert.StartsWith(root.Path, created, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Rejects empty and whitespace paths.</summary>
-    /// <param name="path">Invalid path input.</param>
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void CreateDirectoryRejectsEmptyOrWhitespace(string path)
-    {
-        using var root = new TempDirectory("squirix-directoryex-empty");
-        _ = Assert.Throws<ArgumentException>(() => DirectoryEx.CreateDirectory(path, root.Path));
-    }
-
-    /// <summary>Rejects wildcard characters in the path.</summary>
-    /// <param name="path">Path containing wildcards.</param>
-    [Theory]
-    [InlineData("a*b")]
-    [InlineData("a?b")]
-    public void CreateDirectoryRejectsWildcards(string path)
-    {
-        using var root = new TempDirectory("squirix-directoryex-wildcards");
-        _ = Assert.Throws<ArgumentException>(() => DirectoryEx.CreateDirectory(path, root.Path));
-    }
-
-    /// <summary>Rejects a target that escapes the base directory.</summary>
-    [Fact]
-    public void CreateDirectoryRejectsBaseEscape()
-    {
-        using var root = new TempDirectory("squirix-directoryex-escape");
-        var parent = Directory.GetParent(root.Path);
-        Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, "squirix-directoryex-outside-" + Guid.NewGuid().ToString("N"));
-        _ = Assert.Throws<UnauthorizedAccessException>(() => DirectoryEx.CreateDirectory(outside, root.Path));
-    }
-
-    /// <summary>Throws when a regular file already exists at the target path.</summary>
-    [Fact]
-    public void CreateDirectoryRejectsExistingFileAtTarget()
-    {
-        using var root = new TempDirectory("squirix-directoryex-file");
-        var target = Path.Join(root.Path, "blocked");
-        File.WriteAllText(target, "x");
-
-        var ex = Assert.Throws<IOException>(() => DirectoryEx.CreateDirectory("blocked", root.Path));
-        Assert.Contains(target, ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>When <c>ensureEmpty</c> is true, existing child files are removed.</summary>
-    [Fact]
-    public async Task CreateDirectoryAsyncEnsureEmptyRemovesChildren()
-    {
-        using var root = new TempDirectory("squirix-directoryex-empty-children");
-        var ct = TestContext.Current.CancellationToken;
-        var child = await DirectoryEx.CreateDirectoryAsync("nest", root.Path, cancellationToken: ct).ConfigureAwait(true);
-        var leftover = Path.Join(child, "leftover.txt");
-        await File.WriteAllTextAsync(leftover, "keep-me-not", ct).ConfigureAwait(true);
-        Assert.True(File.Exists(leftover));
-
-        var ready = await DirectoryEx.CreateDirectoryAsync("nest", root.Path, true, cancellationToken: ct).ConfigureAwait(true);
-
-        Assert.Equal(child, ready);
-        Assert.False(File.Exists(leftover));
-        Assert.True(Directory.Exists(ready));
-    }
-
-    /// <summary>When <c>forbidSymlinks</c> is true, rejects a directory symlink or junction in the path chain.</summary>
-    [Fact]
-    public void CreateDirectoryRejectsSymlinkOrJunctionInChain()
-    {
-        using var root = new TempDirectory("squirix-directoryex-symlink");
-        var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
-        var link = Path.Join(root.Path, "link");
-        if (!TryCreateDirectoryLink(link, real))
-            Assert.Skip("Directory symlink/junction creation is not available in this environment.");
-
-        _ = Assert.Throws<IOException>(() => DirectoryEx.CreateDirectory(Path.Join("link", "child"), root.Path));
-    }
-
-    /// <summary>When <c>forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
-    [Fact]
-    public async Task CreateDirectoryAsyncRejectsSymlinkJunctionInChain()
-    {
-        using var root = new TempDirectory("squirix-directoryex-symlink-async");
-        var ct = TestContext.Current.CancellationToken;
-        var real = Path.Join(root.Path, "real");
-        Directory.CreateDirectory(real);
-        var link = Path.Join(root.Path, "link");
-        if (!TryCreateDirectoryLink(link, real))
-            Assert.Skip("Directory symlink/junction creation is not available in this environment.");
-
-        _ = await Assert.ThrowsAsync<IOException>(() => DirectoryEx.CreateDirectoryAsync(Path.Join("link", "child"), root.Path, cancellationToken: ct)).ConfigureAwait(true);
-    }
-
     /// <summary>On macOS, <c>/tmp</c> may be used as a base despite being a Darwin compatibility symlink.</summary>
     [Fact]
     public void CreateDirectoryAcceptsMacOsTmpCompatibilityBase()
@@ -138,6 +35,125 @@ public sealed class DirectoryExTests
         }
     }
 
+    /// <summary>When <c>ensureEmpty</c> is true, existing child files are removed.</summary>
+    [Fact]
+    public async Task CreateDirectoryAsyncEnsureEmptyRemovesChildren()
+    {
+        using var root = new TempDirectory("squirix-directoryex-empty-children");
+        var ct = TestContext.Current.CancellationToken;
+        var child = await DirectoryEx.CreateDirectoryAsync("nest", root.Path, cancellationToken: ct);
+        var leftover = Path.Join(child, "leftover.txt");
+        await File.WriteAllTextAsync(leftover, "keep-me-not", ct);
+        Assert.True(File.Exists(leftover));
+
+        var ready = await DirectoryEx.CreateDirectoryAsync("nest", root.Path, true, cancellationToken: ct);
+
+        Assert.Equal(child, ready);
+        Assert.False(File.Exists(leftover));
+        Assert.True(Directory.Exists(ready));
+    }
+
+    /// <summary>When <c>forbidSymlinks</c> is true, async create also rejects a symlink or junction in the path chain.</summary>
+    [Fact]
+    public void CreateDirectoryAsyncRejectsSymlinkJunctionInChain()
+    {
+        using var root = new TempDirectory("squirix-directoryex-symlink-async");
+        var ct = TestContext.Current.CancellationToken;
+        var real = Path.Join(root.Path, "real");
+        Directory.CreateDirectory(real);
+        var link = Path.Join(root.Path, "link");
+        if (!TryCreateDirectoryLink(link, real))
+            Assert.Skip("Directory symlink/junction creation is not available in this environment.");
+
+        // CreateDirectoryAsync validates the path synchronously before returning a Task.
+        _ = NodeExceptionAssert.For<IOException>().Throws(
+            root.Path,
+            ct,
+            static (basePath, token) => _ = DirectoryEx.CreateDirectoryAsync(Path.Join("link", "child"), basePath, cancellationToken: token));
+    }
+
+    /// <summary>Rejects a target that escapes the base directory.</summary>
+    [Fact]
+    public void CreateDirectoryRejectsBaseEscape()
+    {
+        using var root = new TempDirectory("squirix-directoryex-escape");
+        var parent = Directory.GetParent(root.Path);
+        Assert.NotNull(parent);
+        var outside = Path.Join(parent.FullName, "squirix-directoryex-outside-" + Guid.NewGuid().ToString("N"));
+        _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(outside, root.Path, static (path, basePath) => DirectoryEx.CreateDirectory(path, basePath));
+    }
+
+    /// <summary>Rejects empty and whitespace paths.</summary>
+    /// <param name="path">Invalid path input.</param>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void CreateDirectoryRejectsEmptyOrWhitespace(string path)
+    {
+        using var root = new TempDirectory("squirix-directoryex-empty");
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
+    }
+
+    /// <summary>Throws when a regular file already exists at the target path.</summary>
+    [Fact]
+    public void CreateDirectoryRejectsExistingFileAtTarget()
+    {
+        using var root = new TempDirectory("squirix-directoryex-file");
+        var target = Path.Join(root.Path, "blocked");
+        File.WriteAllText(target, "x");
+
+        var ex = NodeExceptionAssert.For<IOException>().Throws(root.Path, static basePath => DirectoryEx.CreateDirectory("blocked", basePath));
+        Assert.Contains("file already exists", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>When <c>forbidSymlinks</c> is true, rejects a directory symlink or junction in the path chain.</summary>
+    [Fact]
+    public void CreateDirectoryRejectsSymlinkOrJunctionInChain()
+    {
+        using var root = new TempDirectory("squirix-directoryex-symlink");
+        var real = Path.Join(root.Path, "real");
+        Directory.CreateDirectory(real);
+        var link = Path.Join(root.Path, "link");
+        if (!TryCreateDirectoryLink(link, real))
+            Assert.Skip("Directory symlink/junction creation is not available in this environment.");
+
+        _ = NodeExceptionAssert.For<IOException>().Throws(root.Path, static basePath => DirectoryEx.CreateDirectory(Path.Join("link", "child"), basePath));
+    }
+
+    /// <summary>Rejects wildcard characters in the path.</summary>
+    /// <param name="path">Path containing wildcards.</param>
+    [Theory]
+    [InlineData("a*b")]
+    [InlineData("a?b")]
+    public void CreateDirectoryRejectsWildcards(string path)
+    {
+        using var root = new TempDirectory("squirix-directoryex-wildcards");
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
+    }
+
+    /// <summary>On Windows, reserved device names such as CON are rejected.</summary>
+    [Fact]
+    public void CreateDirectoryRejectsWindowsReservedName()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var root = new TempDirectory("squirix-directoryex-reserved");
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(root.Path, static basePath => DirectoryEx.CreateDirectory("CON", basePath));
+    }
+
+    /// <summary>Creates under a temp path and returns an absolute existing directory.</summary>
+    [Fact]
+    public void CreateDirectoryReturnsAbsoluteExistingDirectory()
+    {
+        using var root = new TempDirectory("squirix-directoryex-create");
+        var created = DirectoryEx.CreateDirectory("child", root.Path);
+
+        Assert.True(Path.IsPathRooted(created));
+        Assert.True(Directory.Exists(created));
+        Assert.StartsWith(root.Path, created, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>On non-Apple hosts, <see cref="MacOsCompatibilitySymlink.TryFollow(DirectoryInfo, out string)" /> returns false for a normal directory.</summary>
     [Fact]
     public void MacOsCompatibilitySymlinkTryReturnsFalseOffApple()
@@ -149,17 +165,6 @@ public sealed class DirectoryExTests
         var info = new DirectoryInfo(root.Path);
         Assert.False(MacOsCompatibilitySymlink.TryFollow(info, out var resolved));
         Assert.Equal(string.Empty, resolved);
-    }
-
-    /// <summary>On Windows, reserved device names such as CON are rejected.</summary>
-    [Fact]
-    public void CreateDirectoryRejectsWindowsReservedName()
-    {
-        if (!OperatingSystem.IsWindows())
-            return;
-
-        using var root = new TempDirectory("squirix-directoryex-reserved");
-        _ = Assert.Throws<ArgumentException>(() => DirectoryEx.CreateDirectory("CON", root.Path));
     }
 
     private static bool TryCreateDirectoryLink(string linkPath, string targetPath)

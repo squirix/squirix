@@ -15,25 +15,10 @@ namespace Squirix.Server.UnitTests.Core;
 /// </summary>
 public sealed class CacheExpirationTests : ServerUnitTestBase
 {
-    /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
-    [Fact]
-    public async Task TryAddShouldSucceedWhenExistingEntryExpired()
-    {
-        var timeProvider = new FakeTimeProvider();
-        await using var cache = new PhysicalCache<string>(timeProvider);
-
-        Assert.True(await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));
-
-        timeProvider.Advance(TimeSpan.FromMilliseconds(25));
-
-        Assert.True(await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "new" }, DefaultCancellationToken));
-        Assert.Equal("new", (await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Value);
-    }
-
     /// <summary>Ensures entries expire correctly when inserted with either relative expiration or absolute expiration.</summary>
     /// <param name="expirationMs">expiration in milliseconds when using relative expiration.</param>
     /// <param name="sleepMs">Delay before checking presence in milliseconds.</param>
-    /// <param name="useAbsoluteExpires">If <see langword="true"/>, uses <see cref="NodeCacheEntry{T}.ExpiresUtc" />; otherwise <see cref="NodeCacheEntry{T}.Expiration" />.</param>
+    /// <param name="useAbsoluteExpires">If <see langword="true" />, uses <see cref="NodeCacheEntry{T}.ExpiresUtc" />; otherwise <see cref="NodeCacheEntry{T}.Expiration" />.</param>
     [Theory]
     [InlineData(10, 25, true)]
     [InlineData(10, 25, false)]
@@ -117,5 +102,21 @@ public sealed class CacheExpirationTests : ServerUnitTestBase
         var remaining = stored.ExpiresUtc!.Value - timeProvider.GetUtcNow().UtcDateTime;
         Assert.True(remaining > TimeSpan.Zero);
         Assert.True(remaining <= TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies TryAddAsync treats an expired existing entry as absent and inserts a new value.</summary>
+    [Fact]
+    public async Task TryAddShouldSucceedWhenExistingEntryExpired()
+    {
+        var timeProvider = new FakeTimeProvider();
+        await using var cache = new PhysicalCache<string>(timeProvider);
+
+        Assert.True(
+            await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "expired", Expiration = TimeSpan.FromMilliseconds(10) }, DefaultCancellationToken));
+
+        timeProvider.Advance(TimeSpan.FromMilliseconds(25));
+
+        Assert.True(await cache.TryAddAsync(CacheKey.Default("k"), new NodeCacheEntry<string> { Value = "new" }, DefaultCancellationToken));
+        Assert.Equal("new", (await cache.GetValueAsync(CacheKey.Default("k"), DefaultCancellationToken)).Value);
     }
 }

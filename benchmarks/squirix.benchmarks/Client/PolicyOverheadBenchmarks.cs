@@ -15,6 +15,7 @@ namespace Squirix.Benchmarks.Client;
 public class PolicyOverheadBenchmarks : IAsyncDisposable
 {
     private const int Batch = 16_384;
+    private static readonly string[] SingleBootstrapNode = ["node-a"];
     private readonly Consumer _consumer = new();
     private EndpointFailover? _failover;
     private CallPolicy? _policy;
@@ -83,7 +84,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public void Setup()
     {
-        _failover = new EndpointFailover(["node-a"], "node-a");
+        _failover = new EndpointFailover(SingleBootstrapNode, "node-a");
         _policy = new CallPolicy(peer: "node-a");
     }
 

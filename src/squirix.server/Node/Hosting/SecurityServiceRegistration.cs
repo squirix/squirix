@@ -52,6 +52,21 @@ internal static class SecurityServiceRegistration
         return parameters;
     }
 
+    private static byte[]? DecodeSymmetricKey(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        try
+        {
+            return Convert.FromBase64String(value);
+        }
+        catch (FormatException)
+        {
+            return Encoding.UTF8.GetBytes(value);
+        }
+    }
+
     private static void RegisterJwtAuthentication(IServiceCollection services, ResolvedSecurityConfiguration configuration)
     {
         _ = services.AddAuthentication().AddJwtBearer(
@@ -73,7 +88,7 @@ internal static class SecurityServiceRegistration
             p =>
             {
                 _ = p.RequireAuthenticatedUser();
-                _ = p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
+                p.AuthenticationSchemes.Add(JwtBearerDefaults.AuthenticationScheme);
             });
     }
 
@@ -103,21 +118,6 @@ internal static class SecurityServiceRegistration
         var jwtEnabled = !string.IsNullOrWhiteSpace(jwtAuthority) || signingKeyBytes is not null;
 
         return new ResolvedSecurityConfiguration(jwtAuthority, jwtAudience, jwtIssuer, securityOptionsOverride.JwtAllowHttpMetadata, signingKeyBytes, jwtEnabled);
-    }
-
-    private static byte[]? DecodeSymmetricKey(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        try
-        {
-            return Convert.FromBase64String(value);
-        }
-        catch (FormatException)
-        {
-            return Encoding.UTF8.GetBytes(value);
-        }
     }
 
     private static void ValidateSecurityConfiguration(ResolvedSecurityConfiguration configuration)

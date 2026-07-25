@@ -16,7 +16,7 @@ public sealed class SquirixServerOptions
     public string NodeId { get; set; } = "node";
 
     /// <summary>Gets or sets the configured cluster peers. When empty, the local node is added automatically at runtime.</summary>
-    public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = [];
+    public IReadOnlyList<SquirixServerPeerOptions> Peers { get; set; } = Array.Empty<SquirixServerPeerOptions>();
 
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }

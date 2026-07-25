@@ -20,6 +20,7 @@ internal sealed class ClusterInternalOwnerClientInterceptor : Interceptor
 
     private static CallOptions AttachInternalOwnerHeader(CallOptions options)
     {
+        // Prefer mutating caller headers. A fresh Metadata is only allocated when the call had none.
         var metadata = options.Headers ?? [];
         Upsert(metadata, RemoteInvocationContract.InternalOwnerRpcHeaderName, RemoteInvocationContract.InternalOwnerRpcHeaderValue);
         return new CallOptions(metadata, options.Deadline, options.CancellationToken, options.WriteOptions, options.PropagationToken, options.Credentials);

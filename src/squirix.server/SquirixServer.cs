@@ -29,23 +29,11 @@ public sealed class SquirixServer : IAsyncDisposable
     /// <returns>A task that completes when the server host is disposed.</returns>
     public ValueTask DisposeAsync() => _handle.DisposeAsync();
 
-    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
-    /// <param name="configure">Optional callback applied to server options before startup.</param>
-    /// <param name="cancellationToken">Cancellation token for server startup.</param>
-    /// <returns>A server host lifetime handle.</returns>
-    private static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
-    {
-        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
-        return new SquirixServer(handle);
-    }
-
     /// <summary>Starts the squirix node server application with default production logging and cluster settings resolution.</summary>
     /// <param name="configure">Optional callback applied to server options before startup.</param>
     /// <param name="cancellationToken">Cancellation token for server startup.</param>
     /// <returns>A lifetime handle for the started application.</returns>
-    private static async ValueTask<ApplicationHandle> BuildAppHandleAsync(
-        Action<SquirixServerOptions>? configure = null,
-        CancellationToken cancellationToken = default)
+    private static async ValueTask<ApplicationHandle> BuildAppHandleAsync(Action<SquirixServerOptions>? configure = null, CancellationToken cancellationToken = default)
     {
         var options = await Configurator.LoadOrCreateDefaultAsync(cancellationToken).ConfigureAwait(false);
         configure?.Invoke(options);
@@ -66,15 +54,23 @@ public sealed class SquirixServer : IAsyncDisposable
         _ = builder.Logging.AddFilter("Grpc.AspNetCore.Server", LogLevel.Information);
         _ = builder.Logging.AddFilter("Squirix", LogLevel.Debug);
 
-        _ = await builder.AddSquirixServerAsync(
-            target => Configurator.CopyOptions(options, target),
-            loadDiscoveredSettings: false,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        _ = await builder.AddSquirixServerAsync(target => Configurator.CopyOptions(options, target), loadDiscoveredSettings: false, cancellationToken: cancellationToken)
+                         .ConfigureAwait(false);
         var app = builder.Build();
         _ = app.MapSquirixServer();
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
         return new ApplicationHandle(app);
+    }
+
+    /// <summary>Starts the Squirix server host runtime using discovered settings or ephemeral defaults.</summary>
+    /// <param name="configure">Optional callback applied to server options before startup.</param>
+    /// <param name="cancellationToken">Cancellation token for server startup.</param>
+    /// <returns>A server host lifetime handle.</returns>
+    private static async ValueTask<SquirixServer> StartAsync(Action<SquirixServerOptions>? configure, CancellationToken cancellationToken = default)
+    {
+        var handle = await BuildAppHandleAsync(configure, cancellationToken).ConfigureAwait(false);
+        return new SquirixServer(handle);
     }
 
     private sealed class ApplicationHandle : IAsyncDisposable

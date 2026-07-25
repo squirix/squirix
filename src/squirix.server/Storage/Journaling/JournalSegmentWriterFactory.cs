@@ -48,11 +48,10 @@ internal static class JournalSegmentWriterFactory
         {
             var handle = _handle ?? throw new InvalidOperationException(SegmentNotOpenMessage);
             if (OperatingSystem.IsWindows())
-            {
+
                 // FileOptions.WriteThrough on OpenSegment: each Write is durable without FlushToDisk.
                 // WriteThrough + FlushAsync per append (not full disk flush per op).
                 return;
-            }
 
             RandomAccess.FlushToDisk(handle);
         }

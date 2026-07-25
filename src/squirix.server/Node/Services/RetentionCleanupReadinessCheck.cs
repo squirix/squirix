@@ -10,6 +10,8 @@ namespace Squirix.Server.Node.Services;
 /// <summary>Reports readiness degradation when manifest retention cleanup fails persistently.</summary>
 internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
 {
+    private static readonly Task<HealthCheckResult> ReadyResult = Task.FromResult(HealthCheckResult.Healthy("storage retention cleanup is ready."));
+
     private readonly IRetentionCleanupReadinessStatus _retentionCleanup;
 
     internal RetentionCleanupReadinessCheck(IRetentionCleanupReadinessStatus retentionCleanup)
@@ -24,10 +26,12 @@ internal sealed class RetentionCleanupReadinessCheck : IHealthCheck
         _ = cancellationToken;
 
         if (!_retentionCleanup.IsDegraded)
-            return Task.FromResult(HealthCheckResult.Healthy("storage retention cleanup is ready."));
+            return ReadyResult;
 
         return Task.FromResult(
             HealthCheckResult.Unhealthy(
-                $"storage retention cleanup is degraded after {_retentionCleanup.ConsecutiveWriteFailures.ToString(CultureInfo.InvariantCulture)} consecutive write failures and {_retentionCleanup.RecentFailureCount.ToString(CultureInfo.InvariantCulture)} failures in the recent window."));
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"storage retention cleanup is degraded after {_retentionCleanup.ConsecutiveWriteFailures} consecutive write failures and {_retentionCleanup.RecentFailureCount} failures in the recent window.")));
     }
 }

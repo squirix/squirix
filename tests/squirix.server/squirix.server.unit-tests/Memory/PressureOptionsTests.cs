@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -19,7 +20,7 @@ public sealed class PressureOptionsTests
     public static void ValidateRejectsNonPositiveMaxBytes(long maxBytes)
     {
         var options = new PressureOptions { MaxEstimatedCacheBytes = maxBytes };
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
     }
@@ -76,8 +77,7 @@ public sealed class PressureOptionsTests
             HighPressureThresholdPercent = 50,
             CriticalPressureThresholdPercent = 90,
         };
-        var ex = Record.Exception(o.Validate);
-        Assert.Null(ex);
+        o.Validate();
     }
 
     /// <summary>Verifies a critical threshold above 100 is rejected.</summary>
@@ -89,7 +89,7 @@ public sealed class PressureOptionsTests
             MaxEstimatedCacheBytes = 1024,
             CriticalPressureThresholdPercent = 101,
         };
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains(nameof(PressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
     }
@@ -104,7 +104,7 @@ public sealed class PressureOptionsTests
             HighPressureThresholdPercent = 90,
             CriticalPressureThresholdPercent = 90,
         };
-        var ex = Assert.Throws<InvalidOperationException>(o.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(o, static value => value.Validate());
         Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
     }
 
@@ -117,7 +117,7 @@ public sealed class PressureOptionsTests
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 0,
         };
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains(nameof(PressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
     }
@@ -126,7 +126,10 @@ public sealed class PressureOptionsTests
     {
         private readonly long _availableBytes;
 
-        internal FixedMemoryBudgetProvider(long availableBytes) => _availableBytes = availableBytes;
+        internal FixedMemoryBudgetProvider(long availableBytes)
+        {
+            _availableBytes = availableBytes;
+        }
 
         long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
     }

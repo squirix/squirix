@@ -16,7 +16,7 @@ public sealed class MtlsClientCertificateValidatorTests : ServerUnitTestBase
         using var peerCertificate = MtlsTestCertificateFactory.CreatePeerCertificate(bundle.Ca, "node-b");
 
         Assert.True(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-b", "node-c"]));
-        Assert.False(MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(peerCertificate, bundle.Ca, ["node-c"]));
+        Assert.False(MtlsClientCertificateValidator.ValidateForExpectedNodeId(peerCertificate, bundle.Ca, "node-c"));
     }
 
     /// <summary>Ensures expected node identity is enforced for peer certificates.</summary>

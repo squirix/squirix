@@ -6,6 +6,9 @@ namespace Squirix.Server.Node.Hosting;
 /// </summary>
 internal sealed record SecurityOptions
 {
+    /// <summary>Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).</summary>
+    internal bool JwtAllowHttpMetadata { get; init; }
+
     /// <summary>Gets the JWT audience validation value.</summary>
     internal string? JwtAudience { get; init; }
 
@@ -19,7 +22,4 @@ internal sealed record SecurityOptions
 
     /// <summary>Gets the symmetric JWT signing key, raw text or base64.</summary>
     internal string? JwtSigningKey { get; init; }
-
-    /// <summary>Gets a value indicating whether non-HTTPS authority metadata is allowed (dev/test only).</summary>
-    internal bool JwtAllowHttpMetadata { get; init; }
 }

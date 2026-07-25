@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -23,6 +23,8 @@ namespace Squirix.Server.Node.Services;
 /// </summary>
 internal sealed class JournalMetricsExporterService : BackgroundService
 {
+    private const string JournalSegmentSearchPattern = $"{FilePrefixes.Journal}*{FileExtensions.Journal}";
+
     private readonly string _nodeId;
     private readonly PersistenceOptions _opt;
 
@@ -70,17 +72,29 @@ internal sealed class JournalMetricsExporterService : BackgroundService
         }
     }
 
-    private static KeyValuePair<string, object?>[] TagsFor(string nodeId) => [new("node", nodeId)];
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static long VolatileRead(ref long location) => Interlocked.Read(ref location);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void VolatileWrite(ref long location, long value) => Interlocked.Exchange(ref location, value);
 
-    private Measurement<long> ObserveSegments() => new(VolatileRead(ref _segments), TagsFor(_nodeId));
+    private Measurement<long> ObserveSegments()
+    {
+        var tags = new TagList
+        {
+            { "node", _nodeId },
+        };
+        return new Measurement<long>(VolatileRead(ref _segments), in tags);
+    }
 
-    private Measurement<long> ObserveSize() => new(VolatileRead(ref _sizeBytes), TagsFor(_nodeId));
+    private Measurement<long> ObserveSize()
+    {
+        var tags = new TagList
+        {
+            { "node", _nodeId },
+        };
+        return new Measurement<long>(VolatileRead(ref _sizeBytes), in tags);
+    }
 
     private void RefreshFromDisk()
     {
@@ -92,11 +106,10 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             return;
         }
 
-        var files = Directory.GetFiles(dir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+        var files = Directory.GetFiles(dir, JournalSegmentSearchPattern, SearchOption.TopDirectoryOnly);
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)
-        {
             try
             {
                 total += new FileInfo(f).Length;
@@ -109,7 +122,6 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
             }
-        }
 
         VolatileWrite(ref _segments, length);
         VolatileWrite(ref _sizeBytes, total);

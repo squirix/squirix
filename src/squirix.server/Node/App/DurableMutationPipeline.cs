@@ -9,10 +9,7 @@ namespace Squirix.Server.Node.App;
 /// <typeparam name="TResult">Mutation result type.</typeparam>
 internal sealed record DurableMutationPipeline<TState, TResult>
 {
-    internal DurableMutationPipeline(
-        TState state,
-        Func<TState, CancellationToken, ValueTask> appendJournal,
-        Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+    internal DurableMutationPipeline(TState state, Func<TState, CancellationToken, ValueTask> appendJournal, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
     {
         State = state;
         AppendJournal = appendJournal;

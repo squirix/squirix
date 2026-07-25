@@ -21,7 +21,7 @@ internal static class DirectorySymlinkGuard
         if (relative.IsEmpty)
             return;
 
-        var trimmedStart = start.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var trimmedStart = DirectoryPathValidator.TrimTrailingSeparators(start);
 
         // Trimming trailing separators can turn a root-only path into an empty string
         // (for example "/" on Unix). PathEx.Combine cannot start from empty, so when
@@ -30,7 +30,7 @@ internal static class DirectorySymlinkGuard
 
         while (DirectoryPathValidator.TryReadNextSegment(ref relative, out var segment))
         {
-            cur = PathEx.Combine(cur, segment.ToString());
+            cur = Path.Join(cur.AsSpan(), segment);
             var di = new DirectoryInfo(cur);
             if (!di.Exists) // Not yet existing — will be created as regular directories
                 break;
@@ -42,7 +42,7 @@ internal static class DirectorySymlinkGuard
             // Rejecting them breaks every DataDir under Path.GetTempPath() (/var/folders/...). Follow only those
             // well-known OS links; any other symlink/junction in the chain remains forbidden.
             if (!MacOsCompatibilitySymlink.TryFollow(di, out var resolved))
-                throw new IOException($"Symlink/junction detected in path: '{cur}'.");
+                throw new IOException("Symlink/junction detected in path.");
             cur = resolved;
         }
     }
@@ -61,7 +61,7 @@ internal static class DirectorySymlinkGuard
         if (!IsSymlink(info))
             return;
 
-        throw new IOException(created ? $"Created directory resolved to a symlink/junction: '{full}'." : $"Target directory is a symlink/junction: '{full}'.");
+        throw new IOException(created ? "Created directory resolved to a symlink/junction." : "Target directory is a symlink/junction.");
     }
 
     /// <summary>Returns whether <paramref name="fsi" /> is a symbolic link or reparse point.</summary>

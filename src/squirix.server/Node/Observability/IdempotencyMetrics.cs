@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
 
@@ -9,6 +10,8 @@ namespace Squirix.Server.Node.Observability;
 /// <summary>Low-cardinality idempotency store metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
 internal static class IdempotencyMetrics
 {
+    private static readonly RegistrationCatalog Catalog = new();
+
     private static readonly Counter<long> EvictionsTotal = ServerMeterRegistry.Meter.CreateCounter<long>(
         "squirix_idempotency_evictions_total",
         "{eviction}",
@@ -21,11 +24,17 @@ internal static class IdempotencyMetrics
         "{rejection}",
         "Idempotency store rejections when the in-flight record cap cannot be satisfied");
 
-    private static readonly RegistrationCatalog Catalog = new();
+    internal static void RecordEviction(string nodeId)
+    {
+        var tags = NodeTags(nodeId);
+        EvictionsTotal.Add(1, in tags);
+    }
 
-    internal static void RecordRejection(string nodeId) => RejectionsTotal.Add(1, Tags(nodeId));
-
-    internal static void RecordEviction(string nodeId) => EvictionsTotal.Add(1, Tags(nodeId));
+    internal static void RecordRejection(string nodeId)
+    {
+        var tags = NodeTags(nodeId);
+        RejectionsTotal.Add(1, in tags);
+    }
 
     internal static void Register(IdempotencyMetricRegistration registration)
     {
@@ -52,17 +61,22 @@ internal static class IdempotencyMetrics
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
     }
 
+    private static TagList NodeTags(string nodeId) =>
+        new()
+        {
+            { "node", nodeId },
+        };
+
     private static IEnumerable<Measurement<long>> ObserveRecordCount()
     {
         var snapshot = Catalog.SnapshotItems();
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
-            yield return new Measurement<long>(registration.RecordCount(), Tags(registration.NodeId));
+            var tags = NodeTags(registration.NodeId);
+            yield return new Measurement<long>(registration.RecordCount(), in tags);
         }
     }
-
-    private static KeyValuePair<string, object?>[] Tags(string nodeId) => [new("node", nodeId)];
 
     private sealed class RegistrationCatalog
     {
@@ -79,9 +93,7 @@ internal static class IdempotencyMetrics
             if (index < 0)
                 return;
 
-            _items = previous.Length is 1
-                ? []
-                : previous.RemoveAt(index);
+            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
         }
 
         internal ImmutableArray<IdempotencyMetricRegistration> SnapshotItems() => _items;

@@ -1,4 +1,4 @@
-using System.Globalization;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Observability;
 
@@ -11,9 +11,11 @@ internal static class ActivityTagValues
 
     internal static string Bool(bool value) => value ? True : False;
 
-    internal static string Double(double value) => value.ToString("G17", CultureInfo.InvariantCulture);
+    internal static string Double(double value) => InvariantDigitStrings.Format(value);
 
-    internal static string Int32(int value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string Int32(int value) => InvariantDigitStrings.Format(value);
 
-    internal static string Int64(long value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string Int64(long value) => InvariantDigitStrings.Format(value);
+
+    internal static string UInt64(ulong value) => InvariantDigitStrings.Format(value);
 }
