@@ -47,7 +47,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
         var candidate = Path.Join(root, "tmp");
         var info = new DirectoryInfo(candidate);
 
-        // Darwin ships /tmp → /private/tmp; that path cannot exercise the non-link failure branch.
+        // Darwin ships /tmp -> /private/tmp; that path cannot exercise the non-link failure branch.
         if (info.LinkTarget is not null)
         {
             Assert.True(MacOsCompatibilitySymlink.TryFollow(info, true, out var followed));
