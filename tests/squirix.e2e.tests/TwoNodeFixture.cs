@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using JetBrains.Annotations;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
 using Xunit;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.E2ETests;
 
 /// <summary>Shared two-node cluster and SDK clients for one public API test class.</summary>
+[UsedImplicitly]
 public sealed class TwoNodeFixture : NodeFixtureBase, IAsyncLifetime
 {
     private ISquirixClient? _clientA;

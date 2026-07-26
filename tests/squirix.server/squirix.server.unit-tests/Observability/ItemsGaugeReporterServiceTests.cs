@@ -85,6 +85,11 @@ public sealed class ItemsGaugeReporterServiceTests
         }
     }
 
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
+    }
+
     private sealed class NodeMeasurementSink : IDisposable
     {
         internal List<long> Values { get; } = [];
@@ -100,10 +105,5 @@ public sealed class ItemsGaugeReporterServiceTests
         }
 
         public int EntryCount { get; }
-    }
-
-    private sealed class FaultingStats : ILocalCacheStats
-    {
-        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 }

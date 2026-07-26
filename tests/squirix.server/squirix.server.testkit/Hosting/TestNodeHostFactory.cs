@@ -12,6 +12,28 @@ namespace Squirix.Server.TestKit.Hosting;
 /// <summary>Starts in-process Squirix nodes for external black-box tests.</summary>
 public static class TestNodeHostFactory
 {
+    /// <summary>Starts an ephemeral standalone (single-peer) node without a temporary topology collection.</summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="uri">The HTTP listen address.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, CancellationToken cancellationToken = default) =>
+        StartNodeAsync(nodeId, uri, [(nodeId, uri)], null, null, cancellationToken);
+
+    /// <summary>Starts a standalone (single-peer) node with an optional persistence directory.</summary>
+    /// <param name="nodeId">The node identifier.</param>
+    /// <param name="uri">The HTTP listen address.</param>
+    /// <param name="dataDir">Persistence data directory.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A started test node host.</returns>
+    public static ValueTask<TestNodeHost> StartNodeAsync(string nodeId, Uri uri, string? dataDir, CancellationToken cancellationToken = default) => StartNodeAsync(
+        nodeId,
+        uri,
+        [(nodeId, uri)],
+        dataDir is null ? null : new TestNodeHostStartOptions { DataDir = dataDir },
+        null,
+        cancellationToken);
+
     /// <summary>Starts a test node with shared cluster mTLS material owned by the caller.</summary>
     /// <param name="nodeId">The node identifier.</param>
     /// <param name="uri">The HTTP listen address.</param>

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
@@ -12,24 +13,15 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
 {
     private const string DiagnosticId = "SQR002";
 
+    private static readonly LocalizableString Description = "Types with more than 20 instance/static methods " +
+                                                            "(excluding constructors, property/event accessors) tend to have too many responsibilities. " +
+                                                            "Stateless types with only constants are not matched.";
+
+    private static readonly LocalizableString MessageFormat = "Type '{0}' has {1} methods (limit {2}); prefer splitting responsibilities";
+
     private static readonly LocalizableString Title = "Avoid types with too many methods";
+    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Design", DiagnosticSeverity.Warning, true, Description);
 
-    private static readonly LocalizableString MessageFormat =
-        "Type '{0}' has {1} methods (limit {2}); prefer splitting responsibilities";
-
-    private static readonly LocalizableString Description =
-        "Types with more than 20 instance/static methods " +
-        "(excluding constructors, property/event accessors) tend to have too many responsibilities. " +
-        "Stateless types with only constants are not matched.";
-
-    private static readonly DiagnosticDescriptor Rule = new(
-        DiagnosticId,
-        Title,
-        MessageFormat,
-        "Design",
-        DiagnosticSeverity.Warning,
-        true,
-        description: Description);
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -38,7 +30,7 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
     public override void Initialize(AnalysisContext context)
     {
         if (context is null)
-            throw new System.ArgumentNullException(nameof(context));
+            throw new ArgumentNullException(nameof(context));
 
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
@@ -87,13 +79,7 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
         if (location is null)
             return;
 
-        context.ReportDiagnostic(
-            Diagnostic.Create(
-                Rule,
-                location,
-                type.Name,
-                methodCount,
-                AnalyzerLimits.MaxMethodsPerType));
+        context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, methodCount, AnalyzerLimits.MaxMethodsPerType));
     }
 
     private static bool ShouldCountMethod(IMethodSymbol method)

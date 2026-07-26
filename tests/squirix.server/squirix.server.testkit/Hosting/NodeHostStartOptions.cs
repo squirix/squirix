@@ -13,25 +13,25 @@ namespace Squirix.Server.TestKit.Hosting;
 
 internal sealed class NodeHostStartOptions
 {
-    internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
-
-    internal bool WaitForRecovery { get; init; } = true;
+    internal AdmissionOptions? BackpressureOptions { get; init; }
 
     internal Action<GrpcServiceOptions>? ConfigureGrpc { get; init; }
 
-    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
-
-    internal PersistenceOptions? PersistenceOptions { get; init; }
-
-    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
-
-    internal AdmissionOptions? BackpressureOptions { get; init; }
+    internal Action<ILoggingBuilder>? ConfigureLogging { get; init; }
 
     internal PressureOptions? MemoryPressureOptions { get; init; }
 
-    internal SecurityOptions? SecurityOptions { get; init; }
+    internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
 
     internal MtlsOptions? MtlsOptions { get; init; }
 
-    internal MtlsCertificateMaterial? MtlsMaterial { get; init; }
+    internal Func<string, HttpMessageHandler>? PeerHandlerFactory { get; init; }
+
+    internal PersistenceOptions? PersistenceOptions { get; init; }
+
+    internal SecurityOptions? SecurityOptions { get; init; }
+
+    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    internal bool WaitForRecovery { get; init; } = true;
 }

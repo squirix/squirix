@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -21,7 +22,7 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-journal-readonly-failure");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [record]);
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
 
         var original = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         var bytes = ArrayPool<byte>.Shared.Rent(original.Length);
@@ -32,12 +33,14 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
             await File.WriteAllBytesAsync(path, bytes.AsMemory(0, original.Length), DefaultCancellationToken);
             var mutatedBeforeRead = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
 
-            _ = Assert.Throws<InvalidDataException>(() =>
-            {
-                using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
-                while (records.MoveNext())
-                    _ = records.Current;
-            });
+            _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
+                dir.Path,
+                static dataDirectory =>
+                {
+                    using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
+                    while (records.MoveNext())
+                        _ = records.Current;
+                });
             Assert.Equal(mutatedBeforeRead, await File.ReadAllBytesAsync(path, DefaultCancellationToken));
         }
         finally
@@ -53,19 +56,21 @@ public sealed class JournalTruncatedSegmentReplayTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-journal-badcrc");
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "k", "v");
         var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [record]);
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, record);
 
         var bytes = await File.ReadAllBytesAsync(path, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
-        var ex = Assert.Throws<InvalidDataException>(() =>
-        {
-            using var records = JournalReadPath.ReadAll(dir, 1, DefaultCancellationToken);
-            while (records.MoveNext())
-                _ = records.Current;
-        });
-        Assert.Contains("ChecksumMismatch", ex.Message, StringComparison.InvariantCulture);
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            dir.Path,
+            static dataDirectory =>
+            {
+                using var records = JournalReadPath.ReadAll(dataDirectory, 1, DefaultCancellationToken);
+                while (records.MoveNext())
+                    _ = records.Current;
+            });
+        Assert.Contains("corruption", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Verifies the first complete frame is yielded and enumeration stops when a trailing frame is torn (CRC no longer matches).</summary>

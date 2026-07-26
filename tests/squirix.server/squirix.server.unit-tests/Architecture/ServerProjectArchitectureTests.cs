@@ -40,7 +40,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
                 continue;
 
             var text = await File.ReadAllTextAsync(path, DefaultCancellationToken);
-            Assert.False(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal), path);
+            Assert.False(text.Contains("IgnoresAccessChecksTo", StringComparison.Ordinal));
         }
     }
 
@@ -124,25 +124,6 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         Assert.Equal(approved, granted);
     }
 
-    /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
-    [Fact]
-    public void ServerProjectShouldBePackableLibrary()
-    {
-        var index = ServerArchitectureFixtures.GetServerProjectIndex();
-
-        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
-        Assert.False(index.ContainsElement("OutputType"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("AssemblyName"));
-        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("RootNamespace"));
-        Assert.Equal(ServerArchitectureNamespaces.PackageId, index.RequireProperty("PackageId"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
-        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
-        Assert.Equal("Apache-2.0", index.RequireProperty("PackageLicenseExpression"));
-        Assert.Equal("true", index.RequireProperty("IsPackable"));
-        Assert.Equal("true", index.RequireProperty("TreatWarningsAsErrors"));
-        Assert.Equal("enable", index.RequireProperty("Nullable"));
-    }
-
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
     [Fact]
     public void ServerProjectKeepApprovedHostingDependencyBaseline()
@@ -165,6 +146,25 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
                 StringComparer.Ordinal));
 
         Assert.Contains(frameworkIncludes, static include => include.Equals("Microsoft.AspNetCore.App", StringComparison.Ordinal));
+    }
+
+    /// <summary>Ensures the server runtime project has the required library package metadata.</summary>
+    [Fact]
+    public void ServerProjectShouldBePackableLibrary()
+    {
+        var index = ServerArchitectureFixtures.GetServerProjectIndex();
+
+        Assert.Equal("net10.0", index.RequireProperty("TargetFramework"));
+        Assert.False(index.ContainsElement("OutputType"));
+        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("AssemblyName"));
+        Assert.Equal(ServerArchitectureNamespaces.Root, index.RequireProperty("RootNamespace"));
+        Assert.Equal(ServerArchitectureNamespaces.PackageId, index.RequireProperty("PackageId"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
+        Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
+        Assert.Equal("Apache-2.0", index.RequireProperty("PackageLicenseExpression"));
+        Assert.Equal("true", index.RequireProperty("IsPackable"));
+        Assert.Equal("true", index.RequireProperty("TreatWarningsAsErrors"));
+        Assert.Equal("enable", index.RequireProperty("Nullable"));
     }
 
     /// <summary>Ensures the server project does not reference the client SDK project.</summary>

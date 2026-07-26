@@ -7,10 +7,10 @@ namespace Squirix.Internal.Cluster.Observability;
 internal static class CallPolicyMetrics
 {
     private static readonly Histogram1Label BackoffSeconds = new(MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_backoff_seconds"), "peer");
-    private static readonly Histogram1Label QueueWaitSeconds = new(MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_queue_wait_seconds"), "peer");
-    private static readonly Counter2Labels RetriesTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_retries_total"), "peer", "reason");
     private static readonly Counter1Label BackoffsTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_backoffs_total"), "peer");
     private static readonly Counter1Label DrainRejectsTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_drain_rejects_total"), "peer");
+    private static readonly Histogram1Label QueueWaitSeconds = new(MeterRegistry.Meter.CreateHistogram<double>("squirix_call_policy_queue_wait_seconds"), "peer");
+    private static readonly Counter2Labels RetriesTotal = new(MeterRegistry.Meter.CreateCounter<long>("squirix_call_policy_retries_total"), "peer", "reason");
 
     internal static void IncrementBackoffLabel(string peer, int increment) => BackoffsTotal.WithLabels(peer).Inc(increment);
 

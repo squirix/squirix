@@ -20,8 +20,8 @@ namespace Squirix.Server.Adapters.Grpc;
 internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCacheServiceBase
 {
     private readonly IGrpcCacheOperations<T> _cacheOperations;
-    private readonly IRpcMutationIdempotencyCoordinator _idempotency;
     private readonly MutationHandlers _handlers;
+    private readonly IRpcMutationIdempotencyCoordinator _idempotency;
 
     public SquirixServiceAdapter(
         IGrpcCacheOperations<T> cacheOperations,
@@ -138,38 +138,93 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
     /// <summary>Builds deterministic fingerprints for mutating cache RPC requests.</summary>
     private static class RpcMutationFingerprints
     {
-        internal static string Remove(string cacheName, string key) => JoinFingerprint("remove-async", cacheName, key);
+        internal static string AddEntryIfAbsent(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "try-add-entry-async", key, entry);
 
-        internal static string RemoveExpiration(string cacheName, string key) => JoinFingerprint("remove-expiration-async", cacheName, key);
+        internal static string GetOrAdd(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "get-or-add-async", key, entry);
 
-        internal static string SetEntry(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("set-entry-async", cacheName, key, HashMessage(entry));
+        internal static string Remove(string cacheName, string key) => JoinFingerprint(cacheName, "remove-async", key);
 
-        internal static string Touch(string cacheName, string key, Duration expiration) => JoinFingerprint("touch-async", cacheName, key, HashMessage(expiration));
+        internal static string RemoveExpiration(string cacheName, string key) => JoinFingerprint(cacheName, "remove-expiration-async", key);
 
-        internal static string AddEntryIfAbsent(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("try-add-entry-async", cacheName, key, HashMessage(entry));
+        internal static string SetEntry(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "set-entry-async", key, entry);
 
-        internal static string Update(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("update-async", cacheName, key, HashMessage(entry));
+        internal static string Touch(string cacheName, string key, Duration expiration) => JoinFingerprint(cacheName, "touch-async", key, expiration);
 
-        internal static string GetOrAdd(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint("get-or-add-async", cacheName, key, HashMessage(entry));
+        internal static string Update(string cacheName, string key, CacheEntryWire entry) => JoinFingerprint(cacheName, "update-async", key, entry);
 
-        private static string HashMessage(IMessage message)
+        private static void HashMessage(IMessage message, Span<byte> digest)
         {
             var size = message.CalculateSize();
-            var buffer = ArrayPool<byte>.Shared.Rent(size);
+            if (size <= 512)
+            {
+                Span<byte> buffer = stackalloc byte[size];
+                message.WriteTo(buffer);
+                _ = SHA256.HashData(buffer, digest);
+                return;
+            }
+
+            var rented = ArrayPool<byte>.Shared.Rent(size);
             try
             {
-                message.WriteTo(buffer.AsSpan(0, size));
-                Span<byte> digest = stackalloc byte[32];
-                _ = SHA256.HashData(buffer.AsSpan(0, size), digest);
-                return HexFormat.FormatSha256HexUpper(digest);
+                message.WriteTo(rented.AsSpan(0, size));
+                _ = SHA256.HashData(rented.AsSpan(0, size), digest);
             }
             finally
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                ArrayPool<byte>.Shared.Return(rented);
             }
         }
 
-        private static string JoinFingerprint(string separator, params ReadOnlySpan<string?> parts) => string.Join(separator, parts);
+        private static string JoinFingerprint(string cacheName, string operation, string key) => string.Create(
+            checked(cacheName.Length + operation.Length + key.Length),
+            (cacheName, operation, key),
+            static (destination, state) =>
+            {
+                state.cacheName.AsSpan().CopyTo(destination);
+                var written = state.cacheName.Length;
+                state.operation.AsSpan().CopyTo(destination[written..]);
+                written += state.operation.Length;
+                state.key.AsSpan().CopyTo(destination[written..]);
+            });
+
+        private static string JoinFingerprint(string cacheName, string operation, string key, IMessage message)
+        {
+            Span<byte> digest = stackalloc byte[32];
+            HashMessage(message, digest);
+
+            var length = checked(cacheName.Length + (operation.Length * 2) + key.Length + 64);
+            if (length <= 1024)
+            {
+                Span<char> buffer = stackalloc char[length];
+                WriteFingerprint(buffer, cacheName, operation, key, digest);
+                return new string(buffer);
+            }
+
+            var rented = ArrayPool<char>.Shared.Rent(length);
+            try
+            {
+                var buffer = rented.AsSpan(0, length);
+                WriteFingerprint(buffer, cacheName, operation, key, digest);
+                return new string(buffer);
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
+
+        private static void WriteFingerprint(Span<char> destination, string cacheName, string operation, string key, ReadOnlySpan<byte> digest)
+        {
+            cacheName.AsSpan().CopyTo(destination);
+            var written = cacheName.Length;
+            operation.AsSpan().CopyTo(destination[written..]);
+            written += operation.Length;
+            key.AsSpan().CopyTo(destination[written..]);
+            written += key.Length;
+            operation.AsSpan().CopyTo(destination[written..]);
+            written += operation.Length;
+            HexFormat.WriteSha256HexUpper(destination[written..], digest);
+        }
     }
 
     private sealed class MutationHandlers
@@ -193,23 +248,19 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             var api = _cacheOperations.ForCache(cacheName);
             var existing = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             if (existing.Found)
-            {
                 return new GetOrAddAsyncResponse
                 {
                     Added = false,
                     Value = ServerProtoEx.CacheValueToGrpcValue(existing.Value),
                 };
-            }
 
             var entry = await request.Entry.MapFromProtoAsync<T>().ConfigureAwait(false);
             if (await api.TryAddEntryAsync(RpcMutationContracts.RequireOperationId(request.OperationId), request.Key, entry, cancellationToken).ConfigureAwait(false))
-            {
                 return new GetOrAddAsyncResponse
                 {
                     Added = true,
                     Value = ServerProtoEx.CacheValueToGrpcValue(entry.Value),
                 };
-            }
 
             var afterRace = await api.GetValueAsync(request.Key, cancellationToken).ConfigureAwait(false);
             return new GetOrAddAsyncResponse
@@ -305,7 +356,7 @@ internal sealed class SquirixServiceAdapter<T> : SquirixCacheService.SquirixCach
             if (string.Equals(expectedOwner, _ownershipResolver.SelfNodeId, StringComparison.Ordinal))
                 return;
 
-            var detail = $"Key '{CacheKeySanitizer.Sanitize(key)}' for cache '{cacheName}' is owned by '{expectedOwner}', not current node '{_ownershipResolver.SelfNodeId}'.";
+            var detail = $"Key is owned by '{expectedOwner}', not current node '{_ownershipResolver.SelfNodeId}'.";
             throw new RpcException(new Status(StatusCode.FailedPrecondition, detail), GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers());
         }
     }

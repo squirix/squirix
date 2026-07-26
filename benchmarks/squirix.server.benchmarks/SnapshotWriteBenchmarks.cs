@@ -14,16 +14,6 @@ public class SnapshotWriteBenchmarks
     private SnapshotBenchmarkHost? _host;
     private int _operationsPerInvoke;
 
-    /// <summary>Writes repeated full snapshots using the binary backend.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
-    [Benchmark]
-    public async Task WriteSnapshotAsync()
-    {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
-        for (var i = 0; i < _operationsPerInvoke; i++)
-            _ = await host.WriteNextSnapshotAsync().ConfigureAwait(false);
-    }
-
     /// <summary>Disposes the benchmark host and temporary data directory.</summary>
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
@@ -46,5 +36,15 @@ public class SnapshotWriteBenchmarks
         };
         _host = await SnapshotBenchmarkHost.CreateAsync("snapshot-write-binary", options, entryCount).ConfigureAwait(false);
         _ = await _host.WriteNextSnapshotAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Writes repeated full snapshots using the binary backend.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
+    [Benchmark]
+    public async Task WriteSnapshotAsync()
+    {
+        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        for (var i = 0; i < _operationsPerInvoke; i++)
+            _ = await host.WriteNextSnapshotAsync().ConfigureAwait(false);
     }
 }

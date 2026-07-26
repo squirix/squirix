@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,8 +80,7 @@ internal static class JournalRecoveryScan
         }
     }
 
-    private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment) => new(
-        $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent=False.");
+    private static InvalidDataException CreateJournalTopologyDisjointForSequenceInit() => new("journal recovery cannot determine a valid replay start.");
 
     private static (int FirstAvailableSegment, int LastAvailableSegment) ProbeAvailableSegments(string dataDir)
     {
@@ -149,13 +147,13 @@ internal static class JournalRecoveryScan
         if (firstAvailableSegment is 0)
         {
             if (manifestCurrentJournal is not 1)
-                throw CreateJournalTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+                throw CreateJournalTopologyDisjointForSequenceInit();
 
             return;
         }
 
         if (lastAvailableSegment < manifestCurrentJournal)
-            throw CreateJournalTopologyDisjointForSequenceInit(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment);
+            throw CreateJournalTopologyDisjointForSequenceInit();
     }
 
     private static void WriteFreshFileHeader(IJournalSegmentWriter writer)

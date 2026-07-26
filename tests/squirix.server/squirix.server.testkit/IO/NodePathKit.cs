@@ -164,7 +164,7 @@ public static class NodePathKit
             startTicks = DateTime.UtcNow.Ticks;
         }
 
-        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+        return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
     }
 
     private static string CombineCore(bool sanitize, string path1, string path2)

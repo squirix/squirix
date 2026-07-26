@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +25,7 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
             });
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
@@ -50,16 +49,33 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
 
         var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
         _ = await builder.AddSquirixServerAsync(
-            options =>
-            {
-                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dir);
-            },
+            optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
         Assert.Equal(dir.Path, persistence.DataDir);
+    }
+
+    private sealed class PersistenceOptionsConfigurer
+    {
+        private readonly string _dataDirectory;
+        private readonly int _port;
+
+        internal PersistenceOptionsConfigurer(int port, string dataDirectory)
+        {
+            _port = port;
+            _dataDirectory = dataDirectory;
+            Apply = ApplyCore;
+        }
+
+        internal Action<SquirixServerOptions> Apply { get; }
+
+        private void ApplyCore(SquirixServerOptions options)
+        {
+            options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
+            options.UsePersistence(_dataDirectory);
+        }
     }
 }

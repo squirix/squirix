@@ -8,7 +8,6 @@ namespace Squirix.Server.TestKit.IO;
 /// <summary>Waits until journal segment files in a data directory can be opened with the same sharing mode used during writer startup.</summary>
 public static class JournalSegmentLeaseWait
 {
-    private const string JournalSegmentGlob = "jrn-*.jsqx";
     private const int BufferSize = 64 * 1024;
     private const string JournalSegmentGlob = "jrn-*.jsqx";
 
@@ -22,21 +21,6 @@ public static class JournalSegmentLeaseWait
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDir);
         return PollUntilJournalSegmentsReleasedAsync(dataDir, cancellationToken);
-    }
-
-    private static async Task PollUntilJournalSegmentsReleasedAsync(string dataDir, CancellationToken cancellationToken)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (await CanAcquireRepairLeaseAsync(dataDir, cancellationToken).ConfigureAwait(false))
-                return;
-
-            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
-        }
-
-        throw new TimeoutException($"journal segments in '{dataDir}' remained locked after shutdown.");
     }
 
     private static async Task<bool> CanAcquireRepairLeaseAsync(string dataDir, CancellationToken cancellationToken)

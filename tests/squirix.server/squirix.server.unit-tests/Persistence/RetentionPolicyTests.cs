@@ -2,6 +2,8 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
@@ -29,10 +31,10 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         CreateSnapshot(4);
 
         await store.WriteAsync(
-            new Storage.Manifest.State
+            new State
             {
                 CurrentJournal = 3,
-                LastSnapshot = new Storage.Manifest.SnapshotRef
+                LastSnapshot = new SnapshotRef
                 {
                     Index = 4,
                     Path = SnapshotPath(4),
@@ -71,9 +73,9 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         CreateSnapshot(3);
 
         await store.WriteAsync(
-            new Storage.Manifest.State
+            new State
             {
-                LastSnapshot = new Storage.Manifest.SnapshotRef
+                LastSnapshot = new SnapshotRef
                 {
                     Index = 3,
                     Path = SnapshotPath(3),
@@ -85,28 +87,24 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
             DefaultCancellationToken);
 
         var staleSnapshotPath = SnapshotPath(1);
-        await StoreTestSupport.WaitUntilAsync(
-            staleSnapshotPath,
-            static path => !FileKit.Exists(path),
-            TimeSpan.FromSeconds(5),
-            DefaultCancellationToken);
+        await StoreTestSupport.WaitUntilAsync(staleSnapshotPath, static path => !FileKit.Exists(path), TimeSpan.FromSeconds(5), DefaultCancellationToken);
 
         Assert.False(FileKit.Exists(SnapshotPath(1)));
         Assert.True(FileKit.Exists(SnapshotPath(2)));
         Assert.True(FileKit.Exists(SnapshotPath(3)));
     }
 
-    /// <summary>Creates a fresh temporary storage directory before each test.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("squirix");
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Cleans up the temporary storage directory after each test.</summary>
     public ValueTask DisposeAsync()
     {
         Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Creates a fresh temporary storage directory before each test.</summary>
+    public ValueTask InitializeAsync()
+    {
+        _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
     }
 
@@ -119,18 +117,11 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         base.Dispose(disposing);
     }
 
-    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{index.ToString(CultureInfo.InvariantCulture)}");
+    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{InvariantIndexStrings.Format(index)}");
 
-        base.Dispose(disposing);
-    }
+    private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{InvariantIndexStrings.Format(index)}");
 
-    private string JournalPath(int index) => NodePathKit.Combine(
-        false,
-        Dir,
-        $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+    private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => NodePathKit.Combine(
-        false,
-        Dir,
-        $"{FilePrefixes.Snapshot}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
+    private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 }

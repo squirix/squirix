@@ -24,7 +24,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
@@ -43,7 +43,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
@@ -56,11 +56,11 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
     public async Task RemoteReadyDetailsScrapeCredentialsAuthEnabled()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
+        Assert.False(string.IsNullOrWhiteSpace(localIp));
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
@@ -68,6 +68,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private static Task<HttpResponseMessage> GetReadyDetailsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
-        NonLoopbackIpHttpClient.GetAsync(new Uri($"https://{localIp}:{port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"), cancellationToken);
+    private static Task<HttpResponseMessage> GetReadyDetailsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) => NonLoopbackIpHttpClient.GetAsync(
+        new Uri(InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details")),
+        cancellationToken);
 }

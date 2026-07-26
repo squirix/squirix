@@ -14,6 +14,9 @@ internal sealed class JournalCompactionOptions
     }
 
     [JsonInclude]
+    internal bool Enabled { get; init; } = true;
+
+    [JsonInclude]
     internal TimeSpan MinGap
     {
         get;
@@ -51,7 +54,4 @@ internal sealed class JournalCompactionOptions
             field = value;
         }
     }
-
-    [JsonInclude]
-    internal bool Enabled { get; init; } = true;
 }

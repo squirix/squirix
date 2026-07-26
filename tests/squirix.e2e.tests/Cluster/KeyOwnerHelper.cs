@@ -1,49 +1,68 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Squirix.Server.TestKit;
 
 namespace Squirix.E2ETests.Cluster;
 
 /// <summary>Key ownership helper mirroring server consistent-hash route behavior.</summary>
 internal sealed class KeyOwnerHelper
 {
+    /// <summary>Shared ring for the default two-node topology (<c>nodeA</c>, <c>nodeB</c>).</summary>
+    internal static readonly KeyOwnerHelper TwoNode = new(["nodeA", "nodeB"]);
+
     private readonly (ulong Hash, string Node)[] _ring;
 
-    internal KeyOwnerHelper(HashSet<string> uniqueNodes, int virtualNodes = 128)
+    private KeyOwnerHelper(ReadOnlySpan<string> nodeIds, int virtualNodes = 128)
     {
+        var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var nodeId in nodeIds)
+            if (!string.IsNullOrWhiteSpace(nodeId))
+                _ = uniqueNodes.Add(nodeId);
+
         if (uniqueNodes.Count is 0)
-            throw new ArgumentException("At least one node is required.", nameof(uniqueNodes));
+            throw new ArgumentException("At least one node is required.", nameof(nodeIds));
 
-        var nodes = new List<string>(uniqueNodes);
+        var nodes = new string[uniqueNodes.Count];
+        uniqueNodes.CopyTo(nodes);
 
-        var ring = new List<(ulong Hash, string Node)>(nodes.Count * virtualNodes);
-        for (var i = 0; i < nodes.Count; i++)
+        var ring = new (ulong Hash, string Node)[nodes.Length * virtualNodes];
+        var writeIndex = 0;
+        for (var i = 0; i < nodes.Length; i++)
         {
             var node = nodes[i];
             for (var vnode = 0; vnode < virtualNodes; vnode++)
-            {
-                var key = $"{node}#{vnode.ToString(CultureInfo.InvariantCulture)}";
-                ring.Add((HashString(key), node));
-            }
+                ring[writeIndex++] = (HashVNode(node, vnode), node);
         }
 
-        ring.Sort(static (a, b) => a.Hash.CompareTo(b.Hash));
-        _ring = [.. ring];
+        Array.Sort(ring, static (a, b) => a.Hash.CompareTo(b.Hash));
+        _ring = ring;
     }
 
-    internal string[] FindKeysOwnedBy(string cacheName, string ownerId, int count, string prefix, int maxAttempts = 200_000)
+    internal string FindKeyOwnedBy(string cacheName, string ownerId, string prefix, int maxAttempts = 200_000)
     {
-        var keys = new List<string>(count);
-        for (var i = 0; i < maxAttempts && keys.Count < count; i++)
+        for (var i = 0; i < maxAttempts; i++)
         {
-            var candidate = $"{prefix}:{i.ToString(CultureInfo.InvariantCulture)}";
+            var candidate = InvariantIndexStrings.FormatPrefixed(prefix, i);
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
-                keys.Add(candidate);
+                return candidate;
         }
 
-        return keys.Count == count ? [.. keys] : throw new InvalidOperationException($"Unable to find {count.ToString(CultureInfo.InvariantCulture)} keys owned by '{ownerId}'.");
+        throw new InvalidOperationException("Unable to find a key owned by the requested node.");
+    }
+
+    private static int CountDigits(int value)
+    {
+        var digits = 1;
+        while (value >= 10)
+        {
+            value /= 10;
+            digits++;
+        }
+
+        return digits;
     }
 
     private static ulong HashBytes(ReadOnlySpan<byte> bytes)
@@ -56,14 +75,78 @@ internal sealed class KeyOwnerHelper
     private static ulong HashCacheRouteKey(string cacheName, string key)
     {
         var canonical = string.IsNullOrWhiteSpace(cacheName) ? "default" : cacheName;
-        var routeKey = $"{canonical.Length.ToString(CultureInfo.InvariantCulture)}:{canonical}\x1F{key}";
-        return HashString(routeKey);
+        var byteCount = checked(CountDigits(canonical.Length) + 1 + Encoding.UTF8.GetByteCount(canonical) + 1 + Encoding.UTF8.GetByteCount(key));
+        if (byteCount <= 512)
+        {
+            Span<byte> buffer = stackalloc byte[byteCount];
+            WriteRouteKey(canonical, key, buffer);
+            return HashBytes(buffer);
+        }
+
+        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+        try
+        {
+            var buffer = rented.AsSpan(0, byteCount);
+            WriteRouteKey(canonical, key, buffer);
+            return HashBytes(buffer);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
-    private static ulong HashString(string text)
+    private static ulong HashVNode(string node, int index)
     {
-        var bytes = Encoding.UTF8.GetBytes(text);
-        return HashBytes(bytes);
+        var byteCount = checked(Encoding.UTF8.GetByteCount(node) + 1 + CountDigits(index));
+        if (byteCount <= 512)
+        {
+            Span<byte> buffer = stackalloc byte[byteCount];
+            return HashBytes(WriteVNodeKey(node, index, buffer));
+        }
+
+        var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+        try
+        {
+            return HashBytes(WriteVNodeKey(node, index, rented.AsSpan(0, byteCount)));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static int WriteNonNegativeIntUtf8(int value, Span<byte> destination)
+    {
+        var digitsUtf8 = "0123456789"u8;
+        var digits = CountDigits(value);
+        for (var i = digits - 1; i >= 0; i--)
+        {
+            destination[i] = digitsUtf8[value % 10];
+            value /= 10;
+        }
+
+        return digits;
+    }
+
+    private static void WriteRouteKey(string canonical, string key, Span<byte> buffer)
+    {
+        const byte colon = 58;
+        const byte unitSeparator = 0x1F;
+        var written = WriteNonNegativeIntUtf8(canonical.Length, buffer);
+        buffer[written++] = colon;
+        written += Encoding.UTF8.GetBytes(canonical, buffer[written..]);
+        buffer[written++] = unitSeparator;
+        _ = Encoding.UTF8.GetBytes(key, buffer[written..]);
+    }
+
+    private static ReadOnlySpan<byte> WriteVNodeKey(string node, int index, Span<byte> buffer)
+    {
+        const byte hash = 35;
+        var written = Encoding.UTF8.GetBytes(node, buffer);
+        buffer[written++] = hash;
+        written += WriteNonNegativeIntUtf8(index, buffer[written..]);
+        return buffer[..written];
     }
 
     private int FindFirstGreaterOrEqual(ulong hash)

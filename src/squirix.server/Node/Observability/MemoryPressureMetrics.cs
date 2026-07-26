@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using Squirix.Server.Node.MemoryPressure;
@@ -15,8 +16,6 @@ internal static class MemoryPressureMetrics
 {
     private static readonly RegistrationCatalog Catalog = new();
     private static readonly Lock InitLock = new();
-
-    private static readonly RegistrationCatalog Catalog = new();
 
     internal static void Register(MetricRegistration registration)
     {
@@ -57,7 +56,11 @@ internal static class MemoryPressureMetrics
             "By",
             "Approximate total estimated bytes for accounted live cache entries");
 
-        _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_cache_entries", ObserveEntryCount, "{entry}", "Approximate total entry count for accounted live cache entries");
+        _ = ServerMeterRegistry.Meter.CreateObservableGauge(
+            "squirix_cache_entries",
+            ObserveEntryCount,
+            "{entry}",
+            "Approximate total entry count for accounted live cache entries");
 
         _ = ServerMeterRegistry.Meter.CreateObservableGauge(
             "squirix_memory_pressure_state",
@@ -80,7 +83,7 @@ internal static class MemoryPressureMetrics
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
-            yield return new Measurement<long>(registration.Accounting.ReadEntryCount(), TagsNode(registration.NodeId));
+            yield return MeasureNode(registration.Accounting.ReadEntryCount(), registration.NodeId);
         }
     }
 
@@ -90,7 +93,7 @@ internal static class MemoryPressureMetrics
         for (var i = 0; i < snapshot.Length; i++)
         {
             var registration = snapshot[i];
-            yield return new Measurement<long>(registration.Accounting.ReadEstimatedBytes(), TagsNode(registration.NodeId));
+            yield return MeasureNode(registration.Accounting.ReadEstimatedBytes(), registration.NodeId);
         }
     }
 
@@ -104,14 +107,12 @@ internal static class MemoryPressureMetrics
 
             var tags = new TagList
             {
-                new("node", registration.NodeId),
-                new("state", name),
+                { "node", registration.NodeId },
+                { "state", name },
             };
             yield return new Measurement<int>(value, in tags);
         }
     }
-
-    private static KeyValuePair<string, object?>[] TagsNode(string nodeId) => [new("node", nodeId)];
 
     private sealed class RegistrationCatalog
     {
@@ -128,9 +129,7 @@ internal static class MemoryPressureMetrics
             if (index < 0)
                 return;
 
-            _items = previous.Length is 1
-                ? []
-                : previous.RemoveAt(index);
+            _items = previous.Length is 1 ? [] : previous.RemoveAt(index);
         }
 
         internal ImmutableArray<MetricRegistration> SnapshotItems() => _items;

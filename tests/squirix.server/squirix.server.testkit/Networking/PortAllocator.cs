@@ -108,8 +108,7 @@ public sealed class PortAllocator : IDisposable
             _ = Reserved.TryRemove(candidate, out _);
         }
 
-        throw new InvalidOperationException(
-            $"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
+        throw new InvalidOperationException("Failed to allocate a free listen port.");
     }
 
     /// <inheritdoc />

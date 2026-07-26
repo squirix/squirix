@@ -10,6 +10,8 @@ internal static class KeyInputValidator
     /// </summary>
     internal const int MaxLength = 1024;
 
+    private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
+
     /// <summary>
     /// Validates a key, or throws <see cref="ArgumentException" /> when invalid.
     /// </summary>
@@ -37,10 +39,8 @@ internal static class KeyInputValidator
     private static bool IsWhiteSpaceOnly(string key)
     {
         for (var i = 0; i < key.Length; i++)
-        {
             if (!char.IsWhiteSpace(key[i]))
                 return false;
-        }
 
         return true;
     }

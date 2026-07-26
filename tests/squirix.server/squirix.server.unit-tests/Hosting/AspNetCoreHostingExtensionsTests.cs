@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -29,7 +29,6 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
     [Fact]
     public async Task CustomAspNetCoreHostCanStartMappedSquirixServer()
     {
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
@@ -40,7 +39,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
             static options =>
             {
                 options.NodeId = "aspnet-test";
-                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
+                options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -69,19 +68,42 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
 
-        _ = await builder.AddSquirixServerAsync(
-            options =>
-            {
-                options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-                options.UsePersistence(dir);
-            },
-            loadDiscoveredSettings: false,
-            cancellationToken: DefaultCancellationToken);
+        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();
 
         Assert.Equal(dir.Path, persistence.DataDir);
+    }
+
+    /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
+    [Fact]
+    public async Task MapSquirixServerMapsJournalCapacityToHttp429()
+    {
+        var port = ListenPortPool.ServerUnitTests.AllocatePort();
+        var uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", port));
+        var builder = WebApplication.CreateBuilder(
+            new WebApplicationOptions
+            {
+                EnvironmentName = "Development",
+            });
+        var optionsConfigurer = new FixedUriOptionsConfigurer(uri);
+
+        _ = await builder.AddSquirixServerAsync(
+            optionsConfigurer.Apply,
+            loadDiscoveredSettings: false,
+            configureExtensions: static extensions =>
+                extensions.MapEndpoints = static app => app.MapGet("/throw-journal-quota", static _ => throw new JournalCapacityExceededException()),
+            cancellationToken: DefaultCancellationToken);
+
+        await using var app = builder.Build();
+        _ = app.MapSquirixServer();
+        await app.StartAsync(DefaultCancellationToken);
+
+        using var response = await LoopbackClient.GetAsync(new Uri(uri, "/throw-journal-quota"), DefaultCancellationToken);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        await app.StopAsync(DefaultCancellationToken);
     }
 
     /// <summary>Ensures package extensions can decorate the hosted basic cache pipeline without internal server contracts.</summary>
@@ -99,7 +121,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new DecoratePipelineExtensionsConfigurer(state);
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);
@@ -123,7 +145,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);
@@ -136,42 +158,6 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         Assert.Equal(marker.Name, registeredMarker.Name);
         var endpoints = GetMappedEndpoints(app);
         Assert.Contains(endpoints, static endpoint => endpoint.DisplayName?.Contains("/extension-test", StringComparison.Ordinal) is true);
-    }
-
-    /// <summary>Ensures MapSquirixServer middleware maps journal capacity to HTTP 429.</summary>
-    [Fact]
-    public async Task MapSquirixServerMapsJournalCapacityToHttp429()
-    {
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}");
-        var builder = WebApplication.CreateBuilder(
-            new WebApplicationOptions
-            {
-                EnvironmentName = "Development",
-            });
-
-        _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = uri,
-            loadDiscoveredSettings: false,
-            configureExtensions: static extensions =>
-                extensions.MapEndpoints = static app => app.MapGet(
-                    "/throw-journal-quota",
-                    static (HttpContext _) => throw new JournalCapacityExceededException()),
-            cancellationToken: DefaultCancellationToken);
-
-        await using var app = builder.Build();
-        _ = app.MapSquirixServer();
-        await app.StartAsync(DefaultCancellationToken);
-
-        using var handler = LoopbackHttp.CreateHandler();
-        using var client = new HttpClient(handler, disposeHandler: false)
-        {
-            BaseAddress = uri,
-        };
-        using var response = await client.GetAsync(new Uri(uri, "/throw-journal-quota"), DefaultCancellationToken);
-
-        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, response.StatusCode);
-        await app.StopAsync(DefaultCancellationToken);
     }
 
     /// <summary>Ensures package extensions receive the host authentication state while mapping protocol endpoints.</summary>
@@ -189,7 +175,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new AuthorizationStateExtensionsConfigurer(state);
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);

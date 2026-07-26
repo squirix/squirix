@@ -32,14 +32,23 @@ public sealed class PublicApiGoldenSnapshotTests
         Assert.Fail(FormatGoldenMismatch(actual, expected));
     }
 
+    private static void AppendDiffSection(StringBuilder sb, string heading, string marker, List<string> items)
+    {
+        if (items.Count is 0)
+            return;
+
+        _ = sb.AppendLine(heading);
+        var span = CollectionsMarshal.AsSpan(items);
+        for (var i = 0; i < span.Length; i++)
+            _ = sb.Append("  ").Append(marker).Append(' ').AppendLine(span[i]);
+    }
+
     private static List<string> CollectSetDifference(HashSet<string> left, HashSet<string> right)
     {
         var result = new List<string>();
         foreach (var item in left)
-        {
             if (!right.Contains(item))
                 result.Add(item);
-        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -55,17 +64,6 @@ public sealed class PublicApiGoldenSnapshotTests
         AppendDiffSection(sb, "Unexpected (new) exports:", "+", unexpected);
         AppendDiffSection(sb, "Missing (removed) exports:", "-", missing);
         return sb.ToString();
-    }
-
-    private static void AppendDiffSection(StringBuilder sb, string heading, string marker, List<string> items)
-    {
-        if (items.Count is 0)
-            return;
-
-        _ = sb.AppendLine(heading);
-        var span = CollectionsMarshal.AsSpan(items);
-        for (var i = 0; i < span.Length; i++)
-            _ = sb.Append("  ").Append(marker).Append(' ').AppendLine(span[i]);
     }
 
     private static async Task<HashSet<string>> LoadIdentityLinesAsync(string path)

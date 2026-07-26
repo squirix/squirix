@@ -21,6 +21,10 @@ internal static class JournalFraming
     /// <summary>Gets the on-disk segment file magic (four ASCII bytes).</summary>
     private static ReadOnlySpan<byte> Magic => "SJRN"u8;
 
+    internal static InvalidDataException CreateTruncatedHeaderException() => new("journal segment has a truncated file header.");
+
+    internal static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
+
     internal static int FrameTotalLength(int bodyLength) => FrameHeaderSize + bodyLength + FrameFooterSize;
 
     internal static void WriteFileHeader(Stream stream)

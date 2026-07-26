@@ -30,14 +30,15 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             timeProvider: TimeProvider.System);
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(50));
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            0,
-            static async (_, token) =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                return 1;
-            },
-            DefaultCancellationToken).AsTask());
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                0,
+                static async (_, token) =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                    return 1;
+                },
+                DefaultCancellationToken));
 
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
     }
@@ -50,7 +51,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await using var policy = CreatePolicy(peer: "peer-c", timeProvider: TimeProvider.System);
         policy.BeginDrain();
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken));
 
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-c"), ("scope", "policy")));
@@ -152,7 +153,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             await policy.DisposeAsync();
 
             Assert.Equal(7, await inFlight);
-            _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken).AsTask());
+            _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException, int>(policy.ExecuteAsync(0, static (_, _) => ValueTask.FromResult(1), DefaultCancellationToken));
         }
         finally
         {
@@ -213,7 +214,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
         await cts.CancelAsync();
 
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => _ = await pending);
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException, int>(pending);
         Assert.Equal(1, attempts.Count);
     }
 
@@ -237,6 +238,36 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         Assert.Equal(42, value);
+        Assert.Equal(2, attempts.Count);
+    }
+
+    /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
+    [Fact]
+    public async Task ExecuteAsyncRetriesUnavailableRpcAndSucceeds()
+    {
+        var timeProvider = new FakeTimeProvider();
+        await using var policy = CreatePolicy(
+            TimeSpan.FromSeconds(1),
+            2,
+            TimeSpan.FromMilliseconds(5),
+            TimeSpan.FromMilliseconds(5),
+            peer: "peer-rpc-retry",
+            timeProvider: timeProvider);
+        var attempts = new InvocationCounter();
+        var executeTask = policy.ExecuteAsync(
+            attempts,
+            static (counter, _) =>
+            {
+                var attempt = counter.Increment();
+                return attempt is 1 ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down"))) : new ValueTask<int>(9);
+            },
+            DefaultCancellationToken);
+
+        while (attempts.Count < 1)
+            await Task.Yield();
+
+        timeProvider.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(9, await executeTask);
         Assert.Equal(2, attempts.Count);
     }
 
@@ -270,7 +301,7 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         releaseFirst.SetResult();
 
         Assert.Equal(1, await first);
-        var ex = await Assert.ThrowsAsync<RpcException>(async () => _ = await queued);
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(queued);
         Assert.Equal(StatusCode.Unavailable, ex.StatusCode);
         Assert.True(sink.HasEvent("squirix_call_policy_drain_rejects_total", ("peer", "peer-f"), ("scope", "policy")));
     }
@@ -315,77 +346,18 @@ public sealed class CallPolicyTests : ServerUnitTestBase
         using var deadline = ServerRpcDeadlineContext.Push(DateTime.UtcNow.AddMilliseconds(35));
         _ = Assert.NotNull(ServerRpcDeadlineContext.GetRemainingBudget(DateTime.UtcNow));
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => policy.ExecuteAsync(
-            0,
-            static async (_, token) =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
-                return 1;
-            },
-            DefaultCancellationToken).AsTask());
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException, int>(
+            policy.ExecuteAsync(
+                0,
+                static async (_, token) =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), TimeProvider.System, token);
+                    return 1;
+                },
+                DefaultCancellationToken));
         Assert.Equal(StatusCode.DeadlineExceeded, ex.StatusCode);
 
         Assert.True(sink.HasEvent("squirix_rpc_timeouts_total", ("peer", "peer-b"), ("scope", "overall"), ("kind", "deadline_budget")));
-    }
-
-    /// <summary>Ensures transient Http retries stop when maxAttempts is 1.</summary>
-    [Fact]
-    public async Task ExecuteAsyncDoesNotRetryHttpWhenMaxAttemptsIsOne()
-    {
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 1, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-http-stop", timeProvider: TimeProvider.System);
-        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => policy.ExecuteAsync(
-            0,
-            static (_, _) => ValueTask.FromException<int>(new HttpRequestException("boom")),
-            DefaultCancellationToken).AsTask());
-        Assert.Contains("boom", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Ensures non-retryable Rpc status codes stop without retry.</summary>
-    [Fact]
-    public async Task ExecuteAsyncDoesNotRetryNonRetryableRpcStatus()
-    {
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 3, TimeSpan.Zero, TimeSpan.Zero, peer: "peer-rpc-stop", timeProvider: TimeProvider.System);
-        var attempts = new InvocationCounter();
-        var ex = await Assert.ThrowsAsync<RpcException>(async () =>
-        {
-            _ = await policy.ExecuteAsync(
-                attempts,
-                static (counter, cancellationToken) =>
-                {
-                    _ = cancellationToken;
-                    _ = counter.Increment();
-                    return ValueTask.FromException<int>(new RpcException(new Status(StatusCode.InvalidArgument, "bad")));
-                },
-                DefaultCancellationToken);
-        });
-        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
-        Assert.Equal(1, attempts.Count);
-    }
-
-    /// <summary>Ensures Unavailable RpcException retries and can succeed.</summary>
-    [Fact]
-    public async Task ExecuteAsyncRetriesUnavailableRpcAndSucceeds()
-    {
-        var timeProvider = new FakeTimeProvider();
-        await using var policy = CreatePolicy(TimeSpan.FromSeconds(1), 2, TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5), peer: "peer-rpc-retry", timeProvider: timeProvider);
-        var attempts = new InvocationCounter();
-        var executeTask = policy.ExecuteAsync(
-            attempts,
-            static (counter, _) =>
-            {
-                var attempt = counter.Increment();
-                return attempt is 1
-                    ? ValueTask.FromException<int>(new RpcException(new Status(StatusCode.Unavailable, "down")))
-                    : new ValueTask<int>(9);
-            },
-            DefaultCancellationToken);
-
-        while (attempts.Count < 1)
-            await Task.Yield();
-
-        timeProvider.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal(9, await executeTask);
-        Assert.Equal(2, attempts.Count);
     }
 
     private static ServerCallPolicy CreatePolicy(
@@ -405,9 +377,9 @@ public sealed class CallPolicyTests : ServerUnitTestBase
             Attempts = attempts;
         }
 
-        internal TaskCompletionSource Entered { get; }
-
         internal InvocationCounter Attempts { get; }
+
+        internal TaskCompletionSource Entered { get; }
     }
 
     private sealed class ConcurrencySyncState

@@ -24,7 +24,8 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
@@ -68,11 +69,9 @@ internal sealed class OwnershipGuardCacheDecorator<T> : ILogicalNamespacedCache<
     private void EnsureLocalOwner(string cacheName, string key)
     {
         var owner = _locator.GetOwner(cacheName, key);
-        if (!string.Equals(owner, _self, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Ownership mismatch for local physical cache operation 'logical' on cache '{cacheName}' and key '{key}'. " +
-                $"Expected owner '{owner}', current node '{_self}'.");
-        }
+        if (string.Equals(owner, _self, StringComparison.Ordinal))
+            return;
+
+        throw new InvalidOperationException(OwnershipMismatchMessage);
     }
 }

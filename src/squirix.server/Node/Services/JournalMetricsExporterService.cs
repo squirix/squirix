@@ -106,7 +106,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             return;
         }
 
-        var files = Directory.GetFiles(dir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+        var files = Directory.GetFiles(dir, JournalSegmentSearchPattern, SearchOption.TopDirectoryOnly);
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)

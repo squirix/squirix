@@ -97,11 +97,12 @@ public sealed class WriterCleanupTests : ServerUnitTestBase
     {
         public int Count => 2;
 
-        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] => index switch
-        {
-            0 => (new CacheKey("default", "a"), BuildEntry(1)),
-            _ => throw new InvalidOperationException("simulated serialization failure"),
-        };
+        public (CacheKey Key, NodeCacheEntry<object?> Entry) this[int index] =>
+            index switch
+            {
+                0 => (new CacheKey("default", "a"), BuildEntry(1)),
+                _ => throw new InvalidOperationException("simulated serialization failure"),
+            };
 
         public IEnumerator<(CacheKey Key, NodeCacheEntry<object?> Entry)> GetEnumerator()
         {

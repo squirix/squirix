@@ -17,6 +17,7 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 /// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
 public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 {
+    private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
     private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = ManifestRetentionFailureMetrics.Instance;
 
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
@@ -34,7 +35,7 @@ public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
         };
         var readiness = new RetentionCleanupReadiness(options);
         var staleManifest = NodePathKit.Combine(dir, StoreTestSupport.Manifest000001);
-        await File.WriteAllBytesAsync(staleManifest, [0x53, 0x51, 0x4D, 0x46, 0x01], DefaultCancellationToken);
+        await File.WriteAllBytesAsync(staleManifest, StaleManifestBytes, DefaultCancellationToken);
         using var store = new ManifestStore(options, logger, readiness, RetentionFailureMetrics, new DeleteFailingStorageFileOperations(staleManifest));
 
         await store.WriteAsync(new State { CurrentJournal = 1 }, DefaultCancellationToken);

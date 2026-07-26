@@ -65,13 +65,14 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         Assert.Same(anchor, pool.ForNode("n0"));
     }
 
-    private static ServerClientPoolArgs PolicyOnlyArgs() => new() { PolicyFactory = static _ => new ServerCallPolicy() };
-
     private static ServerPeer[] BuildPeers(int n)
     {
         var peers = new ServerPeer[n];
         for (var i = 0; i < n; i++)
-            peers[i] = new ServerPeer { NodeId = $"n{i.ToString(CultureInfo.InvariantCulture)}", Uri = new Uri($"https://localhost:{(6500 + i).ToString(CultureInfo.InvariantCulture)}") };
+        {
+            var nodeId = $"n{InvariantIndexStrings.Format(i)}";
+            peers[i] = new ServerPeer { NodeId = nodeId, Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", 6500 + i)) };
+        }
 
         return peers;
     }

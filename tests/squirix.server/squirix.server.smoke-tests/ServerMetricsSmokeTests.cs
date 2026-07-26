@@ -32,7 +32,7 @@ public sealed class ServerMetricsSmokeTests : SmokeTestBase
         // Line scan instead of GeneratedRegex: NonBacktracking cannot source-generate patterns with .* / [^}]* (SYSLIB1044).
         var hasOps = ContainsMetricWithLabel(body, "squirix_ops_total{", "operation=\"set\"");
         var hasAppends = ContainsMetricWithLabel(body, "squirix_journal_appends_total{", "op=\"insert\"");
-        Assert.True(hasOps || hasAppends, $"Expected ops or journal insert counters in metrics output. Body snippet:\n{body[..Math.Min(body.Length, 2000)]}");
+        Assert.True(hasOps || hasAppends);
     }
 
     /// <summary>Returns whether any scrape line starts with <paramref name="metricPrefix" /> and contains <paramref name="label" />.</summary>

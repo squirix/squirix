@@ -44,13 +44,12 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
     {
         var nodeId = $"bench-{scopeId}";
         var uri = ListenPortPool.EndToEndBenchmarks.NextHttpUri();
-        return StartAsync(nodeId, uri, [(nodeId, uri)], durabilityMode, cancellationToken, true);
+        return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
     }
 
     private static async Task<E2EBenchmarkNodeScope> StartAsync(
         string nodeId,
         Uri uri,
-        (string NodeId, Uri Uri)[] topology,
         E2EBenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
@@ -61,11 +60,11 @@ internal sealed class E2EBenchmarkNodeScope : IAsyncDisposable
         if (durabilityMode is E2EBenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-e2e-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, cancellationToken).ConfigureAwait(false);
         }
 
         try

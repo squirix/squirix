@@ -67,11 +67,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
         private readonly string _operationId;
         private readonly RpcMutationIdempotencyStore _store;
 
-        private RpcMutationIdempotencyExecutionScope(
-            RpcMutationIdempotencyStore store,
-            string operationId,
-            string fingerprint,
-            IJournalCoordinator journal)
+        private RpcMutationIdempotencyExecutionScope(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
         {
             _store = store;
             _operationId = operationId;
@@ -81,11 +77,7 @@ internal sealed class RpcMutationIdempotencyCoordinator : IRpcMutationIdempotenc
 
         void IDisposable.Dispose() => RpcMutationIdempotencyExecutionAmbient.Deactivate(this);
 
-        internal static RpcMutationIdempotencyExecutionScope Begin(
-            RpcMutationIdempotencyStore store,
-            string operationId,
-            string fingerprint,
-            IJournalCoordinator journal)
+        internal static RpcMutationIdempotencyExecutionScope Begin(RpcMutationIdempotencyStore store, string operationId, string fingerprint, IJournalCoordinator journal)
         {
             ArgumentNullException.ThrowIfNull(store);
             ArgumentException.ThrowIfNullOrWhiteSpace(operationId);

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,12 +32,12 @@ internal sealed class SnapshotWriter : ISnapshotWriter
         IReadOnlyList<PersistedIdempotencyRecord> idempotencyRecords,
         CancellationToken cancellationToken)
     {
-        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
+        var tmp = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}.tmp");
         try
         {
             await WriteSnapshotTempFileAsync(tmp, items, idempotencyRecords, cancellationToken).ConfigureAwait(false);
-            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{index.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}{FileExtensions.Snapshot}");
-            return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException($"Failed to publish snapshot to '{snap}'.");
+            var snap = PathEx.Combine(_dataDir, $"{FilePrefixes.Snapshot}{InvariantDigitStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+            return _fileOperations.PublishSnapshot(tmp, snap) ? snap : throw new IOException("Failed to publish snapshot.");
         }
         finally
         {

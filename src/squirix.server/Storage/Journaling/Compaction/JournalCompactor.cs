@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,7 +37,7 @@ internal static class JournalCompactor
 
         var journalSegments = JournalReadPath.EnumerateSegments(options.DataDir, 1);
         var newFirstIdx = GetNextJournalSegmentIndex(journalSegments);
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(tmpPath);
         var writtenLastSeq = await WriteCompactedJournalAsync(tmpPath, state, idempotencyState, lastSeq, cancellationToken).ConfigureAwait(false);
         await FinalizeCompactionAsync(options, manifestStore, oldManifest, newFirstIdx, writtenLastSeq, journalSegments, cancellationToken).ConfigureAwait(false);
@@ -75,8 +74,8 @@ internal static class JournalCompactor
 
     private static void ApplyIdempotencyOutcome(JournalRecord record, Dictionary<string, CompactedIdempotencyRecord> idempotencyState)
     {
-        var operationId = record.IdempotencyOperationId ?? throw CreateCompactionDecodeFailure("idempotency-outcome", string.Empty);
-        var fingerprint = record.IdempotencyFingerprint ?? throw CreateCompactionDecodeFailure("idempotency-outcome", operationId);
+        var operationId = record.IdempotencyOperationId ?? throw CreateCompactionDecodeFailure();
+        var fingerprint = record.IdempotencyFingerprint ?? throw CreateCompactionDecodeFailure();
         var responseBytes = record.IdempotencyResponseBytes;
 
         // ZA0302: exact-size owned buffer; compacted state must outlive the borrowed frame buffer.
@@ -91,7 +90,7 @@ internal static class JournalCompactor
     {
         var key = new CacheKey(record.Key.Namespace, record.Key.Key);
         if (!JournalEntryPayload.TryDecode<object?>(record.PutEntryBytes.Span, out var entry))
-            throw CreateCompactionDecodeFailure("put", key.Key);
+            throw CreateCompactionDecodeFailure();
 
         if (IsExpired(entry))
             _ = state.Remove(key);
@@ -99,7 +98,8 @@ internal static class JournalCompactor
             state[key] = entry!;
     }
 
-    private static void ApplyRemove(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state) => _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
+    private static void ApplyRemove(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state) =>
+        _ = state.Remove(new CacheKey(record.Key.Namespace, record.Key.Key));
 
     private static void ApplyRemoveExpiration(JournalRecord record, Dictionary<CacheKey, NodeCacheEntry<object?>> state)
     {
@@ -120,12 +120,7 @@ internal static class JournalCompactor
     }
 
     private static async Task<(Dictionary<CacheKey, NodeCacheEntry<object?>> State, Dictionary<string, CompactedIdempotencyRecord> IdempotencyState, ulong LastSeq)>
-        BuildCompactionStateAsync(
-            PersistenceOptions options,
-            SnapshotRef? snapshotRef,
-            int replayFromSegment,
-            ISnapshotReader snapshotReader,
-            CancellationToken cancellationToken)
+        BuildCompactionStateAsync(PersistenceOptions options, SnapshotRef? snapshotRef, int replayFromSegment, ISnapshotReader snapshotReader, CancellationToken cancellationToken)
     {
         var state = new Dictionary<CacheKey, NodeCacheEntry<object?>>();
         var idempotencyState = new Dictionary<string, CompactedIdempotencyRecord>(StringComparer.Ordinal);
@@ -159,8 +154,7 @@ internal static class JournalCompactor
         return (state, idempotencyState, lastSeq);
     }
 
-    private static InvalidOperationException CreateCompactionDecodeFailure(string operation, string key) =>
-        new($"journal compaction failed: undecodable entry payload for operation '{operation}' on key '{key}'.");
+    private static InvalidOperationException CreateCompactionDecodeFailure() => new("journal compaction failed: undecodable entry payload.");
 
     private static async Task FinalizeCompactionAsync(
         PersistenceOptions options,
@@ -173,9 +167,9 @@ internal static class JournalCompactor
     {
         // Install the compacted journal before deleting any old segments.
         // Crash safety relies on each intermediate state remaining recoverable.
-        var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
-        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.bak");
-        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{newFirstIdx.ToString(FilePrefixes.SegmentIndexFormat, CultureInfo.InvariantCulture)}.tmp");
+        var path = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}{FileExtensions.Journal}");
+        var backupJournalPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.bak");
+        var tmpPath = PathEx.Combine(options.DataDir, $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(newFirstIdx)}.tmp");
         _ = FileEx.TryDeleteFile(backupJournalPath);
         FileEx.PublishFile(tmpPath, path, backupJournalPath);
 

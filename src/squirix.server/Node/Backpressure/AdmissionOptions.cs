@@ -5,8 +5,6 @@ namespace Squirix.Server.Node.Backpressure;
 /// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
 internal sealed record AdmissionOptions
 {
-    internal TimeSpan MaxSlowdownDelay { get; init; } = TimeSpan.FromMilliseconds(25);
-
     internal bool Enabled { get; init; } = true;
 
     internal int MaxInFlight { get; init; } = 256;
@@ -14,6 +12,8 @@ internal sealed record AdmissionOptions
     internal int MaxQueue { get; init; } = 128;
 
     internal TimeSpan MaxQueueWait { get; init; } = TimeSpan.FromMilliseconds(250);
+
+    internal TimeSpan MaxSlowdownDelay { get; init; } = TimeSpan.FromMilliseconds(25);
 
     internal int? NodeRateLimitBurst { get; init; }
 
@@ -63,31 +63,50 @@ internal sealed record AdmissionOptions
         if (MaxQueueWait <= TimeSpan.Zero)
             throw new InvalidOperationException("Backpressure MaxQueueWait must be greater than zero.");
 
-        ValidateRateLimit("NodeRateLimitPerSecond", NodeRateLimitPerSecond, NodeRateLimitBurst);
-        ValidateRateLimit("PerClientRateLimitPerSecond", PerClientRateLimitPerSecond, PerClientRateLimitBurst);
+        ValidateNodeRateLimit();
+        ValidatePerClientRateLimit();
     }
 
-    private static void ValidateRateLimit(string rateName, int? rate, int? burst)
+    private void ValidateNodeRateLimit()
+    {
+        ValidateRateLimit(
+            NodeRateLimitPerSecond,
+            NodeRateLimitBurst,
+            "Backpressure NodeRateLimitPerSecond must be greater than zero when configured.",
+            "Backpressure NodeRateLimitBurst must be greater than zero when configured.",
+            "Backpressure NodeRateLimitBurst must be greater than or equal to NodeRateLimitPerSecond.");
+    }
+
+    private void ValidatePerClientRateLimit()
+    {
+        ValidateRateLimit(
+            PerClientRateLimitPerSecond,
+            PerClientRateLimitBurst,
+            "Backpressure PerClientRateLimitPerSecond must be greater than zero when configured.",
+            "Backpressure PerClientRateLimitBurst must be greater than zero when configured.",
+            "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.");
+    }
+
+    private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)
     {
         if (rate is not null)
         {
-            var burstName = rateName.Replace("PerSecond", "Burst", StringComparison.Ordinal);
             if (rate.Value <= 0)
-                throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
+                throw new InvalidOperationException(rateRequiredMessage);
 
             if (burst is null)
-                throw new InvalidOperationException($"Backpressure {burstName} must be greater than zero when configured.");
+                throw new InvalidOperationException(burstRequiredMessage);
 
             var configuredBurst = burst.Value;
             if (configuredBurst <= 0)
-                throw new InvalidOperationException($"Backpressure {burstName} must be greater than zero when configured.");
+                throw new InvalidOperationException(burstRequiredMessage);
 
             if (configuredBurst < rate.Value)
-                throw new InvalidOperationException($"Backpressure {burstName} must be greater than or equal to {rateName}.");
+                throw new InvalidOperationException(burstGteRateMessage);
         }
         else if (burst is not null)
         {
-            throw new InvalidOperationException($"Backpressure {rateName} must be greater than zero when configured.");
+            throw new InvalidOperationException(rateRequiredMessage);
         }
     }
 }

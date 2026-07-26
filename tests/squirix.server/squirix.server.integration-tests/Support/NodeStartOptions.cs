@@ -8,17 +8,17 @@ namespace Squirix.Server.IntegrationTests.Support;
 /// <summary>Optional knobs for <see cref="NodeIntegrationTestBase" /> node startup.</summary>
 internal sealed class NodeStartOptions
 {
-    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
-
-    internal PersistenceOptions? PersistenceOptions { get; init; }
-
-    internal bool UsePersistence { get; init; }
-
     internal bool CleanTestDir { get; init; } = true;
 
     internal string? ExtraScope { get; init; }
 
+    internal PersistenceOptions? PersistenceOptions { get; init; }
+
     internal TestNodeSecurityOptions? Security { get; init; }
+
+    internal Action<IServiceCollection>? ServicesConfigure { get; init; }
+
+    internal bool UsePersistence { get; init; }
 
     internal bool WaitForRecovery { get; init; } = true;
 }

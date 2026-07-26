@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -8,6 +7,7 @@ using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
+using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -164,8 +164,8 @@ public abstract class WireAllocBenchmarkBase<T>
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _hitKeys[i] = $"hit:{i.ToString("D5", CultureInfo.InvariantCulture)}";
-            _expiringKeys[i] = $"exp:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _hitKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("hit", i, "D5", 5);
+            _expiringKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("exp", i, "D5", 5);
         }
 
         _node = await E2EBenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);
@@ -251,7 +251,7 @@ public abstract class WireAllocBenchmarkBase<T>
 
     private static class Keys
     {
-        internal static string FormatUnique(int index) => $"unique:{index.ToString("D8", CultureInfo.InvariantCulture)}";
+        internal static string FormatUnique(int index) => InvariantIndexStrings.FormatPrefixedPadded("unique", index, "D8", 8);
 
         internal static Task<T?> GetOrAddHitFactoryAsync(string key, CancellationToken cancellationToken)
         {

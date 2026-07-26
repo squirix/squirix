@@ -74,7 +74,6 @@ internal sealed class EndpointFailover
     private static int ResolveActiveIndex(IReadOnlyList<string> bootstrapNodeIds, string primaryNodeId)
     {
         for (var i = 0; i < bootstrapNodeIds.Count; i++)
-        {
             if (string.Equals(bootstrapNodeIds[i], primaryNodeId, StringComparison.Ordinal))
                 return i;
 

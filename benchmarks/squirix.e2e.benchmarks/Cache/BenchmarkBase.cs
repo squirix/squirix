@@ -8,6 +8,7 @@ using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Scenarios;
 using Squirix.E2EBenchmarks.Support.Cluster;
 using Squirix.E2EBenchmarks.Support.Harness;
+using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -84,7 +85,7 @@ public abstract class BenchmarkBase
 
     /// <summary>Gets the next globally unique add key for benchmark paths that require missing keys across all BenchmarkDotNet iterations.</summary>
     /// <returns>A key that has not been returned by this benchmark instance before.</returns>
-    protected string NextUniqueAddKey() => $"unique:add:{Interlocked.Increment(ref _uniqueAddOffset).ToString("D10", CultureInfo.InvariantCulture)}";
+    protected string NextUniqueAddKey() => InvariantIndexStrings.FormatPrefixedPadded("unique:add", Interlocked.Increment(ref _uniqueAddOffset), "D10", 10);
 
     /// <summary>Allows derived benchmark classes to seed state that is specific to their pure-operation benchmark methods.</summary>
     /// <param name="cancellationToken">A cancellation token.</param>

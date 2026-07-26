@@ -18,7 +18,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
     private readonly IBackpressureGate _gate;
     private readonly ILogicalNamespacedCache<T> _inner;
 
-    internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate)
+    internal BackpressureCacheDecorator(ILogicalNamespacedCache<T> inner, IBackpressureGate gate, IBackpressureClientIdResolver clientIdResolver)
     {
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _gate = gate ?? throw new ArgumentNullException(nameof(gate));
@@ -61,11 +61,12 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         new TouchArgs(operationId, cacheName, key, expiration),
         cancellationToken);
 
-    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) => WithBackpressureAsync(
-        CacheOperationNames.TryAdd,
-        static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
-        new SetEntryArgs(operationId, cacheName, key, entry),
-        cancellationToken);
+    public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<T> entry, CancellationToken cancellationToken) =>
+        WithBackpressureAsync(
+            CacheOperationNames.TryAdd,
+            static (inner, args, ct) => inner.TryAddEntryAsync(args.OperationId, args.CacheName, args.Key, args.Entry, ct),
+            new SetEntryArgs(operationId, cacheName, key, entry),
+            cancellationToken);
 
     public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, T? value, CancellationToken cancellationToken) => WithBackpressureAsync(
         CacheOperationNames.Update,
@@ -79,7 +80,7 @@ internal sealed class BackpressureCacheDecorator<T> : ILogicalNamespacedCache<T>
         TState state,
         CancellationToken cancellationToken)
     {
-        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, ClientId, cancellationToken).ConfigureAwait(false);
+        var (decision, lease) = await _gate.AcquireAsync(Transport, operation, _clientIdResolver.Resolve(), cancellationToken).ConfigureAwait(false);
         if (!decision.IsAccepted)
             throw ServerOpContract.TooManyRequests(decision.RejectReason ?? "unknown");
 

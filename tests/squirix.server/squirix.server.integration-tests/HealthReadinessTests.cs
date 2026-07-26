@@ -58,42 +58,6 @@ public sealed class HealthReadinessTests : NodeIntegrationTestBase
         AssertRetentionCleanupReadiness(json);
     }
 
-    private static void AssertJournalDiskReadiness(JsonElement json)
-    {
-        Assert.True(json.TryGetProperty("journalDisk", out var journalDisk));
-        Assert.Equal(JsonValueKind.Object, journalDisk.ValueKind);
-        Assert.True(journalDisk.TryGetProperty("state", out var state));
-        Assert.Equal(JsonValueKind.String, state.ValueKind);
-        var stateValue = state.GetString();
-        Assert.True(
-            string.Equals(stateValue, "normal", StringComparison.Ordinal)
-            || string.Equals(stateValue, "high", StringComparison.Ordinal)
-            || string.Equals(stateValue, "critical", StringComparison.Ordinal),
-            $"Unexpected journalDisk.state '{stateValue}'.");
-        Assert.True(journalDisk.TryGetProperty("maxBytes", out var maxBytes));
-        Assert.Equal(JsonValueKind.Number, maxBytes.ValueKind);
-        Assert.True(maxBytes.GetInt64() > 0);
-        Assert.True(journalDisk.TryGetProperty("usedBytes", out var usedBytes));
-        Assert.Equal(JsonValueKind.Number, usedBytes.ValueKind);
-        Assert.True(journalDisk.TryGetProperty("highWaterBytes", out var highWater));
-        Assert.Equal(JsonValueKind.Number, highWater.ValueKind);
-        Assert.Equal(maxBytes.GetInt64() * JournalSegmentLimits.HighWaterPercent / 100L, highWater.GetInt64());
-        Assert.True(journalDisk.TryGetProperty("writeRejectionActive", out var rejection));
-        Assert.True(rejection.ValueKind is JsonValueKind.True or JsonValueKind.False);
-    }
-
-    private static void AssertRetentionCleanupReadiness(JsonElement json)
-    {
-        Assert.True(json.TryGetProperty("retentionCleanup", out var retentionCleanup));
-        Assert.Equal(JsonValueKind.Object, retentionCleanup.ValueKind);
-        Assert.True(retentionCleanup.TryGetProperty("degraded", out var degraded));
-        Assert.True(degraded.ValueKind is JsonValueKind.True or JsonValueKind.False);
-        Assert.True(retentionCleanup.TryGetProperty("consecutiveWriteFailures", out var consecutive));
-        Assert.Equal(JsonValueKind.Number, consecutive.ValueKind);
-        Assert.True(retentionCleanup.TryGetProperty("recentFailureCount", out var recent));
-        Assert.Equal(JsonValueKind.Number, recent.ValueKind);
-    }
-
     private static void AssertClientPoolReadiness(JsonElement json)
     {
         Assert.True(json.TryGetProperty("clientPool", out var pool));

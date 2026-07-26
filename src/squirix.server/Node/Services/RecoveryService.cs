@@ -37,11 +37,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    internal RecoveryService(
-        RecoveryOptions options,
-        ILogger<RecoveryService<T>> log,
-        RecoveryDependencies<T> deps,
-        IHostApplicationLifetime? applicationLifetime = null)
+    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -102,7 +98,7 @@ internal sealed class RecoveryService<T> : IHostedService
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
         if (!missingInitialSegment && !journalGapDetected)
             return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
-        throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
+        throw CreateJournalReplayBoundaryFailure();
     }
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
@@ -119,7 +115,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var putEntryBytes = record.PutEntryBytes;
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
-                    throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
+                    throw CreateJournalDecodeFailure();
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;

@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -229,13 +228,13 @@ internal static class Program
                 return args[index];
             }
 
-            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
-
             private static int ResolveFlagStart(string[] args, string name)
             {
                 var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal));
                 return isImplicitRun ? 0 : 1;
             }
+
+            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
             private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
             {

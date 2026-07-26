@@ -15,15 +15,6 @@ public class SnapshotReadBenchmarks
     private SnapshotBenchmarkHost? _host;
     private string? _snapshotPath;
 
-    /// <summary>Loads the warmed snapshot with strict validation.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
-    [Benchmark]
-    public async Task LoadStrictAsync()
-    {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
-        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, cancellationToken: CancellationToken.None).ConfigureAwait(false);
-    }
-
     /// <summary>Disposes the benchmark host and temporary data directory.</summary>
     [GlobalCleanup]
     public async Task GlobalCleanupAsync()
@@ -46,5 +37,14 @@ public class SnapshotReadBenchmarks
         };
         _host = await SnapshotBenchmarkHost.CreateAsync("snapshot-read-binary", options, entryCount).ConfigureAwait(false);
         _snapshotPath = await _host.WriteNextSnapshotAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Loads the warmed snapshot with strict validation.</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
+    [Benchmark]
+    public async Task LoadStrictAsync()
+    {
+        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        _ = await host.Reader.LoadStrictAsync<object?>(_snapshotPath!, cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 }

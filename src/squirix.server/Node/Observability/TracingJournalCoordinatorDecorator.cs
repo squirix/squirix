@@ -30,9 +30,9 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public int CurrentSegmentIndex => _inner.CurrentSegmentIndex;
 
-    public long HighWaterBytes => _inner.HighWaterBytes;
-
     public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
+
+    public long HighWaterBytes => _inner.HighWaterBytes;
 
     public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
 
@@ -165,12 +165,10 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         internal static JournalOperationTraceContext? WithDurability(in JournalOperationTraceContext? context, IJournalCoordinator coordinator)
         {
             if (context != null)
-            {
                 return context with
                 {
                     GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
                 };
-            }
 
             return null;
         }

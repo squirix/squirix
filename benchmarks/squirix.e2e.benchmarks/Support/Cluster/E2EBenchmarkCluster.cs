@@ -15,6 +15,9 @@ namespace Squirix.E2EBenchmarks.Support.Cluster;
 /// <summary>Owns real Squirix nodes for an end-to-end benchmark scenario.</summary>
 internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 {
+    private static readonly string[] DualNodeIds = ["nodeA", "nodeB"];
+    private static readonly string[] SingleNodeIds = ["nodeA"];
+
     private readonly TempDirectory? _dataDir;
     private readonly FrozenDictionary<string, TestNodeHost> _nodes;
     private E2EBenchmarkClientLease? _client;
@@ -42,7 +45,7 @@ internal sealed class E2EBenchmarkCluster : IAsyncDisposable
 
     internal static async Task<E2EBenchmarkCluster> StartAsync(BenchmarkTopology topology, E2EBenchmarkDurabilityMode durabilityMode, CancellationToken cancellationToken)
     {
-        var nodeIds = topology is BenchmarkTopology.SingleNode ? new[] { "nodeA" } : ["nodeA", "nodeB"];
+        var nodeIds = topology is BenchmarkTopology.SingleNode ? SingleNodeIds : DualNodeIds;
         var addresses = new Dictionary<string, Uri>(StringComparer.Ordinal);
 
         // Allocate listener URIs up front so every node advertises the same peer topology during startup.

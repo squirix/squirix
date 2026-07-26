@@ -2,7 +2,6 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -94,9 +93,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         await runClients;
 
-        Assert.True(
-            observedMax[0] <= maxInFlight,
-            $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
+        Assert.True(observedMax[0] <= maxInFlight);
     }
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
@@ -113,24 +110,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, meterListener) =>
-        {
-            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (IsBackpressureGauge(instrument.Name))
-                meterListener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-
-        listener.Start();
-
+        using var listener = CreateBackpressureGaugeListener(measurements);
         var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -164,24 +144,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, meterListener) =>
-        {
-            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (IsBackpressureGauge(instrument.Name))
-                meterListener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-
-        listener.Start();
-
+        using var listener = CreateBackpressureGaugeListener(measurements);
         var options = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -454,18 +417,11 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     private static bool HasAtLeast(List<int> values, int min)
     {
         for (var i = 0; i < values.Count; i++)
-        {
             if (values[i] >= min)
                 return true;
 
         return false;
     }
-
-    private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
-                                                            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
-                                                                name,
-                                                                BackpressureTrackedClientsInstrumentName,
-                                                                StringComparison.Ordinal);
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {

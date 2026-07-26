@@ -17,6 +17,9 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixEndpointMapping
 {
+    private static readonly string[] JwtBearerAuthorizationPolicies = [SquirixAuthorizationPolicies.JwtBearer];
+    private static readonly string[] InternalHostFilter = new string[1];
+
     internal static WebApplication MapSquirixEndpoints(this WebApplication app, bool authEnabled)
     {
         MapHealthEndpoints(app);
@@ -29,11 +32,13 @@ internal static class SquirixEndpointMapping
         var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
-            _ = cacheGrpc.RequireAuthorization(SquirixAuthorizationPolicies.JwtBearer);
+            _ = cacheGrpc.RequireAuthorization(JwtBearerAuthorizationPolicies);
 
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{mtlsOptions.InternalListenPort.ToString(CultureInfo.InvariantCulture)}").AllowAnonymous();
+
+        InternalHostFilter[0] = string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}");
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(InternalHostFilter).AllowAnonymous();
         return app;
     }
 

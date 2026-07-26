@@ -100,25 +100,11 @@ public static class DirectoryKit
     /// <exception cref="UnauthorizedAccessException">Propagated from <see cref="CreateDirectory(string,string?,bool,bool)" /> on access errors.</exception>
     public static string CreateTempDirectory(string innerDirectory, [CallerMemberName] string? hint = null)
     {
-        var d = string.IsNullOrEmpty(hint)
-            ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
+        var d = string.IsNullOrEmpty(hint) ? Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"))
             : Path.Join(Path.GetTempPath(), innerDirectory, Guid.NewGuid().ToString("N"), hint);
         CreateDirectory(d);
         return d;
     }
-
-    /// <summary>Best-effort recursive delete of a directory.</summary>
-    /// <param name="dir">Path to the directory to delete recursively.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <remarks>
-    /// Performs up to 6 retries on transient <see cref="IOException" /> and
-    /// <see cref="UnauthorizedAccessException" /> (common on Windows due to file locks).
-    /// If the directory still exists after retries, a final delete is attempted and any resulting
-    /// exception is allowed to bubble up.
-    /// </remarks>
-    /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
-    /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
-    public static Task DeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => DeleteDirectoryCoreAsync(dir, cancellationToken);
 
     /// <summary>Best-effort recursive delete of a directory.</summary>
     /// <param name="dir">Path to the directory to delete recursively.</param>
@@ -146,30 +132,18 @@ public static class DirectoryKit
             Directory.Delete(dir, true);
     }
 
-    private static async Task DeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
-    {
-        for (var i = 0; i < 6; i++)
-        {
-            try
-            {
-                if (Directory.Exists(dir))
-                    Directory.Delete(dir, true);
-
-                return;
-            }
-            catch (IOException) when (i < 5)
-            {
-                await Task.Delay(25 * (i + 1), cancellationToken).ConfigureAwait(false);
-            }
-            catch (UnauthorizedAccessException) when (i < 5)
-            {
-                await Task.Delay(25 * (i + 1), cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        if (Directory.Exists(dir))
-            Directory.Delete(dir, true);
-    }
+    /// <summary>Best-effort recursive delete of a directory.</summary>
+    /// <param name="dir">Path to the directory to delete recursively.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// Performs up to 6 retries on transient <see cref="IOException" /> and
+    /// <see cref="UnauthorizedAccessException" /> (common on Windows due to file locks).
+    /// If the directory still exists after retries, a final delete is attempted and any resulting
+    /// exception is allowed to bubble up.
+    /// </remarks>
+    /// <exception cref="IOException">May be thrown by the final delete if files remain locked or for other I/O errors.</exception>
+    /// <exception cref="UnauthorizedAccessException">May be thrown by the final delete if access is denied.</exception>
+    public static Task DeleteDirectoryAsync(string dir, CancellationToken cancellationToken = default) => DeleteDirectoryCoreAsync(dir, cancellationToken);
 
     private static void CleanDirectoryContents(string dir, bool forbidSymlinks)
     {
@@ -292,7 +266,23 @@ public static class DirectoryKit
 
         while (!remainder.IsEmpty)
         {
-            cur = NodePathKit.Combine(cur, p);
+            var sepIndex = IndexOfDirectorySeparator(remainder);
+            ReadOnlySpan<char> part;
+            if (sepIndex < 0)
+            {
+                part = remainder;
+                remainder = default;
+            }
+            else
+            {
+                part = remainder[..sepIndex];
+                remainder = remainder[(sepIndex + 1)..];
+            }
+
+            if (part.IsEmpty)
+                continue;
+
+            cur = NodePathKit.Combine(cur, part.ToString());
             var di = new DirectoryInfo(cur);
             if (!di.Exists)
                 break; // Not yet existing — will be created as regular directories
@@ -388,23 +378,5 @@ public static class DirectoryKit
             _ = Directory.CreateDirectory(baseFull);
 
         return baseFull;
-    }
-
-    private static void ClearReadOnlyAttributes(string file)
-    {
-        try
-        {
-            var attrs = File.GetAttributes(file);
-            if ((attrs & FileAttributes.ReadOnly) is not FileAttributes.None)
-                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
-        }
-        catch (IOException)
-        {
-            // ignore
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // ignore
-        }
     }
 }

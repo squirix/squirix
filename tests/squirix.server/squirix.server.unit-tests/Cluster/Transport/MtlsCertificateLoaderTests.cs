@@ -73,7 +73,7 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => _ = MtlsCertificateMaterial.Load(options, 6001, true, "untrusted-node"));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => _ = MtlsCertificateMaterial.Load(value, 6001, true, "untrusted-node"));
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 

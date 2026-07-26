@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Journaling.Compaction;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -30,7 +31,7 @@ public sealed class JournalCompactionOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsInvalidScalars()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalCompactionOptions { MinTailSegments = -1 });
+        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(-1, static value => _ = new JournalCompactionOptions { MinTailSegments = value });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalCompactionOptions.MinTailSegments), ex.Message, StringComparison.Ordinal);

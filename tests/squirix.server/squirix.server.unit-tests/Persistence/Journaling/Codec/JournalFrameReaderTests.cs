@@ -72,9 +72,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     [Fact]
     public void OversizedFrameIsClassifiedConsistently()
     {
-        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(length, 0x8000_0000u);
-        AssertConsistentStatus([.. length], JournalFrameReadStatus.OversizedFrame);
+        var length = BufferKit.ToOwnedBytes(
+            JournalFraming.FrameHeaderSize,
+            0x8000_0000u,
+            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
+        AssertConsistentStatus(length, JournalFrameReadStatus.OversizedFrame);
     }
 
     /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>

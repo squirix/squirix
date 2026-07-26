@@ -125,14 +125,14 @@ public abstract class NodeIntegrationTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]), options, testName);
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, testName);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeers([(nodeId, uri)]), options, testName);
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, testName);
 
     [SuppressMessage(
         "Reliability",
@@ -313,23 +313,17 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (clean && CleanedScopes.TryAdd(path, 0))
             await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir)
-            ? NodePathKit.Combine(true, path, selfNodeId)
-            : persistenceOptions.DataDir;
+        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir) ? NodePathKit.Combine(true, path, selfNodeId) : persistenceOptions.DataDir;
         DirectoryKit.CreateDirectory(effectiveDataDir);
 
         if (persistenceOptions is null)
-        {
             return new PersistenceOptions
             {
                 DataDir = effectiveDataDir,
                 JournalMaxSegmentMb = 64,
             };
-        }
 
-        return string.IsNullOrWhiteSpace(persistenceOptions.DataDir)
-            ? persistenceOptions with { DataDir = effectiveDataDir }
-            : persistenceOptions;
+        return string.IsNullOrWhiteSpace(persistenceOptions.DataDir) ? persistenceOptions with { DataDir = effectiveDataDir } : persistenceOptions;
     }
 
     /// <summary>

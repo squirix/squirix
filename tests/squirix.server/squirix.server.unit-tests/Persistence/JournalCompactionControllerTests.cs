@@ -30,12 +30,7 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         var opt = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 1000 };
         using var manifestStore = new ManifestStore(opt);
         await using var journal = await JournalCoordinatorFactory.CreateAsync(opt, new State(), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
-        using var controller = new JournalCompactionController(
-            opt,
-            manifestStore,
-            StoreFactory.CreateReader(opt),
-            journal,
-            NullLogger<JournalCompactionController>.Instance);
+        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
     }
 
@@ -58,19 +53,14 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         await journal.AppendPutAsync(CacheKey.Default("gate"), JournalEntryPayloadKit.EncodePut("x"), DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
 
-        using var controller = new JournalCompactionController(
-            opt,
-            manifestStore,
-            StoreFactory.CreateReader(opt),
-            journal,
-            NullLogger<JournalCompactionController>.Instance);
+        using var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
 
         var firstTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
         var secondTrigger = controller.TryTriggerNowAsync(DefaultCancellationToken);
         var firstResult = await firstTrigger;
         var secondResult = await secondTrigger;
 
-        Assert.True(firstResult ^ secondResult, "Exactly one concurrent trigger should succeed while compaction mutex is held.");
+        Assert.True(firstResult ^ secondResult);
         Assert.True(await controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 
@@ -85,6 +75,6 @@ public sealed class JournalCompactionControllerTests : ServerUnitTestBase
         var controller = new JournalCompactionController(opt, manifestStore, StoreFactory.CreateReader(opt), journal, NullLogger<JournalCompactionController>.Instance);
         controller.Dispose();
 
-        _ = await Assert.ThrowsAsync<ObjectDisposedException>(() => controller.TryTriggerNowAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<ObjectDisposedException>(controller.TryTriggerNowAsync(DefaultCancellationToken));
     }
 }

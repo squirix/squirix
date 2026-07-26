@@ -1,11 +1,11 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.UnitTests.Persistence.Manifest;
 
@@ -26,7 +26,7 @@ internal static class StoreTestSupport
         DataDir = dataDir,
     };
 
-    internal static string ManifestDataFileName(int index) => $"{FilePrefixes.Manifest}{index.ToString("D6", CultureInfo.InvariantCulture)}{FileExtensions.Manifest}";
+    internal static string ManifestDataFileName(int index) => $"{FilePrefixes.Manifest}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Manifest}";
 
     internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {

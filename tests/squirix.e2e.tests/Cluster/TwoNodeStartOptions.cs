@@ -7,14 +7,14 @@ namespace Squirix.E2ETests.Cluster;
 /// <summary>Optional startup settings for two-node E2E clusters.</summary>
 internal sealed class TwoNodeStartOptions
 {
-    /// <summary>Gets optional external auth settings applied to both nodes.</summary>
-    internal TestNodeSecurityOptions? Security { get; init; }
-
     /// <summary>Gets the inter-node mTLS profile for node A.</summary>
     internal TestNodeProfile NodeAProfile { private get; init; } = TestNodeProfile.Normal;
 
     /// <summary>Gets the inter-node mTLS profile for node B.</summary>
     internal TestNodeProfile NodeBProfile { private get; init; } = TestNodeProfile.Normal;
+
+    /// <summary>Gets optional external auth settings applied to both nodes.</summary>
+    internal TestNodeSecurityOptions? Security { get; init; }
 
     internal TestNodeProfile GetProfile(string nodeId) => nodeId switch
     {

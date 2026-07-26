@@ -84,7 +84,7 @@ public class PolicyOverheadBenchmarks : IAsyncDisposable
     [GlobalSetup]
     public void Setup()
     {
-        _failover = new EndpointFailover(["node-a"], "node-a");
+        _failover = new EndpointFailover(SingleBootstrapNode, "node-a");
         _policy = new CallPolicy(peer: "node-a");
     }
 

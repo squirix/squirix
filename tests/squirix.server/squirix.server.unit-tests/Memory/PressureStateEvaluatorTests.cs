@@ -111,15 +111,15 @@ public sealed class PressureStateEvaluatorTests
         Assert.Equal(PressureLevel.Normal, e.Evaluate(0));
     }
 
-    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(new MemoryPressureOptionsBinding(options));
+    private static StateEvaluator CreateEvaluator(PressureOptions options) => new(new PressureOptionsBinding(options));
 
-    private sealed class MemoryPressureOptionsBinding : IOptions<PressureOptions>
+    private sealed class PressureOptionsBinding : IOptions<PressureOptions>
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="PressureOptionsBinding" /> class.
         /// </summary>
         /// <param name="value">Bound options value.</param>
-        internal MemoryPressureOptionsBinding(PressureOptions value)
+        internal PressureOptionsBinding(PressureOptions value)
         {
             Value = value;
         }

@@ -5,21 +5,6 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 
 internal static class TypedValueAssertions
 {
-    internal static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
-    {
-        Assert.Equal(expected.Id, actual.Id);
-        Assert.Equal(expected.DisplayName, actual.DisplayName);
-        Assert.Equal(expected.Email, actual.Email);
-        AssertAddressEquals(expected.Address, actual.Address);
-        Assert.Equal(expected.Roles, actual.Roles);
-        Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
-        foreach (var item in expected.Metadata)
-            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && string.Equals(value, item.Value, StringComparison.OrdinalIgnoreCase));
-
-        Assert.Equal(expected.CreatedAt, actual.CreatedAt);
-        Assert.Equal(expected.Status, actual.Status);
-    }
-
     internal static void AssertCartEquals(TypedMutableCart expected, TypedMutableCart actual)
     {
         Assert.Equal(expected.Id, actual.Id);
@@ -36,6 +21,21 @@ internal static class TypedValueAssertions
             Assert.Equal(expectedItem.Quantity, actualItem.Quantity);
             Assert.Equal(expectedItem.Price, actualItem.Price);
         }
+    }
+
+    internal static void AssertProfileEquals(TypedCustomerProfile expected, TypedCustomerProfile actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.DisplayName, actual.DisplayName);
+        Assert.Equal(expected.Email, actual.Email);
+        AssertAddressEquals(expected.Address, actual.Address);
+        Assert.Equal(expected.Roles, actual.Roles);
+        Assert.Equal(expected.Metadata.Count, actual.Metadata.Count);
+        foreach (var item in expected.Metadata)
+            Assert.True(actual.Metadata.TryGetValue(item.Key, out var value) && string.Equals(value, item.Value, StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(expected.CreatedAt, actual.CreatedAt);
+        Assert.Equal(expected.Status, actual.Status);
     }
 
     private static void AssertAddressEquals(TypedCustomerAddress expected, TypedCustomerAddress actual)

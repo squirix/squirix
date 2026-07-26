@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,22 +14,6 @@ namespace Squirix.Server.UnitTests.Support;
 /// <summary>Writes binary journal segments for persistence unit tests.</summary>
 internal static class BinaryJournalTestSegmentWriter
 {
-    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
-    {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
-        return WriteSegmentAsync(path, records);
-    }
-
-    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
-    {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-        JournalFraming.WriteFileHeader(stream);
-        for (var i = 0; i < records.Count; i++)
-            WriteRecordFrame(stream, records[i]);
-
-        await stream.FlushAsync(CancellationToken.None);
-    }
-
     internal static Task<JournalRecord> BuildPutRecordAsync(ulong seq, string key, string value)
     {
         var body = JournalEntryPayloadKit.EncodePut(value);
@@ -43,6 +26,36 @@ internal static class BinaryJournalTestSegmentWriter
                 Key = CacheKey.Default(key),
                 PutEntryBytes = body,
             });
+    }
+
+    internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        return WriteSegmentAsync(path, record);
+    }
+
+    internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
+    {
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        return WriteSegmentAsync(path, records);
+    }
+
+    internal static async Task WriteSegmentAsync(string path, JournalRecord record)
+    {
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        JournalFraming.WriteFileHeader(stream);
+        WriteRecordFrame(stream, record);
+        await stream.FlushAsync(CancellationToken.None);
+    }
+
+    internal static async Task WriteSegmentAsync(string path, IReadOnlyList<JournalRecord> records)
+    {
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        JournalFraming.WriteFileHeader(stream);
+        for (var i = 0; i < records.Count; i++)
+            WriteRecordFrame(stream, records[i]);
+
+        await stream.FlushAsync(CancellationToken.None);
     }
 
     private static void WriteRecordFrame(Stream stream, JournalRecord record)

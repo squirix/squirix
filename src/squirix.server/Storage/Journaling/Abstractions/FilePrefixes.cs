@@ -7,8 +7,5 @@ internal static class FilePrefixes
 
     public const string Manifest = "man-";
 
-    /// <summary>Zero-padded decimal format for journal and snapshot segment indexes in filenames.</summary>
-    internal const string SegmentIndexFormat = "000000";
-
     internal const string Snapshot = "snp-";
 }

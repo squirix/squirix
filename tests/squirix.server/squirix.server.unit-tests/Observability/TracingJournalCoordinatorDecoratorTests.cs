@@ -25,7 +25,12 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
         using var dir = new TempDirectory("squirix-tracing-journal-decorator");
         var options = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 600_000 };
         using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var core = await JournalCoordinatorFactory.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 
@@ -54,7 +59,12 @@ public sealed class TracingJournalCoordinatorDecoratorTests : ServerUnitTestBase
             FlushIntervalMs = 600_000,
         };
         using var manifestStore = new ManifestStore(options);
-        await using var core = await JournalCoordinatorFactory.CreateAsync(options, await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken), manifestStore, new JournalStartupGate(), DefaultCancellationToken);
+        await using var core = await JournalCoordinatorFactory.CreateAsync(
+            options,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
         var tracer = new RecordingJournalOperationTracer();
         await using var journal = new TracingJournalCoordinatorDecorator(core, tracer);
 

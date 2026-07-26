@@ -8,30 +8,6 @@ namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 internal static class JournalReader
 {
-    /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
-    /// <param name="dataDir">Persistence directory containing journal segment files.</param>
-    /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
-    internal static (int SegmentCount, long TotalBytes) GetOnDiskSegmentStats(string dataDir)
-    {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files))
-            return default;
-
-        var segmentCount = 0;
-        var totalBytes = 0L;
-        for (var i = 0; i < files.Length; i++)
-        {
-            var path = files[i];
-            if (!TryParseJournalSegment(path, 1, out _))
-                continue;
-
-            segmentCount++;
-            if (TryGetSegmentLength(path, out var length))
-                totalBytes += length;
-        }
-
-        return (segmentCount, totalBytes);
-    }
-
     internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
     {
         if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)

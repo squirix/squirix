@@ -7,6 +7,24 @@ namespace Squirix.Server.Storage.Snapshot.Binary;
 
 internal static class IdempotencyCodec
 {
+    internal static int ComputeEncodedLength(PersistedIdempotencyRecord record)
+    {
+        var operationIdBytes = Encoding.UTF8.GetByteCount(record.OperationId);
+        var fingerprintBytes = Encoding.UTF8.GetByteCount(record.Fingerprint);
+        var responseBytes = record.ResponseBytes.Length;
+        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue)
+            throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
+
+        try
+        {
+            return checked(2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes);
+        }
+        catch (OverflowException)
+        {
+            throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
+        }
+    }
+
     internal static PersistedIdempotencyRecord Read(ReadOnlySpan<byte> source)
     {
         if (!TryReadUtf8Prefixed(source, out var operationId, out var operationIdBytes))
@@ -33,24 +51,6 @@ internal static class IdempotencyCodec
         BinaryPrimitives.WriteInt32LittleEndian(destination[offset..], record.ResponseBytes.Length);
         offset += 4;
         record.ResponseBytes.AsSpan().CopyTo(destination[offset..]);
-    }
-
-    internal static int ComputeEncodedLength(PersistedIdempotencyRecord record)
-    {
-        var operationIdBytes = Encoding.UTF8.GetByteCount(record.OperationId);
-        var fingerprintBytes = Encoding.UTF8.GetByteCount(record.Fingerprint);
-        var responseBytes = record.ResponseBytes.Length;
-        if (operationIdBytes > ushort.MaxValue || fingerprintBytes > ushort.MaxValue)
-            throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
-
-        try
-        {
-            return checked(2 + operationIdBytes + 2 + fingerprintBytes + 8 + 4 + responseBytes);
-        }
-        catch (OverflowException)
-        {
-            throw new InvalidDataException("Snapshot idempotency field exceeds maximum encoded length.");
-        }
     }
 
     private static DateTime ReadCreatedUtc(ReadOnlySpan<byte> source, ref int offset)

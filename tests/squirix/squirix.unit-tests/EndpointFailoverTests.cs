@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Internal;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;
@@ -15,7 +16,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
     [Fact]
     public async Task ClientFailsOverAfterSelectedEndpointUnavailable()
     {
-        var failover = new EndpointFailover(["endpoint-0", "endpoint-1"], "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
         var callCount = new MutableCallCount();
 
         var value = await failover.ExecuteAsync(
@@ -36,7 +37,7 @@ public sealed class EndpointFailoverTests : UnitTestBase
     [Fact]
     public async Task DoesNotFailOverOnApplicationLevelRpcErrors()
     {
-        var failover = new EndpointFailover(["endpoint-0", "endpoint-1"], "endpoint-0");
+        var failover = new EndpointFailover(BootstrapEndpoints, "endpoint-0");
 
         var error = await AsyncAssert.ThrowsAsync<RpcException, int>(
             failover.ExecuteAsync<int>(static (_, _) => throw new RpcException(new Status(StatusCode.NotFound, "missing")), DefaultCancellationToken));

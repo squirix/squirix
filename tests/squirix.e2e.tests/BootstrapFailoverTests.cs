@@ -11,20 +11,12 @@ public sealed class BootstrapFailoverTests : EndToEndTestBase
     [Fact]
     public async Task ClientContinuesAlternateActiveEndpointLoss()
     {
-        await using var cluster = await HostedCluster.StartTwoNodeAsync(
-            nameof(ClientContinuesAlternateActiveEndpointLoss),
-            cancellationToken: DefaultCancellationToken);
+        await using var cluster = await HostedCluster.StartTwoNodeAsync(nameof(ClientContinuesAlternateActiveEndpointLoss), cancellationToken: DefaultCancellationToken);
         var uriA = cluster.GetUri("nodeA");
         var uriB = cluster.GetUri("nodeB");
-        var key = new KeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy("default", "nodeB", 1, "bootstrap-failover")[0];
+        var key = KeyOwnerHelper.TwoNode.FindKeyOwnedBy("default", "nodeB", "bootstrap-failover");
 
-        await using var client = await LoopbackConnect.ConnectAsync(
-            options =>
-            {
-                options.Endpoints.Add(uriA);
-                options.Endpoints.Add(uriB);
-            },
-            DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(uriA, uriB, DefaultCancellationToken);
 
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
         await cache.SetAsync(key, "before-loss", cancellationToken: DefaultCancellationToken);

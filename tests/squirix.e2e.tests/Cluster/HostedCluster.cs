@@ -49,7 +49,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         string? testName = null,
         TestNodeSecurityOptions? security = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA"], new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartAsync(SingleNodeIds, new TwoNodeStartOptions { Security = security }, testName, usePersistence, cancellationToken);
 
     internal static ValueTask<HostedCluster> StartTwoNodeAsync(
         string? testName = null,
@@ -61,7 +61,7 @@ internal sealed class HostedCluster : IAsyncDisposable
         TwoNodeStartOptions? options,
         string? testName = null,
         bool usePersistence = false,
-        CancellationToken cancellationToken = default) => StartAsync(["nodeA", "nodeB"], options, testName, usePersistence, cancellationToken);
+        CancellationToken cancellationToken = default) => StartAsync(TwoNodeIds, options, testName, usePersistence, cancellationToken);
 
     internal async ValueTask<ISquirixClient> ConnectClientAsync(string nodeId = "nodeA", CancellationToken cancellationToken = default)
     {
@@ -79,7 +79,7 @@ internal sealed class HostedCluster : IAsyncDisposable
     internal ValueTask StopNodeAsync(string nodeId)
     {
         if (!_nodes.Remove(nodeId, out var node))
-            throw new InvalidOperationException($"Node '{nodeId}' is not running.");
+            throw new InvalidOperationException("Requested node is not running.");
 
         return node.DisposeAsync();
     }

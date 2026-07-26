@@ -64,21 +64,8 @@ public sealed class CorrelationClientInterceptorTests
             new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
             capture.OnContinueAsync);
 
-                return CreateCompletedUnaryCallAsync("ok");
-            });
-
-        var options = Assert.NotNull(observed);
-        var values = new List<string>();
-        var headers = options.Headers;
-        Assert.NotNull(headers);
-        for (var index = 0; index < headers.Count; index++)
-        {
-            var entry = headers[index];
-            if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            values.Add(entry.Value);
-        }
+        Assert.NotNull(capture.Headers);
+        var values = CollectHeaderValues(capture.Headers, "traceparent");
 
         _ = Assert.Single(values);
         Assert.NotEqual("00-stale-stale-00", values[0]);
@@ -108,31 +95,23 @@ public sealed class CorrelationClientInterceptorTests
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "tracestate");
 
-        var options = Assert.NotNull(observed);
-        var values = new List<string>();
-        var headers = options.Headers;
-        Assert.NotNull(headers);
-        for (var index = 0; index < headers.Count; index++)
-        {
-            var entry = headers[index];
-            if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            values.Add(entry.Value);
-        }
-
         _ = Assert.Single(values);
         Assert.Equal("vendor=value", values[0]);
     }
 
     private static List<string> CollectHeaderValues(Metadata headers, string key)
     {
-        return new AsyncUnaryCall<string>(
-            Task.FromResult(response),
-            Task.FromResult(Metadata.Empty),
-            static () => Status.DefaultSuccess,
-            static () => Metadata.Empty,
-            static () => { });
+        var values = new List<string>();
+        for (var index = 0; index < headers.Count; index++)
+        {
+            var entry = headers[index];
+            if (!string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
+
+        return values;
     }
 
     private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");

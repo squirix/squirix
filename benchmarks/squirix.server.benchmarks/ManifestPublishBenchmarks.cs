@@ -13,18 +13,8 @@ namespace Squirix.Server.Benchmarks;
 public class ManifestPublishBenchmarks
 {
     private Host? _host;
-    private int _operationsPerInvoke;
     private ulong _nextSequence = 1;
-
-    /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
-    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
-    [Benchmark]
-    public void PublishManifest()
-    {
-        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
-        for (var journal = 1; journal <= _operationsPerInvoke; journal++)
-            host.Store.PublishRollBlocking(journal, _nextSequence++);
-    }
+    private int _operationsPerInvoke;
 
     /// <summary>Disposes the manifest store and temporary data directory.</summary>
     [GlobalCleanup]
@@ -51,6 +41,16 @@ public class ManifestPublishBenchmarks
 
         // Warm steady-state in-memory index/cache before measured iterations.
         _host.Store.PublishRollBlocking(1, _nextSequence++);
+    }
+
+    /// <summary>Publishes sequential manifest snapshots (simulates segment-roll manifest updates).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when the benchmark host was not initialized.</exception>
+    [Benchmark]
+    public void PublishManifest()
+    {
+        var host = _host ?? throw new InvalidOperationException("Benchmark host was not initialized.");
+        for (var journal = 1; journal <= _operationsPerInvoke; journal++)
+            host.Store.PublishRollBlocking(journal, _nextSequence++);
     }
 
     /// <summary>Hosts a manifest store for manifest publish benchmarks.</summary>

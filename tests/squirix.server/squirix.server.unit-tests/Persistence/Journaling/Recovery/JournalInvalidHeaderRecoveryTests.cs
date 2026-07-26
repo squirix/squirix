@@ -9,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -31,8 +32,8 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new ManifestStore(persistence);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
-        await manifestStore.WriteAsync(new Storage.Manifest.State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
+        await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
@@ -56,10 +57,10 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
         var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, [.. "NOPE!"u8], DefaultCancellationToken);
+        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, DefaultCancellationToken);
 
         await scenario.ManifestStore.WriteAsync(
-            new Storage.Manifest.State
+            new State
             {
                 Format = 1,
                 CurrentJournal = 1,

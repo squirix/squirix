@@ -196,8 +196,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         RemoveIdleClient(clientId, client);
     }
 
-    private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
-
     private void RemoveIdleClient(string clientId, ClientState client)
     {
         if (client.InFlight is not 0 || client.QueueDepth is not 0 || client.HasRecentActivity is true)

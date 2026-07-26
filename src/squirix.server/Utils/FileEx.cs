@@ -5,56 +5,6 @@ namespace Squirix.Server.Utils;
 
 internal static class FileEx
 {
-    /// <summary>Publishes a temp file as the final durable file, replacing an existing destination when present.</summary>
-    /// <param name="tempPath">Path to the fully written temp file.</param>
-    /// <param name="finalPath">Destination path that should reference <paramref name="tempPath" /> after completion.</param>
-    /// <param name="backupPath">Optional backup path used when <paramref name="finalPath" /> already exists.</param>
-    /// <param name="ignoreMetadataErrors">
-    /// When <see langword="true" />, metadata differences between source and destination are ignored during
-    /// <see cref="File.Replace(string, string, string?, bool)" />.
-    /// </param>
-    internal static void PublishFile(string tempPath, string finalPath, string? backupPath = null, bool ignoreMetadataErrors = false)
-    {
-        var validatedTemp = FilePathValidator.ResolveValidatedFilePath(tempPath);
-        var validatedFinal = FilePathValidator.ResolveValidatedFilePath(finalPath);
-        var validatedBackup = backupPath is null ? null : FilePathValidator.ResolveValidatedFilePath(backupPath);
-        if (File.Exists(validatedFinal))
-            File.Replace(validatedTemp, validatedFinal, validatedBackup, ignoreMetadataErrors);
-        else
-            File.Move(validatedTemp, validatedFinal);
-    }
-
-    /// <summary>
-    /// Attempts to delete a file at the given <paramref name="path" />.
-    /// </summary>
-    /// <param name="path">
-    /// Absolute or relative path to the file to delete. If <see langword="null" />, empty, or whitespace-only,
-    /// the method succeeds without performing any action. If the string contains any character from
-    /// <see cref="Path.GetInvalidPathChars" />, the method succeeds without calling file APIs.
-    /// </param>
-    /// <returns>
-    /// <see langword="true" /> when the path is skipped as invalid, the file did not exist, or deletion completed;
-    /// <see langword="false" /> when deletion was attempted but failed.
-    /// </returns>
-    /// <remarks>
-    /// Best-effort cleanup helper for teardown paths where callers ignore failures.
-    /// For strict deletion semantics, use <see cref="File.Delete(string)" /> directly.
-    /// </remarks>
-    internal static bool TryDeleteFile(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || path.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
-            return true;
-
-        try
-        {
-            return TryDeleteExistingFile(FilePathValidator.ResolveValidatedFilePath(path));
-        }
-        catch (ArgumentException)
-        {
-            return true;
-        }
-    }
-
     internal static string? FindFile(ReadOnlySpan<string> paths)
     {
         var cwd = Directory.GetCurrentDirectory();

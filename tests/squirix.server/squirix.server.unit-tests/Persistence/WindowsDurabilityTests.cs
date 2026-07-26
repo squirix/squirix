@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Manifest;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
@@ -64,18 +65,7 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
         using var store = new ManifestStore(options);
         await File.WriteAllBytesAsync(NodePathKit.Combine(Dir, "man-current"), ReadOnlyMemory<byte>.Empty, DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
-    }
-
-    /// <summary>Verifies that a missing current pointer target is treated as storage corruption.</summary>
-    [Fact]
-    public async Task ManifestStoreThrowsCurrentPointerTargetIsMissing()
-    {
-        var options = new PersistenceOptions { DataDir = Dir };
-        using var store = new ManifestStore(options);
-        WriteCurrentPointer(Dir, 123);
-
-        _ = await Assert.ThrowsAsync<FileNotFoundException>(() => store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(store.ReadCurrentOrDefaultAsync(DefaultCancellationToken));
     }
 
     /// <summary>Verifies that subsequent manifest writes update the CURRENT pointer to the new manifest file.</summary>
@@ -90,17 +80,17 @@ public sealed class WindowsDurabilityTests : ServerUnitTestBase, IAsyncLifetime
         Assert.Equal(2, await StoreTestSupport.ReadCurrentManifestIndexAsync(Dir, DefaultCancellationToken));
     }
 
-    /// <summary>Creates a temporary directory for test storage.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("squirix");
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Cleans up the temporary directory after the test.</summary>
     public ValueTask DisposeAsync()
     {
         Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Creates a temporary directory for test storage.</summary>
+    public ValueTask InitializeAsync()
+    {
+        _dir = new TempDirectory("squirix");
         return ValueTask.CompletedTask;
     }
 

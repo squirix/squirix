@@ -16,9 +16,9 @@ internal sealed class CallPolicy : ICallPolicy
     private readonly CallPolicyExecutor _executor;
     private readonly string _peer;
     private readonly SemaphoreSlim _semaphore;
-    private bool _disposed;
     private Task? _disposeTask;
     private TaskCompletionSource<bool>? _disposeTcs;
+    private bool _disposed;
     private volatile bool _draining;
     private bool _semaphoreDisposed;
 
@@ -148,6 +148,19 @@ internal sealed class CallPolicy : ICallPolicy
         throw new RpcException(new Status(StatusCode.Unavailable, "Peer client pool is draining."));
     }
 
+    private sealed class ActiveOperationCounter
+    {
+        private int _count;
+
+        internal void Enter() => _ = Interlocked.Increment(ref _count);
+
+        internal bool IsIdle() => Volatile.Read(ref _count) is 0;
+
+        /// <summary>Decrements the counter.</summary>
+        /// <returns><see langword="true" /> when the count reaches zero; otherwise <see langword="false" />.</returns>
+        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
+    }
+
     private sealed class CallPolicyExecutor
     {
         private readonly TimeSpan _baseBackoff;
@@ -156,8 +169,8 @@ internal sealed class CallPolicy : ICallPolicy
         private readonly CallPolicy _owner;
         private readonly string _peer;
         private readonly SemaphoreSlim _semaphore;
-        private readonly TimeSpan _timeoutPerAttempt;
         private readonly TimeProvider _timeProvider;
+        private readonly TimeSpan _timeoutPerAttempt;
 
         internal CallPolicyExecutor(CallPolicy owner, CallPolicySettings settings, TimeProvider timeProvider, SemaphoreSlim semaphore)
         {
@@ -257,6 +270,17 @@ internal sealed class CallPolicy : ICallPolicy
             }
         }
 
+        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
+        {
+            if (remaining is null)
+                return _timeoutPerAttempt;
+
+            if (remaining <= TimeSpan.Zero)
+                return TimeSpan.Zero;
+
+            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
+        }
+
         private async ValueTask<AttemptOutcome<T>> MapHttpFailureAsync<T>(HttpRequestException ex, int attempt, CancellationToken effectiveToken)
         {
             if (attempt >= _maxAttempts || !OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
@@ -302,17 +326,6 @@ internal sealed class CallPolicy : ICallPolicy
             return AttemptOutcome<T>.Retry(await BackoffOrCaptureCancellationAsync(BackoffWithJitter(attempt), rx, effectiveToken).ConfigureAwait(false));
         }
 
-        private TimeSpan GetAttemptTimeoutForRemaining(TimeSpan? remaining)
-        {
-            if (remaining is null)
-                return _timeoutPerAttempt;
-
-            if (remaining <= TimeSpan.Zero)
-                return TimeSpan.Zero;
-
-            return remaining.Value < _timeoutPerAttempt ? remaining.Value : _timeoutPerAttempt;
-        }
-
         private async ValueTask<T> RunRetryLoopAsync<TState, T>(
             Func<TState, CancellationToken, ValueTask<T>> action,
             TState state,
@@ -343,14 +356,12 @@ internal sealed class CallPolicy : ICallPolicy
         private void ThrowAfterFailedAttempts(Exception? last, bool hasDeadlineBudget, CancellationToken effectiveToken)
         {
             if (!hasDeadlineBudget || OperationCancellationClassifier.OperationEffectiveTokenAllowsRetryAttempt(effectiveToken))
-            {
                 throw last switch
                 {
                     TaskCanceledException or OperationCanceledException => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts timed out.")),
                     RpcException { StatusCode: StatusCode.Cancelled } => new RpcException(new Status(StatusCode.DeadlineExceeded, "All attempts Canceled by per-attempt timeout.")),
                     _ => last!,
                 };
-            }
 
             RpcTimeoutMetrics.TimeoutsTotal.WithLabels(_peer, "overall", "deadline_budget").Inc();
             throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Request deadline exceeded."));
@@ -410,33 +421,10 @@ internal sealed class CallPolicy : ICallPolicy
             internal static AttemptOutcome<T> Success(T value) => new() { Succeeded = true, Value = value };
         }
 
-        private static class OperationCancellationClassifier
-        {
-            internal static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
-
-            internal static CancellationScenarioKind ClassifyPeerCallAttemptCancellation(
-                CancellationToken callerToken,
-                CancellationToken operationEffectiveToken,
-                CancellationToken perAttemptCompositeToken) => ClassifyFromLinkedTokenState(
-                callerToken.IsCancellationRequested,
-                operationEffectiveToken.IsCancellationRequested,
-                perAttemptCompositeToken.IsCancellationRequested);
-
-            private static CancellationScenarioKind ClassifyFromLinkedTokenState(bool callerCanceled, bool operationEffectiveCanceled, bool perAttemptScopeCanceled) =>
-                (callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled) switch
-                {
-                    (true, _, _) => CancellationScenarioKind.CallerCanceled,
-                    (_, true, _) => CancellationScenarioKind.OperationDeadlineExceeded,
-                    (_, _, true) => CancellationScenarioKind.PerAttemptTimedOut,
-                    _ => CancellationScenarioKind.UnknownCancellation,
-                };
-        }
-
         private static class CallPolicyRetryClassifier
         {
-            internal const string DeadlineExceeded = "deadline_exceeded";
-
             internal const string Canceled = "canceled";
+            internal const string DeadlineExceeded = "deadline_exceeded";
 
             internal static string ClassifyRetryReason(Exception ex) => ex switch
             {
@@ -469,18 +457,27 @@ internal sealed class CallPolicy : ICallPolicy
                 _ => "transient",
             };
         }
-    }
 
-    private sealed class ActiveOperationCounter
-    {
-        private int _count;
+        private static class OperationCancellationClassifier
+        {
+            internal static CancellationScenarioKind ClassifyPeerCallAttemptCancellation(
+                CancellationToken callerToken,
+                CancellationToken operationEffectiveToken,
+                CancellationToken perAttemptCompositeToken) => ClassifyFromLinkedTokenState(
+                callerToken.IsCancellationRequested,
+                operationEffectiveToken.IsCancellationRequested,
+                perAttemptCompositeToken.IsCancellationRequested);
 
-        internal bool IsIdle() => Volatile.Read(ref _count) is 0;
+            internal static bool OperationEffectiveTokenAllowsRetryAttempt(CancellationToken operationEffectiveToken) => !operationEffectiveToken.IsCancellationRequested;
 
-        internal void Enter() => _ = Interlocked.Increment(ref _count);
-
-        /// <summary>Decrements the counter.</summary>
-        /// <returns><see langword="true" /> when the count reaches zero; otherwise <see langword="false" />.</returns>
-        internal bool TryExitToIdle() => Interlocked.Decrement(ref _count) is 0;
+            private static CancellationScenarioKind ClassifyFromLinkedTokenState(bool callerCanceled, bool operationEffectiveCanceled, bool perAttemptScopeCanceled) =>
+                (callerCanceled, operationEffectiveCanceled, perAttemptScopeCanceled) switch
+                {
+                    (true, _, _) => CancellationScenarioKind.CallerCanceled,
+                    (_, true, _) => CancellationScenarioKind.OperationDeadlineExceeded,
+                    (_, _, true) => CancellationScenarioKind.PerAttemptTimedOut,
+                    _ => CancellationScenarioKind.UnknownCancellation,
+                };
+        }
     }
 }

@@ -19,7 +19,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
             uri,
             "node-health",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
         var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), DefaultCancellationToken);
         Assert.True(live.IsSuccessStatusCode);

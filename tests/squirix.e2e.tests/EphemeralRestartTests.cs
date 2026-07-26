@@ -60,11 +60,7 @@ public sealed class EphemeralRestartTests : EndToEndTestBase
             await StartNodeAsync(cancellationToken);
         }
 
-        private async ValueTask StartNodeAsync(CancellationToken cancellationToken)
-        {
-            var topology = new[] { ("nodeA", Uri) };
-            _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, topology, cancellationToken);
-        }
+        private async ValueTask StartNodeAsync(CancellationToken cancellationToken) => _host = await TestNodeHostFactory.StartNodeAsync("nodeA", Uri, cancellationToken);
 
         private async ValueTask StopNodeAsync()
         {
