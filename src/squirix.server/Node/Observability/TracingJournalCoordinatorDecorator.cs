@@ -22,13 +22,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         _inner.OnAppended += _forwardOnAppended;
     }
 
-    public event EventHandler? OnAppended
-    {
-        add => OnAppendedInternal += value;
-        remove => OnAppendedInternal -= value;
-    }
-
-    private event EventHandler? OnAppendedInternal;
+    public event EventHandler? OnAppended;
 
     public long AppendedBytes => _inner.AppendedBytes;
 
@@ -38,11 +32,17 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
 
+    public long HighWaterBytes => _inner.HighWaterBytes;
+
     public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
+
+    public long MaxBytes => _inner.MaxBytes;
 
     public ulong NextSequence => _inner.NextSequence;
 
     public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
+
+    public long UsedBytes => _inner.UsedBytes;
 
     public async ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
     {
@@ -149,7 +149,7 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
 
     private JournalOperationTraceContext? Enrich(JournalOperationTraceContext? context) => JournalCoordinatorTracing.WithDurability(in context, _inner);
 
-    private void ForwardOnAppended(object? sender, EventArgs e) => OnAppendedInternal?.Invoke(this, e);
+    private void ForwardOnAppended(object? sender, EventArgs e) => OnAppended?.Invoke(this, e);
 
     /// <summary>
     /// Helpers for tracing journal coordinator operations through <see cref="IJournalOperationTracer" />.
@@ -165,12 +165,10 @@ internal sealed class TracingJournalCoordinatorDecorator : IJournalCoordinator
         internal static JournalOperationTraceContext? WithDurability(in JournalOperationTraceContext? context, IJournalCoordinator coordinator)
         {
             if (context != null)
-            {
                 return context with
                 {
                     GroupCommitEnabled = coordinator.IsJournalGroupCommitEnabled,
                 };
-            }
 
             return null;
         }

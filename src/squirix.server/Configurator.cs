@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -33,7 +32,7 @@ public static class Configurator
         if (persist)
             options.UsePersistence();
         if (dataDirectory is not null)
-            options.DataDirectory = dataDirectory;
+            options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
 
         ApplyRuntimeDefaults(options);
         AlignLocalPeerWithNodeUrl(options);
@@ -42,7 +41,13 @@ public static class Configurator
 
     /// <summary>Applies runtime defaults after file or callback configuration.</summary>
     /// <param name="options">Server options to update.</param>
-    public static void ApplyRuntimeDefaults(SquirixServerOptions options) => ArgumentNullException.ThrowIfNull(options);
+    public static void ApplyRuntimeDefaults(SquirixServerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.DataDirectory is not null)
+            options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
+    }
 
     /// <summary>Copies validated options into a target instance.</summary>
     /// <param name="source">Source options.</param>
@@ -170,14 +175,27 @@ public static class Configurator
         return new SquirixServerOptions
         {
             NodeId = "node",
-            Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            Uri = new Uri(InvariantDigitStrings.FormatHttpsOrigin("localhost", port)),
         };
     }
 
     /// <summary>Resolves a settings file path from an explicit path or the standard discovery order.</summary>
     /// <param name="explicitPath">Optional explicit settings path.</param>
     /// <returns>The resolved path when found; otherwise <see langword="null" />.</returns>
-    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath ?? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"]);
+    public static string? ResolveSettingsPath(string? explicitPath = null) => explicitPath is null ? FileEx.FindFile(["Squirix.settings.json", "squirix.settings.json"])
+        : ResolveValidatedFilePath(explicitPath);
+
+    /// <summary>Validates and canonicalizes an operator-supplied data directory path.</summary>
+    /// <param name="dataDirectory">Absolute or relative data directory path.</param>
+    /// <returns>Normalized absolute directory path.</returns>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    public static string ResolveValidatedDataDirectory(string dataDirectory) => FilePathValidator.ResolveValidatedDirectoryPath(dataDirectory);
+
+    /// <summary>Validates and canonicalizes an operator-supplied file path.</summary>
+    /// <param name="path">Absolute or relative file path.</param>
+    /// <returns>Normalized absolute file path.</returns>
+    /// <exception cref="ArgumentException">Thrown when the path is empty, contains invalid characters, or has <c>.</c> / <c>..</c> segments.</exception>
+    public static string ResolveValidatedFilePath(string path) => FilePathValidator.ResolveValidatedFilePath(path);
 
     /// <summary>
     /// Attempts to load <c>Squirix:Cluster</c> from a settings file.
@@ -192,12 +210,22 @@ public static class Configurator
         string settingsFilePath,
         CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(settingsFilePath))
-            return (false, null, $"Settings file does not exist: {Path.GetFullPath(settingsFilePath)}");
+        string validatedPath;
+        try
+        {
+            validatedPath = FilePathValidator.ResolveValidatedFilePath(settingsFilePath);
+        }
+        catch (ArgumentException ex)
+        {
+            return (false, null, ex.Message);
+        }
+
+        if (!File.Exists(validatedPath))
+            return (false, null, $"Settings file does not exist: {validatedPath}");
 
         try
         {
-            var bytes = await File.ReadAllBytesAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+            var bytes = await File.ReadAllBytesAsync(validatedPath, cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(bytes, JsonOptions);
             var root = document.RootElement;
             if (root.TryGetProperty("Squirix", out var squirix))
@@ -207,10 +235,17 @@ public static class Configurator
 
             var options = JsonSerializer.Deserialize(cluster.GetRawText(), SquirixServerHostingJsonContext.Default.SquirixServerOptions) ??
                           throw new InvalidOperationException("Cannot deserialize Squirix.Cluster.");
+            if (options.DataDirectory is not null)
+                options.DataDirectory = FilePathValidator.ResolveValidatedDirectoryPath(options.DataDirectory);
+
             if (SquirixServerOptionsValidator.TryValidate(options, out var failures))
                 return (true, options, null);
 
             return (false, null, string.Join(Environment.NewLine, failures));
+        }
+        catch (ArgumentException ex)
+        {
+            return (false, null, ex.Message);
         }
         catch (JsonException ex)
         {
@@ -255,17 +290,13 @@ public static class Configurator
 
         var peers = new ServerPeer[options.Peers.Count is 0 ? 1 : options.Peers.Count];
         if (options.Peers.Count is 0)
-        {
             peers[0] = new ServerPeer { NodeId = options.NodeId, Uri = options.Uri };
-        }
         else
-        {
             for (var i = 0; i < options.Peers.Count; i++)
             {
                 var peer = options.Peers[i];
                 peers[i] = new ServerPeer { NodeId = peer.NodeId, Uri = peer.Uri };
             }
-        }
 
         return new TopologyOptions(peers)
         {

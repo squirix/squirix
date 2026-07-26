@@ -7,7 +7,7 @@ namespace Squirix.Server.Utils;
 internal static class EnvVariables
 {
     /// <summary>
-    /// Interprets common truthy environment values ( <see langword="true"/> or <c>1</c>, case-insensitive) as <see langword="true" />.
+    /// Interprets common truthy environment values ( <see langword="true" /> or <c>1</c>, case-insensitive) as <see langword="true" />.
     /// </summary>
     /// <param name="variableName">The environment variable name.</param>
     /// <returns>Whether the variable is set to a truthy value.</returns>
@@ -19,7 +19,7 @@ internal static class EnvVariables
 
     /// <summary>Reads a signed 32-bit integer from the environment.</summary>
     /// <param name="variableName">The environment variable name.</param>
-    /// <returns>The parsed value, or <see langword="null"/> when the variable is unset or whitespace.</returns>
+    /// <returns>The parsed value, or <see langword="null" /> when the variable is unset or whitespace.</returns>
     /// <exception cref="InvalidOperationException">The variable is set but its value is not a valid integer.</exception>
     internal static int? ReadInt(string variableName)
     {
@@ -29,12 +29,12 @@ internal static class EnvVariables
 
         var trimmed = raw.Trim();
         return int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed
-            : throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{raw}'. Expected a valid integer.");
+            : throw new InvalidOperationException("Invalid environment variable value. Expected a valid integer.");
     }
 
     /// <summary>Reads a signed 64-bit integer from the environment.</summary>
     /// <param name="variableName">The environment variable name.</param>
-    /// <returns>The parsed value, or <see langword="null"/> when the variable is unset or whitespace.</returns>
+    /// <returns>The parsed value, or <see langword="null" /> when the variable is unset or whitespace.</returns>
     /// <exception cref="InvalidOperationException">The variable is set but its value is not a valid integer.</exception>
     internal static long? ReadInt64(string variableName)
     {
@@ -44,14 +44,14 @@ internal static class EnvVariables
 
         var trimmed = raw.Trim();
         return long.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed
-            : throw new InvalidOperationException($"Invalid environment variable '{variableName}' value '{raw}'. Expected a valid integer.");
+            : throw new InvalidOperationException("Invalid environment variable value. Expected a valid integer.");
     }
 
     /// <summary>
-    /// Returns the raw environment variable value, or <see langword="null"/> when unset.
+    /// Returns the raw environment variable value, or <see langword="null" /> when unset.
     /// </summary>
     /// <param name="variableName">The environment variable name.</param>
-    /// <returns>The raw value, or <see langword="null"/> if the variable is not defined.</returns>
+    /// <returns>The raw value, or <see langword="null" /> if the variable is not defined.</returns>
     internal static string? ReadString(string variableName) => Environment.GetEnvironmentVariable(variableName);
 
     /// <summary>Returns the environment variable value, or an empty string when unset.</summary>

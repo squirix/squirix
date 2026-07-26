@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Fixtures.TypedValues;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
@@ -19,7 +20,7 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
 
         await cache.AddAsync("k", original, cancellationToken: DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(() =>
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(
             cache.AddAsync("k", TypedValueFactory.CreateUpdatedProfile("add-conflict"), cancellationToken: DefaultCancellationToken));
 
         var result = await cache.GetValueAsync("k", DefaultCancellationToken);
@@ -69,9 +70,31 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies GetEntryShouldReturnTypedValueAndMetadataOnSingleNode.</summary>
+    /// <summary>Verifies GetAddStoreFactoryProducedCustomRecordOnSingleNode.</summary>
     [Fact]
-    public async Task GetEntryShouldReturnTypedValueAndMetadataOnSingleNode()
+    public async Task GetAddStoreFactoryProducedCustomRecordOnSingleNode()
+    {
+        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
+        var expected = TypedValueFactory.CreateProfile("k");
+        var factoryCalls = new CallCounter();
+
+        var first = await cache.GetOrAddAsync(
+            "k",
+            static (key, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateProfile(key)),
+            cancellationToken: DefaultCancellationToken);
+
+        var second = await cache.GetOrAddAsync("k", factoryCalls.CreateUpdatedProfileAsync, cancellationToken: DefaultCancellationToken);
+
+        Assert.True(first.Found);
+        TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
+        Assert.True(second.Found);
+        TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
+        Assert.Equal(1, factoryCalls.Count);
+    }
+
+    /// <summary>Verifies GetEntryReturnTypedValueAndMetadataOnSingleNode.</summary>
+    [Fact]
+    public async Task GetEntryReturnTypedValueAndMetadataOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-entry", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("entry");
@@ -85,38 +108,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         Assert.True(entry.ExpiresUtc > DateTime.UtcNow);
     }
 
-    /// <summary>Verifies GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies RemoveExpirationClearExpirationRecordSingleNode.</summary>
     [Fact]
-    public async Task GetOrAddShouldStoreFactoryProducedCustomRecordOnSingleNode()
-    {
-        var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
-        var expected = TypedValueFactory.CreateProfile("k");
-        var factoryCalls = 0;
-
-        var first = await cache.GetOrAddAsync(
-            "k",
-            static (key, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateProfile(key)),
-            cancellationToken: DefaultCancellationToken);
-
-        var second = await cache.GetOrAddAsync(
-            "k",
-            (_, _) =>
-            {
-                _ = Interlocked.Increment(ref factoryCalls);
-                return Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateUpdatedProfile("get-or-add"));
-            },
-            cancellationToken: DefaultCancellationToken);
-
-        Assert.True(first.Found);
-        TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
-        Assert.True(second.Found);
-        TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
-        Assert.Equal(1, factoryCalls);
-    }
-
-    /// <summary>Verifies RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode.</summary>
-    [Fact]
-    public async Task RemoveExpirationShouldClearExpirationForCustomRecordOnSingleNode()
+    public async Task RemoveExpirationClearExpirationRecordSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-remove-expiration", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("remove-expiration");
@@ -160,9 +154,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertCartEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies TouchShouldUpdateExpirationForCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies TouchUpdateExpirationForCustomRecordOnSingleNode.</summary>
     [Fact]
-    public async Task TouchShouldUpdateExpirationForCustomRecordOnSingleNode()
+    public async Task TouchUpdateExpirationForCustomRecordOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-touch", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("touch");
@@ -180,9 +174,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(expected, result.Value!);
     }
 
-    /// <summary>Verifies TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies TryAddReturnFalseExistingCustomRecordOnSingleNode.</summary>
     [Fact]
-    public async Task TryAddShouldReturnFalseForExistingCustomRecordOnSingleNode()
+    public async Task TryAddReturnFalseExistingCustomRecordOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-try-add", DefaultCancellationToken);
         var original = TypedValueFactory.CreateProfile("try-add");
@@ -195,9 +189,9 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         TypedValueAssertions.AssertProfileEquals(original, result.Value!);
     }
 
-    /// <summary>Verifies UpdateShouldPreserveExpirationForCustomRecordOnSingleNode.</summary>
+    /// <summary>Verifies UpdatePreserveExpirationCustomRecordOnSingleNode.</summary>
     [Fact]
-    public async Task UpdateShouldPreserveExpirationForCustomRecordOnSingleNode()
+    public async Task UpdatePreserveExpirationCustomRecordOnSingleNode()
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-update", DefaultCancellationToken);
         var updated = TypedValueFactory.CreateUpdatedProfile("update");
@@ -211,5 +205,20 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
         Assert.True(result.Found);
         Assert.True(expiration.HasExpiration);
         TypedValueAssertions.AssertProfileEquals(updated, result.Value!);
+    }
+
+    private sealed class CallCounter
+    {
+        private int _count;
+
+        internal int Count => _count;
+
+        internal Task<TypedCustomerProfile?> CreateUpdatedProfileAsync(string key, CancellationToken cancellationToken)
+        {
+            _ = key;
+            _ = cancellationToken;
+            _ = Interlocked.Increment(ref _count);
+            return Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateUpdatedProfile("get-or-add"));
+        }
     }
 }

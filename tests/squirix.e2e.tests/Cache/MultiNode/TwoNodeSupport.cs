@@ -8,8 +8,8 @@ using Squirix.E2ETests.Cluster;
 
 namespace Squirix.E2ETests.Cache.MultiNode;
 
-/// <summary>Per-test cluster startup and routing helpers for multi-node public API tests.</summary>
-internal static class Helpers
+/// <summary>Shared startup, routing, and assertion helpers for two-node public API e2e tests.</summary>
+internal static class TwoNodeSupport
 {
     internal static async Task<Exception?> CaptureAddAsync(ICache<object?> cache, string key, object? value, CancellationToken cancellationToken)
     {
@@ -36,7 +36,7 @@ internal static class Helpers
         }
     }
 
-    internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => FindKeysOwnedBy(cacheName, ownerId, 1, prefix)[0];
+    internal static string FindKeyOwnedBy(string cacheName, string ownerId, string prefix) => KeyOwnerHelper.TwoNode.FindKeyOwnedBy(cacheName, ownerId, prefix);
 
     internal static CacheEntryOptions? Options(TimeSpan? expiration = null) => expiration is null ? null : new CacheEntryOptions { Expiration = expiration };
 
@@ -65,7 +65,4 @@ internal static class Helpers
             throw;
         }
     }
-
-    private static string[] FindKeysOwnedBy(string cacheName, string ownerId, int count, string prefix) =>
-        new KeyOwnerHelper(["nodeA", "nodeB"]).FindKeysOwnedBy(cacheName, ownerId, count, prefix);
 }

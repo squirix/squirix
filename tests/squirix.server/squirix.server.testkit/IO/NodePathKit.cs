@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -107,18 +106,42 @@ public static class NodePathKit
             return;
         }
 
+        ReadOnlySpan<char> remainder;
         if (!string.IsNullOrEmpty(root) && path.StartsWith(root, StringComparison.Ordinal))
         {
-            var parts = path[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
             AddSegment(root, buffer, ref count, ref heapBuffer);
-            for (var i = 0; i < parts.Length; i++)
-                AddSegment(SanitizePath(parts[i]), buffer, ref count, ref heapBuffer);
-            return;
+            remainder = path.AsSpan(root.Length);
+        }
+        else
+        {
+            remainder = path.AsSpan();
         }
 
-        var sanitizedParts = path.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-        for (var i = 0; i < sanitizedParts.Length; i++)
-            AddSegment(SanitizePath(sanitizedParts[i]), buffer, ref count, ref heapBuffer);
+        AppendSanitizedSegments(remainder, buffer, ref count, ref heapBuffer);
+    }
+
+    private static void AppendSanitizedSegments(ReadOnlySpan<char> remainder, string[] buffer, ref int count, ref List<string>? heapBuffer)
+    {
+        while (!remainder.IsEmpty)
+        {
+            var sepIndex = IndexOfDirectorySeparator(remainder);
+            ReadOnlySpan<char> segment;
+            if (sepIndex < 0)
+            {
+                segment = remainder;
+                remainder = default;
+            }
+            else
+            {
+                segment = remainder[..sepIndex];
+                remainder = remainder[(sepIndex + 1)..];
+            }
+
+            if (segment.IsEmpty)
+                continue;
+
+            AddSegment(SanitizePath(segment.ToString()), buffer, ref count, ref heapBuffer);
+        }
     }
 
     private static string BuildProcessSessionSegment()
@@ -141,7 +164,7 @@ public static class NodePathKit
             startTicks = DateTime.UtcNow.Ticks;
         }
 
-        return $"pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}-start{startTicks.ToString(CultureInfo.InvariantCulture)}";
+        return $"pid{InvariantIndexStrings.Format(Environment.ProcessId)}-start{InvariantIndexStrings.Format(startTicks)}";
     }
 
     private static string CombineCore(bool sanitize, string path1, string path2)
@@ -192,6 +215,17 @@ public static class NodePathKit
         return JoinSegments(buffer.AsSpan(0, count));
     }
 
+    private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)
+    {
+        var primary = value.IndexOf(Path.DirectorySeparatorChar);
+        var alternate = value.IndexOf(Path.AltDirectorySeparatorChar);
+        if (primary < 0)
+            return alternate;
+        if (alternate < 0)
+            return primary;
+        return primary < alternate ? primary : alternate;
+    }
+
     private static string JoinSegments(ReadOnlySpan<string> segments)
     {
         if (segments.Length is 0)
@@ -205,7 +239,7 @@ public static class NodePathKit
         {
             var segment = segments[i];
             if (Path.IsPathRooted(segment))
-                throw new InvalidOperationException($"Path segment must be relative: '{segment}'.");
+                throw new InvalidOperationException("Path segment must be relative.");
 
             var prefixLen = TrimTrailingSeparatorsLength(result.AsSpan());
             var nextLength = prefixLen + 1 + segment.Length;

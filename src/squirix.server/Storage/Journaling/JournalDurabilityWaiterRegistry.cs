@@ -6,8 +6,11 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Tracks in-flight durability waiters for <see cref="JournalCoordinator" />.</summary>
 internal sealed class JournalDurabilityWaiterRegistry
 {
-    private readonly List<JournalDurabilityWaiter> _waiters = [];
+    private static readonly List<JournalDurabilityWaiter> EmptyWaiters = [];
+
     private readonly Lock _sync = new();
+    private List<JournalDurabilityWaiter> _waiters = [];
+    private List<JournalDurabilityWaiter> _waitersSpare = [];
 
     internal void Add(JournalDurabilityWaiter waiter)
     {
@@ -26,11 +29,9 @@ internal sealed class JournalDurabilityWaiterRegistry
         lock (_sync)
         {
             if (_waiters.Count is 0)
-                return [];
+                return EmptyWaiters;
 
-            var waiters = new List<JournalDurabilityWaiter>(_waiters);
-            _waiters.Clear();
-            return waiters;
+            return SwapOutWaiters();
         }
     }
 
@@ -40,13 +41,21 @@ internal sealed class JournalDurabilityWaiterRegistry
         {
             if (_waiters.Count is 0)
             {
-                waiters = [];
+                waiters = EmptyWaiters;
                 return false;
             }
 
-            waiters = [.. _waiters];
-            _waiters.Clear();
+            waiters = SwapOutWaiters();
             return true;
         }
+    }
+
+    private List<JournalDurabilityWaiter> SwapOutWaiters()
+    {
+        var batch = _waiters;
+        _waiters = _waitersSpare;
+        _waiters.Clear();
+        _waitersSpare = batch;
+        return batch;
     }
 }

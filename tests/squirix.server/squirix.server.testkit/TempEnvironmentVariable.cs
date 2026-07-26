@@ -4,7 +4,7 @@ namespace Squirix.Server.TestKit;
 
 /// <summary>
 /// Temporarily sets a process-level environment variable for the lifetime of this instance.
-/// On disposal, restores the previous value (including <see langword="null"/> meaning "unset") if the
+/// On disposal, restores the previous value (including <see langword="null" /> meaning "unset") if the
 /// variable has not been changed by someone else in the meantime.
 /// </summary>
 /// <remarks>
@@ -36,7 +36,7 @@ public sealed class TempEnvironmentVariable : IDisposable
     /// </summary>
     /// <param name="key">Environment variable name (case-insensitive on Windows, case-sensitive on Unix).</param>
     /// <param name="value">
-    /// Value to set for the duration of this instance. Use <see langword="null"/> to temporarily unset the variable.
+    /// Value to set for the duration of this instance. Use <see langword="null" /> to temporarily unset the variable.
     /// </param>
     public TempEnvironmentVariable(string key, string? value)
     {

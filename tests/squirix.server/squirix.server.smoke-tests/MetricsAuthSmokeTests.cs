@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -23,47 +22,48 @@ public sealed class MetricsAuthSmokeTests : SmokeTestBase
     /// Ensures <c>/metrics</c> follows loopback-anonymous and remote-JWT rules when server auth is configured.
     /// </summary>
     [Fact]
-    public async Task MetricsRejectsMissingAndInvalidJwtForRemoteAndAcceptsValidJwtWhenConfigured()
+    public async Task MetricsRejectsMissingInvalidValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
+        Assert.False(string.IsNullOrWhiteSpace(localIp));
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
+        var port = new Uri(bindUrl).Port;
+        var remoteMetricsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/metrics");
+        var loopbackMetricsUrl = $"{loopbackUrl}/metrics";
 
         await using var node = await StartNodeAsync(
             bindUrl,
             "node-metrics-auth",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
-        var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/metrics"), DefaultCancellationToken);
-        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback scrape success, got {loopbackAnonymous.StatusCode:D} {loopbackAnonymous.ReasonPhrase}");
+        var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackMetricsUrl), DefaultCancellationToken);
+        Assert.True(loopbackAnonymous.IsSuccessStatusCode);
 
-        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/metrics"))
+        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackMetricsUrl))
         {
             loopbackAuthorized.Version = HttpVersion.Version20;
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, DefaultCancellationToken);
-            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {loopbackWithJwt.StatusCode:D} {loopbackWithJwt.ReasonPhrase}");
+            Assert.True(loopbackWithJwt.IsSuccessStatusCode);
         }
 
-        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"), DefaultCancellationToken);
+        var remoteAnonymous = await RemoteMetricsClient.GetAsync(new Uri(remoteMetricsUrl), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
 
-        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"))
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, remoteMetricsUrl))
         {
             remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
             var remoteInvalidJwt = await RemoteMetricsClient.SendAsync(remoteInvalid, DefaultCancellationToken);
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using (var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/metrics"))
-        {
-            remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
-            var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
-            Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
-        }
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, remoteMetricsUrl);
+        remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
+        var remoteWithJwt = await RemoteMetricsClient.SendAsync(remoteValid, DefaultCancellationToken);
+        Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
     }
 }

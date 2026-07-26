@@ -6,6 +6,14 @@ namespace Squirix.Server.Storage.Journaling;
 /// <summary>Normalizes cache entry expiration for durable journal write and recovery replay.</summary>
 internal static class JournalEntryExpirationMaterializer
 {
+    internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
+    {
+        if (expiresUtc is not null || expiration is null)
+            return (expiresUtc, expiration);
+
+        return (DateTime.UtcNow.Add(expiration.Value), null);
+    }
+
     internal static NodeCacheEntry<T> ForRecoveryInsert<T>(NodeCacheEntry<T> entry, long writtenUnixMs)
     {
         if (entry.ExpiresUtc is not null || entry.Expiration is null || writtenUnixMs <= 0)
@@ -31,13 +39,5 @@ internal static class JournalEntryExpirationMaterializer
 
         var writtenAt = DateTimeOffset.FromUnixTimeMilliseconds(writtenUnixMs).UtcDateTime;
         return writtenAt.Add(relative) <= DateTime.UtcNow;
-    }
-
-    internal static (DateTime? ExpiresUtc, TimeSpan? Expiration) ForJournalWrite(DateTime? expiresUtc, TimeSpan? expiration)
-    {
-        if (expiresUtc is not null || expiration is null)
-            return (expiresUtc, expiration);
-
-        return (DateTime.UtcNow.Add(expiration.Value), null);
     }
 }

@@ -9,12 +9,12 @@ internal static class RemoteInvocationContext
 
     internal static bool IsInternalOwnerInvocation => InternalOwnerInvocation.Value;
 
-    internal static void RestoreInternalOwnerInvocation(bool internalOwnerInvocation) => InternalOwnerInvocation.Value = internalOwnerInvocation;
-
     internal static RemoteInvocationScope EnterRemoteInvocation(bool isInternalOwnerInvocation = false)
     {
         var value = InternalOwnerInvocation.Value;
         InternalOwnerInvocation.Value = isInternalOwnerInvocation;
         return new RemoteInvocationScope(value);
     }
+
+    internal static void RestoreInternalOwnerInvocation(bool internalOwnerInvocation) => InternalOwnerInvocation.Value = internalOwnerInvocation;
 }

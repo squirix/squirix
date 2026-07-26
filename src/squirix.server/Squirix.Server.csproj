@@ -33,6 +33,8 @@
         <PackageReference Include="Grpc.Tools" PrivateAssets="All"/>
         <PackageReference Include="JetBrains.Annotations" PrivateAssets="All"/>
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"/>
+        <PackageReference Include="Microsoft.IdentityModel.Protocols"/>
+        <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -43,9 +45,5 @@
         <Compile Include="..\shared\Squirix\Transport\Grpc\Mappers\GrpcStaleOwnerMarkers.cs" Link="Adapters\Grpc\Mappers\GrpcStaleOwnerMarkers.cs"/>
         <Compile Include="..\shared\Squirix\Transport\Grpc\RpcOperationIdentity.cs" Link="Adapters\Grpc\RpcOperationIdentity.cs"/>
         <None Include="README.md" Pack="true" PackagePath="/"/>
-    </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="Serialization\" />
     </ItemGroup>
 </Project>

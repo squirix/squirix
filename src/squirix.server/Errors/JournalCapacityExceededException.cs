@@ -1,16 +1,22 @@
 using System;
 using JetBrains.Annotations;
 
-namespace Squirix.Server.Storage.Journaling;
+namespace Squirix.Server.Errors;
 
-/// <summary>Thrown when pipelined segment roll or compaction cannot free enough capacity.</summary>
+/// <summary>Thrown when an append or segment roll would exceed configured on-disk journal capacity.</summary>
 [PublicAPI]
-public sealed class JournalCapacityExceededException : InvalidOperationException
+public sealed class JournalCapacityExceededException : Exception
 {
+    /// <summary>
+    /// Stable, bounded detail text shared with REST/gRPC mappings (no raw paths, keys, or sizes).
+    /// </summary>
+    internal const string StableDetail = "The cache rejected this operation because on-disk journal usage is at the configured limit.";
+
     /// <summary>
     /// Initializes a new instance of the <see cref="JournalCapacityExceededException" /> class.
     /// </summary>
     public JournalCapacityExceededException()
+        : base(StableDetail)
     {
     }
 

@@ -1,6 +1,6 @@
 using System;
-using System.Globalization;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
@@ -8,11 +8,32 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// <summary>Integration tests for single-node Touch expiration semantics.</summary>
 public sealed class ExpirationTouchTests : TestBase
 {
-    /// <summary>Initializes a new instance of the <see cref="ExpirationTouchTests"/> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ExpirationTouchTests" /> class.</summary>
     /// <param name="fixture">Shared single-node cluster fixture.</param>
     public ExpirationTouchTests(SingleNodeFixture fixture)
         : base(fixture)
     {
+    }
+
+    /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
+    [Fact]
+    public async Task TouchAsyncExpiredEntryReturnsFalseMakesKeyMissing()
+    {
+        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
+
+        await cache.SetAsync(
+            "k",
+            "v",
+            new CacheEntryOptions
+            {
+                Expiration = TimeSpan.FromMilliseconds(40),
+            },
+            DefaultCancellationToken);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(90), TimeProvider.System, DefaultCancellationToken);
+
+        Assert.False(await cache.TouchAsync("k", TimeSpan.FromSeconds(1), DefaultCancellationToken));
+        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
     /// <summary>Verifies TouchAsync extends the expiration window when the key exists.</summary>
@@ -29,7 +50,7 @@ public sealed class ExpirationTouchTests : TestBase
         var expirationAfter = await cache.GetExpirationAsync("k1", DefaultCancellationToken);
         Assert.True(expirationAfter.Found);
         Assert.True(expirationAfter.HasExpiration);
-        Assert.True(expirationAfter <= TimeSpan.FromSeconds(2) && expirationAfter > TimeSpan.Zero, $"unexpected remaining expiration: {expirationAfter}");
+        Assert.True(expirationAfter <= TimeSpan.FromSeconds(2) && expirationAfter > TimeSpan.Zero);
     }
 
     /// <summary>
@@ -37,7 +58,7 @@ public sealed class ExpirationTouchTests : TestBase
     /// Ensures the key remains available past the original expiration after a successful touch.
     /// </summary>
     [Fact]
-    public async Task TouchAsyncExtendsExpirationInsertedEntryThroughPublicApi()
+    public async Task TouchAsyncExtendsExpirationInsertedEntryPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("expiration-touch-public-extra-expiration", DefaultCancellationToken);
 
@@ -79,35 +100,12 @@ public sealed class ExpirationTouchTests : TestBase
         var touched = await cache.GetEntryAsync("k", DefaultCancellationToken);
         Assert.True(touched.Found);
         Assert.Equal("v", touched.Value);
-        Assert.True(
-            touched.ExpiresUtc > originalExpiresUtc,
-            $"expected touched expiry after {originalExpiresUtc.ToString("O", CultureInfo.InvariantCulture)}, actual {touched.ExpiresUtc!.Value.ToString("O", CultureInfo.InvariantCulture)}");
-    }
-
-    /// <summary>Verifies TouchAsync returns false and removes an already expired entry.</summary>
-    [Fact]
-    public async Task TouchAsyncOnExpiredEntryReturnsFalseAndMakesKeyMissing()
-    {
-        var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
-
-        await cache.SetAsync(
-            "k",
-            "v",
-            new CacheEntryOptions
-            {
-                Expiration = TimeSpan.FromMilliseconds(40),
-            },
-            DefaultCancellationToken);
-
-        await Task.Delay(TimeSpan.FromMilliseconds(90), TimeProvider.System, DefaultCancellationToken);
-
-        Assert.False(await cache.TouchAsync("k", TimeSpan.FromSeconds(1), DefaultCancellationToken));
-        Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
+        Assert.True(touched.ExpiresUtc > originalExpiresUtc);
     }
 
     /// <summary>Verifies TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
     [Fact]
-    public async Task TouchAsyncOnNonExpiringKeyAddsExpirationAndKeepsValue()
+    public async Task TouchAsyncOnNonExpiringKeyAddsExpirationKeepsValue()
     {
         var cache = await Client.GetCacheAsync<string>("touch-non-expiring-public-extra", DefaultCancellationToken);
 
@@ -124,7 +122,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync rejects non-positive expiration without mutating the existing expiration.</summary>
     [Fact]
-    public async Task TouchAsyncRejectsNonPositiveExpirationWithoutChangingExistingExpiration()
+    public async Task TouchAsyncRejectsNonChangingExistingExpiration()
     {
         var cache = await Client.GetCacheAsync<string>("touch-invalid-expiration-public-extra", DefaultCancellationToken);
 
@@ -141,7 +139,7 @@ public sealed class ExpirationTouchTests : TestBase
         Assert.True(before.Found);
         Assert.True(before.HasExpiration);
 
-        _ = await Assert.ThrowsAnyAsync<ArgumentOutOfRangeException>(async () => _ = await cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentOutOfRangeException>(cache.TouchAsync("k", TimeSpan.Zero, DefaultCancellationToken));
 
         var after = await cache.GetExpirationAsync("k", DefaultCancellationToken);
         Assert.True(after.Found);
@@ -152,7 +150,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync returns false for a missing key through the public API.</summary>
     [Fact]
-    public async Task TouchAsyncReturnsFalseForMissingKeyThroughPublicApi()
+    public async Task TouchAsyncReturnsFalseForMissingKeyPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-touch-missing", DefaultCancellationToken);
 
@@ -161,7 +159,7 @@ public sealed class ExpirationTouchTests : TestBase
 
     /// <summary>Verifies TouchAsync treats an expired key as missing and does not resurrect it.</summary>
     [Fact]
-    public async Task TouchAsyncTreatsExpiredKeyAsMissingAndDoesNotResurrect()
+    public async Task TouchAsyncTreatsExpiredKeyAsMissingAndNotResurrect()
     {
         var cache = await Client.GetCacheAsync<string>("touch-expired-public-extra", DefaultCancellationToken);
 

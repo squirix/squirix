@@ -6,6 +6,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Storage.Snapshot.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 
 namespace Squirix.Server.Benchmarks;
@@ -45,11 +46,11 @@ internal sealed class SnapshotBenchmarkHost : IAsyncDisposable
         {
             object? value = (i % 3) switch
             {
-                0 => $"value-{i}",
+                0 => $"value-{InvariantIndexStrings.Format(i)}",
                 1 => i,
                 _ => i * 1.5d,
             };
-            items.Add((CacheKey.Default($"key-{i}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+            items.Add((CacheKey.Default($"key-{InvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
         }
 
         return Task.FromResult(new SnapshotBenchmarkHost(dataDir, persistence, items));

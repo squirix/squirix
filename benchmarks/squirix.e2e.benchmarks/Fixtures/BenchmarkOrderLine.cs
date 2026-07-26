@@ -1,4 +1,5 @@
 // ReSharper disable UnusedAutoPropertyAccessor.Global
+
 namespace Squirix.E2EBenchmarks.Fixtures;
 
 /// <summary>Order line used by mutable custom benchmark classes.</summary>

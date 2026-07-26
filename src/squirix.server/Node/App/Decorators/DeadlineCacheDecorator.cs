@@ -96,9 +96,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         catch (OperationCanceledException ex)
         {
             if (ServerCancelClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is ServerCancelScenarioKind.OperationDeadlineExceeded)
-            {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
-            }
 
             throw;
         }
@@ -121,9 +119,7 @@ internal sealed class DeadlineCacheDecorator<T> : ILogicalNamespacedCache<T>
         catch (OperationCanceledException ex)
         {
             if (ServerCancelClassifier.ClassifyLogicalPipelineDeadlineCancellation(cancellationToken, linked.Token) is ServerCancelScenarioKind.OperationDeadlineExceeded)
-            {
                 throw new TimeoutException(PipelineDeadlineExceededMessage, ex);
-            }
 
             throw;
         }

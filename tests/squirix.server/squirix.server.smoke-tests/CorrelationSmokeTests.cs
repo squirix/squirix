@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Grpc.Core;
@@ -34,6 +35,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var peers = BuildClusterPeers([("A", uriA), ("B", uriB)]);
 
         var capture = new CapturingHeadersInterceptor();
+        var servicesConfigure = new CaptureServicesConfigure(capture);
 
         await using var nodeA = await StartNodeAsync(uriA, peers, cancellationToken: DefaultCancellationToken);
         await using var nodeB = await StartNodeAsync(
@@ -42,11 +44,11 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
             new SmokeNodeStartOptions
             {
                 ConfigureGrpc = static o => o.Interceptors.Add<CapturingHeadersInterceptor>(),
-                ServicesConfigure = services => services.AddSingleton(capture),
+                ServicesConfigure = servicesConfigure.Apply,
             },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
-        var key = new TestKeyOwnerHelper(["A", "B"]).FindKeyOwnedBy("default", "B", "correlation");
+        var key = TestKeyOwnerHelper.SmokeTwoNode.FindKeyOwnedBy("default", "B", "correlation");
 
         using var activity = new Activity("test");
         _ = activity.SetIdFormat(ActivityIdFormat.W3C);
@@ -77,9 +79,39 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         var gotTp = last.GetValue(TraceParentHeader);
         Assert.False(string.IsNullOrEmpty(gotTp));
 
-        var expectedTraceId = traceparent!.Split('-')[1];
-        var gotTraceId = gotTp.Split('-')[1];
+        var expectedTraceId = TraceIdFromTraceparent(traceparent!);
+        var gotTraceId = TraceIdFromTraceparent(gotTp);
         Assert.Equal(expectedTraceId, gotTraceId);
+    }
+
+    private static string TraceIdFromTraceparent(string traceparent)
+    {
+        var span = traceparent.AsSpan();
+        var firstDash = span.IndexOf('-');
+        if (firstDash < 0)
+            throw new InvalidOperationException("traceparent is missing a dash separator.");
+
+        var secondDash = span[(firstDash + 1)..].IndexOf('-');
+        if (secondDash < 0)
+            throw new InvalidOperationException("traceparent is missing the trace-id segment.");
+
+        secondDash += firstDash + 1;
+        return traceparent[(firstDash + 1)..secondDash];
+    }
+
+    private sealed class CaptureServicesConfigure
+    {
+        private readonly CapturingHeadersInterceptor _capture;
+
+        internal CaptureServicesConfigure(CapturingHeadersInterceptor capture)
+        {
+            _capture = capture;
+            Apply = ApplyCore;
+        }
+
+        internal Action<IServiceCollection> Apply { get; }
+
+        private void ApplyCore(IServiceCollection services) => services.AddSingleton(_capture);
     }
 
     /// <summary>
@@ -94,10 +126,7 @@ public sealed class CorrelationSmokeTests : SmokeTestBase
         internal Metadata? LastRequestHeaders => _last;
 
         /// <inheritdoc />
-        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
-            TRequest request,
-            ServerCallContext context,
-            UnaryServerMethod<TRequest, TResponse> continuation)
+        public override Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
         {
             _last = context.RequestHeaders;
             return base.UnaryServerHandler(request, context, continuation);

@@ -11,6 +11,33 @@ internal static class TopologyValidator
     private const int MaxUrlLength = 2048;
     private const int MaxVirtualNodes = 16384;
 
+    private const string ClusterIdRequired = "ClusterId is required.";
+    private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
+    private const string DataDirectoryEmpty = "DataDirectory cannot be empty or whitespace.";
+    private const string DataDirectoryRequiresPersistence = "DataDirectory requires persistence. Call UsePersistence() or pass --persist.";
+    private const string DataDirectoryTooLong = "DataDirectory cannot exceed 1024 characters.";
+    private const string LocalPeerUriMismatch = "Peers entry for the local NodeId must use the same Uri as Uri.";
+    private const string NodeIdRequired = "NodeId is required.";
+    private const string NodeIdTooLong = "NodeId cannot exceed 128 characters.";
+    private const string PeersDuplicateNodeId = "Peers contains duplicate NodeId.";
+    private const string PeersDuplicateUri = "Peers contains duplicate Uri.";
+    private const string PeersMustIncludeLocalNodeId = "Peers must include the local NodeId.";
+    private const string PeersNodeIdRequired = "Peers[].NodeId is required.";
+    private const string PeersNodeIdTooLong = "Peers[].NodeId cannot exceed 128 characters.";
+    private const string PeersTooMany = "Peers cannot contain more than 1024 entries.";
+    private const string PeersUriHostRequired = "Peers[].Uri must include a host.";
+    private const string PeersUriHttpsRequired = "Peers[].Uri must be an absolute https URI.";
+    private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
+    private const string PeersUriTooLong = "Peers[].Uri cannot exceed 2048 characters.";
+    private const string UriHostRequired = "Uri must include a host.";
+    private const string UriHttpsRequired = "Uri must be an absolute https URI.";
+    private const string UriOriginRequired = "Uri must be an origin URI without credentials, path, query, or fragment.";
+    private const string UriTooLong = "Uri cannot exceed 2048 characters.";
+    private const string VirtualNodesMustBePositive = "VirtualNodes must be greater than zero.";
+    private const string VirtualNodesTooLarge = "VirtualNodes cannot exceed 16384.";
+
+    private static readonly IReadOnlyList<string> NoValidationErrors = [];
+
     internal static bool TryValidate(TopologyOptions options, out IReadOnlyList<string> errors) => TryValidate(options, true, null, out errors);
 
     /// <summary>Validates topology fields with optional hosting persistence settings.</summary>
@@ -37,7 +64,7 @@ internal static class TopologyValidator
 
         if (failures.Count is 0)
         {
-            errors = [];
+            errors = NoValidationErrors;
             return true;
         }
 
@@ -45,12 +72,34 @@ internal static class TopologyValidator
         return false;
     }
 
-    private static void ValidateIdentifier(List<string> failures, string? value, string name)
+    private static void ValidateIdentifier(List<string> failures, string? value, string requiredMessage, string tooLongMessage)
     {
         if (string.IsNullOrWhiteSpace(value))
-            failures.Add($"{name} is required.");
+            failures.Add(requiredMessage);
         else if (value.Length > MaxIdentifierLength)
-            failures.Add($"{name} cannot exceed {MaxIdentifierLength} characters.");
+            failures.Add(tooLongMessage);
+    }
+
+    private static bool ValidatePeerEntry(List<string> failures, string? nodeId, Uri? nodeUri, (string? NodeId, Uri? Uri) peer, HashSet<string> peerIds, HashSet<string> peerUris)
+    {
+        var (peerNodeId, uri) = peer;
+        ValidateIdentifier(failures, peerNodeId, PeersNodeIdRequired, PeersNodeIdTooLong);
+        ValidateUri(failures, uri, PeersUriHttpsRequired, PeersUriTooLong, PeersUriHostRequired, PeersUriOriginRequired);
+        if (peerNodeId is not null && !peerIds.Add(peerNodeId))
+            failures.Add(PeersDuplicateNodeId);
+        if (uri is { IsAbsoluteUri: true } && !peerUris.Add(uri.AbsoluteUri))
+            failures.Add(PeersDuplicateUri);
+
+        if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
+            return false;
+
+        // The self peer entry must advertise the same origin Uri as the local listener configuration.
+        if (nodeUri is { IsAbsoluteUri: true } && uri is { IsAbsoluteUri: true } && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add(LocalPeerUriMismatch);
+        }
+
+        return true;
     }
 
     private static void ValidatePeers<TPeer>(List<string> failures, string? nodeId, Uri? nodeUri, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
@@ -62,87 +111,70 @@ internal static class TopologyValidator
         // Empty peer list means single-node mode; otherwise the local node id must appear in Peers.
         var localNodePresent = peers.Length is 0;
         for (var i = 0; i < peers.Length; i++)
-        {
-            var peer = peers[i];
-            var (peerNodeId, uri) = readPeer(peer);
-            ValidateIdentifier(failures, peerNodeId, "Peers[].NodeId");
-            ValidateUri(failures, uri, "Peers[].Uri");
-            if (peerNodeId is not null && !peerIds.Add(peerNodeId))
-                failures.Add($"Peers contains duplicate NodeId '{peerNodeId}'.");
-            if (uri is not null)
-            {
-                var peerOrigin = uri.AbsoluteUri;
-                if (!peerUris.Add(peerOrigin))
-                    failures.Add($"Peers contains duplicate Uri '{peerOrigin}'.");
-            }
-
-            if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
-                continue;
-            localNodePresent = true;
-
-            // The self peer entry must advertise the same origin Uri as the local listener configuration.
-            if (nodeUri is not null && uri is not null && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
-            {
-                failures.Add("Peers entry for the local NodeId must use the same Uri as Uri.");
-            }
-        }
+            localNodePresent |= ValidatePeerEntry(failures, nodeId, nodeUri, readPeer(peers[i]), peerIds, peerUris);
 
         if (!localNodePresent)
-            failures.Add("Peers must include the local NodeId.");
+            failures.Add(PeersMustIncludeLocalNodeId);
     }
 
     private static void ValidateTopology<TPeer>(List<string> failures, TopologyValidationArgs args, Func<TPeer, (string? NodeId, Uri? Uri)> readPeer, TPeer[] peers)
         where TPeer : notnull
     {
-        ValidateIdentifier(failures, args.ClusterId, "ClusterId");
-        ValidateIdentifier(failures, args.NodeId, "NodeId");
-        ValidateUri(failures, args.NodeUri, "Uri");
+        ValidateIdentifier(failures, args.ClusterId, ClusterIdRequired, ClusterIdTooLong);
+        ValidateIdentifier(failures, args.NodeId, NodeIdRequired, NodeIdTooLong);
+        ValidateUri(failures, args.NodeUri, UriHttpsRequired, UriTooLong, UriHostRequired, UriOriginRequired);
 
         // Virtual node count bounds the consistent-hash ring size configured for this process.
         switch (args.VirtualNodes)
         {
             case <= 0:
-                failures.Add("VirtualNodes must be greater than zero.");
+                failures.Add(VirtualNodesMustBePositive);
                 break;
             case > MaxVirtualNodes:
-                failures.Add($"VirtualNodes cannot exceed {MaxVirtualNodes}.");
+                failures.Add(VirtualNodesTooLarge);
                 break;
         }
 
         if (args is { PersistenceEnabled: false, DataDirectory: not null })
-            failures.Add("DataDirectory requires persistence. Call UsePersistence() or pass --persist.");
+            failures.Add(DataDirectoryRequiresPersistence);
 
         // Durability paths are validated only when persistence is enabled so in-memory nodes stay lightweight.
         if (args.PersistenceEnabled)
         {
             if (args.DataDirectory is { Length: > MaxDataDirectoryLength })
-                failures.Add($"DataDirectory cannot exceed {MaxDataDirectoryLength} characters.");
+                failures.Add(DataDirectoryTooLong);
             if (args.DataDirectory is not null && string.IsNullOrWhiteSpace(args.DataDirectory))
-                failures.Add("DataDirectory cannot be empty or whitespace.");
+                failures.Add(DataDirectoryEmpty);
         }
 
         if (peers.Length > MaxPeers)
-            failures.Add($"Peers cannot contain more than {MaxPeers} entries.");
+            failures.Add(PeersTooMany);
 
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
     }
 
-    private static void ValidateUri(List<string> failures, Uri? value, string name)
+    private static void ValidateUri(
+        List<string> failures,
+        Uri? value,
+        string httpsRequiredMessage,
+        string tooLongMessage,
+        string hostRequiredMessage,
+        string originRequiredMessage)
     {
         if (value?.IsAbsoluteUri is not true || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            failures.Add($"{name} must be an absolute https URI.");
+            failures.Add(httpsRequiredMessage);
             return;
         }
 
         if (value.OriginalString.Length > MaxUrlLength)
-            failures.Add($"{name} cannot exceed {MaxUrlLength} characters.");
+            failures.Add(tooLongMessage);
         if (string.IsNullOrWhiteSpace(value.Host))
-            failures.Add($"{name} must include a host.");
+            failures.Add(hostRequiredMessage);
         if (!string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) ||
             !string.IsNullOrEmpty(value.Fragment))
         {
-            failures.Add($"{name} must be an origin URI without credentials, path, query, or fragment.");
+            failures.Add(originRequiredMessage);
         }
     }
 

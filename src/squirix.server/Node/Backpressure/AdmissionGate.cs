@@ -27,7 +27,7 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _options.Validate();
         _slots = new SemaphoreSlim(_options.MaxInFlight, _options.MaxInFlight);
         _nodeRateLimiter = RateLimiter.Create(_options.NodeRateLimitPerSecond, _options.NodeRateLimitBurst);
-        _observerRegistration = BackpressureMetrics.RegisterObservers(() => Volatile.Read(ref _inFlight), () => Volatile.Read(ref _queueDepth), () => _clients.Count);
+        _observerRegistration = BackpressureMetrics.RegisterObservers(ObserveInFlight, ObserveQueueDepth, ObserveTrackedClients);
     }
 
     public async ValueTask<(Decision Decision, Lease Lease)> AcquireAsync(string transport, string operation, string clientId, CancellationToken cancellationToken)
@@ -104,6 +104,14 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _ = Interlocked.Increment(ref client.InFlightRef);
         return new Lease(this, clientId);
     }
+
+    private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
+
+    private int ObserveInFlight() => Volatile.Read(ref _inFlight);
+
+    private int ObserveQueueDepth() => Volatile.Read(ref _queueDepth);
+
+    private int ObserveTrackedClients() => _clients.Count;
 
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
@@ -187,8 +195,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         _ = _slots.Release();
         RemoveIdleClient(clientId, client);
     }
-
-    private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
 
     private void RemoveIdleClient(string clientId, ClientState client)
     {

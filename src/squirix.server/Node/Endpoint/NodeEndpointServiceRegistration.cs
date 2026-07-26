@@ -7,6 +7,7 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
+using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Compaction;
 using Squirix.Server.Storage.Manifest;
@@ -45,41 +46,6 @@ internal static class NodeEndpointServiceRegistration
         }
     }
 
-    private sealed class HealthReadyDependencies
-    {
-        internal HealthReadyDependencies(
-            ManifestStore manifestStore,
-            IRetentionCleanupReadinessStatus retentionCleanup,
-            IJournalCoordinator journal,
-            Coordinator snapshot,
-            IJournalCompactionStatus compaction,
-            TopologyOptions cluster,
-            IMemoryUsageAccounting memoryAccounting)
-        {
-            ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
-            RetentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
-            Journal = journal ?? throw new ArgumentNullException(nameof(journal));
-            Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
-            Compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
-            Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
-            MemoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
-        }
-
-        internal ManifestStore ManifestStore { get; }
-
-        internal IRetentionCleanupReadinessStatus RetentionCleanup { get; }
-
-        internal IJournalCoordinator Journal { get; }
-
-        internal Coordinator Snapshot { get; }
-
-        internal IJournalCompactionStatus Compaction { get; }
-
-        internal TopologyOptions Cluster { get; }
-
-        internal IMemoryUsageAccounting MemoryAccounting { get; }
-    }
-
     /// <summary>Builds health-ready diagnostics when persistence is disabled.</summary>
     private sealed class EphemeralHealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
@@ -114,7 +80,7 @@ internal static class NodeEndpointServiceRegistration
                 PressureLevel.Normal => "normal",
                 PressureLevel.High => "high",
                 PressureLevel.Critical => "critical",
-                _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
+                _ => throw new InvalidOperationException("Unsupported memory pressure state."),
             };
 
             var memoryPressure = new HealthMemoryPressureSnapshot(
@@ -134,10 +100,46 @@ internal static class NodeEndpointServiceRegistration
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
+                JournalDisk = new HealthJournalDiskSnapshot("normal", 0, 0, 0, false),
                 RetentionCleanup = new HealthRetentionCleanupSnapshot(false, 0, 0, null),
             };
             return Task.FromResult(healthReadyDetailsSnapshot);
         }
+    }
+
+    private sealed class HealthReadyDependencies
+    {
+        internal HealthReadyDependencies(
+            ManifestStore manifestStore,
+            IRetentionCleanupReadinessStatus retentionCleanup,
+            IJournalCoordinator journal,
+            Coordinator snapshot,
+            IJournalCompactionStatus compaction,
+            TopologyOptions cluster,
+            IMemoryUsageAccounting memoryAccounting)
+        {
+            ManifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
+            RetentionCleanup = retentionCleanup ?? throw new ArgumentNullException(nameof(retentionCleanup));
+            Journal = journal ?? throw new ArgumentNullException(nameof(journal));
+            Snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
+            Compaction = compaction ?? throw new ArgumentNullException(nameof(compaction));
+            Cluster = cluster ?? throw new ArgumentNullException(nameof(cluster));
+            MemoryAccounting = memoryAccounting ?? throw new ArgumentNullException(nameof(memoryAccounting));
+        }
+
+        internal TopologyOptions Cluster { get; }
+
+        internal IJournalCompactionStatus Compaction { get; }
+
+        internal IJournalCoordinator Journal { get; }
+
+        internal ManifestStore ManifestStore { get; }
+
+        internal IMemoryUsageAccounting MemoryAccounting { get; }
+
+        internal IRetentionCleanupReadinessStatus RetentionCleanup { get; }
+
+        internal Coordinator Snapshot { get; }
     }
 
     /// <summary>Builds health-ready diagnostics for REST endpoints.</summary>
@@ -180,9 +182,7 @@ internal static class NodeEndpointServiceRegistration
 
             double? snapshotAgeSeconds = null;
             if (manifest.LastSnapshot?.Path is not null)
-            {
                 snapshotAgeSeconds = Math.Max(0, (DateTime.UtcNow - manifest.LastSnapshot.CreatedUtc).TotalSeconds);
-            }
 
             var compactionState = _compaction.State switch
             {
@@ -191,13 +191,14 @@ internal static class NodeEndpointServiceRegistration
                 RunState.Running => "Running",
                 RunState.BackingOff => "BackingOff",
                 RunState.Failed => "Failed",
-                _ => throw new InvalidOperationException($"Unsupported compaction state: {_compaction.State}."),
+                _ => throw new InvalidOperationException("Unsupported compaction state."),
             };
             var compaction = new HealthCompactionSnapshot(compactionState, _compaction.LastRunUtc, _compaction.IsInFlight);
             var clientPool = new HealthClientPoolSnapshot(true, _cluster.Peers.Length);
             var coordination = new HealthCoordinationSnapshot(new HealthLeaseSnapshot(false, 0, 0, 0), new HealthWatchSnapshot(false, 0, 0, 0));
 
             var memoryPressure = BuildMemoryPressureSnapshot();
+            var journalDisk = BuildJournalDiskSnapshot();
             var retentionCleanup = BuildRetentionCleanupSnapshot();
 
             return new HealthReadyDetailsSnapshot
@@ -209,8 +210,18 @@ internal static class NodeEndpointServiceRegistration
                 ClientPool = clientPool,
                 Coordination = coordination,
                 MemoryPressure = memoryPressure,
+                JournalDisk = journalDisk,
                 RetentionCleanup = retentionCleanup,
             };
+        }
+
+        private HealthJournalDiskSnapshot BuildJournalDiskSnapshot()
+        {
+            var usedBytes = _journal.UsedBytes;
+            var maxBytes = _journal.MaxBytes;
+            var highWaterBytes = _journal.HighWaterBytes;
+            var state = JournalSegmentPolicy.EvaluatePressureState(usedBytes, highWaterBytes, maxBytes);
+            return new HealthJournalDiskSnapshot(state, maxBytes, usedBytes, highWaterBytes, usedBytes >= maxBytes);
         }
 
         private HealthMemoryPressureSnapshot BuildMemoryPressureSnapshot()
@@ -222,7 +233,7 @@ internal static class NodeEndpointServiceRegistration
                 PressureLevel.Normal => "normal",
                 PressureLevel.High => "high",
                 PressureLevel.Critical => "critical",
-                _ => throw new InvalidOperationException($"Unsupported memory pressure state: {state}."),
+                _ => throw new InvalidOperationException("Unsupported memory pressure state."),
             };
 
             return new HealthMemoryPressureSnapshot(

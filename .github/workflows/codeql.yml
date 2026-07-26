@@ -14,7 +14,6 @@ concurrency:
     cancel-in-progress: true
 
 permissions:
-    security-events: write
     packages: read
     actions: read
     contents: read
@@ -28,10 +27,12 @@ jobs:
             code: ${{ steps.filter.outputs.code }}
         steps:
             -   name: Checkout
-                uses: actions/checkout@v6
+                uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+                with:
+                    persist-credentials: false
 
             -   name: Paths Filter
-                uses: dorny/paths-filter@v4
+                uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
                 id: filter
                 with:
                     filters: |
@@ -62,10 +63,18 @@ jobs:
             needs.changes.outputs.code == 'true' ||
             github.event_name == 'schedule' ||
             github.event_name == 'workflow_dispatch'
+        permissions:
+            # Required by the Upload SARIF step (github/codeql-action/upload-sarif).
+            security-events: write
+            packages: read
+            actions: read
+            contents: read
 
         steps:
             -   name: Checkout
-                uses: actions/checkout@v6
+                uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+                with:
+                    persist-credentials: false
 
             -   name: Initialize CodeQL
                 uses: github/codeql-action/init@v4
@@ -81,7 +90,7 @@ jobs:
                     upload: false
 
             -   name: Filter generated paths from SARIF
-                uses: advanced-security/filter-sarif@v1
+                uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d # v1
                 with:
                     patterns: |
                         -**/*.g.cs

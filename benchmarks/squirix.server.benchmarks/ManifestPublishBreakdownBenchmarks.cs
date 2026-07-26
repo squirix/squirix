@@ -106,11 +106,7 @@ public class ManifestPublishBreakdownBenchmarks
         private readonly TempDirectory _dataDir;
         private readonly byte[] _encodeBuffer;
 
-        private Session(
-            TempDirectory dataDir,
-            ManifestStore store,
-            IManifestPointerWriter pointerWriter,
-            SessionWarmup warmup)
+        private Session(TempDirectory dataDir, ManifestStore store, IManifestPointerWriter pointerWriter, SessionWarmup warmup)
         {
             _dataDir = dataDir;
             _encodeBuffer = warmup.EncodeBuffer;
@@ -216,7 +212,7 @@ public class ManifestPublishBreakdownBenchmarks
             FileDurability.WriteCurrentPointerBlocking(PointerWriter, pointerBuffer);
         }
 
-        /// <summary>Non-owned warmup values for <see cref="Session"/> construction (avoids an 8+ parameter ctor).</summary>
+        /// <summary>Non-owned warmup values for <see cref="Session" /> construction (avoids an 8+ parameter ctor).</summary>
         private sealed class SessionWarmup
         {
             internal required byte[] EncodeBuffer { get; init; }

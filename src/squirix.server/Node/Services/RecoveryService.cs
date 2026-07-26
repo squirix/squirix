@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,11 +37,7 @@ internal sealed class RecoveryService<T> : IHostedService
     private readonly ISnapshotReader _snapshotReader;
     private Task? _replayTask;
 
-    internal RecoveryService(
-        RecoveryOptions options,
-        ILogger<RecoveryService<T>> log,
-        RecoveryDependencies<T> deps,
-        IHostApplicationLifetime? applicationLifetime = null)
+    internal RecoveryService(RecoveryOptions options, ILogger<RecoveryService<T>> log, RecoveryDependencies<T> deps, IHostApplicationLifetime? applicationLifetime = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log ?? throw new ArgumentNullException(nameof(log));
@@ -92,12 +87,9 @@ internal sealed class RecoveryService<T> : IHostedService
         }
     }
 
-    private static InvalidOperationException CreateJournalDecodeFailure(ulong sequence, string operation, string key) => new(
-        $"journal replay failed: undecodable entry payload at sequence {sequence} for operation '{operation}' on key '{key}'.");
+    private static InvalidOperationException CreateJournalDecodeFailure() => new("journal replay failed: undecodable entry payload.");
 
-    private static InvalidDataException CreateJournalReplayBoundaryFailure(int manifestCurrentJournal, int firstAvailableSegment, int lastAvailableSegment, bool snapshotPresent) =>
-        new(
-            $"journal recovery cannot determine a valid replay start. manifestCurrentJournal={manifestCurrentJournal.ToString(CultureInfo.InvariantCulture)}, firstAvailableJournal={(firstAvailableSegment > 0 ? firstAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, lastAvailableJournal={(lastAvailableSegment > 0 ? lastAvailableSegment : 0).ToString(CultureInfo.InvariantCulture)}, chosenReplayStartSegment=0, snapshotPresent={snapshotPresent.ToString(CultureInfo.InvariantCulture)}.");
+    private static InvalidDataException CreateJournalReplayBoundaryFailure() => new("journal recovery cannot determine a valid replay start.");
 
     private static int DetermineJournalOnlyReplayStart(State manifest, int firstAvailableSegment, int lastAvailableSegment)
     {
@@ -106,7 +98,7 @@ internal sealed class RecoveryService<T> : IHostedService
         var journalGapDetected = firstAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal;
         if (!missingInitialSegment && !journalGapDetected)
             return firstAvailableSegment > 0 ? firstAvailableSegment : 1;
-        throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, false);
+        throw CreateJournalReplayBoundaryFailure();
     }
 
     private static int NormalizeSegmentIndex(int segmentIndex) => segmentIndex > 0 ? segmentIndex : 1;
@@ -123,7 +115,7 @@ internal sealed class RecoveryService<T> : IHostedService
                 var key = record.Key with { Namespace = PersistedCacheNamespace.Normalize(record.Key.Namespace) };
                 var putEntryBytes = record.PutEntryBytes;
                 if (!JournalEntryPayload.TryDecode<T>(putEntryBytes.Span, out var entry))
-                    throw CreateJournalDecodeFailure(record.Sequence, "put", key.Key);
+                    throw CreateJournalDecodeFailure();
 
                 if (JournalEntryExpirationMaterializer.IsExpiredForRecovery(entry!.ExpiresUtc, entry.Expiration, record.UnixMs))
                     break;
@@ -304,7 +296,7 @@ internal sealed class RecoveryService<T> : IHostedService
     {
         var (firstAvailableSegment, lastAvailableSegment) = GetJournalSegmentRange();
         if (firstAvailableSegment > 1 || (lastAvailableSegment > 0 && lastAvailableSegment < manifestCurrentJournal))
-            throw CreateJournalReplayBoundaryFailure(manifestCurrentJournal, firstAvailableSegment, lastAvailableSegment, true);
+            throw CreateJournalReplayBoundaryFailure();
     }
 
     private async Task<ReplayState> RestoreSnapshotIfPresentAsync(ReplayContext context, CancellationToken cancellationToken)

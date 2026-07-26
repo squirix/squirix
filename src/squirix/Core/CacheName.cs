@@ -36,12 +36,14 @@ internal sealed record CacheName
     {
         private const int MaxLength = 128;
 
+        private const string TooLongMessage = "Cache name exceeds the maximum length of 128 characters.";
+
         internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName! : throw new ArgumentException(GetMessage(error), p);
 
         private static string GetMessage(CacheNameValidationError error) => error switch
         {
             CacheNameValidationError.Required => "Cache name is required.",
-            CacheNameValidationError.TooLong => $"Cache name exceeds the maximum length of {MaxLength} characters.",
+            CacheNameValidationError.TooLong => TooLongMessage,
             CacheNameValidationError.InvalidCharacters => "Cache name contains invalid characters. Allowed characters are A-Z, a-z, 0-9, '.', '_', and '-'.",
             CacheNameValidationError.ForbiddenDotSegment => "Cache name is reserved.",
             _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),
@@ -52,10 +54,8 @@ internal sealed record CacheName
         private static bool IsWhiteSpaceOnly(string cacheName)
         {
             for (var i = 0; i < cacheName.Length; i++)
-            {
                 if (!char.IsWhiteSpace(cacheName[i]))
                     return false;
-            }
 
             return true;
         }

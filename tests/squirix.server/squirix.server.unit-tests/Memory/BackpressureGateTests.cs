@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
-using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Backpressure;
@@ -68,7 +69,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies concurrent acquire and release does not exceed configured in-flight capacity.</summary>
     [Fact]
-    public async Task ConcurrentAcquireReleaseDoesNotExceedConfiguredCapacity()
+    public async Task ConcurrentAcquireReleaseExceedConfiguredCapacity()
     {
         const int maxInFlight = 3;
         var backpressureOptions = new AdmissionOptions
@@ -86,17 +87,13 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         var observedMax = new int[1];
         var clients = new Task[24];
         for (var i = 0; i < clients.Length; i++)
-        {
             clients[i] = RunClientAsync(gateForClients, i, current, observedMax, DefaultCancellationToken);
-        }
 
         var runClients = Task.WhenAll(clients);
 
         await runClients;
 
-        Assert.True(
-            observedMax[0] <= maxInFlight,
-            $"Observed max in-flight {observedMax[0].ToString(CultureInfo.InvariantCulture)} exceeded limit {maxInFlight.ToString(CultureInfo.InvariantCulture)}.");
+        Assert.True(observedMax[0] <= maxInFlight);
     }
 
     /// <summary>Verifies observable gauges report both in-flight work and queued requests.</summary>
@@ -111,26 +108,9 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureInFlightInstrumentName] = inFlight,
             [BackpressureQueueDepthInstrumentName] = queueDepth,
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
-        };
+        }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, meterListener) =>
-        {
-            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (IsBackpressureGauge(instrument.Name))
-                meterListener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-
-        listener.Start();
-
+        using var listener = CreateBackpressureGaugeListener(measurements);
         var backpressureOptions = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -162,26 +142,9 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             [BackpressureInFlightInstrumentName] = inFlight,
             [BackpressureQueueDepthInstrumentName] = queueDepth,
             [BackpressureTrackedClientsInstrumentName] = trackedClients,
-        };
+        }.ToFrozenDictionary(StringComparer.Ordinal);
 
-        using var listener = new MeterListener();
-        listener.InstrumentPublished = static (instrument, meterListener) =>
-        {
-            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (IsBackpressureGauge(instrument.Name))
-                meterListener.EnableMeasurementEvents(instrument);
-        };
-
-        listener.SetMeasurementEventCallback<int>((instrument, measurement, _, _) =>
-        {
-            if (measurements.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-
-        listener.Start();
-
+        using var listener = CreateBackpressureGaugeListener(measurements);
         var options = new AdmissionOptions
         {
             MaxInFlight = 1,
@@ -225,7 +188,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         var lease = (await gate.AcquireAsync("grpc", "get", "grpc:client-a", DefaultCancellationToken)).Lease;
         lease.Dispose();
-        _ = Assert.Throws<SemaphoreFullException>(lease.Dispose);
+        _ = NodeExceptionAssert.For<SemaphoreFullException>().Throws(lease, static value => value.Dispose());
     }
 
     /// <summary>Verifies node-level rate limiting rejects excess requests and emits a node-scoped metric.</summary>
@@ -258,7 +221,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     /// <summary>Verifies a single client cannot monopolize node slots beyond its configured concurrency budget.</summary>
     [Fact]
-    public async Task PerClientConcurrencyRejectsBeforeNodeCapacityIsExhausted()
+    public async Task PerClientConcurrencyRejectsNodeCapacityIsExhausted()
     {
         using var sink = new NodeMeasurementSink(MeterName);
         using var gate = new AdmissionGate(
@@ -398,9 +361,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
         var (decision, secondLease) = await queuedTask;
         using (secondLease)
-        {
             Assert.True(decision.IsAccepted);
-        }
     }
 
     /// <summary>Verifies queued admission observes caller cancellation and records queue cancellation metrics.</summary>
@@ -456,30 +417,22 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
     private static bool HasAtLeast(List<int> values, int min)
     {
         for (var i = 0; i < values.Count; i++)
-        {
             if (values[i] >= min)
                 return true;
-        }
 
         return false;
     }
 
-    private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
-                                                            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
-                                                                name,
-                                                                BackpressureTrackedClientsInstrumentName,
-                                                                StringComparison.Ordinal);
-
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
-        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{clientIndex.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{InvariantIndexStrings.Format(clientIndex)}", cancellationToken);
         if (!decision.IsAccepted)
             return;
 
         using (lease)
         {
-            var now = Interlocked.Increment(ref current[0]);
-            UpdateMax(ref observedMax[0], now);
+            var now = Interlocked.Increment(ref MemoryMarshal.GetArrayDataReference(current));
+            UpdateMax(ref MemoryMarshal.GetArrayDataReference(observedMax), now);
 
             try
             {
@@ -487,7 +440,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             }
             finally
             {
-                _ = Interlocked.Decrement(ref current[0]);
+                _ = Interlocked.Decrement(ref MemoryMarshal.GetArrayDataReference(current));
             }
         }
     }
@@ -534,5 +487,45 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
             await Task.Delay(TimeSpan.FromMilliseconds(10), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(task.IsCanceled);
+    }
+
+    private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)
+    {
+        var subscription = new BackpressureGaugeSubscription(measurements);
+        var listener = new MeterListener
+        {
+            InstrumentPublished = subscription.OnInstrumentPublished,
+        };
+        listener.SetMeasurementEventCallback<int>(static (instrument, measurement, _, state) =>
+        {
+            if (state is FrozenDictionary<string, List<int>> map && map.TryGetValue(instrument.Name, out var target))
+                target.Add(measurement);
+        });
+        listener.Start();
+        return listener;
+    }
+
+    private sealed class BackpressureGaugeSubscription
+    {
+        private readonly FrozenDictionary<string, List<int>> _measurements;
+
+        internal BackpressureGaugeSubscription(FrozenDictionary<string, List<int>> measurements)
+        {
+            _measurements = measurements;
+        }
+
+        internal void OnInstrumentPublished(Instrument instrument, MeterListener listener)
+        {
+            if (!string.Equals(instrument.Meter.Name, MeterName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (IsBackpressureGauge(instrument.Name))
+                listener.EnableMeasurementEvents(instrument, _measurements);
+        }
+
+        private static bool IsBackpressureGauge(string name) =>
+            string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
+            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) ||
+            string.Equals(name, BackpressureTrackedClientsInstrumentName, StringComparison.Ordinal);
     }
 }

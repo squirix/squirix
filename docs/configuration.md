@@ -197,7 +197,11 @@ Use `squirix-server validate-config --strict` to validate optional sections toge
 | `JournalBackend`              | string | `Pipelined`                                                | Pipelined binary journal (only supported backend)                                                                                          |
 | `JournalPlatformBackend`      | string | `Auto`                                                     | `Auto`, `RandomAccess`, or `Uring` (Linux only)                                                                                            |
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
-| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total size cap)                                                                                                   |
+| `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total on-disk size hard cap)                                                                                      |
+
+`JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
+that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (HTTP 429 / gRPC `ResourceExhausted`); readiness
+stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
 
 See [journal group commit](journal-group-commit.md) for defaults, when to enable, and tuning guidance.
 
@@ -219,6 +223,18 @@ See [journal group commit](journal-group-commit.md) for defaults, when to enable
 Backpressure limits tune runtime cache-operation admission when present in settings. They apply before logical reads and
 writes under load. REST/gRPC adapters still enforce transport-level limits (auth, payload size, deadlines,
 cancellation). Memory pressure is a separate policy and is not configured by these fields.
+
+Per-client limits (`PerClientMaxInFlight`, `PerClientMaxQueue`, `PerClientRateLimit*`) key off a **backpressure client
+id** resolved for each cache operation:
+
+| Source | Client id | When |
+| ------ | --------- | ---- |
+| JWT bearer principal | `jwt:{subject}` | Authenticated request with a non-empty `sub` / `NameIdentifier` claim |
+| ASP.NET Core connection | `conn:{connectionId}` | Request has an `HttpContext` but no usable principal id (anonymous loopback, internal owner RPCs without JWT, authenticated token missing `sub`) |
+| In-process / missing context | `runtime` | No `HttpContext` (host bootstrap, some tests, non-HTTP callers). All such callers share one bucket |
+
+v0.1 external auth is JWT-only; there is no API-key principal. Inter-node cluster forwarding uses mTLS on the internal
+listener and typically lands in the `conn:` or `runtime` bucket rather than a shared external JWT subject.
 
 | Field                         | Type            | Default        | Validation                                    |
 | ----------------------------- | --------------- | -------------- | --------------------------------------------- |

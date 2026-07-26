@@ -12,6 +12,15 @@ internal static class Program
 {
     private const string IsolationSharedKey = "shared-key";
 
+    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
+    {
+        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(json);
+        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
+                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
+        return new Uri(uri, UriKind.Absolute);
+    }
+
     private static async Task<int> Main()
     {
         var testRoot = Directory.CreateTempSubdirectory("squirix-external-smoke");
@@ -34,15 +43,6 @@ internal static class Program
         }
     }
 
-    private static async Task<Uri> LoadConfiguredEndpointAsync(CancellationToken cancellationToken)
-    {
-        var json = await File.ReadAllTextAsync("Squirix.settings.json", cancellationToken).ConfigureAwait(false);
-        using var document = JsonDocument.Parse(json);
-        var uri = document.RootElement.GetProperty("Squirix").GetProperty("Cluster").GetProperty("Uri").GetString() ??
-                  throw new InvalidOperationException("Squirix.settings.json does not contain Squirix:Cluster:Uri.");
-        return new Uri(uri, UriKind.Absolute);
-    }
-
     private static async Task RunExpirationAsync(ISquirixClient client, CancellationToken ct)
     {
         var cache = await client.GetCacheAsync<string>("smoke-expiration", ct).ConfigureAwait(false);
@@ -50,9 +50,7 @@ internal static class Program
         await Task.Delay(200, ct).ConfigureAwait(false);
         var result = await cache.GetValueAsync("expiring", ct).ConfigureAwait(false);
         if (result.Found)
-        {
             throw new InvalidOperationException("Expected expiration key to be absent after wait.");
-        }
     }
 
     private static async Task RunIsolationAsync(ISquirixClient client, CancellationToken ct)
@@ -64,8 +62,6 @@ internal static class Program
         var v1 = (await a.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         var v2 = (await b.GetValueAsync(IsolationSharedKey, ct).ConfigureAwait(false)).Value;
         if (!string.Equals(v1, "from-a", StringComparison.Ordinal) || !string.Equals(v2, "from-b", StringComparison.Ordinal))
-        {
             throw new InvalidOperationException("Named cache isolation failed.");
-        }
     }
 }

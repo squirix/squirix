@@ -17,7 +17,7 @@ public sealed class EvictionTests : ServerUnitTestBase
     /// the least recently used entry is evicted once capacity is exceeded.
     /// </summary>
     [Fact]
-    public async Task DefaultPolicyIsLruWhenCapacitySetShouldEvictLeastRecentlyUsed()
+    public async Task DefaultPolicyLruCapacitySetEvictLeastRecentlyUsed()
     {
         await using var cache = new PhysicalCache<int>(null, new EvictionOptions { Capacity = 2 }); // Policy defaults to LRU
 

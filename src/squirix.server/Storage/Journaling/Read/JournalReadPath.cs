@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using Squirix.Server.Storage.Journaling.Abstractions;
@@ -55,12 +54,12 @@ internal static class JournalReadPath
                     case 0:
                         return;
                     case < JournalFraming.FileHeaderSize:
-                        throw JournalFraming.CreateTruncatedHeaderException(_length);
+                        throw JournalFraming.CreateTruncatedHeaderException();
                     default:
                         _stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
                         Span<byte> header = stackalloc byte[JournalFraming.FileHeaderSize];
                         if (!StreamEx.TryReadExact(_stream, header))
-                            throw JournalFraming.CreateTruncatedHeaderException(_length);
+                            throw JournalFraming.CreateTruncatedHeaderException();
 
                         JournalFraming.EnsureSegmentHeaderSupported(header);
                         _valid = true;
@@ -108,13 +107,12 @@ internal static class JournalReadPath
                         ArrayPool<byte>.Shared.Return(buffer);
 
                     if (ShouldThrowOnReadFailure(read.Status))
-                        throw new InvalidDataException($"journal segment corruption at offset {_offset.ToString(CultureInfo.InvariantCulture)}: {read.Status}.");
+                        throw new InvalidDataException("journal segment corruption.");
 
                     return Stop();
                 }
 
-                _rentedFrameBuffer =
-                    buffer ?? throw new InvalidDataException($"journal segment missing payload buffer at offset {_offset.ToString(CultureInfo.InvariantCulture)}.");
+                _rentedFrameBuffer = buffer ?? throw new InvalidDataException("journal segment missing payload buffer.");
                 _current = BinaryJournalCodec.Decode(buffer, payloadLength);
                 _offset = read.NextFrameOffset;
                 return true;
@@ -165,10 +163,8 @@ internal static class JournalReadPath
                     return true;
 
                 while (OpenNextSegment())
-                {
                     if (TryMoveCurrentSegment())
                         return true;
-                }
 
                 return false;
             }

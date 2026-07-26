@@ -6,6 +6,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
 using Squirix.Server.Node.MemoryPressure;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -19,7 +20,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
 
     /// <summary>Large object entries are rejected once projected usage exceeds the configured limit.</summary>
     [Fact]
-    public async Task LargeObjectEntriesRejectWhenProjectedUsageExceedsLimit()
+    public async Task LargeObjectEntriesRejectProjectedUsageExceedsLimit()
     {
         await using var physical = new PhysicalCache<object?>();
         var accounting = new MemoryUsageAccounting();
@@ -40,8 +41,7 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
         var entry = new NodeCacheEntry<object?> { Value = new { Data = new string('y', 250_000) }, Version = 1 };
 
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, DefaultCancellationToken));
-        _ = await Assert.ThrowsAsync<ResourceExhaustedException>(() =>
-            cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, DefaultCancellationToken).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, DefaultCancellationToken));
         Assert.Equal(1, accounting.ReadEntryCount());
     }
 
@@ -49,7 +49,10 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
     {
         private readonly string _owner;
 
-        internal FixedOwnerLocator(string owner) => _owner = owner;
+        internal FixedOwnerLocator(string owner)
+        {
+            _owner = owner;
+        }
 
         string INodeLocator.GetOwner(string cacheName, string key) => _owner;
     }

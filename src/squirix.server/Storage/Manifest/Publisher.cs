@@ -10,15 +10,18 @@ namespace Squirix.Server.Storage.Manifest;
 /// <summary>Encodes and durably writes manifest files and the fixed-size CURRENT pointer.</summary>
 [SuppressMessage(
     "AsyncUsage",
-    "MA0045:Use await instead of GetResult()",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
-[SuppressMessage(
-    "Usage",
-    "VSTHRD002:Avoid problematic synchronous waits",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
+    "MA0045:Do not use blocking calls in a sync method",
+    Justification = "Blocking manifest file I/O runs on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class Publisher : IDisposable
 {
     private const int DefaultEncodeBufferCapacity = 256;
+
+    private static readonly Action<object?> WritePublishedManifestBlockingCallback = static state =>
+    {
+        if (state is Publisher publisher)
+            publisher.WritePublishedManifestBlocking();
+    };
+
     private readonly IndexAllocator _allocator;
     private readonly byte[] _currentPointerBuffer = new byte[Pointer.Size];
     private readonly PersistentPointerWriter _currentPointerWriter;
@@ -67,7 +70,13 @@ internal sealed class Publisher : IDisposable
 
         _publishWork = new PublishWork(targetPath, encodedLength, nextIndex);
 
-        await Task.Factory.StartNew(WritePublishedManifestBlocking, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).ConfigureAwait(false);
+        await Task.Factory.StartNew(
+                         WritePublishedManifestBlockingCallback,
+                         this,
+                         cancellationToken,
+                         TaskCreationOptions.DenyChildAttach,
+                         TaskScheduler.Default)
+                     .ConfigureAwait(false);
 
         _setCache(manifest, nextIndex);
     }

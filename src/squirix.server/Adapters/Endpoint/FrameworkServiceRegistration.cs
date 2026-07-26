@@ -38,6 +38,64 @@ internal static class FrameworkServiceRegistration
         return services;
     }
 
+    internal sealed class ResourceExhaustedExceptionInterceptor : Interceptor
+    {
+        public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
+            TRequest request,
+            IServerStreamWriter<TResponse> responseStream,
+            ServerCallContext context,
+            ServerStreamingServerMethod<TRequest, TResponse> continuation)
+        {
+            try
+            {
+                await continuation(request, responseStream, context).ConfigureAwait(false);
+            }
+            catch (ResourceExhaustedException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (JournalCapacityExceededException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (ServerOpIdMismatchException)
+            {
+                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+            }
+            catch (SquirixException ex)
+            {
+                throw ex.ToRpcException();
+            }
+        }
+
+        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
+            TRequest request,
+            ServerCallContext context,
+            UnaryServerMethod<TRequest, TResponse> continuation)
+        {
+            try
+            {
+                return await continuation(request, context).ConfigureAwait(false);
+            }
+            catch (ResourceExhaustedException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (JournalCapacityExceededException ex)
+            {
+                throw ex.ToRpcException();
+            }
+            catch (ServerOpIdMismatchException)
+            {
+                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
+            }
+            catch (SquirixException ex)
+            {
+                throw ex.ToRpcException();
+            }
+        }
+    }
+
     private sealed class InvocationContextInterceptor : Interceptor
     {
         private readonly TopologyOptions _cluster;
@@ -63,7 +121,10 @@ internal static class FrameworkServiceRegistration
             await continuation(request, responseStream, context).ConfigureAwait(false);
         }
 
-        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
+        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
+            TRequest request,
+            ServerCallContext context,
+            UnaryServerMethod<TRequest, TResponse> continuation)
         {
             using var scope = _scopeFactory.EnterRemoteInvocation(ResolveInternalOwnerInvocation(context));
             return await continuation(request, context).ConfigureAwait(false);
@@ -78,19 +139,6 @@ internal static class FrameworkServiceRegistration
         /// <summary>Centralizes trusted cluster-peer checks used by transport auth and inbound RPC classification.</summary>
         private static class SquirixClusterConnectionSecurity
         {
-            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
-            {
-                ArgumentNullException.ThrowIfNull(context);
-                ArgumentNullException.ThrowIfNull(cluster);
-                ArgumentNullException.ThrowIfNull(mtlsOptions);
-                ArgumentNullException.ThrowIfNull(mtlsMaterial);
-
-                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, cluster, mtlsOptions, mtlsMaterial))
-                    return;
-
-                throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
-            }
-
             internal static bool IsTrustedInternalOwnerCall(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
             {
                 ArgumentNullException.ThrowIfNull(context);
@@ -106,6 +154,19 @@ internal static class FrameworkServiceRegistration
                        IsTrustedClusterPeer(httpContext, cluster, mtlsMaterial);
             }
 
+            internal static void RejectSpoofedInternalOwnerHeader(ServerCallContext context, TopologyOptions cluster, MtlsOptions mtlsOptions, MtlsCertificateMaterial mtlsMaterial)
+            {
+                ArgumentNullException.ThrowIfNull(context);
+                ArgumentNullException.ThrowIfNull(cluster);
+                ArgumentNullException.ThrowIfNull(mtlsOptions);
+                ArgumentNullException.ThrowIfNull(mtlsMaterial);
+
+                if (!IsInternalOwnerHeaderPresent(context) || IsTrustedInternalOwnerCall(context, cluster, mtlsOptions, mtlsMaterial))
+                    return;
+
+                throw new RpcException(new Status(StatusCode.Unauthenticated, "Internal cluster invocation requires trusted peer mTLS."));
+            }
+
             private static bool IsInternalOwnerHeaderPresent(ServerCallContext context)
             {
                 var value = context.RequestHeaders.GetValue(RemoteInvocationContract.InternalOwnerRpcHeaderName);
@@ -119,53 +180,6 @@ internal static class FrameworkServiceRegistration
 
                 var certificate = httpContext.Connection.ClientCertificate;
                 return MtlsClientCertificateValidator.ValidateForConfiguredRemotePeer(certificate, mtlsMaterial.TrustAnchor, MtlsTopology.GetRemotePeerNodeIds(cluster));
-            }
-        }
-    }
-
-    private sealed class ResourceExhaustedExceptionInterceptor : Interceptor
-    {
-        public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
-            TRequest request,
-            IServerStreamWriter<TResponse> responseStream,
-            ServerCallContext context,
-            ServerStreamingServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                await continuation(request, responseStream, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
-            }
-        }
-
-        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(TRequest request, ServerCallContext context, UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                return await continuation(request, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
             }
         }
     }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -8,6 +7,7 @@ using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
@@ -24,7 +24,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var actual = new HashSet<string>(await GrpcEndpointSurfaceCollector.CollectProductionGrpcMethodsAsync(), StringComparer.OrdinalIgnoreCase);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixGrpcEndpointSurface.golden.txt");
-        Assert.True(File.Exists(path), $"Golden file missing: {path}");
+        Assert.True(File.Exists(path));
 
         var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
@@ -57,10 +57,8 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var result = new List<string>();
         foreach (var item in left)
-        {
             if (!right.Contains(item))
                 result.Add(item);
-        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -82,7 +80,6 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
         private static async Task<WebApplication> BuildProductionHostAsync()
         {
-            var port = ListenPortPool.ServerUnitTests.AllocatePort();
             var builder = WebApplication.CreateBuilder(
                 new WebApplicationOptions
                 {
@@ -90,7 +87,7 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 });
 
             _ = await builder.AddSquirixServerAsync(
-                options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
                 loadDiscoveredSettings: false,
                 cancellationToken: CancellationToken.None);
 
@@ -104,7 +101,6 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
             var methods = new List<string>();
             foreach (var source in routeBuilder.DataSources)
-            {
                 for (var index = 0; index < source.Endpoints.Count; index++)
                 {
                     var endpoint = source.Endpoints[index];
@@ -117,7 +113,6 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
 
                     methods.Add($"{grpc.Method.ServiceName}/{grpc.Method.Name}");
                 }
-            }
 
             methods.Sort(StringComparer.Ordinal);
             return methods;

@@ -1,11 +1,11 @@
 using System;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Engines;
 using Squirix.E2EBenchmarks.Support.Client;
 using Squirix.E2EBenchmarks.Support.Cluster;
+using Squirix.Server.TestKit;
 
 namespace Squirix.E2EBenchmarks.Cache;
 
@@ -66,7 +66,10 @@ public class PublicSdkOperationsBenchmarks
         var offset = Interlocked.Add(ref _getOrAddMissingOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
         {
-            var result = await cache.GetOrAddAsync($"get-or-add:{(offset + i).ToString("D10", CultureInfo.InvariantCulture)}", CreateValueAsync, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            var result = await cache.GetOrAddAsync(
+                InvariantIndexStrings.FormatPrefixedPadded("get-or-add", offset + i, "D10", 10),
+                CreateValueAsync,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
             _consumer.Consume(result.Value ?? string.Empty);
         }
     }
@@ -82,7 +85,10 @@ public class PublicSdkOperationsBenchmarks
         {
             if (i % 10 is 0)
             {
-                await cache.SetAsync($"mixed-write:{(writeOffset + writes).ToString("D10", CultureInfo.InvariantCulture)}", $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await cache.SetAsync(
+                    InvariantIndexStrings.FormatPrefixedPadded("mixed-write", writeOffset + writes, "D10", 10),
+                    InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
+                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
                 writes++;
                 continue;
             }
@@ -99,7 +105,8 @@ public class PublicSdkOperationsBenchmarks
     {
         var cache = _squirix!;
         for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync(_existingKeys[i], $"overwrite:{Environment.TickCount64.ToString(CultureInfo.InvariantCulture)}:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_existingKeys[i], InvariantIndexStrings.FormatPrefixedPadded("overwrite", i, "D5", 5), cancellationToken: CancellationToken.None)
+                       .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -161,11 +168,18 @@ public class PublicSdkOperationsBenchmarks
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
-            await cache.SetAsync($"write:{(offset + i).ToString("D10", CultureInfo.InvariantCulture)}", $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(
+                InvariantIndexStrings.FormatPrefixedPadded("write", offset + i, "D10", 10),
+                InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
     }
 
-    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken) =>
-        throw new InvalidOperationException($"Factory must not be called for existing key '{key}'.");
+    private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken)
+    {
+        _ = key;
+        _ = cancellationToken;
+        throw new InvalidOperationException("Factory must not be called for an existing key.");
+    }
 
     private static Task<string?> CreateValueAsync(string key, CancellationToken cancellationToken) => Task.FromResult<string?>($"created:{key}");
 
@@ -175,8 +189,13 @@ public class PublicSdkOperationsBenchmarks
 
         for (var i = 0; i < KeyCount; i++)
         {
-            await cache.SetAsync(_existingKeys[i], $"value:{i.ToString("D5", CultureInfo.InvariantCulture)}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await cache.SetAsync(_expiringKeys[i], $"expiring:{i.ToString("D5", CultureInfo.InvariantCulture)}", new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, CancellationToken.None).ConfigureAwait(false);
+            await cache.SetAsync(_existingKeys[i], InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5), cancellationToken: CancellationToken.None)
+                       .ConfigureAwait(false);
+            await cache.SetAsync(
+                _expiringKeys[i],
+                InvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5),
+                new CacheEntryOptions { Expiration = TimeSpan.FromHours(1) },
+                CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -184,9 +203,9 @@ public class PublicSdkOperationsBenchmarks
     {
         for (var i = 0; i < KeyCount; i++)
         {
-            _existingKeys[i] = $"existing:{i.ToString("D5", CultureInfo.InvariantCulture)}";
-            _missingKeys[i] = $"missing:{i.ToString("D5", CultureInfo.InvariantCulture)}";
-            _expiringKeys[i] = $"expiring:{i.ToString("D5", CultureInfo.InvariantCulture)}";
+            _existingKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("existing", i, "D5", 5);
+            _missingKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("missing", i, "D5", 5);
+            _expiringKeys[i] = InvariantIndexStrings.FormatPrefixedPadded("expiring", i, "D5", 5);
         }
     }
 }

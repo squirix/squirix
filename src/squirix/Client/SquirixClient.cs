@@ -10,8 +10,8 @@ namespace Squirix.Client;
 public sealed class SquirixClient : ISquirixClient
 {
     private readonly IRemoteClientSession _remoteSession;
-    private bool _disposed;
     private int _disposeOnce;
+    private bool _disposed;
 
     private SquirixClient(IRemoteClientSession remoteSession)
     {
@@ -84,9 +84,8 @@ public sealed class SquirixClient : ISquirixClient
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var session = await RemoteClientSessionFactory
-            .ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, cancellationToken)
-            .ConfigureAwait(false);
+        var session = await RemoteClientSessionFactory.ConnectAsync(options.Endpoints, options.BearerTokenProvider, options.Serializer, handler, cancellationToken)
+                                                      .ConfigureAwait(false);
         return new SquirixClient(session);
     }
 

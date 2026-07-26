@@ -16,7 +16,7 @@ public sealed class CorrelationServerInterceptorTests
 {
     /// <summary>Verifies the server interceptor creates an activity when no incoming correlation headers exist.</summary>
     [Fact]
-    public async Task ServerInterceptorCreatesActivityWhenHeadersAreMissing()
+    public async Task ServerInterceptorCreatesActivityHeadersAreMissing()
     {
         using var listener = CreateSquirixActivityListener();
         var interceptor = CreateInterceptor();
@@ -34,7 +34,7 @@ public sealed class CorrelationServerInterceptorTests
 
     /// <summary>Verifies empty or malformed inbound correlation headers are ignored instead of failing the request.</summary>
     [Fact]
-    public async Task ServerInterceptorIgnoresInvalidOrEmptyCorrelationHeaders()
+    public async Task ServerInterceptorIgnoresEmptyCorrelationHeaders()
     {
         using var listener = CreateSquirixActivityListener();
         var interceptor = CreateInterceptor();
@@ -69,7 +69,7 @@ public sealed class CorrelationServerInterceptorTests
         var headers = new Metadata
         {
             { "traceparent", clientActivity.Id! },
-            { "tracestate", clientActivity.TraceStateString! },
+            { "tracestate", clientActivity.TraceStateString },
         };
 
         var observed = await interceptor.UnaryServerHandler(
@@ -93,19 +93,12 @@ public sealed class CorrelationServerInterceptorTests
         using var outer = ActivitySourceHolder.StartInternal("outer");
         Assert.NotNull(outer);
         var interceptor = CreateInterceptor();
-        Activity? inside = null;
+        var capture = new ActivityCapture();
 
-        _ = await interceptor.UnaryServerHandler(
-            "request",
-            new TestServerCallContext(),
-            (_, _) =>
-            {
-                inside = Activity.Current;
-                return Task.FromResult("ok");
-            });
+        _ = await interceptor.UnaryServerHandler("request", new TestServerCallContext(), capture.HandleAsync);
 
-        Assert.NotNull(inside);
-        Assert.NotSame(outer, inside);
+        Assert.NotNull(capture.Inside);
+        Assert.NotSame(outer, capture.Inside);
         Assert.Same(outer, Activity.Current);
     }
 
@@ -124,6 +117,19 @@ public sealed class CorrelationServerInterceptorTests
     }
 
     private sealed record CorrelationObservation(string TraceId, string? TraceStateString);
+
+    private sealed class ActivityCapture
+    {
+        internal Activity? Inside { get; private set; }
+
+        internal Task<string> HandleAsync(string request, ServerCallContext context)
+        {
+            _ = request;
+            _ = context;
+            Inside = Activity.Current;
+            return Task.FromResult("ok");
+        }
+    }
 
     private sealed class TestServerCallContext : ServerCallContext
     {

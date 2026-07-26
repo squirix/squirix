@@ -39,7 +39,8 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         _ring = ring ?? throw new ArgumentNullException(nameof(ring));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _inner.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _inner.GetEntryAsync(cacheName, key, cancellationToken);
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _inner.GetValueAsync(cacheName, key, cancellationToken);
@@ -168,13 +169,12 @@ internal sealed class MemoryAdmissionCacheDecorator<T> : ILogicalNamespacedCache
         return updated;
     }
 
-    private static NodeCacheEntry<T> CreateExpirationMetadataReplacement(NodeCacheEntry<T> existing, bool hasExpirationUtc) =>
-        new(
-            existing.Value,
-            existing.Version,
-            hasExpirationUtc ? existing.ExpiresUtc ?? DateTime.UnixEpoch : null,
-            existing.Expiration,
-            existing.Tags);
+    private static NodeCacheEntry<T> CreateExpirationMetadataReplacement(NodeCacheEntry<T> existing, bool hasExpirationUtc) => new(
+        existing.Value,
+        existing.Version,
+        hasExpirationUtc ? existing.ExpiresUtc ?? DateTime.UnixEpoch : null,
+        existing.Expiration,
+        existing.Tags);
 
     private void AccountInsert(CacheKey key, NodeCacheEntry<T> entry)
     {

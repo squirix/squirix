@@ -12,7 +12,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task AddNodeBTreatsExpiredRemoteKeyAsAbsent()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-add-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-add-expired");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -30,12 +30,12 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies an expired remote-owner entry is observed as missing from another node.</summary>
     [Fact]
-    public async Task ExpiredEntryInsertedOnNodeAIsMissingWhenReadFromNodeB()
+    public async Task ExpiredEntryInsertedOnNodeAIsMissingReadFromNodeB()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-expire");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-expire");
         var expiration = TimeSpan.FromSeconds(2);
 
-        await Cluster.CacheA.SetAsync(key, "v1", Helpers.Options(expiration), DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(expiration), DefaultCancellationToken);
 
         Assert.Equal("v1", (await Cluster.CacheB.GetValueAsync(key, DefaultCancellationToken)).Value);
 
@@ -47,21 +47,45 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies GetExpirationAsync sees the expiration for a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task GetExpirationOnNodeBReturnsExpirationForEntryInsertedOnNodeA()
+    public async Task GetExpirationNodeBReturnsEntryInsertedNodeA()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-get-expiration");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-get-expiration");
 
-        await Cluster.CacheA.SetAsync(key, "v1", Helpers.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
         var expiration = await Cluster.CacheB.GetExpirationAsync(key, DefaultCancellationToken);
         Assert.True(expiration.Found);
         Assert.True(expiration.HasExpiration);
+    }
+
+    /// <summary>Verifies remote RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
+    [Fact]
+    public async Task PersistNodeBNonExpiringReturnsFalseKeepsKeyLive()
+    {
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-non-expiring");
+
+        await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
+
+        Assert.False(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
+        Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
+        Assert.False((await Cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
+    }
+
+    /// <summary>Verifies RemoveExpirationAsync can remove expiration from a named-cache entry written by another node.</summary>
+    [Fact]
+    public async Task PersistNodeBRemovesExpirationEntryInsertedOnNodeA()
+    {
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
+
+        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
+
+        Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
     }
 
     /// <summary>Verifies remote RemoveExpirationAsync removes expiration once and returns false on subsequent calls for an already persistent key.</summary>
     [Fact]
     public async Task PersistOnNodeBIsIdempotentForExistingRemoteKey()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-idempotent");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-idempotent");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -78,35 +102,11 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
         Assert.False((await Cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
     }
 
-    /// <summary>Verifies remote RemoveExpirationAsync on a non-expiring key returns false and keeps the key live.</summary>
-    [Fact]
-    public async Task PersistOnNodeBNonExpiringRemoteKeyReturnsFalseAndKeepsKeyLive()
-    {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-non-expiring");
-
-        await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
-
-        Assert.False(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
-        Assert.Equal("v", (await Cluster.CacheA.GetValueAsync(key, DefaultCancellationToken)).Value);
-        Assert.False((await Cluster.CacheA.GetExpirationAsync(key, DefaultCancellationToken)).HasExpiration);
-    }
-
-    /// <summary>Verifies RemoveExpirationAsync can remove expiration from a named-cache entry written by another node.</summary>
-    [Fact]
-    public async Task PersistOnNodeBRemovesExpirationFromEntryInsertedOnNodeA()
-    {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-persist-remove-expiration");
-
-        await Cluster.CacheA.SetAsync(key, "v1", Helpers.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
-
-        Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
-    }
-
     /// <summary>Verifies remote RemoveExpirationAsync treats an expired key as missing.</summary>
     [Fact]
     public async Task PersistOnNodeBTreatsExpiredRemoteKeyAsMissing()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expiration-expired");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -127,10 +127,10 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task RemotePersistBeforeExpirationKeepsKeyAlive()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeB", "remote-remove-expiration-race");
 
         // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
-        await Cluster.CacheA.SetAsync(key, "v", Helpers.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(await Cluster.CacheB.RemoveExpirationAsync(key, DefaultCancellationToken));
@@ -144,10 +144,10 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task RemoteTouchBeforeExpirationKeepsKeyAlive()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-touch-race");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-race");
 
         // Margins wide enough for slow thread pools and parallel test runs (Rider full suite).
-        await Cluster.CacheA.SetAsync(key, "v", Helpers.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v", TwoNodeSupport.Options(TimeSpan.FromMilliseconds(500)), DefaultCancellationToken);
 
         await Task.Delay(TimeSpan.FromMilliseconds(200), TimeProvider.System, DefaultCancellationToken);
 
@@ -162,7 +162,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task RemoveNodeBTreatsExpiredRemoteKeyAsMissing()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-remove-expired");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -181,9 +181,9 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote TouchAsync on a non-expiring key adds expiration and keeps the value.</summary>
     [Fact]
-    public async Task TouchOnNodeBNonExpiringRemoteKeyAddsExpirationAndKeepsValue()
+    public async Task TouchNodeBNonExpiringKeyAddsExpirationKeepsValue()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-touch-non-expiring");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-non-expiring");
 
         await Cluster.CacheA.SetAsync(key, "v", cancellationToken: DefaultCancellationToken);
 
@@ -197,9 +197,9 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies remote TouchAsync treats an expired key as missing and does not resurrect it.</summary>
     [Fact]
-    public async Task TouchOnNodeBTreatsExpiredRemoteKeyAsMissingAndDoesNotResurrect()
+    public async Task TouchNodeBTreatsExpiredRemoteKeyAsMissingResurrect()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-touch-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-expired");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -218,11 +218,11 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
 
     /// <summary>Verifies TouchAsync can update expiration for a named-cache entry written by another node.</summary>
     [Fact]
-    public async Task TouchOnNodeBUpdatesExpirationForEntryInsertedOnNodeA()
+    public async Task TouchOnNodeBUpdatesExpirationEntryInsertedOnNodeA()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-touch-update-expiration");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-touch-update-expiration");
 
-        await Cluster.CacheA.SetAsync(key, "v1", Helpers.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
+        await Cluster.CacheA.SetAsync(key, "v1", TwoNodeSupport.Options(TimeSpan.FromHours(1)), DefaultCancellationToken);
 
         Assert.True(await Cluster.CacheB.TouchAsync(key, TimeSpan.FromHours(2), DefaultCancellationToken));
     }
@@ -231,7 +231,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task TryAddOnNodeBTreatsExpiredRemoteKeyAsAbsent()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-try-add-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-add-expired");
 
         await Cluster.CacheA.SetAsync(
             key,
@@ -252,7 +252,7 @@ public sealed class CrossNodeExpirationTests(TwoNodeFixture fixture) : CrossNode
     [Fact]
     public async Task TryRemoveOnNodeBTreatsExpiredRemoteEntryAsMissing()
     {
-        var key = Helpers.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
+        var key = TwoNodeSupport.FindKeyOwnedBy("orders", "nodeA", "remote-try-remove-expired");
 
         await Cluster.CacheA.SetAsync(
             key,

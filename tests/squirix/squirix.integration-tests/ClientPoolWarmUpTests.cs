@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.IntegrationTests;
@@ -25,7 +26,7 @@ public sealed class ClientPoolWarmUpTests : IntegrationTestBase
         };
 
         await using var pool = new ClientPool(peers, static _ => new CallPolicy(), connectOptions: FailFastConnectOptions);
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.WarmUpAsync(DefaultCancellationToken).AsTask());
+        var exception = await AsyncAssert.ThrowsAsync<InvalidOperationException, string>(pool.WarmUpAsync(DefaultCancellationToken));
         Assert.Contains("Failed to connect to endpoint", exception.Message, StringComparison.Ordinal);
     }
 }

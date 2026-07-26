@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,8 +19,5 @@ internal sealed class ItemsGaugeReporterService : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
 
-    private IEnumerable<Measurement<long>> ObserveCount()
-    {
-        yield return new Measurement<long>(_stats.EntryCount);
-    }
+    private Measurement<long> ObserveCount() => new(_stats.EntryCount);
 }

@@ -23,6 +23,8 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class PersistenceServiceRegistration
 {
+    private static readonly string[] ReadyHealthCheckTags = ["ready"];
+
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "PersistenceRuntime lifetime is transferred to the DI container.")]
     internal static async Task<IServiceCollection> AddPersistenceServicesAsync(
         this IServiceCollection services,
@@ -96,7 +98,7 @@ internal static class PersistenceServiceRegistration
                              "journal_recovery",
                              static sp => new JournalRecoveryReadinessHealthCheck(sp.GetRequiredService<JournalStartupGate>()),
                              HealthStatus.Unhealthy,
-                             ["ready"])).Add(
+                             ReadyHealthCheckTags)).Add(
                          new HealthCheckRegistration(
                              "journal_maintenance",
                              static sp => new JournalMaintenanceReadinessHealthCheck(
@@ -104,12 +106,12 @@ internal static class PersistenceServiceRegistration
                                  sp.GetRequiredService<IJournalCompactionStatus>(),
                                  sp.GetRequiredService<ISnapshotReadinessStatus>()),
                              HealthStatus.Unhealthy,
-                             ["ready"])).Add(
+                             ReadyHealthCheckTags)).Add(
                          new HealthCheckRegistration(
                              "storage_retention_cleanup",
                              static sp => new RetentionCleanupReadinessCheck(sp.GetRequiredService<IRetentionCleanupReadinessStatus>()),
                              HealthStatus.Unhealthy,
-                             ["ready"]));
+                             ReadyHealthCheckTags));
         _ = services.AddSingleton<IJournalOperationTracer, OpenTelemetryJournalOperationTracer>();
         _ = services.AddSingleton<ISnapshotTelemetry, OpenTelemetrySnapshotTelemetry>();
 

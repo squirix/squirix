@@ -21,7 +21,7 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures handler types stay in the hosting security boundary.</summary>
     [Fact]
-    public void HandlerTypesShouldLiveInNodeHostingSecurityNamespace()
+    public void HandlerTypesLiveInNodeHostingSecurityNamespace()
     {
         var rule = ServerArchitectureScope.Server.And().HaveNameEndingWith("Handler").Should().ResideInNamespace($"{ServerArchitectureNamespaces.Node}.Hosting.Security")
                                           .WithoutRequiringPositiveResults();
@@ -42,12 +42,9 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures configuration option types live only in approved configuration namespaces.</summary>
     [Fact]
-    public void OptionsTypesShouldLiveInApprovedNamespaces()
-    {
-        RuleHelpers.AssertResideInOneOfNamespaces(
-            ServerArchitectureScope.Server.And().HaveNameEndingWith("Options"),
-            Allowlists.ServerOptionsTypeNamespaces);
-    }
+    public void OptionsTypesShouldLiveInApprovedNamespaces() => RuleHelpers.AssertResideInOneOfNamespaces(
+        ServerArchitectureScope.Server.And().HaveNameEndingWith("Options"),
+        Allowlists.ServerOptionsTypeNamespaces);
 
     /// <summary>Ensures service types stay in approved service namespaces.</summary>
     [Fact]
@@ -108,29 +105,20 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
             ArgumentNullException.ThrowIfNull(matchingTypes);
             ArgumentNullException.ThrowIfNull(exactNamespaces);
             if (exactNamespaces.Length is 0)
-            {
                 throw new ArgumentException("At least one namespace is required.", nameof(exactNamespaces));
-            }
 
-            var expectedNamespaces = string.Join(", ", exactNamespaces);
             foreach (var type in matchingTypes.GetObjects(ServerArchitecture.Instance))
             {
                 var namespaceName = type.Namespace?.FullName ?? string.Empty;
-                Assert.True(
-                    ResidesInOneOfExactNamespaces(namespaceName, exactNamespaces),
-                    $"{type.FullName} resides in '{namespaceName}', expected one of [{expectedNamespaces}].");
+                Assert.True(ResidesInOneOfExactNamespaces(namespaceName, exactNamespaces));
             }
         }
 
         private static bool ResidesInOneOfExactNamespaces(string typeNamespace, string[] exactNamespaces)
         {
             for (var namespaceIndex = 0; namespaceIndex < exactNamespaces.Length; namespaceIndex++)
-            {
                 if (string.Equals(typeNamespace, exactNamespaces[namespaceIndex], StringComparison.Ordinal))
-                {
                     return true;
-                }
-            }
 
             return false;
         }

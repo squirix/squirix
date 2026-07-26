@@ -6,7 +6,7 @@ on:
             packageVersion:
                 description: Prerelease package version
                 required: true
-                default: 0.1.0-preview.6
+                default: 0.1.0-preview.7
                 type: string
 
 jobs:
@@ -16,21 +16,42 @@ jobs:
             contents: read
             packages: write
         steps:
-            -   uses: actions/checkout@v6
+            -   uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+                with:
+                    persist-credentials: false
 
-            -   uses: actions/setup-dotnet@v5
+            -   uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
                 with:
                     global-json-file: global.json
 
             -   name: Build core packages
+                env:
+                    PACKAGE_VERSION: ${{ inputs.packageVersion }}
                 run: |
-                    dotnet build src/squirix/Squirix.csproj --configuration Release -p:SquirixPackageVersion=${{ inputs.packageVersion }}
-                    dotnet build src/squirix.server/Squirix.Server.csproj --configuration Release -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+                    dotnet build src/squirix/Squirix.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet build src/squirix.server/Squirix.Server.csproj --configuration Release -p:SquirixPackageVersion="$PACKAGE_VERSION"
 
             -   name: Pack core packages
+                env:
+                    PACKAGE_VERSION: ${{ inputs.packageVersion }}
                 run: |
-                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion=${{ inputs.packageVersion }}
-                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion=${{ inputs.packageVersion }}
+                    dotnet pack src/squirix/Squirix.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
+                    dotnet pack src/squirix.server/Squirix.Server.csproj --configuration Release --no-build --output artifacts/packages -p:SquirixPackageVersion="$PACKAGE_VERSION"
 
             -   name: Publish core packages
-                run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "${{ secrets.GITHUB_TOKEN }}" --source "https://nuget.pkg.github.com/squirix/index.json" --skip-duplicate
+                env:
+                    NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                run: |
+                    set -euo pipefail
+                    shopt -s nullglob
+                    packages=(artifacts/packages/*.nupkg)
+                    if [[ ${#packages[@]} -eq 0 ]]; then
+                      echo "No .nupkg files found under artifacts/packages" >&2
+                      exit 1
+                    fi
+                    for package in "${packages[@]}"; do
+                      dotnet nuget push "$package" \
+                        --api-key "$NUGET_AUTH_TOKEN" \
+                        --source "https://nuget.pkg.github.com/squirix/index.json" \
+                        --skip-duplicate
+                    done

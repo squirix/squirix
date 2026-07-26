@@ -15,7 +15,8 @@ internal static class SettingsJson
 
     internal static async Task<T> WithSquirixRootAsync<TState, T>(string settingsFilePath, TState state, Func<JsonElement, TState, T> action, CancellationToken cancellationToken)
     {
-        var bytes = await File.ReadAllBytesAsync(settingsFilePath, cancellationToken).ConfigureAwait(false);
+        var validatedPath = FilePathValidator.ResolveValidatedFilePath(settingsFilePath);
+        var bytes = await File.ReadAllBytesAsync(validatedPath, cancellationToken).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(bytes, DocumentOptions);
         var root = doc.RootElement;
         if (root.TryGetProperty("Squirix", out var squirix))

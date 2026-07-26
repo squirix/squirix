@@ -21,7 +21,6 @@ using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Storage;
-using Squirix.Server.Storage.Snapshot;
 using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.Hosting;
@@ -59,6 +58,10 @@ internal static class ServerHostingComposition
             {
                 await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
             }
+            catch (JournalCapacityExceededException ex)
+            {
+                await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
+            }
             catch (SquirixException ex)
             {
                 await ex.ToHttpResult().ExecuteAsync(context).ConfigureAwait(false);
@@ -78,7 +81,7 @@ internal static class ServerHostingComposition
         "Microsoft.Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "Cluster mTLS material is registered as a singleton and disposed by the host on shutdown.")]
-    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, CompositionArgs args, CancellationToken cancellationToken)
+    private static async Task ConfigureBuilderCoreAsync(WebApplicationBuilder builder, TopologyOptions cluster, ICompositionArgs args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(cluster);
@@ -98,7 +101,6 @@ internal static class ServerHostingComposition
             cluster,
             new ValidatedOptionsArgs
             {
-                SnapshotOptions = args.SnapshotOptions,
                 BackpressureOptions = args.BackpressureOptions,
                 PersistenceOptions = persistence,
                 MemoryPressureOptions = args.MemoryPressureOptions,
@@ -107,7 +109,7 @@ internal static class ServerHostingComposition
             },
             cancellationToken).ConfigureAwait(false);
         _ = builder.Services.AddSquirixRuntimeServices();
-        _ = builder.Services.AddSquirixClusterServices(cluster, args.CallPolicyFactory, args.PeerHandlerFactory);
+        _ = builder.Services.AddSquirixClusterServices(cluster, null, args.PeerHandlerFactory);
         if (persistenceEnabled)
             _ = await builder.Services.AddPersistenceServicesAsync(persistence!, args.WaitForRecovery, cancellationToken).ConfigureAwait(false);
 
@@ -132,6 +134,8 @@ internal static class ServerHostingComposition
         extensions?.MapEndpointsWithAuthorization?.Invoke(app, authEnabled);
         return app;
     }
+
+    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
 
     /// <summary>
     /// Centralizes Kestrel listen options and transport security for the squirix node process.
@@ -183,9 +187,7 @@ internal static class ServerHostingComposition
         {
             ArgumentNullException.ThrowIfNull(cluster);
             if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Uri}");
-            }
+                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext 'http://' is not supported.");
         }
 
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] nodeIds)
@@ -241,8 +243,6 @@ internal static class ServerHostingComposition
     {
         public AdmissionOptions? BackpressureOptions { get; set; }
 
-        public Func<string, ServerCallPolicy>? CallPolicyFactory { get; set; }
-
         public Action<GrpcServiceOptions>? ConfigureGrpc { get; set; }
 
         public ExtensionOptions? Extensions { get; set; }
@@ -261,10 +261,6 @@ internal static class ServerHostingComposition
 
         public Action<IServiceCollection>? ServicesConfigure { get; set; }
 
-        public TriggerOptions? SnapshotOptions { get; set; }
-
         public bool WaitForRecovery { get; set; } = true;
     }
-
-    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
 }

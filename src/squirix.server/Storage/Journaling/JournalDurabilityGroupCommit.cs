@@ -12,11 +12,11 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal sealed class JournalDurabilityGroupCommit
 {
+    private readonly BatchDeadline _batchDeadline = new();
     private readonly Action _journalThreadFlush;
     private readonly Action _notifyJournalThread;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
-    private readonly BatchDeadline _batchDeadline = new();
     private readonly TimeProvider _timeProvider;
 
     private List<JournalDurabilityWaiter> _waiters;
@@ -87,6 +87,21 @@ internal sealed class JournalDurabilityGroupCommit
         return ValueTask.CompletedTask;
     }
 
+    internal void CancelPendingCore(Exception reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        lock (_sync)
+        {
+            _batchDeadline.Clear();
+            for (var i = 0; i < _waiters.Count; i++)
+                _waiters[i].SetException(reason);
+
+            _waiters.Clear();
+        }
+
+        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
+    }
+
     /// <summary>Drains due batches on the journal thread.</summary>
     internal void DrainDueBatchesOnJournalThread()
     {
@@ -111,19 +126,39 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    internal void CancelPendingCore(Exception reason)
+    private static void CompleteBatchWithFailure(List<JournalDurabilityWaiter> batch, Exception ex)
     {
-        ArgumentNullException.ThrowIfNull(reason);
-        lock (_sync)
+        // Flush failures fail the whole batch so no waiter observes partial durability.
+        for (var i = 0; i < batch.Count; i++)
         {
-            _batchDeadline.Clear();
-            for (var i = 0; i < _waiters.Count; i++)
-                _waiters[i].SetException(reason);
-
-            _waiters.Clear();
+            var waiter = batch[i];
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetException(ex);
         }
 
-        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
+        for (var i = 0; i < batch.Count; i++)
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+
+        batch.Clear();
+    }
+
+    private static void CompleteBatchWithSuccess(List<JournalDurabilityWaiter> batch)
+    {
+        for (var i = 0; i < batch.Count; i++)
+        {
+            var waiter = batch[i];
+
+            // Callers that canceled before the flush still own returning their waiter to the pool.
+            if (!waiter.IsAbandonedByCaller())
+                waiter.SetResult();
+        }
+
+        for (var i = 0; i < batch.Count; i++)
+            if (batch[i].IsAbandonedByCaller())
+                batch[i].ReturnToPool();
+
+        batch.Clear();
     }
 
     private bool CancelWaiter(JournalDurabilityWaiter waiter, CancellationToken cancellationToken)
@@ -149,58 +184,16 @@ internal sealed class JournalDurabilityGroupCommit
             // One journal-thread fsync covers every waiter captured in this due batch.
             _journalThreadFlush();
         }
-        catch (IOException ex)
+        catch (Exception ex)
         {
-            FailBatch(ex);
-            return;
-        }
-        catch (ObjectDisposedException ex)
-        {
-            FailBatch(ex);
-            return;
-        }
-        catch (InvalidOperationException ex)
-        {
-            FailBatch(ex);
+            CompleteBatchWithFailure(batch, ex);
+            if (ex is not (IOException or ObjectDisposedException or InvalidOperationException))
+                throw;
+
             return;
         }
 
-        for (var i = 0; i < batch.Count; i++)
-        {
-            var waiter = batch[i];
-
-            // Callers that canceled before the flush still own returning their waiter to the pool.
-            if (!waiter.IsAbandonedByCaller())
-                waiter.SetResult();
-        }
-
-        for (var i = 0; i < batch.Count; i++)
-        {
-            if (batch[i].IsAbandonedByCaller())
-                batch[i].ReturnToPool();
-        }
-
-        batch.Clear();
-        return;
-
-        void FailBatch(Exception ex)
-        {
-            // Flush failures fail the whole batch so no waiter observes partial durability.
-            for (var i = 0; i < batch.Count; i++)
-            {
-                var waiter = batch[i];
-                if (!waiter.IsAbandonedByCaller())
-                    waiter.SetException(ex);
-            }
-
-            for (var i = 0; i < batch.Count; i++)
-            {
-                if (batch[i].IsAbandonedByCaller())
-                    batch[i].ReturnToPool();
-            }
-
-            batch.Clear();
-        }
+        CompleteBatchWithSuccess(batch);
     }
 
     private bool TryTakeDueBatch(out List<JournalDurabilityWaiter> batch)

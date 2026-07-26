@@ -1,11 +1,11 @@
 using System;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -35,7 +35,6 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
 
     private static async Task<WebApplication> BuildHostAsync(string environmentName, CancellationToken cancellationToken)
     {
-        var port = ListenPortPool.ServerUnitTests.AllocatePort();
         var applicationOptions = new WebApplicationOptions
         {
             EnvironmentName = environmentName,
@@ -43,7 +42,7 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
         var builder = WebApplication.CreateBuilder(applicationOptions);
 
         _ = await builder.AddSquirixServerAsync(
-            options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
+            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 

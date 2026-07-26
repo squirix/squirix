@@ -7,6 +7,9 @@ namespace Squirix.E2ETests.Fixtures.TypedValues;
 internal sealed class TypedMutableCart
 {
     [JsonInclude]
+    internal string? CouponCode { get; init; }
+
+    [JsonInclude]
     internal string Id { get; init; } = string.Empty;
 
     [JsonInclude]
@@ -17,7 +20,4 @@ internal sealed class TypedMutableCart
 
     [JsonInclude]
     internal DateTimeOffset UpdatedAt { get; init; }
-
-    [JsonInclude]
-    internal string? CouponCode { get; init; }
 }

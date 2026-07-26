@@ -5,45 +5,21 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster;
 using Squirix.Server.Node.Hosting;
-using Squirix.Server.Runtime.Contracts;
 
 namespace Squirix.Server.TestKit.Hosting;
 
 internal static class NodeHost
 {
-    internal static async Task<WebApplication> StartAsync(
-        TopologyOptions cluster,
-        NodeHostStartOptions? options = null,
-        CancellationToken cancellationToken = default)
+    internal static async Task<WebApplication> StartAsync(TopologyOptions cluster, NodeHostStartOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new NodeHostStartOptions();
         var builder = CreateBuilder(options.ConfigureLogging);
-        ExtensionOptions? extensions = null;
-        if (options.ConfigureExtensions is not null)
-        {
-            extensions = new ExtensionOptions();
-            options.ConfigureExtensions(extensions);
-        }
+        var configureArgs = new CompositionArgsConfigurer(options);
 
         await ServerHostingComposition.ConfigureBuilderAsync(
             builder,
             cluster,
-            args =>
-            {
-                args.WaitForRecovery = options.WaitForRecovery;
-                args.SnapshotOptions = options.SnapshotOptions;
-                args.CallPolicyFactory = options.CallPolicyFactory;
-                args.ConfigureGrpc = options.ConfigureGrpc;
-                args.ServicesConfigure = options.ServicesConfigure;
-                args.PersistenceOptions = options.PersistenceOptions;
-                args.PeerHandlerFactory = options.PeerHandlerFactory;
-                args.BackpressureOptions = options.BackpressureOptions;
-                args.MemoryPressureOptions = options.MemoryPressureOptions;
-                args.SecurityOptions = options.SecurityOptions;
-                args.Extensions = extensions;
-                args.MtlsOptions = options.MtlsOptions;
-                args.MtlsMaterial = options.MtlsMaterial;
-            },
+            configureArgs.Configure,
             cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
@@ -74,5 +50,26 @@ internal static class NodeHost
         _ = builder.Logging.ClearProviders();
         (configureLogging ?? AddDefaultLogging).Invoke(builder.Logging);
         return builder;
+    }
+
+    private sealed class CompositionArgsConfigurer
+    {
+        private readonly NodeHostStartOptions _options;
+
+        internal CompositionArgsConfigurer(NodeHostStartOptions options) => _options = options;
+
+        internal void Configure(ICompositionArgs args)
+        {
+            args.WaitForRecovery = _options.WaitForRecovery;
+            args.ConfigureGrpc = _options.ConfigureGrpc;
+            args.ServicesConfigure = _options.ServicesConfigure;
+            args.PersistenceOptions = _options.PersistenceOptions;
+            args.PeerHandlerFactory = _options.PeerHandlerFactory;
+            args.BackpressureOptions = _options.BackpressureOptions;
+            args.MemoryPressureOptions = _options.MemoryPressureOptions;
+            args.SecurityOptions = _options.SecurityOptions;
+            args.MtlsOptions = _options.MtlsOptions;
+            args.MtlsMaterial = _options.MtlsMaterial;
+        }
     }
 }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -9,6 +8,7 @@ using Grpc.AspNetCore.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Server.UnitTests.Support;
@@ -27,7 +27,7 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var actual = new HashSet<string>(await RestEndpointSurfaceCollector.CollectProductionRestRoutesAsync(), StringComparer.Ordinal);
         var path = NodePathKit.Combine(AppContext.BaseDirectory, "ApiSnapshots", "SquirixRestEndpointSurface.golden.txt");
-        Assert.True(File.Exists(path), $"Golden file missing: {path}");
+        Assert.True(File.Exists(path));
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
         var lines = await File.ReadAllLinesAsync(path, DefaultCancellationToken);
@@ -61,10 +61,8 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var result = new List<string>();
         foreach (var item in left)
-        {
             if (!right.Contains(item))
                 result.Add(item);
-        }
 
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -80,46 +78,6 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
             await using var app = await BuildProductionHostAsync();
             _ = app.MapSquirixServer();
             return CollectRestRoutes(app);
-        }
-
-        private static async Task<WebApplication> BuildProductionHostAsync()
-        {
-            var port = ListenPortPool.ServerUnitTests.AllocatePort();
-            var builder = WebApplication.CreateBuilder(
-                new WebApplicationOptions
-                {
-                    EnvironmentName = "Production",
-                });
-
-            _ = await builder.AddSquirixServerAsync(
-                options => options.Uri = new Uri($"https://localhost:{port.ToString(CultureInfo.InvariantCulture)}"),
-                loadDiscoveredSettings: false,
-                cancellationToken: CancellationToken.None);
-
-            return builder.Build();
-        }
-
-        /// <summary>
-        /// Collects REST route identities (<c>METHOD /pattern</c>) from the host endpoint data sources,
-        /// excluding gRPC methods and unimplemented placeholders.
-        /// </summary>
-        /// <param name="app">Built web application exposing endpoint route data.</param>
-        /// <returns>Sorted list of REST route identities for golden comparison.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when <paramref name="app" /> does not expose endpoint data sources.</exception>
-        private static List<string> CollectRestRoutes(WebApplication app)
-        {
-            if (app is not IEndpointRouteBuilder routeBuilder)
-                throw new InvalidOperationException("Web application does not expose endpoint data sources.");
-
-            var routes = new List<string>();
-            foreach (var source in routeBuilder.DataSources)
-            {
-                for (var index = 0; index < source.Endpoints.Count; index++)
-                    AppendRouteEndpoint(source.Endpoints[index], routes);
-            }
-
-            routes.Sort(StringComparer.Ordinal);
-            return routes;
         }
 
         private static void AppendHttpMethods(RouteEndpoint route, string pattern, List<string> routes)
@@ -154,6 +112,43 @@ public sealed class RestEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
                 return;
 
             AppendHttpMethods(route, pattern, routes);
+        }
+
+        private static async Task<WebApplication> BuildProductionHostAsync()
+        {
+            var builder = WebApplication.CreateBuilder(
+                new WebApplicationOptions
+                {
+                    EnvironmentName = "Production",
+                });
+
+            _ = await builder.AddSquirixServerAsync(
+                static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+                loadDiscoveredSettings: false,
+                cancellationToken: CancellationToken.None);
+
+            return builder.Build();
+        }
+
+        /// <summary>
+        /// Collects REST route identities (<c>METHOD /pattern</c>) from the host endpoint data sources,
+        /// excluding gRPC methods and unimplemented placeholders.
+        /// </summary>
+        /// <param name="app">Built web application exposing endpoint route data.</param>
+        /// <returns>Sorted list of REST route identities for golden comparison.</returns>
+        /// <exception cref="InvalidOperationException">Thrown when <paramref name="app" /> does not expose endpoint data sources.</exception>
+        private static List<string> CollectRestRoutes(WebApplication app)
+        {
+            if (app is not IEndpointRouteBuilder routeBuilder)
+                throw new InvalidOperationException("Web application does not expose endpoint data sources.");
+
+            var routes = new List<string>();
+            foreach (var source in routeBuilder.DataSources)
+                for (var index = 0; index < source.Endpoints.Count; index++)
+                    AppendRouteEndpoint(source.Endpoints[index], routes);
+
+            routes.Sort(StringComparer.Ordinal);
+            return routes;
         }
     }
 }

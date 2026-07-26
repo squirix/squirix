@@ -23,7 +23,8 @@ internal sealed class JournalPayloadPrepareCacheDecorator<T> : ILogicalNamespace
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     }
 
-    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) => _journal.GetEntryAsync(cacheName, key, cancellationToken);
+    public ValueTask<NodeCacheEntry<T>?> GetEntryAsync(string cacheName, string key, CancellationToken cancellationToken) =>
+        _journal.GetEntryAsync(cacheName, key, cancellationToken);
 
     public ValueTask<NodeCacheValueResult<T>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
         _journal.GetValueAsync(cacheName, key, cancellationToken);

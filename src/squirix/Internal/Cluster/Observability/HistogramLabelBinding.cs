@@ -3,12 +3,7 @@ using System.Diagnostics.Metrics;
 
 namespace Squirix.Internal.Cluster.Observability;
 
-internal sealed record HistogramLabelBinding(
-    Histogram<double> Histogram,
-    string Key1,
-    string Value1,
-    string Key2,
-    string Value2)
+internal sealed record HistogramLabelBinding(Histogram<double> Histogram, string Key1, string Value1, string Key2, string Value2)
 {
     internal void Observe(double value)
     {

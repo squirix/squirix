@@ -2,11 +2,40 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Journaling.Abstractions;
 
 internal static class JournalReader
 {
+    internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
+    {
+        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)
+            return [];
+
+        Array.Sort(files, StringComparer.Ordinal);
+
+        var segments = new JournalSegment[files.Length];
+        var writeIndex = 0;
+        for (var i = 0; i < files.Length; i++)
+        {
+            if (!TryParseJournalSegment(files[i], fromSegment, out var segment))
+                continue;
+
+            segments[writeIndex++] = segment;
+        }
+
+        if (writeIndex is 0)
+            return [];
+
+        if (writeIndex == segments.Length)
+            return segments;
+
+        var trimmed = new JournalSegment[writeIndex];
+        segments.AsSpan(0, writeIndex).CopyTo(trimmed);
+        return trimmed;
+    }
+
     /// <summary>Counts journal segment files and sums their byte lengths in a single directory enumeration.</summary>
     /// <param name="dataDir">Persistence directory containing journal segment files.</param>
     /// <returns>Segment count and total byte length of parsed journal segment files.</returns>
@@ -31,38 +60,18 @@ internal static class JournalReader
         return (segmentCount, totalBytes);
     }
 
-    internal static JournalSegment[] EnumerateSegments(string dataDir, int fromSegment)
-    {
-        if (!Directory.Exists(dataDir) || !TryGetJournalFiles(dataDir, out var files) || files.Length is 0)
-            return [];
-
-        Array.Sort(files, StringComparer.Ordinal);
-
-        var segments = new JournalSegment[files.Length];
-        var writeIndex = 0;
-        for (var i = 0; i < files.Length; i++)
-        {
-            if (!TryParseJournalSegment(files[i], fromSegment, out var segment))
-                continue;
-
-            segments[writeIndex++] = segment;
-        }
-
-        if (writeIndex is 0)
-            return [];
-
-        if (writeIndex != segments.Length)
-            Array.Resize(ref segments, writeIndex);
-
-        return segments;
-    }
-
     private static bool TryGetJournalFiles(string dataDir, out string[] files)
     {
         try
         {
-            files = Directory.GetFiles(dataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
+            var validatedDataDir = FilePathValidator.ResolveValidatedDirectoryPath(dataDir);
+            files = Directory.GetFiles(validatedDataDir, $"{FilePrefixes.Journal}*{FileExtensions.Journal}", SearchOption.TopDirectoryOnly);
             return true;
+        }
+        catch (ArgumentException)
+        {
+            files = [];
+            return false;
         }
         catch (IOException)
         {

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -18,8 +17,8 @@ public sealed class PortAllocator : IDisposable
     /// Process-wide reservation to avoid duplicates between allocators inside one process.
     /// </summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
+
     private readonly List<int> _allocatedPorts = [];
-    private readonly int _endInclusive;
     private readonly int _rangeSize;
     private readonly int _start;
     private bool _disposed;
@@ -54,8 +53,8 @@ public sealed class PortAllocator : IDisposable
             throw new ArgumentException("endPortInclusive must be >= startPort", nameof(endPortInclusive));
 
         _start = startPort;
-        _endInclusive = endPortInclusive;
-        _rangeSize = _endInclusive - _start + 1;
+        var endInclusive = endPortInclusive;
+        _rangeSize = endInclusive - _start + 1;
         _next = _start + (CreateProcessOffset() % _rangeSize) - 1;
     }
 
@@ -109,8 +108,7 @@ public sealed class PortAllocator : IDisposable
             _ = Reserved.TryRemove(candidate, out _);
         }
 
-        throw new InvalidOperationException(
-            $"Failed to allocate a free port in range {_start.ToString(CultureInfo.InvariantCulture)}-{_endInclusive.ToString(CultureInfo.InvariantCulture)} after {maxAttempts.ToString(CultureInfo.InvariantCulture)} attempts.");
+        throw new InvalidOperationException("Failed to allocate a free listen port.");
     }
 
     /// <inheritdoc />

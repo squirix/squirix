@@ -1,4 +1,5 @@
 // ReSharper disable NotAccessedPositionalProperty.Global
+
 namespace Squirix.E2EBenchmarks.Fixtures;
 
 /// <summary>Address value used by custom benchmark records.</summary>

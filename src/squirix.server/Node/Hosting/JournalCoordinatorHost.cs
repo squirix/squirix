@@ -24,12 +24,7 @@ internal sealed class JournalCoordinatorHost : IAsyncDisposable
         _coordinator = null;
     }
 
-    internal async Task InitializeAsync(
-        PersistenceOptions persistence,
-        State manifest,
-        ManifestStore manifestStore,
-        JournalStartupGate gate,
-        CancellationToken cancellationToken)
+    internal async Task InitializeAsync(PersistenceOptions persistence, State manifest, ManifestStore manifestStore, JournalStartupGate gate, CancellationToken cancellationToken)
     {
         if (_coordinator is not null)
             return;

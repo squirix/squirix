@@ -16,6 +16,13 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalCoordinator : IJournalCoordinator
 {
     private const int RingCapacity = 4096;
+
+    private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
+    {
+        if (state is JournalEventLoop eventLoop)
+            eventLoop.Run();
+    };
+
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly ManifestRollPublisher _manifestRollPublisher;
     private readonly Lock _pendingMemoryApplyLock = new();
@@ -49,8 +56,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
         _nextSequence = JournalRecoveryScan.DetermineNextSequence(manifest, Options);
-        JournalThread = new Thread(EventLoop.Run) { IsBackground = true, Name = "squirix-journal-io" };
-        JournalThread.Start();
+        JournalThread = new Thread(RunEventLoopCallback)
+        {
+            IsBackground = true,
+            Name = "squirix-journal-io",
+        };
+        JournalThread.Start(EventLoop);
     }
 
     public event EventHandler? OnAppended;
@@ -63,11 +74,17 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
 
+    public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
+
     public bool IsJournalGroupCommitEnabled => Options.IsJournalGroupCommitEnabled;
+
+    public long MaxBytes => EventLoop.Policy.MaxTotalBytes;
 
     public ulong NextSequence => Volatile.Read(ref _nextSequence);
 
     public double RecentAppendLatencyMs => Volatile.Read(ref _avgAppendLatencyMs);
+
+    public long UsedBytes => EventLoop.JournalTotalBytes;
 
     internal long ActiveSegmentWrittenBytes => EventLoop.ActiveSegmentWrittenBytes;
 
@@ -121,9 +138,7 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     {
         EntryPayloadSizeGuard.EnsureEntryBytesWithinLimit(entryBytes.Span);
         if (Options.IsJournalGroupCommitEnabled)
-        {
             return _appendPipeline.AppendPutAndAwaitDurabilityViaGroupCommitAsync(key, entryBytes, cancellationToken);
-        }
 
         return _appendPipeline.AppendRecordWithDurabilityCoreAsync(_appendPipeline.AllocateRecord(key, JournalOperationKind.Put, entryBytes), cancellationToken);
     }
@@ -435,10 +450,16 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                 enqueued = true;
 
                 if (appendCompleted is not null)
-                {
-                    await appendWaitTask.ConfigureAwait(false);
-                    appendCompleted.ReturnToPool();
-                }
+                    try
+                    {
+                        await appendWaitTask.ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        // Return after GetResult (success or fault from FailAppendWorkItem) so quota
+                        // rejection cannot leak the pooled Completion waiter.
+                        appendCompleted.ReturnToPool();
+                    }
             }
             catch when (!enqueued)
             {

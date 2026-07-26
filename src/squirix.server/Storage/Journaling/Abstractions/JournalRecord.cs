@@ -9,6 +9,9 @@ internal sealed class JournalRecord
 {
     private static readonly ConcurrentBag<JournalRecord> AppendPool = [];
 
+    /// <summary>Gets or sets idempotency fingerprint; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
+    internal string? IdempotencyFingerprint { get; set; }
+
     /// <summary>Gets or sets idempotency operation id; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
     internal string? IdempotencyOperationId { get; set; }
 
@@ -32,9 +35,6 @@ internal sealed class JournalRecord
 
     /// <summary>Gets or sets the operation timestamp in Unix milliseconds.</summary>
     internal long UnixMs { get; set; }
-
-    /// <summary>Gets or sets idempotency fingerprint; only set for <see cref="JournalOperationKind.IdempotencyOutcome" />.</summary>
-    internal string? IdempotencyFingerprint { get; set; }
 
     internal static JournalRecord RentForAppend() => AppendPool.TryTake(out var record) ? record : new JournalRecord();
 

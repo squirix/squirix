@@ -70,9 +70,7 @@ internal static class JournalFrameReader
             var expectedChecksum = BinaryPrimitives.ReadUInt32LittleEndian(checksumBytes);
             var actualChecksum = Crc32C.Compute(payload);
             if (actualChecksum != expectedChecksum)
-            {
                 return new JournalFrameReadResult(JournalFrameReadStatus.ChecksumMismatch, frameOffset);
-            }
 
             rentedBuffer = rented;
             ArgumentNullException.ThrowIfNull(rentedBuffer);

@@ -36,13 +36,13 @@ internal sealed class OpenTelemetryJournalOperationTracer : IJournalOperationTra
             _ = activity.SetTag("journal.namespace", context.Namespace);
         if (context.PayloadBytes is { } payloadBytes)
         {
-            _ = activity.SetTag("journal.bytes_payload", payloadBytes);
-            _ = activity.SetTag("journal.frame.total_bytes", JournalFrameEnvelope.TotalLength(payloadBytes));
+            _ = activity.SetTag("journal.bytes_payload", ActivityTagValues.Int32(payloadBytes));
+            _ = activity.SetTag("journal.frame.total_bytes", ActivityTagValues.Int32(JournalFrameEnvelope.TotalLength(payloadBytes)));
         }
 
-        _ = activity.SetTag("journal.strict_fsync", true);
+        _ = activity.SetTag("journal.strict_fsync", ActivityTagValues.True);
         if (context.GroupCommitEnabled is { } groupCommitEnabled)
-            _ = activity.SetTag("journal.group_commit", groupCommitEnabled);
+            _ = activity.SetTag("journal.group_commit", ActivityTagValues.Bool(groupCommitEnabled));
     }
 
     private static string GetSpanName(JournalOperationKind kind) => kind switch

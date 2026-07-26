@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -9,7 +8,6 @@ using Microsoft.Extensions.Hosting;
 
 namespace Squirix.Server.Host;
 
-[SuppressMessage("Maintainability", "CA1515:Consider making public types internal", Justification = "Entry point type is already internal; analyzer still reports this file.")]
 internal static class Program
 {
     private static Task<int> Main(string[] args) => SquirixServerProcess.RunAsync(args);
@@ -84,13 +82,13 @@ internal static class Program
 
         private static async Task<int> InitializeAsync(SquirixServerCommand command)
         {
-            var path = command.SettingsPath ?? "Squirix.settings.json";
+            var path = Configurator.ResolveSettingsPath(command.SettingsPath ?? "Squirix.settings.json")!;
             if (File.Exists(path))
-                throw new InvalidOperationException($"Settings file already exists: {Path.GetFullPath(path)}");
+                throw new InvalidOperationException($"Settings file already exists: {path}");
 
             File.Copy(Path.Join(AppContext.BaseDirectory, "Squirix.settings.default.json"), path);
             _ = await LoadSettingsAsync(path, CancellationToken.None).ConfigureAwait(false);
-            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {Path.GetFullPath(path)}").ConfigureAwait(false);
+            await Console.Out.WriteLineAsync($"[Squirix.Server] Created settings: {path}").ConfigureAwait(false);
             return 0;
         }
 
@@ -157,11 +155,11 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(options.DataDirectory))
                 return;
 
-            var dataDirectoryPath = options.DataDirectory;
+            var dataDirectoryPath = Configurator.ResolveValidatedDataDirectory(options.DataDirectory);
             try
             {
                 _ = Directory.CreateDirectory(dataDirectoryPath);
-                var probe = Path.Join(dataDirectoryPath, ".squirix-doctor-probe");
+                var probe = Configurator.ResolveValidatedFilePath(Path.Join(dataDirectoryPath, ".squirix-doctor-probe"));
                 await File.WriteAllTextAsync(probe, string.Empty, cancellationToken).ConfigureAwait(false);
                 File.Delete(probe);
                 await Console.Out.WriteLineAsync("  Data directory access: writable").ConfigureAwait(false);
@@ -230,13 +228,13 @@ internal static class Program
                 return args[index];
             }
 
-            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
-
             private static int ResolveFlagStart(string[] args, string name)
             {
                 var isImplicitRun = string.Equals(name, "run", StringComparison.OrdinalIgnoreCase) && (args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal));
                 return isImplicitRun ? 0 : 1;
             }
+
+            private static string ResolveName(string[] args) => args.Length is 0 || args[0].StartsWith("--", StringComparison.Ordinal) ? "run" : args[0];
 
             private static bool TryApplyFlag(string[] args, ref int index, FlagState state)
             {
