@@ -28,9 +28,9 @@ Implementation (symmetric mode): `SquirixSecurityServiceRegistration` accepts **
 `SQUIRIX_JWT_SIGNING_KEY` is a **shared secret**. Any party that knows the key can mint JWTs that every Squirix node
 configured with the same key will accept on the primary listener.
 
-A compromised symmetric signing key allows forgery of **external** API access (cache gRPC/REST, remote metrics when JWT
-is required). It does **not** bypass inter-node mTLS: cluster forwarding still requires valid node certificates on the
-internal listener.
+A compromised symmetric signing key allows forgery of **external** API access (cache gRPC, remote metrics / readiness
+details when JWT is required). It does **not** bypass inter-node mTLS: cluster forwarding still requires valid node
+certificates on the internal listener.
 
 Nodes that share the same symmetric key share the same blast radius. Use distinct keys per environment (dev/staging/prod)
 and store production secrets in a secret manager, not in compose files or images.

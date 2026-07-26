@@ -15,7 +15,9 @@ The library uses **conservative defaults** suitable for unknown workloads (singl
 Group commit is **opt-in**: set `JournalGroupCommitMaxWait` to a value greater than zero. `JournalGroupCommitMaxBatch`
 only applies when group commit is enabled.
 
-These defaults are set in `PersistenceOptions` and are not overridden by the node host unless you configure them explicitly.
+These defaults are set on internal `PersistenceOptions`. v0.1 public hosting (`squirix-server` / `AddSquirixServerAsync`)
+does not merge a Persistence JSON section from `Squirix.settings.json`, so group commit stays disabled unless a custom
+host injects `PersistenceOptions` (for example tests).
 
 ## Policy
 
@@ -29,7 +31,8 @@ A batch ends when **either** limit is reached first:
 - **`MaxBatch`** — enough waiters joined → flush immediately.
 - **`MaxWait`** — timer expires before the batch is full → flush the partial batch.
 
-JSON configuration uses the key `groupCommitMaxWait` with a millisecond count (see [configuration](configuration.md)).
+When constructing `PersistenceOptions` explicitly (tests / custom composition), the wait uses property
+`JournalGroupCommitMaxWait` (JSON name `groupCommitMaxWait`, milliseconds). See [configuration](configuration.md).
 
 ## Durability guarantee
 

@@ -2,7 +2,7 @@ using System;
 
 namespace Squirix.Server.Node.Backpressure;
 
-/// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
+/// <summary>Configures node-level admission control for inbound gRPC cache requests.</summary>
 internal sealed record AdmissionOptions
 {
     internal bool Enabled { get; init; } = true;

@@ -17,14 +17,13 @@ Pass a custom serializer when connecting:
 ```csharp
 using System;
 using System.Threading;
-using Squirix;
 using Squirix.Client;
 using Squirix.Serialization;
 
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
-        options.Endpoints.Add("https://localhost:5001");
+        options.Endpoints.Add(new Uri("https://localhost:5001"));
         options.Serializer = new MyCustomSerializer();
     },
     CancellationToken.None);
@@ -58,7 +57,8 @@ Serializer swapping is safe only when encoders agree on payload shape:
 
 ## Server nodes
 
-- Standalone and embedded server hosts use the default JSON encoder for journal, snapshots, and gRPC/REST payloads.
+- Standalone and embedded server hosts use the default JSON encoder for journal, snapshots, and gRPC payloads.
+  Health/metrics HTTP responses use the server's JSON serializer context separately.
 - **Clients** choose the serializer per `SquirixClient.ConnectAsync` session (`SquirixClientOptions.Serializer`).
 - Server and client serializers must agree on payload shape for a given cache; mismatched encoders against existing
   on-disk data require migration.

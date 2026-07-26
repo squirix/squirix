@@ -3,14 +3,14 @@
 `squirix.server` is the server-runtime library on NuGet (`Squirix.Server` assembly). The standalone CLI is published as
 **`squirix.server.tool`**; the command is **`squirix-server`** (`Squirix.Server.Host` project).
 
-| Package               | Purpose                                                                               |
-|-----------------------|---------------------------------------------------------------------------------------|
-| `squirix`             | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer) |
-| `squirix.server`      | Server runtime, hosting, durability, cluster owner routing, REST/gRPC host            |
-| `squirix.server.tool` | Standalone `squirix-server` global tool (process host)                                |
+| Package               | Purpose                                                                                |
+|-----------------------|----------------------------------------------------------------------------------------|
+| `squirix`             | v0.1 client SDK (`SquirixClient`, basic `ICache<T>`, `CacheEntryOptions`, serializer)  |
+| `squirix.server`      | Server runtime, hosting, durability, cluster owner routing, gRPC + health/metrics host |
+| `squirix.server.tool` | Standalone `squirix-server` global tool (process host)                                 |
 
 `Squirix.Server` does not reference the `Squirix` client SDK assembly. Server-owned cache model types live under
-`Squirix.Server.*`; wire compatibility with clients is through gRPC/REST contracts only.
+`Squirix.Server.*`; wire compatibility with clients is through the shared gRPC proto contract only.
 
 Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 
@@ -23,7 +23,7 @@ Product code must not use `InternalsVisibleTo("Squirix.Server")`.
 | `Configurator`                                      | Async load, validate, and map `Squirix.settings.json` (`Squirix:Cluster`)                                         |
 | `SquirixServerOptions` / `SquirixServerPeerOptions` | Cluster topology; `UsePersistence()` enables journal/snapshot durability                                          |
 
-Full settings (memory pressure, snapshots, backpressure, metrics) are JSON-only; see
+Full settings references (memory pressure, snapshots, metrics, and which knobs are JSON vs host defaults): see
 [docs/configuration.md](../../docs/configuration.md).
 
 ## Custom ASP.NET Core host
@@ -56,12 +56,17 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` uses `Configurator.LoadOrCreateDefaultAsync` (discovered settings file, else an ephemeral
-free HTTPS port). Pass the same URL to the client:
+free HTTPS port). The returned handle does **not** expose the listen URI — connect with the same origin configured in
+`Cluster.Uri` (or the known local default):
 
 ```csharp
-var listenUrl = "https://localhost:5001"; // or from your Squirix.settings.json Cluster.Uri
+using System;
+using Squirix.Client;
+using Squirix.Server;
+
+var listenUri = new Uri("https://localhost:5001"); // must match Cluster.Uri when a settings file is present
 await using var server = await SquirixServer.StartAsync(cancellationToken);
-await using var client = await SquirixClient.ConnectAsync(listenUrl, cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);
 ```
 
 For options you control in code without a file, use `await builder.AddSquirixServerAsync(...)` on a

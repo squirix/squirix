@@ -18,7 +18,7 @@ application -> Squirix client SDK -> squirix server node(s)
 
 - **Typed application surface** instead of untyped string payloads at the SDK boundary
 - **Explicit client/server packages** so applications do not accidentally embed server durability code
-- **Operational visibility** through health, admin, metrics, and tracing hooks on the server
+- **Operational visibility** through health, readiness, metrics, and tracing hooks on the server
 - **Durability-first server design** with journal, snapshots, and recovery as first-class server concerns
 - **Focused 0.1 scope** — a narrow API that can evolve based on real feedback
 

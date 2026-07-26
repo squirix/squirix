@@ -28,7 +28,8 @@ Package dependency rule:
 Squirix.Server does not reference the Squirix client assembly.
 ```
 
-Wire compatibility is through gRPC/REST contracts and shared proto source, not a project reference from server to
+Wire compatibility is through the shared gRPC proto contract (and HTTP health/metrics JSON), not a project reference from
+server to client.
 client.
 
 The v0.1 gRPC wire contract is the shared source file at
@@ -42,20 +43,20 @@ implementation details, and must not become exported product API.
 
 `Squirix.Server` owns data placement, partition ownership, static cluster topology, owner routing, server-side
 KV/expiration mutation execution, journal/snapshot/recovery, durability lifecycle, backpressure, memory pressure,
-health/security/metrics endpoints, and REST/gRPC hosting. The separate `Squirix.Server.Host` executable owns the
+health/security/metrics endpoints, and gRPC hosting. The separate `Squirix.Server.Host` executable owns the
 standalone process lifecycle.
 
 `Squirix` owns cache value/result types (`ICache<T>`, entry/result types, `ISquirixSerializer`). The exported v0.1 client
 entry surface lives in `Squirix.Client` (`SquirixClient`, `ISquirixClient`, `SquirixClientOptions`), typed facade,
 serializer boundary, and server-backed client connection configuration with bootstrap failover. Applications connect to
-`Squirix.Server` over gRPC/REST; the client package does not host cache state or run the durability stack in the
-application process.
+`Squirix.Server` over gRPC (cache) and HTTPS for health/metrics; the client package does not host cache state or run the
+durability stack in the application process.
 
 v0.1 `ICache<T>` is limited to basic async key/value and expiration operations (`AddAsync`, `TryAddAsync`, `SetAsync`,
 `UpdateAsync`, `GetValueAsync`, `GetEntryAsync`, `GetExpirationAsync`, `GetOrAddAsync`, `RemoveAsync`, `TouchAsync`,
 `RemoveExpirationAsync`). Prefer `GetValueAsync` for reads with explicit presence; there is no `GetValueOrDefaultAsync`
 on `ICache<T>`. `ContainsAsync` is not part of the v0.1 public client surface or the gRPC wire surface because existence
-can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` or REST `HEAD` instead.
+can become stale immediately in a distributed cache; use `GetValueAsync` / `GetEntryAsync` instead.
 Writes accept a value plus optional `CacheEntryOptions`; `CacheEntry<T>` is a read model returned by lookup APIs, not a
 mutation parameter. When write options omit expiration (`options` is null, or neither `Expiration` nor `ExpiresAt` is
 set), the entry is stored without TTL and does not expire by time. Compare-and-set, counters, batch, scan, watch, and tag
@@ -69,9 +70,9 @@ caught by `SquirixGrpcEndpointSurface.golden.txt` in server unit tests.
 
 The exported client entry point is asynchronous and remote:
 
-- `SquirixClient.ConnectAsync(string endpoint, ...)` connects to one `Squirix.Server` endpoint.
-- `SquirixClient.ConnectAsync(options => options.Endpoints.Add(...), ...)` connects with one or more bootstrap endpoints
-  (HA standby URLs, not shards). See [bootstrap client failover](bootstrap-client-failover.md).
+- `SquirixClient.ConnectAsync(Uri endpoint, ...)` connects to one `Squirix.Server` endpoint.
+- `SquirixClient.ConnectAsync(options => options.Endpoints.Add(new Uri(...)), ...)` connects with one or more bootstrap
+  endpoints (HA standby URLs, not shards). See [bootstrap client failover](bootstrap-client-failover.md).
 
 Cluster topology, partition ownership, and server-side durability belong to `Squirix.Server`. Tests that validate exported
 client behavior should start a server host and connect through `SquirixClient.ConnectAsync(...)`.

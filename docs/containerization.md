@@ -111,7 +111,7 @@ Endpoints (two-node `docker compose` example):
 
 Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
 `https://squirix-node-b:5000`). Host applications use the **published** ports (`5001`, `5002`) instead. Each node's
-`Cluster.Url` must match its local peer entry (see [configuration.md](configuration.md)).
+`Cluster.Uri` must match its local peer entry (see [configuration.md](configuration.md)).
 
 ## HTTPS in containers
 

@@ -41,9 +41,10 @@ squirix-server run --persist --data-dir ./data
 Client:
 
 ```csharp
-using Squirix;
+using System;
+using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync("https://localhost:5001", cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
 await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
 ```
@@ -55,6 +56,7 @@ Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.
 - [Getting started](docs/getting-started.md) · [Client & server](docs/client-server.md) · [Configuration](docs/configuration.md)
 - [Persistence](docs/persistence.md) · [Clustering](docs/clustering.md) · [Observability](docs/observability.md)
 - [API](docs/api.md) · [Architecture](docs/architecture.md) · [Operations](docs/operations.md)
+- [Operational runbook](docs/operational-runbook.md) · [Security (inter-node mTLS)](docs/security/inter-node-mtls.md)
 
 ## Contributing
 

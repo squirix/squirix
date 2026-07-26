@@ -7,10 +7,10 @@ squirix exposes a typed gRPC client SDK. Cache operations use gRPC only; HTTP en
 Entry point (`Squirix.Client`):
 
 ```csharp
-using Squirix;
+using System;
 using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync("https://localhost:5001", cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
 var cache = await client.GetCacheAsync<T>("cache-name", cancellationToken);
 ```
 
@@ -63,17 +63,18 @@ gRPC contract: `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto` (sh
 Mutations that accept expiration use `SetEntry` / `TryAddEntry` with `CacheEntryWire`. There are no flat `Set` / `TryAdd`
 value-only mutation RPCs on the wire surface.
 
-The server runtime pipeline (`ICacheApi`) is entry-based only (nine methods). gRPC handlers translate wire requests into
+The server runtime pipeline (`ICacheApi`) is entry-based only (eight methods). gRPC handlers translate wire requests into
 that runtime surface; `GetExpiration` and `GetOrAdd` are wire convenience RPCs whose handlers may compose runtime calls
 internally — the client SDK calls one RPC per exported method and does not stitch multiple RPCs together.
 
 Wire RPC names omit the `Async` suffix; grpc-dotnet appends it on generated client methods (for example `SetEntry` →
 `SetEntryAsync`). Public `ICache<T>` names stay `SetAsync` / `TryAddAsync`.
 
-There is no `Contains` RPC. Prefer `GetValueAsync` or REST `HEAD` for presence checks.
+There is no `Contains` RPC. Prefer `GetValueAsync` or `GetEntryAsync` for presence checks (`found=false` is not an
+error). HTTP on the primary listener is limited to health and metrics — there is no REST cache `HEAD` route in v0.1.
 
 Mutating gRPC RPCs require a non-empty `operation_id` of exactly **32 lowercase hex characters** (UUID without
-hyphens, for example `a1b2c3d4e5f6478990abcdef012345678`). The `Squirix` client SDK generates a fresh id per mutating
+hyphens, for example `0123456789abcdef0123456789abcdef`). The `Squirix` client SDK generates a fresh id per mutating
 call via `RpcOperationIdentity.New()`; custom gRPC clients must supply a conforming value. Over-length or malformed ids
 are rejected with gRPC `InvalidArgument`. The server deduplicates retries with the same `operation_id` and rejects
 reuse with a different payload (`FailedPrecondition`).
@@ -87,7 +88,8 @@ reuse with a different payload (`FailedPrecondition`).
 | Tag key UTF-8 size | 256 bytes |
 | Tag value UTF-8 size | 1024 bytes |
 
-Violations return gRPC `InvalidArgument` with stable `INVALID_ENTRY_TAGS` or `PAYLOAD_TOO_LARGE` details.
+Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
+gRPC `ResourceExhausted`.
 
 In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
 instead of minting a new id. Idempotency records are per-node in memory; when a retry lands on a different entry node

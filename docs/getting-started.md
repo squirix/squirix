@@ -93,13 +93,13 @@ Use the HTTPS gRPC endpoint from the host output.
 **Local tool or `dotnet run`** (default `https://localhost:5001`, no JWT unless you configure auth):
 
 ```csharp
+using System;
 using System.Threading;
-using Squirix;
 using Squirix.Client;
 
 var cancellationToken = CancellationToken.None;
 
-await using var client = await SquirixClient.ConnectAsync("https://localhost:5001", cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
 
 var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
 await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
@@ -113,10 +113,14 @@ Console.WriteLine(lookup.Found ? lookup.Value : "<missing>");
 TLS validation override when connecting from the host (see [containerization.md](containerization.md#https-in-containers)).
 
 ```csharp
+using System;
+using System.Threading.Tasks;
+using Squirix.Client;
+
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
-        options.Endpoints.Add("https://localhost:5000"); // or :5001 for Compose node A
+        options.Endpoints.Add(new Uri("https://localhost:5000")); // or :5001 for Compose node A
         options.BearerTokenProvider = _ => new ValueTask<string>(yourJwtBearerToken);
     },
     cancellationToken);
@@ -125,11 +129,14 @@ await using var client = await SquirixClient.ConnectAsync(
 Multiple bootstrap endpoints (HA front door, not shards):
 
 ```csharp
+using System;
+using Squirix.Client;
+
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
-        options.Endpoints.Add("https://cache-a.example.internal:5001");
-        options.Endpoints.Add("https://cache-b.example.internal:5002");
+        options.Endpoints.Add(new Uri("https://cache-a.example.internal:5001"));
+        options.Endpoints.Add(new Uri("https://cache-b.example.internal:5002"));
     },
     cancellationToken);
 ```

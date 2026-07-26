@@ -28,7 +28,7 @@ Before changing cluster topology in containers, validate settings:
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 
-See [containerization.md](containerization.md) for Docker Compose examples (`Cluster.Url` must match the local peer
+See [containerization.md](containerization.md) for Docker Compose examples (`Cluster.Uri` must match the local peer
 entry).
 
 ## Diagnostics
@@ -118,7 +118,7 @@ Kubernetes / containers:
 
 ## Journal disk quota
 
-Persistent nodes (`--persist` / Persistence section) enforce an on-disk journal total size cap via
+Persistent nodes (`--persist` / `UsePersistence()`) enforce an on-disk journal total size cap via
 `JournalMaxTotalBytesMb` (default 2048 MiB). Segment count and per-segment size caps also apply; see
 [configuration.md](configuration.md).
 
@@ -137,7 +137,7 @@ Behavior:
 - Soft high-water (`high`) is observability only for pressure state — writes that still fit under `maxBytes` continue.
 - Durable writes are rejected when `usedBytes + appendBytes > maxBytes`, including while `state` remains `high`.
 - Hard limit (`critical`) is the observed state at the configured cap (`usedBytes >= maxBytes`). Rejected durable writes
-  fail with stable `JOURNAL_DISK_QUOTA` (HTTP 429 / gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
+  fail with stable `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`). The process does not crash; `/health/ready`
   stays healthy so operators can still scrape details and run cleanup.
 - This quota covers **journal segments only**, not snapshots or manifest files under the data directory.
 
@@ -146,8 +146,9 @@ Operator actions when approaching or at quota:
 1. Confirm `journalDisk` and journal backlog on `/health/ready/details`.
 2. Trigger or wait for snapshot + journal compaction/retention so obsolete segments can be removed (see
    [storage-maintenance.md](storage-maintenance.md)).
-3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` (and related segment caps)
-   in settings and restart, after confirming disk capacity.
+3. If legitimate working set needs more journal headroom, raise `JournalMaxTotalBytesMb` on the host's
+   `PersistenceOptions` (v0.1 public hosting uses the 2048 MiB default and does not read this from
+   `Squirix.settings.json`) and related segment caps, then restart after confirming disk capacity.
 4. Clients should treat `JOURNAL_DISK_QUOTA` like other capacity rejections — back off and retry after operators reclaim
    space or raise the limit.
 
@@ -158,9 +159,9 @@ concurrency limits, bounded queues, slowdown, and optional rate limits. A backpr
 cache operations enter memory admission or clustered/local paths, so rejected writes do not append journal records,
 mutate local memory, update memory accounting, or record idempotency outcomes.
 
-Runtime placement: REST/gRPC adapters keep transport-level protections such as auth, request size limits, serialization
+Runtime placement: gRPC adapters keep transport-level protections such as auth, request size limits, serialization
 limits, deadlines, cancellation, and server/connection protection. Logical cache-operation backpressure applies after
-validation and before memory admission. Reads and writes share this policy across REST, gRPC, and in-process calls.
+validation and before memory admission. Reads and writes share this policy across gRPC and in-process calls.
 Treat runtime backpressure as overload protection; memory pressure remains capacity admission based on estimated cache
 working-set size.
 
@@ -242,15 +243,15 @@ Before upgrade:
 3. Validate recovery from a backup copy with the target version.
 4. Run `tools/internal/sqr-release-validate.cs` locally for the target commit before tagging.
 5. Validate security posture after startup:
-    - REST, admin, and gRPC reject missing/invalid credentials.
-    - gRPC accepts the same JWT bearer credentials as REST.
+    - Non-loopback cache gRPC rejects missing/invalid JWT when auth is enabled.
+    - Remote `/metrics` and `/health/ready/details` require the same JWT bearer credentials.
     - Operational routes are HTTPS-only on the primary listener.
 
 Compatible rolling upgrade:
 
 1. Upgrade one non-critical node.
 2. Confirm readiness, journal backlog, snapshot age, compaction state, and client pool state.
-3. Watch logs for serializer, journal, gRPC, REST, and backpressure errors.
+3. Watch logs for serializer, journal, gRPC, and backpressure errors.
 4. Continue one node at a time.
 5. Keep old binaries and backups until all nodes are validated.
 

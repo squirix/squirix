@@ -13,7 +13,7 @@ ASP.NET Core hosting:
 await builder.AddSquirixServerAsync(options =>
 {
     options.NodeId = "node-a";
-    options.Url = new Uri("https://localhost:5001");
+    options.Uri = new Uri("https://localhost:5001");
     options.UsePersistence("./data");
 });
 ```
@@ -33,6 +33,11 @@ startup, the node replays the journal (and latest snapshot watermark) to rebuild
 
 Readiness stays unhealthy until journal recovery completes (`journal_recovery` gate). Fatal maintenance failures also
 affect readiness — see [observability](observability.md).
+
+Journal on-disk growth is bounded by `JournalMaxTotalBytesMb` (default 2048 MiB on host `PersistenceOptions`; not a
+`Squirix.settings.json` section in v0.1 public hosting). Oversize durable appends fail with `JOURNAL_DISK_QUOTA`
+while `/health/ready` stays healthy and `/health/ready/details` exposes `journalDisk` pressure. See
+[operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
 
 ## Snapshots
 
