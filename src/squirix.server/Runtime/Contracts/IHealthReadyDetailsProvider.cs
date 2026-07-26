@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>Builds health-ready diagnostics for REST endpoints.</summary>
+/// <summary>Builds health-ready diagnostics for `/health/ready/details`.</summary>
 internal interface IHealthReadyDetailsProvider
 {
     /// <summary>Gets the current health-ready diagnostics snapshot.</summary>

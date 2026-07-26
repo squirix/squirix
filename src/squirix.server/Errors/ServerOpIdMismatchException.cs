@@ -9,7 +9,7 @@ namespace Squirix.Server.Errors;
 public sealed class ServerOpIdMismatchException : Exception
 {
     /// <summary>
-    /// Stable, bounded detail text shared with REST/gRPC mappings.
+    /// Stable, bounded detail text shared with gRPC and health/metrics HTTP error mappings.
     /// </summary>
     internal const string StableDetail = "operation_id was reused with a different mutation fingerprint.";
 

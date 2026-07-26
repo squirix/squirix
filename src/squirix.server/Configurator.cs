@@ -20,7 +20,7 @@ public static class Configurator
 
     /// <summary>Applies command-line overrides used by the standalone server host.</summary>
     /// <param name="options">Server options to update.</param>
-    /// <param name="uri">Optional URL override.</param>
+    /// <param name="uri">Optional listen URI override.</param>
     /// <param name="dataDirectory">Optional data directory override.</param>
     /// <param name="persist">When <see langword="true" />, enables journal/snapshot persistence.</param>
     public static void ApplyCommandLineOverrides(SquirixServerOptions options, Uri? uri, string? dataDirectory, bool persist = false)
@@ -106,7 +106,7 @@ public static class Configurator
     /// <summary>
     /// Returns <see langword="true" /> when the host portion of <paramref name="uri" /> can accept a new TCP listener.
     /// </summary>
-    /// <param name="uri">The node URL to probe.</param>
+    /// <param name="uri">The node URI to probe.</param>
     /// <returns><see langword="true" /> when the port appears available on loopback.</returns>
     public static bool IsListenPortAvailable(Uri uri)
     {
@@ -307,7 +307,7 @@ public static class Configurator
         };
     }
 
-    /// <summary>Aligns the local peer URL with the node URL after command-line overrides.</summary>
+    /// <summary>Aligns the local peer URI with the node URI after command-line overrides.</summary>
     /// <param name="options">Server options to update.</param>
     private static void AlignLocalPeerWithNodeUrl(SquirixServerOptions options)
     {

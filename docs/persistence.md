@@ -48,8 +48,8 @@ Readiness reports snapshot age and in-flight state on `/health/ready/details`.
 
 ## Compaction
 
-Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Tune thresholds in
-`Squirix.settings.json` — see [configuration](configuration.md).
+Background journal compaction rewrites tail segments covered by the latest snapshot watermark. Compaction thresholds are
+host defaults in v0.1 public hosting (not a `Squirix.settings.json` section) — see [configuration](configuration.md).
 
 Compaction state is visible on `/health/ready/details` (`compaction.*`).
 

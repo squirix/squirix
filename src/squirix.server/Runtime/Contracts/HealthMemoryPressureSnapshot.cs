@@ -6,7 +6,7 @@ namespace Squirix.Server.Runtime.Contracts;
 /// <param name="EstimatedBytes">Estimated cache bytes in use.</param>
 /// <param name="EntryCount">Estimated number of cache entries.</param>
 /// <param name="RejectedWriteCount">Number of writes rejected due to memory pressure.</param>
-/// <param name="WriteRejectionActive">Whether write rejection is currently active.</param>
+/// <param name="WriteRejectionActive">Whether write rejection is currently active. v0.1 always reports <see langword="true" />; use <paramref name="State" /> for pressure triage.</param>
 internal readonly record struct HealthMemoryPressureSnapshot(
     string State,
     long MaxEstimatedCacheBytes,

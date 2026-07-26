@@ -20,7 +20,7 @@ internal static class NodeEndpointServiceRegistration
 {
     extension(IServiceCollection services)
     {
-        /// <summary>Registers inbound endpoint cache routing used by REST and gRPC adapters.</summary>
+        /// <summary>Registers inbound endpoint cache routing used by gRPC adapters.</summary>
         /// <param name="persistenceEnabled">When true, registers durable health-ready detail providers.</param>
         /// <returns><paramref name="services" /> for chaining.</returns>
         internal IServiceCollection AddSquirixNodeEndpointServices(bool persistenceEnabled = false)
@@ -142,7 +142,7 @@ internal static class NodeEndpointServiceRegistration
         internal Coordinator Snapshot { get; }
     }
 
-    /// <summary>Builds health-ready diagnostics for REST endpoints.</summary>
+    /// <summary>Builds health-ready diagnostics for `/health/ready/details`.</summary>
     private sealed class HealthReadyDetailsProvider : IHealthReadyDetailsProvider
     {
         private readonly TopologyOptions _cluster;

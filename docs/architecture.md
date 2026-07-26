@@ -30,7 +30,6 @@ Squirix.Server does not reference the Squirix client assembly.
 
 Wire compatibility is through the shared gRPC proto contract (and HTTP health/metrics JSON), not a project reference from
 server to client.
-client.
 
 The v0.1 gRPC wire contract is the shared source file at
 `src/shared/Squirix/Transport/Grpc/Protos/SquirixCache.proto`, not a separate NuGet package. `Squirix` generates

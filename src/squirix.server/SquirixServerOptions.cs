@@ -21,7 +21,7 @@ public sealed class SquirixServerOptions
     /// <summary>Gets or sets a value indicating whether journal/snapshot persistence is enabled.</summary>
     public bool PersistenceEnabled { get; set; }
 
-    /// <summary>Gets or sets the primary HTTP/2 URL used for gRPC and node traffic.</summary>
+    /// <summary>Gets or sets the primary HTTPS URI used for gRPC and node traffic.</summary>
     public Uri Uri { get; set; } = new("https://localhost:5001");
 
     /// <summary>Gets or sets the number of consistent-hash virtual nodes.</summary>

@@ -1,6 +1,6 @@
 namespace Squirix.Server.Runtime.Contracts;
 
-/// <summary>Health-ready diagnostics snapshot for REST endpoints.</summary>
+/// <summary>Health-ready diagnostics snapshot for `/health/ready/details`.</summary>
 internal sealed class HealthReadyDetailsSnapshot
 {
     internal required HealthClientPoolSnapshot ClientPool { get; init; }

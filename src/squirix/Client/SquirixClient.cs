@@ -19,7 +19,7 @@ public sealed class SquirixClient : ISquirixClient
     }
 
     /// <summary>Connects to a Squirix server endpoint.</summary>
-    /// <param name="endpoint">The Squirix server endpoint URL.</param>
+    /// <param name="endpoint">The Squirix server endpoint URI.</param>
     /// <param name="cancellationToken">Cancellation token for client warm-up.</param>
     /// <returns>A remote <see cref="ISquirixClient" /> session.</returns>
     public static ValueTask<ISquirixClient> ConnectAsync(Uri endpoint, CancellationToken cancellationToken = default)
