@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Errors;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
@@ -16,7 +17,25 @@ public sealed class JournalSegmentRollCapacityTests
     public void EnsureAppendCapacityThrowThrowsExceedsTotalByteCap()
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => policy.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
+        var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureAppendCapacityOrThrow(OneMegabyte, 1));
+        Assert.Contains("total bytes", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Roll is rejected when the next segment would exceed the configured segment-count limit.</summary>
+    [Fact]
+    public void EnsureRollCapacityThrowThrowsExceedsSegmentCount()
+    {
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2, JournalMaxTotalBytesMb = 64 });
+        var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureRollCapacityOrThrow(2, 0));
+        Assert.Contains("segment count", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Roll is rejected when on-disk total bytes already exceed the configured journal size.</summary>
+    [Fact]
+    public void EnsureRollCapacityThrowThrowsExceedsTotalByteCap()
+    {
+        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1, JournalMaxSegmentCount = 32 });
+        var error = NodeExceptionAssert.For<JournalCapacityExceededException>().Throws(policy, static value => value.EnsureRollCapacityOrThrow(1, OneMegabyte + 1));
         Assert.Contains("total bytes", error.Message, StringComparison.Ordinal);
     }
 
@@ -26,23 +45,5 @@ public sealed class JournalSegmentRollCapacityTests
     {
         var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentMb = 1 });
         Assert.True(policy.ShouldRollSegment(OneMegabyte, 1));
-    }
-
-    /// <summary>Roll is rejected when the next segment would exceed the configured segment-count limit.</summary>
-    [Fact]
-    public void EnsureRollCapacityThrowThrowsExceedsSegmentCount()
-    {
-        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxSegmentCount = 2, JournalMaxTotalBytesMb = 64 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => policy.EnsureRollCapacityOrThrow(2, 0));
-        Assert.Contains("segment count", error.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Roll is rejected when on-disk total bytes already exceed the configured journal size.</summary>
-    [Fact]
-    public void EnsureRollCapacityThrowThrowsExceedsTotalByteCap()
-    {
-        var policy = new JournalSegmentPolicy(new PersistenceOptions { JournalMaxTotalBytesMb = 1, JournalMaxSegmentCount = 32 });
-        var error = Assert.Throws<JournalCapacityExceededException>(() => policy.EnsureRollCapacityOrThrow(1, OneMegabyte + 1));
-        Assert.Contains("total bytes", error.Message, StringComparison.Ordinal);
     }
 }

@@ -252,6 +252,9 @@ jobs:
             -   name: Verify Whitespace
                 run: git diff --check
 
+            -   name: Build in-repo analyzers
+                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
+
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore
 
@@ -1046,8 +1049,8 @@ jobs:
                       "/d:sonar.token=${SONAR_TOKEN}"
                       "/d:sonar.host.url=https://sonarcloud.io"
                       "/d:sonar.qualitygate.wait=false"
-                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**"
-                      "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**"
+                      "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
+                      "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.cs.opencover.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.opencover.xml"
                     )
 
@@ -1062,6 +1065,7 @@ jobs:
                     fi
 
                     .sonar/scanner/dotnet-sonarscanner "${begin_args[@]}"
+                    dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
                     dotnet build squirix.slnx --configuration Release --no-restore
                     .sonar/scanner/dotnet-sonarscanner end "/d:sonar.token=${SONAR_TOKEN}"
 
@@ -1191,6 +1195,9 @@ jobs:
 
             -   name: Restore
                 run: dotnet restore squirix.slnx
+
+            -   name: Build in-repo analyzers
+                run: dotnet build src/squirix.analyzers/Squirix.Analyzers.csproj --configuration Release --no-restore
 
             -   name: Build
                 run: dotnet build squirix.slnx --configuration Release --no-restore

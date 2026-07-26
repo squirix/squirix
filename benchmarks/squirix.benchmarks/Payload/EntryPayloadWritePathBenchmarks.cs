@@ -39,7 +39,7 @@ public class EntryPayloadWritePathBenchmarks
     public int SerializeOnceThenLengthCheck() => EntryPayloadWritePathBenchmarkSupport.SerializeOnceThenLengthCheck(_entry);
 
     /// <summary>Builds the entry under test for the selected payload profile.</summary>
-    /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile"/> is not a supported value.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when <see cref="Profile" /> is not a supported value.</exception>
     [GlobalSetup]
     public async Task SetupEntryAsync()
     {
@@ -49,7 +49,7 @@ public class EntryPayloadWritePathBenchmarks
             EntryPayloadProfile.Medium64KiB => new string('x', 64 * 1024),
             EntryPayloadProfile.Large1MiB => new string('x', 1024 * 1024),
             EntryPayloadProfile.NearLimitEntry => await EntryLimitKit.CreateNearLimitStringValueAsync().ConfigureAwait(false),
-            _ => throw new InvalidOperationException($"Unsupported profile: {Profile}"),
+            _ => throw new InvalidOperationException("Unsupported entry payload profile."),
         };
 
         _entry = new NodeCacheEntry { Value = value, Version = 1 };

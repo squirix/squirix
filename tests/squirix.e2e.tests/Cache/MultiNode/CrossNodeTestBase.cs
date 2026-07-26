@@ -16,7 +16,10 @@ public abstract class CrossNodeTestBase : EndToEndTestBase, IClassFixture<TwoNod
     /// Initializes a new instance of the <see cref="CrossNodeTestBase" /> class.
     /// </summary>
     /// <param name="fixture">Shared two-node cluster fixture.</param>
-    protected CrossNodeTestBase(TwoNodeFixture fixture) => _fixture = fixture ?? throw new ArgumentNullException(nameof(fixture));
+    protected CrossNodeTestBase(TwoNodeFixture fixture)
+    {
+        _fixture = fixture ?? throw new ArgumentNullException(nameof(fixture));
+    }
 
     /// <summary>Gets the shared object-typed named caches for both nodes.</summary>
     protected TwoNodeNamedCaches<object?> Cluster => _fixture.NamedCaches;

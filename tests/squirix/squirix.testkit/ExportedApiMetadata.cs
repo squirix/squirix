@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -27,6 +26,17 @@ public static class ExportedApiMetadata
         return identities;
     }
 
+    private static void AddFieldIdentity(string typeIdentity, IFieldSymbol field, bool isEnum, HashSet<string> identities)
+    {
+        if (field.IsImplicitlyDeclared || string.Equals(field.Name, "value__", StringComparison.Ordinal))
+            return;
+
+        if (isEnum && !field.IsStatic)
+            return;
+
+        _ = identities.Add(FormatFieldLine(typeIdentity, field.Name));
+    }
+
     private static void AddMemberIdentities(INamedTypeSymbol type, string typeIdentity, HashSet<string> identities)
     {
         var members = type.GetMembers();
@@ -35,11 +45,41 @@ public static class ExportedApiMetadata
             AddPublicMemberIdentity(members[i], typeIdentity, isEnum, identities);
     }
 
-    private static void AddPublicMemberIdentity(
-        ISymbol member,
-        string typeIdentity,
-        bool isEnum,
-        HashSet<string> identities)
+    private static void AddMethodIdentity(string typeIdentity, IMethodSymbol method, HashSet<string> identities)
+    {
+        if (method.MethodKind is MethodKind.Constructor || IsOrdinaryMethod(method))
+            _ = identities.Add(FormatMethodLine(typeIdentity, method));
+    }
+
+    private static void AddPropertyIdentities(string typeIdentity, IPropertySymbol property, HashSet<string> identities)
+    {
+        var indexParameters = property.Parameters;
+        if (indexParameters.Length > 0)
+        {
+            var indexParts = new string[indexParameters.Length];
+            for (var i = 0; i < indexParameters.Length; i++)
+                indexParts[i] = FormatTypeName(indexParameters[i].Type);
+
+            var indexSignature = string.Join(',', indexParts);
+            var propertyType = FormatTypeName(property.Type);
+            if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
+                _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.get");
+
+            if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
+                _ = identities.Add($"P:{typeIdentity}::this[{indexSignature}]:{propertyType}.set");
+
+            return;
+        }
+
+        var typeName = FormatTypeName(property.Type);
+        if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
+            _ = identities.Add($"P:{typeIdentity}::{property.Name}:{typeName}.get");
+
+        if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
+            _ = identities.Add($"P:{typeIdentity}::{property.Name}:{typeName}.set");
+    }
+
+    private static void AddPublicMemberIdentity(ISymbol member, string typeIdentity, bool isEnum, HashSet<string> identities)
     {
         if (member.DeclaredAccessibility is not Accessibility.Public)
             return;
@@ -66,72 +106,11 @@ public static class ExportedApiMetadata
             AddFieldIdentity(typeIdentity, field, isEnum, identities);
     }
 
-    private static void AddFieldIdentity(string typeIdentity, IFieldSymbol field, bool isEnum, HashSet<string> identities)
-    {
-        if (field.IsImplicitlyDeclared || string.Equals(field.Name, "value__", StringComparison.Ordinal))
-            return;
-
-        if (isEnum && !field.IsStatic)
-            return;
-
-        _ = identities.Add(FormatFieldLine(typeIdentity, field.Name));
-    }
-
-    private static void AddMethodIdentity(string typeIdentity, IMethodSymbol method, HashSet<string> identities)
-    {
-        if (method.MethodKind is MethodKind.Constructor || IsOrdinaryMethod(method))
-            _ = identities.Add(FormatMethodLine(typeIdentity, method));
-    }
-
-    private static void AddPropertyIdentities(string typeIdentity, IPropertySymbol property, HashSet<string> identities)
-    {
-        var indexParameters = property.Parameters;
-        if (indexParameters.Length > 0)
-        {
-            var indexParts = new string[indexParameters.Length];
-            for (var i = 0; i < indexParameters.Length; i++)
-                indexParts[i] = FormatTypeName(indexParameters[i].Type);
-
-            var indexSignature = string.Join(',', indexParts);
-            var propertyType = FormatTypeName(property.Type);
-            if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
-                _ = identities.Add("P:" + typeIdentity + "::this[" + indexSignature + "]:" + propertyType + ".get");
-
-            if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
-                _ = identities.Add("P:" + typeIdentity + "::this[" + indexSignature + "]:" + propertyType + ".set");
-
-            return;
-        }
-
-        var typeName = FormatTypeName(property.Type);
-        if (property.GetMethod is { DeclaredAccessibility: Accessibility.Public })
-            _ = identities.Add("P:" + typeIdentity + "::" + property.Name + ":" + typeName + ".get");
-
-        if (property.SetMethod is { DeclaredAccessibility: Accessibility.Public })
-            _ = identities.Add("P:" + typeIdentity + "::" + property.Name + ":" + typeName + ".set");
-    }
-
     private static void AddTypeIdentities(INamedTypeSymbol type, HashSet<string> identities)
     {
         var typeIdentity = FormatTypeIdentity(type);
-        _ = identities.Add("T:" + typeIdentity);
+        _ = identities.Add($"T:{typeIdentity}");
         AddMemberIdentities(type, typeIdentity, identities);
-    }
-
-    private static void CollectExportedTypes(INamespaceSymbol namespaceSymbol, HashSet<string> identities)
-    {
-        foreach (var member in namespaceSymbol.GetMembers())
-        {
-            switch (member)
-            {
-                case INamespaceSymbol nestedNamespace:
-                    CollectExportedTypes(nestedNamespace, identities);
-                    break;
-                case INamedTypeSymbol type:
-                    CollectExportedTypeTree(type, identities);
-                    break;
-            }
-        }
     }
 
     private static void CollectExportedTypeTree(INamedTypeSymbol type, HashSet<string> identities)
@@ -145,52 +124,23 @@ public static class ExportedApiMetadata
             CollectExportedTypeTree(nestedTypes[i], identities);
     }
 
-    private static string FormatEventLine(string typeIdentity, string name) => "E:" + typeIdentity + "::" + name;
-
-    private static string FormatFieldLine(string typeIdentity, string name) => "F:" + typeIdentity + "::" + name;
-
-    private static string FormatMethodLine(string typeIdentity, IMethodSymbol method)
+    private static void CollectExportedTypes(INamespaceSymbol namespaceSymbol, HashSet<string> identities)
     {
-        var name = method.MethodKind is MethodKind.Constructor ? ".ctor" : method.Name;
-        return "M:" + typeIdentity + "::" + name + FormatParameterList(method.Parameters);
+        foreach (var member in namespaceSymbol.GetMembers())
+            switch (member)
+            {
+                case INamespaceSymbol nestedNamespace:
+                    CollectExportedTypes(nestedNamespace, identities);
+                    break;
+                case INamedTypeSymbol type:
+                    CollectExportedTypeTree(type, identities);
+                    break;
+            }
     }
 
-    private static string FormatParameterList(ImmutableArray<IParameterSymbol> parameters)
-    {
-        if (parameters.IsDefaultOrEmpty)
-            return "()";
+    private static string FormatEventLine(string typeIdentity, string name) => $"E:{typeIdentity}::{name}";
 
-        var parts = new string[parameters.Length];
-        for (var i = 0; i < parameters.Length; i++)
-            parts[i] = FormatParameterTypeName(parameters[i]);
-
-        return "(" + string.Join(',', parts) + ")";
-    }
-
-    private static string FormatParameterTypeName(IParameterSymbol parameter)
-    {
-        var typeName = FormatTypeName(parameter.Type);
-        return parameter.RefKind is RefKind.Ref or RefKind.Out or RefKind.In
-            ? typeName + "&"
-            : typeName;
-    }
-
-    private static string FormatTypeIdentity(INamedTypeSymbol type)
-    {
-        var definition = type.IsGenericType ? type.OriginalDefinition : type;
-        return GetTypeMetadataName(definition);
-    }
-
-    private static string FormatTypeName(ITypeSymbol type)
-    {
-        return type switch
-        {
-            ITypeParameterSymbol typeParameter => FormatTypeParameterName(typeParameter),
-            IPointerTypeSymbol pointer => FormatTypeName(pointer.PointedAtType) + "*",
-            IArrayTypeSymbol array => FormatTypeName(array.ElementType) + "[" + new string(',', array.Rank - 1) + "]",
-            _ => type is INamedTypeSymbol { IsGenericType: true } namedType ? FormatGenericTypeName(namedType) : GetTypeMetadataName(type),
-        };
-    }
+    private static string FormatFieldLine(string typeIdentity, string name) => $"F:{typeIdentity}::{name}";
 
     private static string FormatGenericTypeName(INamedTypeSymbol namedType)
     {
@@ -204,13 +154,83 @@ public static class ExportedApiMetadata
         for (var i = 0; i < genericArguments.Length; i++)
             argumentNames[i] = FormatTypeName(genericArguments[i]);
 
-        return genericDefinitionName + "<" + string.Join(',', argumentNames) + ">";
+        return $"{genericDefinitionName}<{string.Join(',', argumentNames)}>";
     }
 
-    private static string FormatTypeParameterName(ITypeParameterSymbol typeParameter) =>
-        typeParameter.TypeParameterKind is TypeParameterKind.Method
-            ? "!" + typeParameter.Ordinal.ToString(CultureInfo.InvariantCulture)
-            : "!!" + typeParameter.Ordinal.ToString(CultureInfo.InvariantCulture);
+    private static string FormatMethodLine(string typeIdentity, IMethodSymbol method)
+    {
+        var name = method.MethodKind is MethodKind.Constructor ? ".ctor" : method.Name;
+        return $"M:{typeIdentity}::{name}{FormatParameterList(method.Parameters)}";
+    }
+
+    private static string FormatParameterList(ImmutableArray<IParameterSymbol> parameters)
+    {
+        if (parameters.IsDefaultOrEmpty)
+            return "()";
+
+        var parts = new string[parameters.Length];
+        for (var i = 0; i < parameters.Length; i++)
+            parts[i] = FormatParameterTypeName(parameters[i]);
+
+        return $"({string.Join(',', parts)})";
+    }
+
+    private static string FormatParameterTypeName(IParameterSymbol parameter)
+    {
+        var typeName = FormatTypeName(parameter.Type);
+        return parameter.RefKind is RefKind.Ref or RefKind.Out or RefKind.In ? $"{typeName}&" : typeName;
+    }
+
+    private static string FormatTypeIdentity(INamedTypeSymbol type)
+    {
+        var definition = type.IsGenericType ? type.OriginalDefinition : type;
+        return GetTypeMetadataName(definition);
+    }
+
+    private static string FormatTypeName(ITypeSymbol type)
+    {
+        return type switch
+        {
+            ITypeParameterSymbol typeParameter => FormatTypeParameterName(typeParameter),
+            IPointerTypeSymbol pointer => $"{FormatTypeName(pointer.PointedAtType)}*",
+            IArrayTypeSymbol array => array.Rank is 1 ? $"{FormatTypeName(array.ElementType)}[]" : $"{FormatTypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]",
+            _ => type is INamedTypeSymbol { IsGenericType: true } namedType ? FormatGenericTypeName(namedType) : GetTypeMetadataName(type),
+        };
+    }
+
+    private static string FormatTypeParameterName(ITypeParameterSymbol typeParameter) => typeParameter.TypeParameterKind is TypeParameterKind.Method
+        ? $"!{InvariantIndexStrings.Format(typeParameter.Ordinal)}" : $"!!{InvariantIndexStrings.Format(typeParameter.Ordinal)}";
+
+    private static string GetNamespace(ITypeSymbol type)
+    {
+        var ns = type.ContainingNamespace;
+        if (ns is null or { IsGlobalNamespace: true })
+            return string.Empty;
+
+        return ns.ToDisplayString();
+    }
+
+    private static string? GetSpecialTypeMetadataName(SpecialType specialType) => specialType switch
+    {
+        SpecialType.System_Boolean => "System.Boolean",
+        SpecialType.System_Byte => "System.Byte",
+        SpecialType.System_SByte => "System.SByte",
+        SpecialType.System_Char => "System.Char",
+        SpecialType.System_Int16 => "System.Int16",
+        SpecialType.System_Int32 => "System.Int32",
+        SpecialType.System_Int64 => "System.Int64",
+        SpecialType.System_UInt16 => "System.UInt16",
+        SpecialType.System_UInt32 => "System.UInt32",
+        SpecialType.System_UInt64 => "System.UInt64",
+        SpecialType.System_Single => "System.Single",
+        SpecialType.System_Double => "System.Double",
+        SpecialType.System_Decimal => "System.Decimal",
+        SpecialType.System_String => "System.String",
+        SpecialType.System_Object => "System.Object",
+        SpecialType.System_Void => "System.Void",
+        SpecialType.System_DateTime => "System.DateTime",
+        _ => null,
+    };
 
     private static string GetTypeMetadataName(ITypeSymbol type)
     {
@@ -221,7 +241,7 @@ public static class ExportedApiMetadata
         {
             var ns = GetNamespace(type);
             var metadataName = namedType.MetadataName;
-            return string.IsNullOrEmpty(ns) ? metadataName : ns + "." + metadataName;
+            return string.IsNullOrEmpty(ns) ? metadataName : $"{ns}.{metadataName}";
         }
 
         var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
@@ -229,38 +249,6 @@ public static class ExportedApiMetadata
             fullName = fullName["global::".Length..];
 
         return fullName.Replace('+', '.');
-    }
-
-    private static string? GetSpecialTypeMetadataName(SpecialType specialType) =>
-        specialType switch
-        {
-            SpecialType.System_Boolean => "System.Boolean",
-            SpecialType.System_Byte => "System.Byte",
-            SpecialType.System_SByte => "System.SByte",
-            SpecialType.System_Char => "System.Char",
-            SpecialType.System_Int16 => "System.Int16",
-            SpecialType.System_Int32 => "System.Int32",
-            SpecialType.System_Int64 => "System.Int64",
-            SpecialType.System_UInt16 => "System.UInt16",
-            SpecialType.System_UInt32 => "System.UInt32",
-            SpecialType.System_UInt64 => "System.UInt64",
-            SpecialType.System_Single => "System.Single",
-            SpecialType.System_Double => "System.Double",
-            SpecialType.System_Decimal => "System.Decimal",
-            SpecialType.System_String => "System.String",
-            SpecialType.System_Object => "System.Object",
-            SpecialType.System_Void => "System.Void",
-            SpecialType.System_DateTime => "System.DateTime",
-            _ => null,
-        };
-
-    private static string GetNamespace(ITypeSymbol type)
-    {
-        var ns = type.ContainingNamespace;
-        if (ns is null or { IsGlobalNamespace: true })
-            return string.Empty;
-
-        return ns.ToDisplayString();
     }
 
     private static bool IsExportedPublicType(INamedTypeSymbol type)
@@ -273,10 +261,8 @@ public static class ExportedApiMetadata
 
         var attributes = type.GetAttributes();
         for (var i = 0; i < attributes.Length; i++)
-        {
             if (string.Equals(attributes[i].AttributeClass?.Name, "CompilerGeneratedAttribute", StringComparison.Ordinal))
                 return false;
-        }
 
         return true;
     }

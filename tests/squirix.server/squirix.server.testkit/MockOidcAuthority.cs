@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
@@ -48,7 +47,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     public static async Task<MockOidcAuthority> StartAsync(CancellationToken cancellationToken = default)
     {
         var port = PortPool.Allocate();
-        var authorityUrl = $"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}";
+        var authorityUrl = InvariantIndexStrings.FormatOrigin("http", "127.0.0.1", port);
         var signingKey = RSA.Create(2048);
         const string keyId = "mock-oidc-key";
 
@@ -67,14 +66,13 @@ public sealed class MockOidcAuthority : IAsyncDisposable
             {
                 EnvironmentName = Environments.Development,
             });
-        _ = builder.WebHost.UseUrls(authorityUrl);
+        _ = builder.WebHost.UseSetting(WebHostDefaults.ServerUrlsKey, authorityUrl);
 
         var app = builder.Build();
         var jwks = new JsonWebKeySet();
         jwks.Keys.Add(jwk);
-        _ = app.MapGet("/.well-known/openid-configuration", () => Results.Json(discovery));
-        _ = app.MapGet("/.well-known/jwks", () => Results.Json(jwks));
-
+        MapDiscoveryEndpoint(app, discovery);
+        MapJwksEndpoint(app, jwks);
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
         return new MockOidcAuthority(app, authorityUrl, authorityUrl, signingKey, keyId);
     }
@@ -122,6 +120,27 @@ public sealed class MockOidcAuthority : IAsyncDisposable
         await _app.StopAsync(CancellationToken.None).ConfigureAwait(false);
         await _app.DisposeAsync().ConfigureAwait(false);
         _signingKey.Dispose();
+    }
+
+    private static void MapDiscoveryEndpoint(WebApplication app, OidcDiscoveryDocument discovery)
+    {
+        var endpoint = new JsonEndpoint<OidcDiscoveryDocument>(discovery);
+        _ = app.MapGet("/.well-known/openid-configuration", endpoint.Invoke);
+    }
+
+    private static void MapJwksEndpoint(WebApplication app, JsonWebKeySet jwks)
+    {
+        var endpoint = new JsonEndpoint<JsonWebKeySet>(jwks);
+        _ = app.MapGet("/.well-known/jwks", endpoint.Invoke);
+    }
+
+    private sealed class JsonEndpoint<T>
+    {
+        private readonly T _payload;
+
+        internal JsonEndpoint(T payload) => _payload = payload;
+
+        internal IResult Invoke() => Results.Json(_payload);
     }
 
     private sealed class OidcDiscoveryDocument

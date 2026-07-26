@@ -20,19 +20,8 @@ namespace Squirix.Server.UnitTests.Node.App.Decorators;
 public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 {
     private const string CacheName = "cache";
-    private const string Self = "node-a";
     private const string Remote = "node-b";
-
-    /// <summary>Non-local owners skip journal appends.</summary>
-    [Fact]
-    public async Task RemoveAsyncRemoteOwnerDoesNotAppendJournal()
-    {
-        await using var harness = await CreateHarnessAsync(Remote);
-        var before = harness.Journal.AppendedOps;
-        _ = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
-        Assert.Equal(before, harness.Journal.AppendedOps);
-        Assert.Equal(1, harness.Inner.RemoveCalls);
-    }
+    private const string Self = "node-a";
 
     /// <summary>Local-owner remove appends a journal record then applies memory.</summary>
     [Fact]
@@ -46,6 +35,30 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         Assert.True(removed.Removed);
         Assert.Equal(before + 1, harness.Journal.AppendedOps);
+    }
+
+    /// <summary>Non-local owners skip journal appends.</summary>
+    [Fact]
+    public async Task RemoveAsyncRemoteOwnerDoesNotAppendJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Remote);
+        var before = harness.Journal.AppendedOps;
+        _ = await harness.Cache.RemoveAsync(UnitMutationOpIds.Default, CacheName, "k", DefaultCancellationToken);
+        Assert.Equal(before, harness.Journal.AppendedOps);
+        Assert.Equal(1, harness.Inner.RemoveCalls);
+    }
+
+    /// <summary>Local-owner set appends a put journal record.</summary>
+    [Fact]
+    public async Task SetEntryAsyncLocalOwnerAppendsJournal()
+    {
+        await using var harness = await CreateHarnessAsync(Self);
+        var before = harness.Journal.AppendedOps;
+
+        await harness.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), DefaultCancellationToken);
+
+        Assert.Equal(before + 1, harness.Journal.AppendedOps);
+        Assert.Equal(1, harness.Inner.SetCalls);
     }
 
     /// <summary>Local-owner touch appends a journal record.</summary>
@@ -83,19 +96,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         Assert.Equal(before, harness.Journal.AppendedOps);
     }
 
-    /// <summary>Local-owner set appends a put journal record.</summary>
-    [Fact]
-    public async Task SetEntryAsyncLocalOwnerAppendsJournal()
-    {
-        await using var harness = await CreateHarnessAsync(Self);
-        var before = harness.Journal.AppendedOps;
-
-        await harness.Cache.SetEntryAsync(UnitMutationOpIds.Default, CacheName, "k", CreateEntry("v"), DefaultCancellationToken);
-
-        Assert.Equal(before + 1, harness.Journal.AppendedOps);
-        Assert.Equal(1, harness.Inner.SetCalls);
-    }
-
     private static NodeCacheEntry<string> CreateEntry(string value) => new() { Value = value, Version = 1 };
 
     private static async Task<Harness> CreateHarnessAsync(string owner)
@@ -120,6 +120,18 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         var executor = new DurableMutationExecutor(journal);
         var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, physical, inner, cache);
+    }
+
+    private sealed class FixedOwnerLocator : INodeLocator
+    {
+        private readonly string _owner;
+
+        internal FixedOwnerLocator(string owner)
+        {
+            _owner = owner;
+        }
+
+        public string GetOwner(string cacheName, string key) => _owner;
     }
 
     private sealed class Harness : IAsyncDisposable
@@ -159,20 +171,14 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         }
     }
 
-    private sealed class FixedOwnerLocator : INodeLocator
-    {
-        private readonly string _owner;
-
-        internal FixedOwnerLocator(string owner) => _owner = owner;
-
-        public string GetOwner(string cacheName, string key) => _owner;
-    }
-
     private sealed class RecordingLogicalCache : ILogicalNamespacedCache<string>
     {
         private readonly ClientCache<string> _inner;
 
-        internal RecordingLogicalCache(PhysicalCache<string> physical) => _inner = new ClientCache<string>(physical, physical);
+        internal RecordingLogicalCache(PhysicalCache<string> physical)
+        {
+            _inner = new ClientCache<string>(physical, physical);
+        }
 
         internal int RemoveCalls { get; private set; }
 
@@ -183,6 +189,15 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask<NodeCacheValueResult<string>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken) =>
             _inner.GetValueAsync(cacheName, key, cancellationToken);
+
+        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
+        {
+            RemoveCalls++;
+            return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
+        }
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken)
         {
@@ -195,15 +210,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<string> entry, CancellationToken cancellationToken) =>
             _inner.TryAddEntryAsync(operationId, cacheName, key, entry, cancellationToken);
-
-        public ValueTask<CacheRemoveResult<string>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken)
-        {
-            RemoveCalls++;
-            return _inner.RemoveAsync(operationId, cacheName, key, cancellationToken);
-        }
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            _inner.RemoveExpirationAsync(operationId, cacheName, key, cancellationToken);
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, string? value, CancellationToken cancellationToken) =>
             _inner.UpdateAsync(operationId, cacheName, key, value, cancellationToken);

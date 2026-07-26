@@ -22,17 +22,17 @@ public sealed class AuthSmokeTests : SmokeTestBase
             uri,
             "node-grpc-auth",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var getRequest = new GetEntryAsyncRequest { CacheName = "default", Key = "grpc-auth-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(() => client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetEntryAsync(getRequest, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var invalidHeaders = new Metadata { { "authorization", $"Bearer {InvalidBearerToken}" } };
-        var invalidAuth = await Assert.ThrowsAsync<RpcException>(() =>
+        var invalidAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             client.GetEntryAsync(getRequest, new CallOptions(invalidHeaders, cancellationToken: DefaultCancellationToken)).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, invalidAuth.StatusCode);
 

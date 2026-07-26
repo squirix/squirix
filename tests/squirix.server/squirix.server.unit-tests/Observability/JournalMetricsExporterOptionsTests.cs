@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -23,7 +24,7 @@ public sealed class JournalMetricsExporterOptionsTests
     [Fact]
     public void FieldBackedValidationRejectsNonPositiveInterval()
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(static () => _ = new JournalMetricsExporterOptions { Interval = TimeSpan.Zero });
+        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(TimeSpan.Zero, static value => _ = new JournalMetricsExporterOptions { Interval = value });
 
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(nameof(JournalMetricsExporterOptions.Interval), ex.Message, StringComparison.Ordinal);

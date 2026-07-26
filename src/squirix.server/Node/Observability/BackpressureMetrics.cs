@@ -13,25 +13,57 @@ internal static class BackpressureMetrics
 
     private static readonly Lock ObserverGate = new();
     private static readonly Dictionary<long, ObserverEntry> Observers = [];
+    private static readonly ObserverState ObserversState = new();
     private static readonly Counter<long> QueueCancellationsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_cancellations_total");
     private static readonly Counter<long> QueueTimeoutsTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_queue_timeouts_total");
     private static readonly Histogram<double> QueueWaitHist = ServerMeterRegistry.Meter.CreateHistogram<double>("squirix_backpressure_queue_wait_seconds");
     private static readonly Counter<long> RateLimitRejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_rate_limit_reject_total");
     private static readonly Counter<long> RejectTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_reject_total");
     private static readonly Counter<long> SlowdownTotalCtr = ServerMeterRegistry.Meter.CreateCounter<long>("squirix_backpressure_slowdown_total");
-    private static readonly ObserverState ObserversState = new();
 
-    internal static void AddQueueCancellation(string transport, string operation) => QueueCancellationsTotalCtr.Add(1, CreateTags(transport, operation));
+    private static ObserverEntry[] _snapshotBuffer = [];
 
-    internal static void AddQueueTimeout(string transport, string operation) => QueueTimeoutsTotalCtr.Add(1, CreateTags(transport, operation));
+    internal static void AddBypass(string transport, string operation)
+    {
+        var tags = CreateTags(transport, operation);
+        BypassTotalCtr.Add(1, in tags);
+    }
 
-    internal static void AddRateLimitReject(string transport, string operation, string scope) => RateLimitRejectTotalCtr.Add(1, CreateTags(transport, operation, ("scope", scope)));
+    internal static void AddQueueCancellation(string transport, string operation)
+    {
+        var tags = CreateTags(transport, operation);
+        QueueCancellationsTotalCtr.Add(1, in tags);
+    }
 
-    internal static void AddReject(string transport, string operation, string reason) => RejectTotalCtr.Add(1, CreateTags(transport, operation, ("reason", reason)));
+    internal static void AddQueueTimeout(string transport, string operation)
+    {
+        var tags = CreateTags(transport, operation);
+        QueueTimeoutsTotalCtr.Add(1, in tags);
+    }
 
-    internal static void AddSlowdown(string transport, string operation) => SlowdownTotalCtr.Add(1, CreateTags(transport, operation));
+    internal static void AddRateLimitReject(string transport, string operation, string scope)
+    {
+        var tags = CreateTags(transport, operation, ("scope", scope));
+        RateLimitRejectTotalCtr.Add(1, in tags);
+    }
 
-    internal static void RecordQueueWait(TimeSpan duration, string transport, string operation) => QueueWaitHist.Record(duration.TotalSeconds, CreateTags(transport, operation));
+    internal static void AddReject(string transport, string operation, string reason)
+    {
+        var tags = CreateTags(transport, operation, ("reason", reason));
+        RejectTotalCtr.Add(1, in tags);
+    }
+
+    internal static void AddSlowdown(string transport, string operation)
+    {
+        var tags = CreateTags(transport, operation);
+        SlowdownTotalCtr.Add(1, in tags);
+    }
+
+    internal static void RecordQueueWait(TimeSpan duration, string transport, string operation)
+    {
+        var tags = CreateTags(transport, operation);
+        QueueWaitHist.Record(duration.TotalSeconds, in tags);
+    }
 
     internal static IDisposable RegisterObservers(Func<int> observeInFlight, Func<int> observeQueueDepth, Func<int> observeTrackedClients)
     {
@@ -49,46 +81,59 @@ internal static class BackpressureMetrics
 
         _ = ServerMeterRegistry.Meter.CreateObservableGauge(
             "squirix_backpressure_in_flight",
-            static () => new[] { new Measurement<int>(Aggregate(static e => e.ObserveInFlight())) },
+            static () => new Measurement<int>(Aggregate(static e => e.ObserveInFlight())),
             description: "Current number of admitted in-flight requests");
         _ = ServerMeterRegistry.Meter.CreateObservableGauge(
             "squirix_backpressure_queue_depth",
-            static () => new[] { new Measurement<int>(Aggregate(static e => e.ObserveQueueDepth())) },
+            static () => new Measurement<int>(Aggregate(static e => e.ObserveQueueDepth())),
             description: "Current number of requests waiting for admission");
         _ = ServerMeterRegistry.Meter.CreateObservableGauge(
             "squirix_backpressure_tracked_clients",
-            static () => new[] { new Measurement<int>(Aggregate(static e => e.ObserveTrackedClients())) },
+            static () => new Measurement<int>(Aggregate(static e => e.ObserveTrackedClients())),
             description: "Current number of client buckets tracked for backpressure state");
 
         return new ObserverRegistration(observerId);
     }
 
-    internal static void AddBypass(string transport, string operation) => BypassTotalCtr.Add(1, CreateTags(transport, operation));
-
     private static int Aggregate(Func<ObserverEntry, int> selector)
     {
-        ObserverEntry[] snapshot;
         lock (ObserverGate)
-            snapshot = [.. Observers.Values];
-
-        var total = 0;
-        foreach (var observer in snapshot)
         {
-            try
-            {
-                total += selector(observer);
-            }
-            catch (ObjectDisposedException)
-            {
-                // Keep metrics observation resilient if one observer source is torn down concurrently.
-            }
-            catch (InvalidOperationException)
-            {
-                // Keep metrics observation resilient if one observer source is torn down concurrently.
-            }
-        }
+            var count = Observers.Count;
+            if (count is 0)
+                return 0;
 
-        return total;
+            var snapshot = _snapshotBuffer;
+            if (snapshot.Length < count)
+            {
+                snapshot = new ObserverEntry[count];
+                _snapshotBuffer = snapshot;
+            }
+
+            var copied = 0;
+            foreach (var entry in Observers.Values)
+                snapshot[copied++] = entry;
+
+            var total = 0;
+            for (var i = 0; i < copied; i++)
+                try
+                {
+                    total += selector(snapshot[i]);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Keep metrics observation resilient if one observer source is torn down concurrently.
+                }
+                catch (InvalidOperationException)
+                {
+                    // Keep metrics observation resilient if one observer source is torn down concurrently.
+                }
+
+            if (copied < snapshot.Length)
+                Array.Clear(snapshot, copied, snapshot.Length - copied);
+
+            return total;
+        }
     }
 
     private static TagList CreateTags(string transport, string operation, (string Key, string Value)? extra = null)
@@ -103,17 +148,6 @@ internal static class BackpressureMetrics
             tags.Add(pair.Key, pair.Value);
 
         return tags;
-    }
-
-    private sealed class ObserverState
-    {
-        private readonly MutableInt64 _nextObserverId = new();
-
-        private readonly MutableInt32 _registered = new();
-
-        internal long AllocateObserverId() => Interlocked.Increment(ref _nextObserverId.Value);
-
-        internal bool TryRegisterObservers() => Interlocked.Exchange(ref _registered.Value, 1) is 0;
     }
 
     private sealed class ObserverEntry
@@ -150,5 +184,16 @@ internal static class BackpressureMetrics
             lock (ObserverGate)
                 _ = Observers.Remove(_observerId);
         }
+    }
+
+    private sealed class ObserverState
+    {
+        private readonly MutableInt64 _nextObserverId = new();
+
+        private readonly MutableInt32 _registered = new();
+
+        internal long AllocateObserverId() => Interlocked.Increment(ref _nextObserverId.Value);
+
+        internal bool TryRegisterObservers() => Interlocked.Exchange(ref _registered.Value, 1) is 0;
     }
 }

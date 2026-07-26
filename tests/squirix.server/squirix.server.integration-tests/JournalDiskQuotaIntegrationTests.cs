@@ -9,6 +9,7 @@ using Squirix.Server.Errors;
 using Squirix.Server.IntegrationTests.Support;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests;
@@ -39,20 +40,18 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         var journal = node.Services.GetRequiredService<IJournalCoordinator>();
         Assert.Equal(1024L * 1024L, journal.MaxBytes);
 
-        var rejection = await FillUntilJournalQuotaAsync(journal).ConfigureAwait(true);
-        Assert.True(rejection is JournalCapacityExceededException, $"Unexpected rejection type: {rejection.GetType().FullName}");
+        var rejection = await FillUntilJournalQuotaAsync(journal);
+        Assert.True(rejection is JournalCapacityExceededException);
 
         using (var live = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken))
             _ = live.EnsureSuccessStatusCode();
 
-        await AssertJournalDiskPressureAsync(uri).ConfigureAwait(true);
+        await AssertJournalDiskPressureAsync(uri);
 
         // Node remains usable for another capacity-miss after the first rejection (pipeline not failed).
-        var second = await Assert.ThrowsAsync<JournalCapacityExceededException>(() =>
-            journal.AppendPutAndAwaitDurabilityAsync(
-                new CacheKey(ServerCacheNames.DefaultNamespace, "quota:again"),
-                new byte[200 * 1024],
-                DefaultCancellationToken).AsTask()).ConfigureAwait(true);
+        var cacheKey = new CacheKey(ServerCacheNames.DefaultNamespace, "quota:again");
+        var second = await NodeAsyncAssert.ThrowsAsync<JournalCapacityExceededException>(
+            journal.AppendPutAndAwaitDurabilityAsync(cacheKey, new byte[200 * 1024], DefaultCancellationToken));
         Assert.NotNull(second);
     }
 
@@ -63,13 +62,10 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         {
             var bytes = payload.AsMemory(0, 200 * 1024);
             for (var i = 0; i < 32; i++)
-            {
                 try
                 {
-                    await journal.AppendPutAndAwaitDurabilityAsync(
-                        new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"),
-                        bytes,
-                        DefaultCancellationToken).ConfigureAwait(false);
+                    await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
+                                 .ConfigureAwait(false);
                 }
                 catch (JournalCapacityExceededException ex)
                 {
@@ -79,7 +75,6 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
                 {
                     return capacity;
                 }
-            }
 
             Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
             throw new InvalidOperationException("unreachable");
@@ -95,9 +90,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         var details = await HttpClient.GetFromJsonAsync<JsonElement>(new Uri(uri, "/health/ready/details"), DefaultCancellationToken).ConfigureAwait(false);
         Assert.True(details.TryGetProperty("journalDisk", out var journalDisk));
         var state = journalDisk.GetProperty("state").GetString();
-        Assert.True(
-            string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal),
-            $"Expected high/critical journalDisk.state, got '{state}'.");
+        Assert.True(string.Equals(state, "high", StringComparison.Ordinal) || string.Equals(state, "critical", StringComparison.Ordinal));
         Assert.True(journalDisk.GetProperty("usedBytes").GetInt64() >= journalDisk.GetProperty("highWaterBytes").GetInt64());
     }
 }

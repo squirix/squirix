@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -126,14 +125,14 @@ public abstract class NodeIntegrationTestBase : IDisposable
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]), options, testName);
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, testName);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
-        StartNodeAsync(uri, BuildClusterPeers([(nodeId, uri)]), options, testName);
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, testName);
 
     [SuppressMessage(
         "Reliability",
@@ -274,7 +273,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(tfm))
             scope = $"{scope}__{tfm}";
 
-        return $"{scope}__pid{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}";
+        return $"{scope}__pid{InvariantIndexStrings.Format(Environment.ProcessId)}";
     }
 
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
@@ -289,6 +288,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
 
         return null;
     }
+
+    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
+    /// <param name="nodeId">Local node identifier.</param>
+    /// <param name="uri">Primary listen URL.</param>
+    /// <returns>A one-element peer array.</returns>
+    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(ref _mtls, nodeId, uri);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
@@ -308,23 +313,17 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (clean && CleanedScopes.TryAdd(path, 0))
             await DirectoryKit.DeleteDirectoryAsync(path, cancellationToken).ConfigureAwait(false);
 
-        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir)
-            ? NodePathKit.Combine(true, path, selfNodeId)
-            : persistenceOptions.DataDir;
+        var effectiveDataDir = string.IsNullOrWhiteSpace(persistenceOptions?.DataDir) ? NodePathKit.Combine(true, path, selfNodeId) : persistenceOptions.DataDir;
         DirectoryKit.CreateDirectory(effectiveDataDir);
 
         if (persistenceOptions is null)
-        {
             return new PersistenceOptions
             {
                 DataDir = effectiveDataDir,
                 JournalMaxSegmentMb = 64,
             };
-        }
 
-        return string.IsNullOrWhiteSpace(persistenceOptions.DataDir)
-            ? persistenceOptions with { DataDir = effectiveDataDir }
-            : persistenceOptions;
+        return string.IsNullOrWhiteSpace(persistenceOptions.DataDir) ? persistenceOptions with { DataDir = effectiveDataDir } : persistenceOptions;
     }
 
     /// <summary>

@@ -135,6 +135,8 @@ internal static class ServerHostingComposition
         return app;
     }
 
+    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
+
     /// <summary>
     /// Centralizes Kestrel listen options and transport security for the squirix node process.
     /// Invariants here affect TLS listener setup — review carefully.
@@ -185,7 +187,7 @@ internal static class ServerHostingComposition
         {
             ArgumentNullException.ThrowIfNull(cluster);
             if (!cluster.Uri.IsAbsoluteUri || !cluster.Uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException($"Squirix transport requires HTTPS. Plaintext 'http://' is not supported. Provided URL: {cluster.Uri}");
+                throw new InvalidOperationException("Squirix transport requires HTTPS. Plaintext 'http://' is not supported.");
         }
 
         private static void ConfigureMtlsEndpoint(ListenOptions listenOptions, MtlsCertificateMaterial material, string[] nodeIds)
@@ -261,6 +263,4 @@ internal static class ServerHostingComposition
 
         public bool WaitForRecovery { get; set; } = true;
     }
-
-    private sealed record SquirixServerEndpointMappingOptions(bool AuthEnabled);
 }

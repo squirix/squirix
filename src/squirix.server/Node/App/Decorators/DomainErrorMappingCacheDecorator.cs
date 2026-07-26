@@ -202,7 +202,7 @@ internal sealed class DomainErrorMappingCacheDecorator<T> : ILogicalNamespacedCa
             if (!detail.StartsWith("Payload size limit is ", StringComparison.Ordinal))
                 return;
 
-            throw ServerOpContract.PayloadTooLarge(EntryLimits.MaxEntrySizeBytes);
+            throw ServerOpContract.PayloadTooLarge();
         }
     }
 }

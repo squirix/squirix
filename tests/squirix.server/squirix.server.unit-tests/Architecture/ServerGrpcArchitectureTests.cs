@@ -76,7 +76,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
     public async Task SharedGrpcTransportMapperCoreInternalRuntimeTypes()
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
-        Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
+        Assert.True(Directory.Exists(mapperDirectory));
 
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
@@ -88,7 +88,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             for (var markerIndex = 0; markerIndex < ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers.Length; markerIndex++)
             {
                 var marker = ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers[markerIndex];
-                Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{Path.GetFileName(path)}:{marker}");
+                Assert.False(text.Contains(marker, StringComparison.Ordinal));
             }
         }
     }

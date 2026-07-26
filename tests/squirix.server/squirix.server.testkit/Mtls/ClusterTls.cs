@@ -35,6 +35,19 @@ public sealed class ClusterTls : IDisposable
         _internalPortsByNodeId.Clear();
     }
 
+    /// <summary>Builds a standalone single-peer topology without allocating a temporary topology span array.</summary>
+    /// <param name="shared">Shared context for the current test case (unused for standalone peers).</param>
+    /// <param name="nodeId">Local node identifier.</param>
+    /// <param name="uri">Primary listen URL.</param>
+    /// <returns>A one-element peer array.</returns>
+    internal static ServerPeer[] CreatePeer(ref ClusterTls? shared, string nodeId, Uri uri)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentNullException.ThrowIfNull(uri);
+        _ = shared;
+        return [new ServerPeer { NodeId = nodeId, Uri = uri }];
+    }
+
     /// <summary>Builds peer entries for a multi-node topology, including dedicated inter-node URLs.</summary>
     /// <param name="shared">Shared context for the current test case.</param>
     /// <param name="topology">Cluster members for peer configuration.</param>
@@ -102,8 +115,7 @@ public sealed class ClusterTls : IDisposable
         return profile switch
         {
             TestNodeProfile.Normal => (options, material, null),
-            TestNodeProfile.NoOutboundClientCertificate => (options, material,
-                peerNodeId => TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(material.TrustAnchor!, peerNodeId)),
+            TestNodeProfile.NoOutboundClientCertificate => (options, material, new NoClientCertificateHandlerFactory(material.TrustAnchor!).Create),
             TestNodeProfile.UntrustedOutboundClientCertificate => CreateUntrustedOutboundStartup(cluster.NodeId, options, material),
             TestNodeProfile.UntrustedInboundServerCertificate => CreateUntrustedInboundServerStartup(cluster.NodeId, options, material),
             TestNodeProfile.ExpiredPeerCertificate => CreateExpiredPeerStartup(cluster.NodeId, options, material),
@@ -172,8 +184,7 @@ public sealed class ClusterTls : IDisposable
         var notAfter = DateTimeOffset.UtcNow.AddHours(-1);
         var expiredCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(clusterCa, nodeId, notBefore, notAfter));
         var clientCertificate = TrackCertificate(TestCertificates.LoadExportableCertificate(expiredCertificate));
-        var trustAnchor = material.TrustAnchor!;
-        return (options, material, peerNodeId => TestCertificates.CreateMtlsHandler(clientCertificate, trustAnchor, peerNodeId));
+        return (options, material, new HandlerFactory(clientCertificate, material.TrustAnchor!).Create);
     }
 
     private (MtlsOptions? Options, MtlsCertificateMaterial? Material, Func<string, HttpMessageHandler>? PeerHandlerFactory) CreateUntrustedInboundServerStartup(
@@ -195,8 +206,7 @@ public sealed class ClusterTls : IDisposable
     {
         var untrustedCa = GetOrCreateUntrustedCertificateAuthority();
         var untrustedClientCertificate = TrackCertificate(TestCertificates.CreatePeerCertificate(untrustedCa, nodeId));
-        var trustAnchor = material.TrustAnchor!;
-        return (options, material, peerNodeId => TestCertificates.CreateMtlsHandler(untrustedClientCertificate, trustAnchor, peerNodeId));
+        return (options, material, new HandlerFactory(untrustedClientCertificate, material.TrustAnchor!).Create);
     }
 
     private int GetOrAllocateInternalPort(string nodeId, ReadOnlySpan<(string NodeId, Uri Uri)> topology)
@@ -280,6 +290,32 @@ public sealed class ClusterTls : IDisposable
 
             throw new InvalidOperationException("Failed to allocate a cluster mTLS internal listener port for tests.");
         }
+    }
+
+    private sealed class HandlerFactory
+    {
+        private readonly X509CertificateCollection _clientCertificates;
+        private readonly X509Certificate2 _trustAnchor;
+
+        internal HandlerFactory(X509Certificate2 clientCertificate, X509Certificate2 trustAnchor)
+        {
+            _clientCertificates = [clientCertificate];
+            _trustAnchor = trustAnchor;
+        }
+
+        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateMtlsHandler(_clientCertificates, _trustAnchor, peerNodeId);
+    }
+
+    private sealed class NoClientCertificateHandlerFactory
+    {
+        private readonly X509Certificate2 _trustAnchor;
+
+        internal NoClientCertificateHandlerFactory(X509Certificate2 trustAnchor)
+        {
+            _trustAnchor = trustAnchor;
+        }
+
+        internal SocketsHttpHandler Create(string peerNodeId) => TestCertificates.CreateClusterCaTrustingHandlerNoClientCert(_trustAnchor, peerNodeId);
     }
 
     /// <summary>Shared cluster CA and per-node mTLS material for multi-node integration and smoke tests.</summary>

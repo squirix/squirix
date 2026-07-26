@@ -9,8 +9,8 @@ namespace Squirix.E2ETests.Cluster;
 /// <typeparam name="T">Cached value type.</typeparam>
 public sealed class TwoNodeNamedCaches<T> : IAsyncDisposable
 {
-    private readonly bool _ownsLifetime;
     private readonly HostedCluster _host;
+    private readonly bool _ownsLifetime;
 
     private TwoNodeNamedCaches(HostedCluster host, Clients clients, Caches caches, bool ownsLifetime)
     {

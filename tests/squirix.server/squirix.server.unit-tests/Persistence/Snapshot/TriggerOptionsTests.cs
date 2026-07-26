@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage.Snapshot;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Snapshot;
@@ -40,7 +41,9 @@ public sealed class TriggerOptionsTests
     [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
     public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
     {
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(propertyName)));
+        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            propertyName,
+            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
         Assert.Equal("value", ex.ParamName);
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }

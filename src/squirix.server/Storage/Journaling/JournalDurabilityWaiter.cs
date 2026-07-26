@@ -30,10 +30,8 @@ internal sealed class JournalDurabilityWaiter : IValueTaskSource
     internal static JournalDurabilityWaiter Rent()
     {
         while (Pool.TryTake(out var waiter))
-        {
             if (Interlocked.CompareExchange(ref waiter._leased, 1, 0) is 0)
                 return waiter;
-        }
 
         return new JournalDurabilityWaiter { _leased = 1 };
     }

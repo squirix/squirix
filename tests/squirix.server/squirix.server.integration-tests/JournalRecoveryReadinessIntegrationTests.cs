@@ -3,6 +3,8 @@ using System.Net;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.IntegrationTests.Support;
+using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit.Hosting;
 using Xunit;
 
 namespace Squirix.Server.IntegrationTests;
@@ -10,10 +12,10 @@ namespace Squirix.Server.IntegrationTests;
 /// <summary>Integration tests for journal recovery readiness and cache behavior during non-blocking recovery.</summary>
 public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTestBase
 {
-    private const string NodeId = "node_recovery_gate";
-    private const string Scope = "journal-recovery-gate";
-    private const string PersistedKey = "recovery:persisted";
     private const string DuringRecoveryKey = "recovery:during";
+    private const string NodeId = "node_recovery_gate";
+    private const string PersistedKey = "recovery:persisted";
+    private const string Scope = "journal-recovery-gate";
 
     /// <summary>
     /// Ensures non-blocking recovery keeps <c>/health/ready</c> unhealthy until replay completes,
@@ -22,59 +24,55 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
     [Fact]
     public async Task NonBlockingRecoveryKeepsReadyOpensGatesCacheWrites()
     {
-        var httpUri = GetNextHttpUri();
-
-        await using (var seedNode = await StartNodeAsync(httpUri, NodeId, new NodeStartOptions { UsePersistence = true, ExtraScope = Scope }))
-        {
-            var seedCache = GetCache(seedNode);
-            await seedCache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
-        }
+        await SeedPersistedEntryAsync();
 
         var restartUrl = GetNextHttpUri();
         var replayDelay = new RecoveryReplayDelaySignal();
-
-        await using var node = await StartNodeAsync(
-            restartUrl,
-            NodeId,
-            new NodeStartOptions
-            {
-                ServicesConfigure = services => RecoveryReplayTestRegistration.AddDelayedReplay(services, replayDelay),
-                UsePersistence = true,
-                CleanTestDir = false,
-                ExtraScope = Scope,
-                WaitForRecovery = false,
-            });
+        await using var node = await StartDelayedReplayNodeAsync(restartUrl, replayDelay);
 
         try
         {
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Uri));
-            Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Uri));
-
-            var cache = GetCache(node);
-            var beforeReplay = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
-            Assert.False(beforeReplay.Found);
-
-            var writeTask = cache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, DuringRecoveryKey, BuildEntry("during-recovery"), DefaultCancellationToken).AsTask();
-            var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
-            Assert.NotSame(writeTask, writeStarted);
-
-            replayDelay.Release();
-
-            await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
-            await WaitForReadyHealthyAsync(node.Uri);
-
-            var recovered = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
-            Assert.True(recovered.Found);
-            Assert.Equal("persisted-value", recovered.Value);
-
-            var writtenDuringRecovery = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, DuringRecoveryKey, DefaultCancellationToken);
-            Assert.True(writtenDuringRecovery.Found);
-            Assert.Equal("during-recovery", writtenDuringRecovery.Value);
+            await AssertBlockedUntilReplayAsync(node, replayDelay);
+            await AssertRecoveredStateAsync(GetCache(node));
         }
         finally
         {
             replayDelay.Release();
         }
+    }
+
+    private static async Task AssertRecoveredStateAsync(ILogicalNamespacedCache<object?> cache)
+    {
+        var recovered = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
+        Assert.True(recovered.Found);
+        Assert.Equal("persisted-value", recovered.Value);
+
+        var writtenDuringRecovery = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, DuringRecoveryKey, DefaultCancellationToken);
+        Assert.True(writtenDuringRecovery.Found);
+        Assert.Equal("during-recovery", writtenDuringRecovery.Value);
+    }
+
+    private async Task AssertBlockedUntilReplayAsync(TestNodeHost node, RecoveryReplayDelaySignal replayDelay)
+    {
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, await GetReadyStatusCodeAsync(node.Uri));
+        Assert.Equal(HttpStatusCode.OK, await GetLiveStatusCodeAsync(node.Uri));
+
+        var cache = GetCache(node);
+        var beforeReplay = await cache.GetValueAsync(ServerCacheNames.DefaultNamespace, PersistedKey, DefaultCancellationToken);
+        Assert.False(beforeReplay.Found);
+
+        var writeTask = cache.SetEntryAsync(
+            IntegrationMutationOpIds.Default,
+            ServerCacheNames.DefaultNamespace,
+            DuringRecoveryKey,
+            BuildEntry("during-recovery"),
+            DefaultCancellationToken).AsTask();
+        var writeStarted = await Task.WhenAny(writeTask, Task.Delay(TimeSpan.FromMilliseconds(250), TimeProvider.System, DefaultCancellationToken));
+        Assert.NotSame(writeTask, writeStarted);
+
+        replayDelay.Release();
+        await writeTask.WaitAsync(TimeSpan.FromSeconds(10), TimeProvider.System, DefaultCancellationToken);
+        await WaitForReadyHealthyAsync(node.Uri);
     }
 
     private async Task<HttpStatusCode> GetLiveStatusCodeAsync(Uri uri)
@@ -88,6 +86,26 @@ public sealed class JournalRecoveryReadinessIntegrationTests : NodeIntegrationTe
         using var response = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken);
         return response.StatusCode;
     }
+
+    private async Task SeedPersistedEntryAsync()
+    {
+        var httpUri = GetNextHttpUri();
+        await using var seedNode = await StartNodeAsync(httpUri, NodeId, new NodeStartOptions { UsePersistence = true, ExtraScope = Scope });
+        var seedCache = GetCache(seedNode);
+        await seedCache.SetEntryAsync(IntegrationMutationOpIds.Default, ServerCacheNames.DefaultNamespace, PersistedKey, BuildEntry("persisted-value"), DefaultCancellationToken);
+    }
+
+    private ValueTask<TestNodeHost> StartDelayedReplayNodeAsync(Uri restartUrl, RecoveryReplayDelaySignal replayDelay) => StartNodeAsync(
+        restartUrl,
+        NodeId,
+        new NodeStartOptions
+        {
+            ServicesConfigure = RecoveryReplayTestRegistration.CreateDelayedReplayConfigure(replayDelay),
+            UsePersistence = true,
+            CleanTestDir = false,
+            ExtraScope = Scope,
+            WaitForRecovery = false,
+        });
 
     private async Task WaitForReadyHealthyAsync(Uri uri)
     {

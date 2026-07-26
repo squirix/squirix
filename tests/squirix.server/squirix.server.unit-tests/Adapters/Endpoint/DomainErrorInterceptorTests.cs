@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Adapters.Endpoint;
 using Squirix.Server.Errors;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -12,30 +13,29 @@ namespace Squirix.Server.UnitTests.Adapters.Endpoint;
 /// <summary>Covers gRPC mapping of journal capacity through the shared domain-error interceptor.</summary>
 public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 {
-    /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
-    [Fact]
-    public async Task UnaryMapsJournalCapacityToRpcResourceExhausted()
-    {
-        var interceptor = new FrameworkServiceRegistration.ResourceExhaustedExceptionInterceptor();
-        var ex = await Assert.ThrowsAsync<RpcException>(() => interceptor.UnaryServerHandler(
-            "request",
-            new TestServerCallContext(),
-            static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
-
-        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
-        Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
-    }
-
     /// <summary>Server-streaming handler maps journal capacity to ResourceExhausted.</summary>
     [Fact]
     public async Task StreamingMapsJournalCapacityToRpcResourceExhausted()
     {
         var interceptor = new FrameworkServiceRegistration.ResourceExhaustedExceptionInterceptor();
-        var ex = await Assert.ThrowsAsync<RpcException>(() => interceptor.ServerStreamingServerHandler(
-            "request",
-            new NullStreamWriter<string>(),
-            new TestServerCallContext(),
-            static (_, _, _) => throw new JournalCapacityExceededException()));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            interceptor.ServerStreamingServerHandler(
+                "request",
+                new NullStreamWriter<string>(),
+                new TestServerCallContext(),
+                static (_, _, _) => throw new JournalCapacityExceededException()));
+
+        Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
+        Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
+    }
+
+    /// <summary>Unary handler maps journal capacity to ResourceExhausted.</summary>
+    [Fact]
+    public async Task UnaryMapsJournalCapacityToRpcResourceExhausted()
+    {
+        var interceptor = new FrameworkServiceRegistration.ResourceExhaustedExceptionInterceptor();
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
+            interceptor.UnaryServerHandler("request", new TestServerCallContext(), static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
         Assert.Equal(JournalCapacityExceededException.StableDetail, ex.Status.Detail);
@@ -50,17 +50,19 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 
     private sealed class TestServerCallContext : ServerCallContext
     {
-        protected override string MethodCore => "/Test.Test/Unary";
+        protected override AuthContext AuthContextCore => new(null, []);
 
-        protected override string HostCore => "localhost";
-
-        protected override string PeerCore => "ipv4:127.0.0.1:5001";
+        protected override CancellationToken CancellationTokenCore => CancellationToken.None;
 
         protected override DateTime DeadlineCore => DateTime.MaxValue;
 
-        protected override Metadata RequestHeadersCore { get; } = [];
+        protected override string HostCore => "localhost";
 
-        protected override CancellationToken CancellationTokenCore => CancellationToken.None;
+        protected override string MethodCore => "/Test.Test/Unary";
+
+        protected override string PeerCore => "ipv4:127.0.0.1:5001";
+
+        protected override Metadata RequestHeadersCore { get; } = [];
 
         protected override Metadata ResponseTrailersCore => [];
 
@@ -68,10 +70,7 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
 
         protected override WriteOptions? WriteOptionsCore { get; set; }
 
-        protected override AuthContext AuthContextCore => new(null, []);
-
-        protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) =>
-            throw new NotSupportedException();
+        protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotSupportedException();
 
         protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => Task.CompletedTask;
     }

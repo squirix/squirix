@@ -73,8 +73,7 @@ internal sealed class JournalEventLoopDrainScheduler
     /// on their Completion waiter and therefore cannot have registered a durability waiter yet.
     /// Every pending group-commit waiter thus maps to an already-durable append.
     /// </remarks>
-    private void DrainDueGroupCommitBatchesDuringRoll() =>
-        _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
+    private void DrainDueGroupCommitBatchesDuringRoll() => _owner.GroupCommit?.DrainDueBatchesOnJournalThread();
 
     private bool DrainJournalRing(ref JournalWorkItem? rollDeferredAppend, out bool shutdownRequested)
     {

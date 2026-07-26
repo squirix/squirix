@@ -93,19 +93,12 @@ public sealed class CorrelationServerInterceptorTests
         using var outer = ActivitySourceHolder.StartInternal("outer");
         Assert.NotNull(outer);
         var interceptor = CreateInterceptor();
-        Activity? inside = null;
+        var capture = new ActivityCapture();
 
-        _ = await interceptor.UnaryServerHandler(
-            "request",
-            new TestServerCallContext(),
-            (_, _) =>
-            {
-                inside = Activity.Current;
-                return Task.FromResult("ok");
-            });
+        _ = await interceptor.UnaryServerHandler("request", new TestServerCallContext(), capture.HandleAsync);
 
-        Assert.NotNull(inside);
-        Assert.NotSame(outer, inside);
+        Assert.NotNull(capture.Inside);
+        Assert.NotSame(outer, capture.Inside);
         Assert.Same(outer, Activity.Current);
     }
 
@@ -124,6 +117,19 @@ public sealed class CorrelationServerInterceptorTests
     }
 
     private sealed record CorrelationObservation(string TraceId, string? TraceStateString);
+
+    private sealed class ActivityCapture
+    {
+        internal Activity? Inside { get; private set; }
+
+        internal Task<string> HandleAsync(string request, ServerCallContext context)
+        {
+            _ = request;
+            _ = context;
+            Inside = Activity.Current;
+            return Task.FromResult("ok");
+        }
+    }
 
     private sealed class TestServerCallContext : ServerCallContext
     {

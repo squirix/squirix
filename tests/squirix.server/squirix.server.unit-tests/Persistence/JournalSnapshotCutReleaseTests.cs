@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
@@ -100,12 +101,12 @@ public sealed class JournalSnapshotCutReleaseTests : ServerUnitTestBase
         var payload = JournalEntryPayloadKit.EncodePut("v");
         await journal.AppendPutAsync(CacheKey.Default("before"), payload, DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAsync<IOException>(() =>
+        _ = await NodeAsyncAssert.ThrowsAsync<IOException, SnapshotRef>(
             journal.ExecuteSnapshotCutAsync(
                 0,
                 static (_, _, _) => new ValueTask<int>(0),
-                static (_, _, _, _) => ValueTask.FromException<Storage.Manifest.SnapshotRef>(new IOException("simulated snapshot failure")),
-                DefaultCancellationToken).AsTask());
+                static (_, _, _, _) => ValueTask.FromException<SnapshotRef>(new IOException("simulated snapshot failure")),
+                DefaultCancellationToken));
 
         await journal.AppendPutAsync(CacheKey.Default("after"), payload, DefaultCancellationToken);
         await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);

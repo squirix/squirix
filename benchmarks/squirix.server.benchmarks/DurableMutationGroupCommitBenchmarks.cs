@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -8,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
@@ -56,7 +56,7 @@ public class DurableMutationGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"m{writerId.ToString(CultureInfo.InvariantCulture)}");
+                var key = new CacheKey("bench", $"m{InvariantIndexStrings.Format(writerId)}");
                 var coordinator = host.Coordinator;
                 for (var i = 0; i < operationsPerWriter; i++)
                 {

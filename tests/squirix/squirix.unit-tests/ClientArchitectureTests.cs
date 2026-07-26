@@ -184,7 +184,7 @@ public sealed class ClientArchitectureTests
 
         internal XElement RequireIncludedElement(string localName, string include)
         {
-            Assert.True(_includedElements.TryGetValue(localName, out var elements), $"Expected MSBuild element '{localName}' with Include='{include}'.");
+            Assert.True(_includedElements.TryGetValue(localName, out var elements));
 
             XElement? match = null;
             for (var i = 0; i < elements.Count; i++)
@@ -196,7 +196,7 @@ public sealed class ClientArchitectureTests
                 break;
             }
 
-            Assert.True(match is not null, $"Expected MSBuild element '{localName}' with Include='{include}'.");
+            Assert.True(match is not null);
             return match;
         }
     }

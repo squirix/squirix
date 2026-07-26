@@ -2,7 +2,6 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -16,6 +15,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Mtls;
 using Squirix.Server.TestKit.Networking;
@@ -63,39 +63,21 @@ public abstract class SmokeTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        string uri,
-        string nodeId,
-        SmokeNodeStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        uri,
-        BuildClusterPeers([(nodeId, new Uri(uri, UriKind.Absolute))]),
-        options,
-        cancellationToken);
+    internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal ValueTask<TestNodeHost> StartNodeAsync(
-        Uri uri,
-        string nodeId,
-        SmokeNodeStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        uri,
-        BuildClusterPeers([(nodeId, uri)]),
-        options,
-        cancellationToken);
+    internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
+        StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken);
 
     [SuppressMessage(
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    internal async ValueTask<TestNodeHost> StartNodeAsync(
-        Uri uri,
-        ServerPeer[] peers,
-        SmokeNodeStartOptions? options = null,
-        CancellationToken cancellationToken = default)
+    internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new SmokeNodeStartOptions();
         ArgumentNullException.ThrowIfNull(uri);
@@ -155,7 +137,7 @@ public abstract class SmokeTestBase : IDisposable
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
         var port = ListenPortPool.SmokeTests.AllocatePort();
-        return ($"https://0.0.0.0:{port.ToString(CultureInfo.InvariantCulture)}", $"https://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}");
+        return (InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
     }
 
     /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>
@@ -174,16 +156,6 @@ public abstract class SmokeTestBase : IDisposable
         _socketsHttpHandler.Dispose();
         _httpClient?.Dispose();
     }
-
-    /// <summary>Resolves the cluster-aware cache API client from the node's dependency injection container.</summary>
-    /// <param name="host">The started test node host that exposes the service provider.</param>
-    /// <returns>
-    /// The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
-    /// </exception>
-    private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
 
     /// <summary>
     /// Convenience builder for a <see cref="NodeCacheEntry{T}" /> with optional expiration, version, and tags.
@@ -219,6 +191,16 @@ public abstract class SmokeTestBase : IDisposable
         return new NodeCacheEntry<object?>(v, version, expiresUtc, null, tags?.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
+    /// <summary>Resolves the cluster-aware cache API client from the node's dependency injection container.</summary>
+    /// <param name="host">The started test node host that exposes the service provider.</param>
+    /// <returns>
+    /// The resolved <see cref="ICacheApi{T}" /> instance to interact with the node.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if <see cref="ICacheApi{T}" /> is not registered in the node's service provider.
+    /// </exception>
+    private protected static ICacheApi<object?> GetCacheApiClient(TestNodeHost host) => host.Services.GetRequiredService<ICacheApi<object?>>();
+
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
@@ -231,6 +213,12 @@ public abstract class SmokeTestBase : IDisposable
 
         return null;
     }
+
+    /// <summary>Builds a standalone single-peer topology without a temporary one-element collection.</summary>
+    /// <param name="nodeId">Local node identifier.</param>
+    /// <param name="uri">Primary listen URL.</param>
+    /// <returns>A one-element peer array.</returns>
+    private ServerPeer[] BuildClusterPeer(string nodeId, Uri uri) => ClusterTls.CreatePeer(ref _mtls, nodeId, uri);
 
     private HttpClient CreateHttpClient() => new(_socketsHttpHandler, false)
     {
@@ -252,13 +240,6 @@ public abstract class SmokeTestBase : IDisposable
         "Reliability",
         "CA2000:Dispose objects before losing scope",
         Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
-    private ValueTask<TestNodeHost> StartNodeAsync(
-        string uri,
-        ServerPeer[] peers,
-        SmokeNodeStartOptions? options = null,
-        CancellationToken cancellationToken = default) => StartNodeAsync(
-        new Uri(uri, UriKind.Absolute),
-        peers,
-        options,
-        cancellationToken);
+    private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
+        StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken);
 }

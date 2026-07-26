@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using Squirix.Server.Core;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 
 namespace Squirix.Server.Benchmarks;
 
@@ -78,6 +79,6 @@ public class JournalAppendBenchmarks
         _host = await JournalBenchmarkHost.CreateAsync("journal-bench", options, CancellationToken.None).ConfigureAwait(false);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('x'));
-        _key = new CacheKey("bench", $"payload-{PutPayloadBytes}");
+        _key = new CacheKey("bench", $"payload-{InvariantIndexStrings.Format(PutPayloadBytes)}");
     }
 }

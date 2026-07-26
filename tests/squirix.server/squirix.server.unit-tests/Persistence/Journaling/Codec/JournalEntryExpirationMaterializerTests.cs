@@ -22,16 +22,6 @@ public sealed class JournalEntryExpirationMaterializerTests
         Assert.InRange(expiresUtc.Value, before, after);
     }
 
-    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
-    [Fact]
-    public void IsExpiredRecoveryUsesTimestampRelativeExpiration()
-    {
-        var writtenUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
-
-        Assert.True(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs));
-        Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs));
-    }
-
     /// <summary>Verifies recovery insert converts legacy relative TTL payloads to absolute expiry.</summary>
     [Fact]
     public void ForRecoveryInsertMaterializesExpiryRecordTimestamp()
@@ -44,5 +34,15 @@ public sealed class JournalEntryExpirationMaterializerTests
         Assert.Null(restored.Expiration);
         var memory = DateTime.Parse("2020-01-01T00:00:30Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
         Assert.Equal(memory, restored.ExpiresUtc);
+    }
+
+    /// <summary>Verifies replay skips relative TTL entries using the journal record timestamp.</summary>
+    [Fact]
+    public void IsExpiredRecoveryUsesTimestampRelativeExpiration()
+    {
+        var writtenUnixMs = DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeMilliseconds();
+
+        Assert.True(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMilliseconds(100), writtenUnixMs));
+        Assert.False(JournalEntryExpirationMaterializer.IsExpiredForRecovery(null, TimeSpan.FromMinutes(5), writtenUnixMs));
     }
 }

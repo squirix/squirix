@@ -15,6 +15,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 /// <summary>Focused tests for shared journal frame parsing and classification.</summary>
 public sealed class JournalFrameReaderTests : ServerUnitTestBase
 {
+    private static readonly byte[] EmptyFrameBytes = [];
+    private static readonly byte[] TruncatedHeaderBytes = [0x10, 0x00];
+
     /// <summary>Verifies CRC mismatches classify consistently for stream and span paths.</summary>
     [Fact]
     public void CrcMismatchIsClassifiedConsistently()
@@ -27,7 +30,7 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
 
     /// <summary>Verifies an empty frame source is reported as EOF consistently.</summary>
     [Fact]
-    public void EmptyFrameSourceIsHandledConsistently() => AssertConsistentStatus([], JournalFrameReadStatus.EndOfFile);
+    public void EmptyFrameSourceIsHandledConsistently() => AssertConsistentStatus(EmptyFrameBytes, JournalFrameReadStatus.EndOfFile);
 
     /// <summary>Verifies multiple valid frames preserve order and offsets when read sequentially.</summary>
     [Fact]
@@ -69,9 +72,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     [Fact]
     public void OversizedFrameIsClassifiedConsistently()
     {
-        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(length, 0x8000_0000u);
-        AssertConsistentStatus([.. length], JournalFrameReadStatus.OversizedFrame);
+        var length = BufferKit.ToOwnedBytes(
+            JournalFraming.FrameHeaderSize,
+            0x8000_0000u,
+            static (value, destination) => BinaryPrimitives.WriteUInt32LittleEndian(destination, value));
+        AssertConsistentStatus(length, JournalFrameReadStatus.OversizedFrame);
     }
 
     /// <summary>Verifies truncated frame checksum footers classify consistently for stream and span paths.</summary>
@@ -80,20 +85,26 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
     {
         var payload = BuildPayload(1, "crc");
         var frame = BuildFrameBytes(payload);
-        AssertConsistentStatus(frame[..^2], JournalFrameReadStatus.TruncatedChecksum);
+        AssertConsistentStatus(frame, frame.Length - 2, JournalFrameReadStatus.TruncatedChecksum);
     }
 
     /// <summary>Verifies truncated frame headers classify consistently for stream and span paths.</summary>
     [Fact]
-    public void TruncatedHeaderIsClassifiedConsistently() => AssertConsistentStatus([0x10, 0x00], JournalFrameReadStatus.TruncatedHeader);
+    public void TruncatedHeaderIsClassifiedConsistently() => AssertConsistentStatus(TruncatedHeaderBytes, JournalFrameReadStatus.TruncatedHeader);
 
     /// <summary>Verifies truncated frame payloads classify consistently for stream and span paths.</summary>
     [Fact]
     public void TruncatedPayloadIsClassifiedConsistently()
     {
-        Span<byte> length = stackalloc byte[JournalFraming.FrameHeaderSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(length, 10);
-        AssertConsistentStatus([.. length, .. "ab"u8], JournalFrameReadStatus.TruncatedPayload);
+        var bytes = BufferKit.ToOwnedBytes(
+            JournalFraming.FrameHeaderSize + 2,
+            10u,
+            static (payloadLength, destination) =>
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(destination, payloadLength);
+                "ab"u8.CopyTo(destination[JournalFraming.FrameHeaderSize..]);
+            });
+        AssertConsistentStatus(bytes, JournalFrameReadStatus.TruncatedPayload);
     }
 
     /// <summary>Verifies a valid single frame is read successfully and preserves payload bytes.</summary>
@@ -120,9 +131,11 @@ public sealed class JournalFrameReaderTests : ServerUnitTestBase
         }
     }
 
-    private static void AssertConsistentStatus(byte[] bytes, JournalFrameReadStatus expectedStatus)
+    private static void AssertConsistentStatus(byte[] bytes, JournalFrameReadStatus expectedStatus) => AssertConsistentStatus(bytes, bytes.Length, expectedStatus);
+
+    private static void AssertConsistentStatus(byte[] bytes, int length, JournalFrameReadStatus expectedStatus)
     {
-        using var stream = new MemoryStream(bytes, false);
+        using var stream = new MemoryStream(bytes, 0, length, false, true);
         var streamRead = JournalFrameReader.ReadNext(stream, 0, out _, out _);
 
         Assert.Equal(expectedStatus, streamRead.Status);

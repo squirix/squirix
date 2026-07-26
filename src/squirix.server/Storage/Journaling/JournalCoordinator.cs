@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Core;
@@ -17,6 +16,13 @@ namespace Squirix.Server.Storage.Journaling;
 internal sealed class JournalCoordinator : IJournalCoordinator
 {
     private const int RingCapacity = 4096;
+
+    private static readonly ParameterizedThreadStart RunEventLoopCallback = static state =>
+    {
+        if (state is JournalEventLoop eventLoop)
+            eventLoop.Run();
+    };
+
     private readonly JournalCoordinatorAppendPipeline _appendPipeline;
     private readonly ManifestRollPublisher _manifestRollPublisher;
     private readonly Lock _pendingMemoryApplyLock = new();
@@ -31,10 +37,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
     private int _pendingMemoryApplyCount;
     private TaskCompletionSource? _pendingMemoryApplyDrained;
 
-    [SuppressMessage(
-        "NDepend",
-        "ND2500:DontCreateThreadsExplicitly",
-        Justification = "Single-writer journal event loop requires a dedicated long-lived I/O thread; Task.Run is banned on infrastructure paths.")]
     internal JournalCoordinator(PersistenceOptions opt, State manifest, ManifestStore manifestStore, JournalStartupGate startupGate)
     {
         Options = opt;
@@ -54,8 +56,12 @@ internal sealed class JournalCoordinator : IJournalCoordinator
         EventLoop.AttachGroupCommit(GroupCommit);
         _ = DirectoryEx.CreateDirectory(Options.DataDir);
         _nextSequence = JournalRecoveryScan.DetermineNextSequence(manifest, Options);
-        JournalThread = new Thread(EventLoop.Run) { IsBackground = true, Name = "squirix-journal-io" };
-        JournalThread.Start();
+        JournalThread = new Thread(RunEventLoopCallback)
+        {
+            IsBackground = true,
+            Name = "squirix-journal-io",
+        };
+        JournalThread.Start(EventLoop);
     }
 
     public event EventHandler? OnAppended;
@@ -66,9 +72,9 @@ internal sealed class JournalCoordinator : IJournalCoordinator
 
     public int CurrentSegmentIndex => EventLoop.CurrentSegmentIndex;
 
-    public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
-
     public bool HasFlushLoopFailure => Volatile.Read(ref _journalThreadFailure) is not null;
+
+    public long HighWaterBytes => EventLoop.Policy.HighWaterBytes;
 
     public bool IsJournalGroupCommitEnabled => Options.IsJournalGroupCommitEnabled;
 
@@ -444,7 +450,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                 enqueued = true;
 
                 if (appendCompleted is not null)
-                {
                     try
                     {
                         await appendWaitTask.ConfigureAwait(false);
@@ -455,7 +460,6 @@ internal sealed class JournalCoordinator : IJournalCoordinator
                         // rejection cannot leak the pooled Completion waiter.
                         appendCompleted.ReturnToPool();
                     }
-                }
             }
             catch when (!enqueued)
             {

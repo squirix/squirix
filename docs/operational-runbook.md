@@ -164,6 +164,12 @@ validation and before memory admission. Reads and writes share this policy acros
 Treat runtime backpressure as overload protection; memory pressure remains capacity admission based on estimated cache
 working-set size.
 
+Per-client concurrency and rate limits isolate callers by backpressure client id: JWT `sub` / `NameIdentifier` when the
+request is authenticated (`jwt:{subject}`), otherwise the ASP.NET Core connection id (`conn:{id}`). Callers without an
+`HttpContext` (in-process paths) share the `runtime` bucket — see [configuration.md](configuration.md#backpressure).
+Do not expect anonymous loopback clients on distinct TCP connections to share one JWT principal bucket; they are
+isolated by connection unless they present the same subject.
+
 ## Backup
 
 Back up the full persistence set for a node:

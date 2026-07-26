@@ -1,0 +1,717 @@
+<Patterns xmlns="urn:schemas-jetbrains-com:member-reordering-patterns">
+    <TypePattern DisplayName="StyleCop">
+        <!-- C# 14 extension blocks. StyleCop SA1201 treats them as &lt;unknown&gt; and
+             requires them before methods. Rider Kind naming varies by version. -->
+        <Entry DisplayName="Extension Blocks">
+            <Entry.Match>
+                <Or>
+                    <Kind Is="Extension" />
+                    <Kind Is="ExtensionBlock" />
+                </Or>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Public Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="Public" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Public Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="Public" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Public Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="Public" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="Internal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="Internal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="Internal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="ProtectedInternal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="ProtectedInternal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="ProtectedInternal" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="Protected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="Protected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="Protected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="PrivateProtected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="PrivateProtected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="PrivateProtected" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Constants">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Constant" />
+                    <Access Is="Private" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Static Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Static />
+                    <Access Is="Private" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Instance Fields">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Field" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Access Is="Private" />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Readonly />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Constructors">
+            <Entry.Match>
+                <Kind Is="Constructor" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Static />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Nested Delegates">
+            <Entry.Match>
+                <Kind Is="Delegate" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Events">
+            <Entry.Match>
+                <Kind Is="Event" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <!-- SA1201: enum / interface before properties and methods. -->
+        <Entry DisplayName="Nested Enums">
+            <Entry.Match>
+                <Kind Is="Enum" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Nested Interfaces">
+            <Entry.Match>
+                <Kind Is="Interface" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Public Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="Public" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Explicit Interface Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <ImplementsInterface />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="Internal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="ProtectedInternal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="Protected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="PrivateProtected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Properties">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Property" />
+                    <Access Is="Private" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Public Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="Public" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Explicit Interface Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <ImplementsInterface />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="Internal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="ProtectedInternal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="Protected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="PrivateProtected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Indexers">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Indexer" />
+                    <Access Is="Private" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Operators">
+            <Entry.Match>
+                <Kind Is="Operator" />
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <!-- Catch-all before methods: C# 14 extension blocks currently do not reliably
+             match Kind=Extension, so without this they land after methods and trip SA1201. -->
+        <Entry DisplayName="All Other Members" />
+
+        <Entry DisplayName="Public Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="Public" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Explicit Interface Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <ImplementsInterface />
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Internal Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="Internal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Internal Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="ProtectedInternal" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Protected Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="Protected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Protected Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="PrivateProtected" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Private Methods">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Method" />
+                    <Access Is="Private" />
+                    <Not>
+                        <ImplementsInterface />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Static />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <!-- SA1201: plain structs + records (incl. record struct) before nested classes.
+             Rider does not treat record struct as Kind=Struct; it is Kind=Record. -->
+        <Entry DisplayName="Nested Structs And Records">
+            <Entry.Match>
+                <Or>
+                    <Kind Is="Struct" />
+                    <Kind Is="Record" />
+                </Or>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Kind>
+                    <Kind.Order>
+                        <DeclarationKind>Struct</DeclarationKind>
+                        <DeclarationKind>Record</DeclarationKind>
+                    </Kind.Order>
+                </Kind>
+                <Static />
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <!-- SA1204: static nested classes before instance nested classes. -->
+        <Entry DisplayName="Static Nested Classes">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Class" />
+                    <Static />
+                    <Not>
+                        <Kind Is="Record" />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+
+        <Entry DisplayName="Instance Nested Classes">
+            <Entry.Match>
+                <And>
+                    <Kind Is="Class" />
+                    <Not>
+                        <Static />
+                    </Not>
+                    <Not>
+                        <Kind Is="Record" />
+                    </Not>
+                </And>
+            </Entry.Match>
+            <Entry.SortBy>
+                <Access Order="Public Internal ProtectedInternal Protected PrivateProtected Private" />
+                <Name />
+            </Entry.SortBy>
+        </Entry>
+    </TypePattern>
+</Patterns>

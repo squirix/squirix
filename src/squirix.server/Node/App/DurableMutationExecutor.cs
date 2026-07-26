@@ -11,6 +11,8 @@ namespace Squirix.Server.Node.App;
 
 internal sealed class DurableMutationExecutor
 {
+    private const string KeyAlreadyExistsMessage = "Key already exists.";
+
     private const string SkipResultRequiresShouldApplyFalse = "SkipResult is only set when ShouldApply is false.";
 
     private readonly ConcurrentDictionary<CacheKey, byte> _inFlight = new();
@@ -74,14 +76,12 @@ internal sealed class DurableMutationExecutor
             if (IsIdempotentDurabilityDeferred())
             {
                 var withState = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken)
-                                     .ConfigureAwait(false);
+                return await _journal.ExecuteUnderSnapshotBarrierAsync(withState, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
             }
 
             await _journal.AwaitDurabilityCommitAsync(cancellationToken).ConfigureAwait(false);
             var withStateDeferred = new GroupCommitApplyWithState<TState, TResult>(mutationState, applyMemory);
-            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken)
-                                 .ConfigureAwait(false);
+            return await _journal.ExecuteUnderSnapshotBarrierAsync(withStateDeferred, static (s, ct) => s.ApplyMemory(s.State, ct), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -100,13 +100,7 @@ internal sealed class DurableMutationExecutor
         try
         {
             var plan = await _journal.ExecuteUnderSnapshotBarrierAsync(
-                new GroupCommitPrepareWithPipelineState<TState, TResult>(
-                    this,
-                    conflictKey,
-                    state,
-                    precondition,
-                    pipeline.State,
-                    pipeline.AppendJournal),
+                new GroupCommitPrepareWithPipelineState<TState, TResult>(this, conflictKey, state, precondition, pipeline.State, pipeline.AppendJournal),
                 static (s, ct) => s.Mutator.PrepareGroupCommitPlanCoreAsync(s.ConflictKey, s.ExecutionState, s.Precondition, s.State, s.AppendJournal, ct),
                 cancellationToken).ConfigureAwait(false);
 
@@ -148,12 +142,7 @@ internal sealed class DurableMutationExecutor
         Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
         DurableMutationPipeline<TState, TResult> pipeline,
         CancellationToken cancellationToken) => _journal.ExecuteUnderSnapshotBarrierAsync(
-        new MonolithicWithPipelineState<TState, TResult>(
-            this,
-            precondition,
-            pipeline.State,
-            pipeline.AppendJournal,
-            pipeline.ApplyMemory),
+        new MonolithicWithPipelineState<TState, TResult>(this, precondition, pipeline.State, pipeline.AppendJournal, pipeline.ApplyMemory),
         static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
         cancellationToken);
 
@@ -167,9 +156,7 @@ internal sealed class DurableMutationExecutor
         static (s, ct) => s.Mutator.ExecuteMonolithicUnderBarrierAsync(s, ct),
         cancellationToken);
 
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(
-        MonolithicWithPipelineState<TState, TResult> state,
-        CancellationToken cancellationToken)
+    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(MonolithicWithPipelineState<TState, TResult> state, CancellationToken cancellationToken)
     {
         var decision = await state.Precondition(cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
@@ -183,9 +170,7 @@ internal sealed class DurableMutationExecutor
         return await state.ApplyMemory(state.State, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(
-        MonolithicWithMutationState<TState, TResult> state,
-        CancellationToken cancellationToken)
+    private async ValueTask<TResult> ExecuteMonolithicUnderBarrierAsync<TState, TResult>(MonolithicWithMutationState<TState, TResult> state, CancellationToken cancellationToken)
     {
         var decision = await state.Precondition(state.State, cancellationToken).ConfigureAwait(false);
         if (!decision.ShouldApply)
@@ -208,7 +193,7 @@ internal sealed class DurableMutationExecutor
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
-            throw new InvalidOperationException($"Key already exists: {conflictKey.Namespace}:{conflictKey.Key}");
+            throw new InvalidOperationException(KeyAlreadyExistsMessage);
 
         state.Admitted = true;
         try
@@ -242,7 +227,7 @@ internal sealed class DurableMutationExecutor
         CancellationToken cancellationToken)
     {
         if (!_inFlight.TryAdd(conflictKey, 0))
-            throw new InvalidOperationException($"Key already exists: {conflictKey.Namespace}:{conflictKey.Key}");
+            throw new InvalidOperationException(KeyAlreadyExistsMessage);
 
         state.Admitted = true;
         try
@@ -279,6 +264,34 @@ internal sealed class DurableMutationExecutor
         state.Admitted = false;
     }
 
+    /// <summary>Result of the journal append phase of a durable mutation.</summary>
+    /// <typeparam name="TResult">Mutation result type.</typeparam>
+    private sealed record DurableMutationPlan<TResult>
+    {
+        private DurableMutationPlan(bool shouldApply, TResult? skipResult)
+        {
+            ShouldApply = shouldApply;
+            SkipResult = skipResult;
+        }
+
+        /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
+        internal bool ShouldApply { get; }
+
+        /// <summary>
+        /// Gets the result returned when <see cref="ShouldApply" /> is false.
+        /// </summary>
+        internal TResult? SkipResult { get; }
+
+        /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>
+        /// <returns>An apply plan.</returns>
+        internal static DurableMutationPlan<TResult> Apply() => new(true, default);
+
+        /// <summary>Creates a plan that skips durability commit and memory apply.</summary>
+        /// <param name="result">Result to return to the caller.</param>
+        /// <returns>A skip plan.</returns>
+        internal static DurableMutationPlan<TResult> Skip(TResult result) => new(false, result);
+    }
+
     private sealed record GroupCommitApplyWithState<TState, TResult>
     {
         internal GroupCommitApplyWithState(TState state, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
@@ -288,44 +301,6 @@ internal sealed class DurableMutationExecutor
         }
 
         internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
-
-        internal TState State { get; }
-    }
-
-    private sealed class GroupCommitExecutionState
-    {
-        internal bool Admitted { get; set; }
-
-        internal bool PendingMemoryApply { get; set; }
-    }
-
-    private sealed record GroupCommitPrepareWithPipelineState<TState, TResult>
-    {
-        internal GroupCommitPrepareWithPipelineState(
-            DurableMutationExecutor mutator,
-            CacheKey conflictKey,
-            GroupCommitExecutionState executionState,
-            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
-            TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal)
-        {
-            Mutator = mutator;
-            ConflictKey = conflictKey;
-            ExecutionState = executionState;
-            Precondition = precondition;
-            State = state;
-            AppendJournal = appendJournal;
-        }
-
-        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
-
-        internal CacheKey ConflictKey { get; }
-
-        internal GroupCommitExecutionState ExecutionState { get; }
-
-        internal DurableMutationExecutor Mutator { get; }
-
-        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
 
         internal TState State { get; }
     }
@@ -361,25 +336,29 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
-    private sealed record MonolithicWithPipelineState<TState, TResult>
+    private sealed record GroupCommitPrepareWithPipelineState<TState, TResult>
     {
-        internal MonolithicWithPipelineState(
+        internal GroupCommitPrepareWithPipelineState(
             DurableMutationExecutor mutator,
+            CacheKey conflictKey,
+            GroupCommitExecutionState executionState,
             Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
             TState state,
-            Func<TState, CancellationToken, ValueTask> appendJournal,
-            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
+            Func<TState, CancellationToken, ValueTask> appendJournal)
         {
             Mutator = mutator;
+            ConflictKey = conflictKey;
+            ExecutionState = executionState;
             Precondition = precondition;
             State = state;
             AppendJournal = appendJournal;
-            ApplyMemory = applyMemory;
         }
 
         internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
-        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
+        internal CacheKey ConflictKey { get; }
+
+        internal GroupCommitExecutionState ExecutionState { get; }
 
         internal DurableMutationExecutor Mutator { get; }
 
@@ -415,31 +394,37 @@ internal sealed class DurableMutationExecutor
         internal TState State { get; }
     }
 
-    /// <summary>Result of the journal append phase of a durable mutation.</summary>
-    /// <typeparam name="TResult">Mutation result type.</typeparam>
-    private sealed record DurableMutationPlan<TResult>
+    private sealed record MonolithicWithPipelineState<TState, TResult>
     {
-        private DurableMutationPlan(bool shouldApply, TResult? skipResult)
+        internal MonolithicWithPipelineState(
+            DurableMutationExecutor mutator,
+            Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> precondition,
+            TState state,
+            Func<TState, CancellationToken, ValueTask> appendJournal,
+            Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
         {
-            ShouldApply = shouldApply;
-            SkipResult = skipResult;
+            Mutator = mutator;
+            Precondition = precondition;
+            State = state;
+            AppendJournal = appendJournal;
+            ApplyMemory = applyMemory;
         }
 
-        /// <summary>Gets a value indicating whether the mutation should continue to durability commit and memory apply.</summary>
-        internal bool ShouldApply { get; }
+        internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
-        /// <summary>
-        /// Gets the result returned when <see cref="ShouldApply" /> is false.
-        /// </summary>
-        internal TResult? SkipResult { get; }
+        internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
-        /// <summary>Creates a plan that continues to durability commit and memory apply.</summary>
-        /// <returns>An apply plan.</returns>
-        internal static DurableMutationPlan<TResult> Apply() => new(true, default);
+        internal DurableMutationExecutor Mutator { get; }
 
-        /// <summary>Creates a plan that skips durability commit and memory apply.</summary>
-        /// <param name="result">Result to return to the caller.</param>
-        /// <returns>A skip plan.</returns>
-        internal static DurableMutationPlan<TResult> Skip(TResult result) => new(false, result);
+        internal Func<CancellationToken, ValueTask<DurableMutationCondition<TResult>>> Precondition { get; }
+
+        internal TState State { get; }
+    }
+
+    private sealed class GroupCommitExecutionState
+    {
+        internal bool Admitted { get; set; }
+
+        internal bool PendingMemoryApply { get; set; }
     }
 }

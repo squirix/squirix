@@ -19,8 +19,8 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 /// <summary>Compaction must preserve durable idempotency journal frames.</summary>
 public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
 {
-    private const string OperationId = "0123456789abcdef0123456789abcdef";
     private const string Fingerprint = "try-add-entry-async|default|compact-key|abc123";
+    private const string OperationId = "0123456789abcdef0123456789abcdef";
 
     /// <summary>Compacted journal segments must retain IdempotencyOutcome frames from the pre-compaction tail.</summary>
     [Fact]
@@ -67,34 +67,9 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
         Assert.True(response.Added);
     }
 
-    private static PersistenceOptions CreatePersistence(string dataDir) =>
-        new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
+    private static PersistenceOptions CreatePersistence(string dataDir) => new() { DataDir = dataDir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
 
-    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, ManifestStore manifestStore)
-    {
-        await using var journal = await JournalCoordinatorFactory.CreateAsync(
-            persistence,
-            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
-            manifestStore,
-            new JournalStartupGate(),
-            DefaultCancellationToken);
-
-        await journal.AppendPutAsync(
-            CacheKey.Default("compact-key"),
-            JournalEntryPayloadKit.EncodePut("v"),
-            DefaultCancellationToken);
-        await journal.AppendIdempotencyOutcomeAsync(
-            OperationId,
-            Fingerprint,
-            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
-            DefaultCancellationToken);
-        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
-    }
-
-    private static Task RunRecoveryAsync(
-        RecoveryScenarioBuilder scenario,
-        PersistenceOptions persistence,
-        RpcMutationIdempotencyStore idempotencyStore)
+    private static Task RunRecoveryAsync(RecoveryScenarioBuilder scenario, PersistenceOptions persistence, RpcMutationIdempotencyStore idempotencyStore)
     {
         var recovery = new RecoveryService<object?>(
             new RecoveryOptions { BlockOnStart = true },
@@ -107,5 +82,23 @@ public sealed class JournalCompactorIdempotencyTests : ServerUnitTestBase
                 idempotencyStore,
                 StoreFactory.CreateReader(persistence)));
         return recovery.StartAsync(DefaultCancellationToken);
+    }
+
+    private static async Task WritePutAndIdempotencyAsync(PersistenceOptions persistence, ManifestStore manifestStore)
+    {
+        await using var journal = await JournalCoordinatorFactory.CreateAsync(
+            persistence,
+            await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken),
+            manifestStore,
+            new JournalStartupGate(),
+            DefaultCancellationToken);
+
+        await journal.AppendPutAsync(CacheKey.Default("compact-key"), JournalEntryPayloadKit.EncodePut("v"), DefaultCancellationToken);
+        await journal.AppendIdempotencyOutcomeAsync(
+            OperationId,
+            Fingerprint,
+            RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }),
+            DefaultCancellationToken);
+        await journal.AwaitDurabilityCommitAsync(DefaultCancellationToken);
     }
 }

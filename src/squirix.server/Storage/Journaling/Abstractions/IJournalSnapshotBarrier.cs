@@ -28,9 +28,7 @@ internal interface IJournalSnapshotBarrier
         [RequireStaticDelegate] Func<TState, ulong, TBarrier, CancellationToken, ValueTask<TResult>> buildOutsideBarrier,
         CancellationToken cancellationToken);
 
-    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>(
-        [RequireStaticDelegate] Func<CancellationToken, ValueTask<TResult>> action,
-        CancellationToken cancellationToken);
+    ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TResult>([RequireStaticDelegate] Func<CancellationToken, ValueTask<TResult>> action, CancellationToken cancellationToken);
 
     ValueTask<TResult> ExecuteUnderSnapshotBarrierAsync<TState, TResult>(
         TState state,

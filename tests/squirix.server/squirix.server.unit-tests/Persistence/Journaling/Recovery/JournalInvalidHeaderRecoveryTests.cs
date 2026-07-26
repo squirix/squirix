@@ -9,6 +9,7 @@ using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.Storage.Manifest;
 using Squirix.Server.Storage.Snapshot.Binary;
 using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
@@ -20,6 +21,9 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Recovery;
 /// <summary>journal segment header validation during recovery and coordinator repair.</summary>
 public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
 {
+    private static readonly byte[] InvalidJournalHeaderBad = [0x42, 0x41, 0x44, 0x21, 0x21];
+    private static readonly byte[] InvalidJournalHeaderNope = [0x4E, 0x4F, 0x50, 0x45, 0x21];
+
     /// <summary>Appending to a segment with an invalid header rewrites a valid file header before new frames.</summary>
     [Fact]
     public async Task CoordinatorWritesHeaderAfterInvalidSegmentRepair()
@@ -28,8 +32,8 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
         var persistence = new PersistenceOptions { DataDir = dir, JournalMaxSegmentMb = 16, FlushIntervalMs = 5 };
         using var manifestStore = new ManifestStore(persistence);
         var journalSegmentPath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, [.. "BAD!!"u8], DefaultCancellationToken);
-        await manifestStore.WriteAsync(new Storage.Manifest.State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
+        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderBad, DefaultCancellationToken);
+        await manifestStore.WriteAsync(new State { Format = 1, CurrentJournal = 1, NextSequence = 1, LastSnapshot = null }, DefaultCancellationToken);
 
         await using (var journal = await JournalCoordinatorFactory.CreateAsync(
                          persistence,
@@ -53,10 +57,10 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-journal-invalid-header-recovery");
         var journalSegmentPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
-        await File.WriteAllBytesAsync(journalSegmentPath, [.. "NOPE!"u8], DefaultCancellationToken);
+        await File.WriteAllBytesAsync(journalSegmentPath, InvalidJournalHeaderNope, DefaultCancellationToken);
 
         await scenario.ManifestStore.WriteAsync(
-            new Storage.Manifest.State
+            new State
             {
                 Format = 1,
                 CurrentJournal = 1,
@@ -78,12 +82,12 @@ public sealed class JournalInvalidHeaderRecoveryTests : ServerUnitTestBase
                 new RpcMutationIdempotencyStore(),
                 StoreFactory.CreateReader(persistence)));
 
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(() => recovery.StartAsync(DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(recovery.StartAsync(DefaultCancellationToken));
 
         Assert.Contains("invalid or missing journal file header", ex.Message, StringComparison.Ordinal);
 
         using var gateWait = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
-        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await gate.WaitAsync(gateWait.Token).AsTask());
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<OperationCanceledException>(gate.WaitAsync(gateWait.Token));
     }
 
     private static byte[] BuildPutPayload(string value) => JournalEntryPayloadKit.EncodePut(value);

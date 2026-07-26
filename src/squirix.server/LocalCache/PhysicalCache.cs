@@ -309,7 +309,7 @@ internal sealed class PhysicalCache<T> : ILocalCache<T>, ILocalCacheSnapshotRead
                     EvictionPolicyType.Fifo => _order.Last?.Value,
                     EvictionPolicyType.Lru => _order.Last?.Value,
                     EvictionPolicyType.Lfu => GetLeastFrequentlyUsedKey(),
-                    _ => throw new InvalidOperationException($"Unsupported eviction policy: {_options.Policy}."),
+                    _ => throw new InvalidOperationException("Unsupported eviction policy."),
                 };
 
                 if (candidate is null)

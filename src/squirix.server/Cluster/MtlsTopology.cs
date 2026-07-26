@@ -25,10 +25,12 @@ internal static class MtlsTopology
         if (writeIndex is 0)
             return [];
 
-        if (writeIndex != remotePeerNodeIds.Length)
-            Array.Resize(ref remotePeerNodeIds, writeIndex);
+        if (writeIndex == remotePeerNodeIds.Length)
+            return remotePeerNodeIds;
 
-        return remotePeerNodeIds;
+        var trimmed = new string[writeIndex];
+        remotePeerNodeIds.AsSpan(0, writeIndex).CopyTo(trimmed);
+        return trimmed;
     }
 
     /// <summary>Returns whether the configured topology performs inter-node traffic that requires mTLS.</summary>

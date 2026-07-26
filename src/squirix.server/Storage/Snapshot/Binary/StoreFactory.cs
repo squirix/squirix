@@ -36,9 +36,7 @@ internal static class StoreFactory
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
             var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
-            {
                 while (enumerator.MoveNext())
-                {
                     switch (enumerator.Current)
                     {
                         case EntryRecord entry:
@@ -55,8 +53,6 @@ internal static class StoreFactory
                             idempotencyRecords.Add(idempotency.Record);
                             break;
                     }
-                }
-            }
 
             return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
         }
@@ -92,11 +88,20 @@ internal static class StoreFactory
                     throw new EndOfStreamException("Binary snapshot file header is truncated.");
 
                 SnapshotCodec.ValidateFileHeader(header);
-                _crc = Crc32C.Append(Crc32C.InitialValue, [SnapshotCodec.Version]);
+                _crc = Crc32C.Append(Crc32C.InitialValue, SnapshotCodec.Version);
                 _footerOffset = _stream.Length - SnapshotCodec.FileFooterSize;
             }
 
             public object Current => _current ?? throw new InvalidOperationException("Enumerator is not positioned on a valid record.");
+
+            public void Dispose()
+            {
+                if (_disposed)
+                    return;
+
+                _stream.Dispose();
+                _disposed = true;
+            }
 
             public bool MoveNext()
             {
@@ -125,15 +130,6 @@ internal static class StoreFactory
             }
 
             public void Reset() => throw new NotSupportedException();
-
-            public void Dispose()
-            {
-                if (_disposed)
-                    return;
-
-                _stream.Dispose();
-                _disposed = true;
-            }
 
             private object? MapRecord(RecordKind kind, ReadOnlySpan<byte> body)
             {

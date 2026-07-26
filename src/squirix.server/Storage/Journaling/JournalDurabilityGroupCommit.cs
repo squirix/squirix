@@ -12,11 +12,11 @@ namespace Squirix.Server.Storage.Journaling;
 /// </summary>
 internal sealed class JournalDurabilityGroupCommit
 {
+    private readonly BatchDeadline _batchDeadline = new();
     private readonly Action _journalThreadFlush;
     private readonly Action _notifyJournalThread;
     private readonly PersistenceOptions _opt;
     private readonly Lock _sync = new();
-    private readonly BatchDeadline _batchDeadline = new();
     private readonly TimeProvider _timeProvider;
 
     private List<JournalDurabilityWaiter> _waiters;
@@ -87,6 +87,21 @@ internal sealed class JournalDurabilityGroupCommit
         return ValueTask.CompletedTask;
     }
 
+    internal void CancelPendingCore(Exception reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        lock (_sync)
+        {
+            _batchDeadline.Clear();
+            for (var i = 0; i < _waiters.Count; i++)
+                _waiters[i].SetException(reason);
+
+            _waiters.Clear();
+        }
+
+        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
+    }
+
     /// <summary>Drains due batches on the journal thread.</summary>
     internal void DrainDueBatchesOnJournalThread()
     {
@@ -111,21 +126,6 @@ internal sealed class JournalDurabilityGroupCommit
         }
     }
 
-    internal void CancelPendingCore(Exception reason)
-    {
-        ArgumentNullException.ThrowIfNull(reason);
-        lock (_sync)
-        {
-            _batchDeadline.Clear();
-            for (var i = 0; i < _waiters.Count; i++)
-                _waiters[i].SetException(reason);
-
-            _waiters.Clear();
-        }
-
-        // ReturnToPool is owned by AwaitCommitAsync finally after the await completes.
-    }
-
     private static void CompleteBatchWithFailure(List<JournalDurabilityWaiter> batch, Exception ex)
     {
         // Flush failures fail the whole batch so no waiter observes partial durability.
@@ -137,10 +137,8 @@ internal sealed class JournalDurabilityGroupCommit
         }
 
         for (var i = 0; i < batch.Count; i++)
-        {
             if (batch[i].IsAbandonedByCaller())
                 batch[i].ReturnToPool();
-        }
 
         batch.Clear();
     }
@@ -157,10 +155,8 @@ internal sealed class JournalDurabilityGroupCommit
         }
 
         for (var i = 0; i < batch.Count; i++)
-        {
             if (batch[i].IsAbandonedByCaller())
                 batch[i].ReturnToPool();
-        }
 
         batch.Clear();
     }

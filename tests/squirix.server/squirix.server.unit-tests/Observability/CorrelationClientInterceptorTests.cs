@@ -24,7 +24,7 @@ public sealed class CorrelationClientInterceptorTests
     {
         using var listener = CreateSquirixActivityListener();
 
-        CallOptions? observed = null;
+        var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
         var method = CreateUnaryStringMethod();
 
@@ -35,18 +35,11 @@ public sealed class CorrelationClientInterceptorTests
         _ = interceptor.AsyncUnaryCall(
             "req",
             new ClientInterceptorContext<string, string>(method, "localhost", default),
-            (req, ctx) =>
-            {
-                _ = req;
-                observed = ctx.Options;
+            capture.OnContinueAsync);
 
-                return CreateCompletedUnaryCallAsync("ok");
-            });
+        Assert.NotNull(capture.Headers);
 
-        var options = Assert.NotNull(observed);
-        var headers = options.Headers ?? [];
-
-        Assert.Contains(headers, static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(entry.Value));
+        Assert.Contains(capture.Headers, static entry => string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(entry.Value));
     }
 
     /// <summary>
@@ -57,7 +50,7 @@ public sealed class CorrelationClientInterceptorTests
     {
         using var listener = CreateSquirixActivityListener();
 
-        CallOptions? observed = null;
+        var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
         var method = CreateUnaryStringMethod();
         var staleHeaders = new Metadata { { "traceparent", "00-stale-stale-00" } };
@@ -69,26 +62,10 @@ public sealed class CorrelationClientInterceptorTests
         _ = interceptor.AsyncUnaryCall(
             "req",
             new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            (req, ctx) =>
-            {
-                _ = req;
-                observed = ctx.Options;
+            capture.OnContinueAsync);
 
-                return CreateCompletedUnaryCallAsync("ok");
-            });
-
-        var options = Assert.NotNull(observed);
-        var values = new List<string>();
-        var headers = options.Headers;
-        Assert.NotNull(headers);
-        for (var index = 0; index < headers.Count; index++)
-        {
-            var entry = headers[index];
-            if (!string.Equals(entry.Key, "traceparent", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            values.Add(entry.Value);
-        }
+        Assert.NotNull(capture.Headers);
+        var values = CollectHeaderValues(capture.Headers, "traceparent");
 
         _ = Assert.Single(values);
         Assert.NotEqual("00-stale-stale-00", values[0]);
@@ -102,7 +79,7 @@ public sealed class CorrelationClientInterceptorTests
     {
         using var listener = CreateSquirixActivityListener();
 
-        CallOptions? observed = null;
+        var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
         var method = CreateUnaryStringMethod();
         var staleHeaders = new Metadata { { "tracestate", "old=state" } };
@@ -113,38 +90,28 @@ public sealed class CorrelationClientInterceptorTests
         _ = interceptor.AsyncUnaryCall(
             "req",
             new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            (req, ctx) =>
-            {
-                _ = req;
-                observed = ctx.Options;
-                return CreateCompletedUnaryCallAsync("ok");
-            });
+            capture.OnContinueAsync);
 
-        var options = Assert.NotNull(observed);
-        var values = new List<string>();
-        var headers = options.Headers;
-        Assert.NotNull(headers);
-        for (var index = 0; index < headers.Count; index++)
-        {
-            var entry = headers[index];
-            if (!string.Equals(entry.Key, "tracestate", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            values.Add(entry.Value);
-        }
+        Assert.NotNull(capture.Headers);
+        var values = CollectHeaderValues(capture.Headers, "tracestate");
 
         _ = Assert.Single(values);
         Assert.Equal("vendor=value", values[0]);
     }
 
-    private static AsyncUnaryCall<string> CreateCompletedUnaryCallAsync(string response)
+    private static List<string> CollectHeaderValues(Metadata headers, string key)
     {
-        return new AsyncUnaryCall<string>(
-            Task.FromResult(response),
-            Task.FromResult(Metadata.Empty),
-            static () => Status.DefaultSuccess,
-            static () => Metadata.Empty,
-            static () => { });
+        var values = new List<string>();
+        for (var index = 0; index < headers.Count; index++)
+        {
+            var entry = headers[index];
+            if (!string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            values.Add(entry.Value);
+        }
+
+        return values;
     }
 
     private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
@@ -166,5 +133,45 @@ public sealed class CorrelationClientInterceptorTests
     {
         var marshaller = Marshallers.Create(static value => Encoding.UTF8.GetBytes(value), static bytes => Encoding.UTF8.GetString(bytes));
         return new Method<string, string>(MethodType.Unary, "Test", "Echo", marshaller, marshaller);
+    }
+
+    private sealed class HeaderCapture
+    {
+        internal Metadata? Headers { get; private set; }
+
+        internal AsyncUnaryCall<string> OnContinueAsync(string request, ClientInterceptorContext<string, string> context)
+        {
+            _ = request;
+            Headers = SnapshotHeaders(context.Options.Headers);
+            return CreateCompletedUnaryCallAsync("ok");
+        }
+
+        private static AsyncUnaryCall<string> CreateCompletedUnaryCallAsync(string response)
+        {
+            return new AsyncUnaryCall<string>(
+                Task.FromResult(response),
+                Task.FromResult(Metadata.Empty),
+                static () => Status.DefaultSuccess,
+                static () => Metadata.Empty,
+                static () => { });
+        }
+
+        private static Metadata? SnapshotHeaders(Metadata? headers)
+        {
+            if (headers is null)
+                return null;
+
+            var snapshot = new Metadata();
+            for (var index = 0; index < headers.Count; index++)
+            {
+                var entry = headers[index];
+                if (entry.IsBinary)
+                    snapshot.Add(entry.Key, entry.ValueBytes);
+                else
+                    snapshot.Add(entry.Key, entry.Value);
+            }
+
+            return snapshot;
+        }
     }
 }

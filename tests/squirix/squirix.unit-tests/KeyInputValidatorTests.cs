@@ -1,5 +1,6 @@
 using System;
 using Squirix.Core;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;
@@ -45,7 +46,7 @@ public sealed class KeyInputValidatorTests : UnitTestBase
     [MemberData(nameof(InvalidKeys))]
     public void ValidateRejectsInvalidKeys(string? key, string expectedMessage)
     {
-        var ex = Assert.Throws<ArgumentException>(() => KeyInputValidator.Validate(key, nameof(key)));
+        var ex = ExceptionAssert.For<ArgumentException>().Throws(key, static value => KeyInputValidator.Validate(value, nameof(value)));
 
         Assert.StartsWith(expectedMessage, ex.Message, StringComparison.Ordinal);
     }

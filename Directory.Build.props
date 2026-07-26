@@ -37,9 +37,11 @@
         <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
         <!-- Skip Sonar.NET on the Roslyn analyzer project itself. -->
         <SonarQubeExclude>true</SonarQubeExclude>
-        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; deps.json is unused and races under parallel solution builds. -->
+        <!-- Analyzer DLL is loaded via Analyzer ProjectReference; shared obj/ races under parallel solution builds. -->
         <GenerateDependencyFile>false</GenerateDependencyFile>
         <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+        <!-- Avoid MSB3491 on AssemblyInfoInputs.cache when many ProjectReferences build this project in parallel. -->
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true'">
         <IsSquirixProductionProject>true</IsSquirixProductionProject>
@@ -64,7 +66,9 @@
         <ProjectReference Include="$(MSBuildThisFileDirectory)src\squirix.analyzers\Squirix.Analyzers.csproj"
                           ReferenceOutputAssembly="false"
                           OutputItemType="Analyzer"
-                          SetTargetFramework="TargetFramework=netstandard2.0"/>
+                          PrivateAssets="all"
+                          SetTargetFramework="TargetFramework=netstandard2.0"
+                          GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishAot;PublishTrimmed;PublishSingleFile;PublishReadyToRun"/>
     </ItemGroup>
 
     <!-- Solution-wide Roslyn analyzers (all projects except Squirix.Analyzers). -->

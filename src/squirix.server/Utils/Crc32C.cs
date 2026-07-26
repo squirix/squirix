@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Squirix.Server.Utils;
 
@@ -18,11 +17,12 @@ internal static class Crc32C
         return crc;
     }
 
+    internal static uint Append(uint crc, byte value) => Table[(crc ^ value) & 0xFF] ^ (crc >> 8);
+
     internal static uint Compute(ReadOnlySpan<byte> data) => Finalize(Append(InitialValue, data));
 
     internal static uint Finalize(uint crc) => ~crc;
 
-    [SuppressMessage("ReSharper", "ArrangeRedundantParentheses", Justification = "Readability")]
     private static uint[] CreateTable()
     {
         var t = new uint[256];
@@ -30,7 +30,7 @@ internal static class Crc32C
         {
             var c = i;
             for (var k = 0; k < 8; k++)
-                c = (c & 1) != 0 ? (Poly ^ (c >> 1)) : (c >> 1);
+                c = (c & 1) != 0 ? Poly ^ (c >> 1) : c >> 1;
             t[i] = c;
         }
 

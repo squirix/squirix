@@ -55,7 +55,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         using var flushGate = new InFlightFlushGate(DefaultCancellationToken);
         var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlush, options, time);
+        var groupCommit = CreateGroupCommit(flushGate.BlockDuringFlushAction, options, time);
 
         using var firstCts = new CancellationTokenSource();
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(firstCts.Token));
@@ -63,8 +63,15 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         var third = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         var fourth = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
 
-        var drainTask = Task.Factory.StartNew(
-            groupCommit.DrainDueBatchesOnJournalThread,
+        var task = Task.Factory.StartNew(
+            static state =>
+            {
+                if (state is not JournalDurabilityGroupCommit groupCommit)
+                    throw new InvalidOperationException("Expected journal durability group commit state.");
+
+                groupCommit.DrainDueBatchesOnJournalThread();
+            },
+            groupCommit,
             DefaultCancellationToken,
             TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
             TaskScheduler.Default);
@@ -77,7 +84,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         await WaitUntilCompletedAsync(second);
         await WaitUntilCompletedAsync(third);
         await WaitUntilCompletedAsync(fourth);
-        await drainTask.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
+        await task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System, DefaultCancellationToken);
 
         Assert.True(first.IsCanceled);
 
@@ -100,7 +107,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         var flushCounter = new AtomicCounter();
         var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
+        var groupCommit = CreateGroupCommit(flushCounter.IncrementAction, options, time);
 
         using var canceledCts = new CancellationTokenSource();
 
@@ -129,7 +136,8 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         };
         var flushFailure = new InvalidOperationException("flush failed");
         var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(() => throw flushFailure, options, time);
+        var failingFlush = new FailingFlush(flushFailure);
+        var groupCommit = CreateGroupCommit(failingFlush.ThrowAction, options, time);
 
         var first = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
         var second = AsSingleUseTaskAsync(groupCommit.AwaitCommitAsync(DefaultCancellationToken));
@@ -158,7 +166,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         var flushCounter = new AtomicCounter();
         var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
+        var groupCommit = CreateGroupCommit(flushCounter.IncrementAction, options, time);
 
         using var firstCts = new CancellationTokenSource();
 
@@ -233,7 +241,7 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
 
         var flushCounter = new AtomicCounter();
         var time = new FakeTimeProvider();
-        var groupCommit = CreateGroupCommit(flushCounter.Increment, options, time);
+        var groupCommit = CreateGroupCommit(flushCounter.IncrementAction, options, time);
 
         var waiters = new Task[8];
         for (var i = 0; i < waiters.Length; i++)
@@ -338,9 +346,31 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
     {
         private int _value;
 
+        internal AtomicCounter()
+        {
+            IncrementAction = Increment;
+        }
+
+        internal Action IncrementAction { get; }
+
         internal int Value => Volatile.Read(ref _value);
 
         internal void Increment() => _ = Interlocked.Increment(ref _value);
+    }
+
+    private sealed class FailingFlush
+    {
+        private readonly Exception _exception;
+
+        internal FailingFlush(Exception exception)
+        {
+            _exception = exception;
+            ThrowAction = Throw;
+        }
+
+        internal Action ThrowAction { get; }
+
+        private void Throw() => throw _exception;
     }
 
     private sealed class InFlightFlushGate : IDisposable
@@ -349,7 +379,13 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
         private readonly ManualResetEventSlim _flushEntered = new(false);
         private readonly ManualResetEventSlim _releaseFlush = new(false);
 
-        internal InFlightFlushGate(CancellationToken cancellationToken) => _cancellationToken = cancellationToken;
+        internal InFlightFlushGate(CancellationToken cancellationToken)
+        {
+            _cancellationToken = cancellationToken;
+            BlockDuringFlushAction = BlockDuringFlush;
+        }
+
+        internal Action BlockDuringFlushAction { get; }
 
         public void Dispose()
         {
@@ -358,14 +394,14 @@ public sealed class JournalDurabilityGroupCommitTests : ServerUnitTestBase
             _flushEntered.Dispose();
         }
 
-        internal void BlockDuringFlush()
+        internal void ReleaseFlush() => _releaseFlush.Set();
+
+        internal bool WaitForFlushEntered(TimeSpan timeout) => _flushEntered.Wait(timeout, _cancellationToken);
+
+        private void BlockDuringFlush()
         {
             _flushEntered.Set();
             _releaseFlush.Wait(_cancellationToken);
         }
-
-        internal void ReleaseFlush() => _releaseFlush.Set();
-
-        internal bool WaitForFlushEntered(TimeSpan timeout) => _flushEntered.Wait(timeout, _cancellationToken);
     }
 }

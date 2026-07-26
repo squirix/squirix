@@ -17,6 +17,20 @@ internal static class CacheEntryCodec
 {
     internal const int MaxUtf16StringLength = ushort.MaxValue;
 
+    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
+    {
+        var length = 1 + 1 + 8;
+        length += CacheEntryTagEncoding.ComputeLength(entry.Tags);
+        length += CacheEntryValueEncoding.ComputeLength(entry.Value);
+        if (entry.ExpiresUtc is not null)
+            length += 8;
+
+        if (entry.Expiration is not null)
+            length += 8;
+
+        return length;
+    }
+
     /// <summary>
     /// Returns a value already in a directly-encodable form: primitives, strings, byte arrays and
     /// <see cref="JsonElement" /> pass through unchanged, while any other object is serialized to a
@@ -92,20 +106,6 @@ internal static class CacheEntryCodec
         offset += 8;
         offset += CacheEntryTagEncoding.Write(entry.Tags, destination[offset..]);
         _ = CacheEntryValueEncoding.WriteInternal(entry.Value, destination[offset..]);
-    }
-
-    internal static int ComputeEncodedLength(NodeCacheEntry<object?> entry)
-    {
-        var length = 1 + 1 + 8;
-        length += CacheEntryTagEncoding.ComputeLength(entry.Tags);
-        length += CacheEntryValueEncoding.ComputeLength(entry.Value);
-        if (entry.ExpiresUtc is not null)
-            length += 8;
-
-        if (entry.Expiration is not null)
-            length += 8;
-
-        return length;
     }
 
     private static NodeCacheEntry<T> CreateEntry<T>(T? typedValue, in ReadEnvelope envelope) =>
@@ -197,17 +197,17 @@ internal static class CacheEntryCodec
             BytesRead = bytesRead;
         }
 
-        internal DateTime? ExpiresUtc { get; }
+        internal int BytesRead { get; }
 
         internal TimeSpan? Expiration { get; }
 
-        internal long Version { get; }
+        internal DateTime? ExpiresUtc { get; }
 
         internal FrozenDictionary<string, string>? Tags { get; }
 
         internal object? Value { get; }
 
-        internal int BytesRead { get; }
+        internal long Version { get; }
     }
 
     /// <summary>Value encoding helpers for <see cref="CacheEntryCodec" />.</summary>
@@ -297,58 +297,6 @@ internal static class CacheEntryCodec
             JsonElement je => JsonTreeCodec.WriteInternal(je, destination),
             _ => WriteSerializedObject(value, destination),
         };
-
-        private static int WriteBool(bool value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Bool;
-            if (value)
-                destination[1] = 1;
-            else
-                destination[1] = 0;
-
-            return 2;
-        }
-
-        private static int WriteBytes(byte[] bytes, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Bytes;
-            return 1 + CacheEntryTagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
-        }
-
-        private static int WriteDecimal(decimal value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Decimal;
-            return 1 + CacheEntryTagEncoding.WriteUtf8Prefixed(value.ToString(CultureInfo.InvariantCulture), destination[1..]);
-        }
-
-        private static int WriteDouble(object value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Double;
-            BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], Convert.ToDouble(value, CultureInfo.InvariantCulture));
-            return 1 + 8;
-        }
-
-        private static int WriteInt64(object value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.Int64;
-            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], Convert.ToInt64(value, CultureInfo.InvariantCulture));
-            return 1 + 8;
-        }
-
-        private static int WriteNull(Span<byte> destination)
-        {
-            destination[0] = ValueKind.Null;
-            return 1;
-        }
-
-        private static int WriteSerializedObject(object value, Span<byte> destination) =>
-            JsonTreeCodec.WriteInternal(SerializationProvider.Instance.SerializeToElement(value), destination);
-
-        private static int WriteString(string value, Span<byte> destination)
-        {
-            destination[0] = ValueKind.String;
-            return 1 + CacheEntryTagEncoding.WriteUtf32PrefixedString(value, destination[1..]);
-        }
 
         private static TTarget Reinterpret<TTarget, TValue>(TValue value)
             where TValue : struct => Unsafe.As<TValue, TTarget>(ref value);
@@ -451,11 +399,74 @@ internal static class CacheEntryCodec
             bytesRead = 1 + stringBytesRead;
             return true;
         }
+
+        private static int WriteBool(bool value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Bool;
+            if (value)
+                destination[1] = 1;
+            else
+                destination[1] = 0;
+
+            return 2;
+        }
+
+        private static int WriteBytes(byte[] bytes, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Bytes;
+            return 1 + CacheEntryTagEncoding.WriteUtf32Prefixed(bytes, destination[1..]);
+        }
+
+        private static int WriteDecimal(decimal value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Decimal;
+            return 1 + CacheEntryTagEncoding.WriteUtf8Prefixed(value.ToString(CultureInfo.InvariantCulture), destination[1..]);
+        }
+
+        private static int WriteDouble(object value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Double;
+            BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], Convert.ToDouble(value, CultureInfo.InvariantCulture));
+            return 1 + 8;
+        }
+
+        private static int WriteInt64(object value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.Int64;
+            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], Convert.ToInt64(value, CultureInfo.InvariantCulture));
+            return 1 + 8;
+        }
+
+        private static int WriteNull(Span<byte> destination)
+        {
+            destination[0] = ValueKind.Null;
+            return 1;
+        }
+
+        private static int WriteSerializedObject(object value, Span<byte> destination) =>
+            JsonTreeCodec.WriteInternal(SerializationProvider.Instance.SerializeToElement(value), destination);
+
+        private static int WriteString(string value, Span<byte> destination)
+        {
+            destination[0] = ValueKind.String;
+            return 1 + CacheEntryTagEncoding.WriteUtf32PrefixedString(value, destination[1..]);
+        }
     }
 
     /// <summary>Encodes and decodes <see cref="JsonElement" /> trees without persisting UTF-8 JSON blobs.</summary>
     private static class JsonTreeCodec
     {
+        internal static int ComputeEncodedLengthInternal(JsonElement element) => element.ValueKind switch
+        {
+            JsonValueKind.Null or JsonValueKind.Undefined => 1,
+            JsonValueKind.True or JsonValueKind.False => 2,
+            JsonValueKind.String => 1 + 4 + Encoding.UTF8.GetByteCount(element.GetString() ?? string.Empty),
+            JsonValueKind.Number => 1 + 8,
+            JsonValueKind.Object => ComputeObjectLength(element),
+            JsonValueKind.Array => ComputeArrayLength(element),
+            _ => throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding."),
+        };
+
         internal static bool TryReadInternal(ReadOnlySpan<byte> source, out JsonElement element, out int bytesRead)
         {
             element = default;
@@ -468,17 +479,6 @@ internal static class CacheEntryCodec
         }
 
         internal static int WriteInternal(JsonElement element, Span<byte> destination) => JsonTreeWriteCodec.WriteCore(element, destination);
-
-        internal static int ComputeEncodedLengthInternal(JsonElement element) => element.ValueKind switch
-        {
-            JsonValueKind.Null or JsonValueKind.Undefined => 1,
-            JsonValueKind.True or JsonValueKind.False => 2,
-            JsonValueKind.String => 1 + 4 + Encoding.UTF8.GetByteCount(element.GetString() ?? string.Empty),
-            JsonValueKind.Number => 1 + 8,
-            JsonValueKind.Object => ComputeObjectLength(element),
-            JsonValueKind.Array => ComputeArrayLength(element),
-            _ => throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding."),
-        };
 
         private static int ComputeArrayLength(JsonElement element)
         {
@@ -502,130 +502,6 @@ internal static class CacheEntryCodec
             }
 
             return length;
-        }
-
-        private static class JsonTreeWriteCodec
-        {
-            internal static int WriteCore(JsonElement element, Span<byte> destination)
-            {
-                switch (element.ValueKind)
-                {
-                    case JsonValueKind.Null or JsonValueKind.Undefined:
-                        return WriteNull(destination);
-                    case JsonValueKind.True or JsonValueKind.False:
-                        return WriteBool(element.GetBoolean(), destination);
-                    case JsonValueKind.String:
-                        return WriteString(element.GetString() ?? string.Empty, destination);
-                    case JsonValueKind.Number:
-                        if (TryGetInteger(element, out var integer))
-                        {
-                            destination[0] = ValueKind.Int64;
-                            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], integer);
-                        }
-                        else
-                        {
-                            destination[0] = ValueKind.Double;
-                            BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], element.GetDouble());
-                        }
-
-                        return 1 + sizeof(long);
-
-                    case JsonValueKind.Object:
-                        return WriteObject(element, destination);
-                    case JsonValueKind.Array:
-                        return WriteArray(element, destination);
-                    default:
-                        throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding.");
-                }
-            }
-
-            private static bool TryGetInteger(JsonElement element, out long value)
-            {
-                if (element.TryGetInt64(out value))
-                    return true;
-
-                if (element.TryGetDouble(out var d) && double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue)
-                {
-                    value = Convert.ToInt64(d);
-                    return true;
-                }
-
-                value = 0;
-                return false;
-            }
-
-            private static int WriteArray(JsonElement element, Span<byte> destination)
-            {
-                var offset = 0;
-                destination[offset++] = ValueKind.Array;
-                var count = element.GetArrayLength();
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], uint.CreateTruncating(count));
-                offset += 4;
-                foreach (var item in element.EnumerateArray())
-                    offset += WriteCore(item, destination[offset..]);
-
-                return offset;
-            }
-
-            private static int WriteBool(bool value, Span<byte> destination)
-            {
-                destination[0] = ValueKind.Bool;
-                if (value)
-                    destination[1] = 1;
-                else
-                    destination[1] = 0;
-                return 2;
-            }
-
-            private static int WriteNull(Span<byte> destination)
-            {
-                destination[0] = ValueKind.Null;
-                return 1;
-            }
-
-            private static int WriteObject(JsonElement element, Span<byte> destination)
-            {
-                var offset = 0;
-                destination[offset++] = ValueKind.Object;
-                ushort propertyCount = 0;
-                foreach (var property in element.EnumerateObject())
-                {
-                    _ = property;
-                    propertyCount++;
-                }
-
-                BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], propertyCount);
-                offset += 2;
-                foreach (var property in element.EnumerateObject())
-                {
-                    offset += WriteUtf8Prefixed(property.Name, destination[offset..]);
-                    offset += WriteCore(property.Value, destination[offset..]);
-                }
-
-                return offset;
-            }
-
-            private static int WriteString(string text, Span<byte> destination)
-            {
-                var offset = 0;
-                destination[offset++] = ValueKind.String;
-                var byteCount = Encoding.UTF8.GetByteCount(text);
-                BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], uint.CreateTruncating(byteCount));
-                offset += 4;
-                _ = Encoding.UTF8.GetBytes(text, destination[offset..]);
-                return offset + byteCount;
-            }
-
-            private static int WriteUtf8Prefixed(string text, Span<byte> destination)
-            {
-                var byteCount = Encoding.UTF8.GetByteCount(text);
-                if (byteCount > MaxUtf16StringLength)
-                    throw new InvalidDataException("Object property name exceeds maximum encoded length.");
-
-                BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
-                _ = Encoding.UTF8.GetBytes(text, destination[2..]);
-                return 2 + byteCount;
-            }
         }
 
         private static class JsonTreeReadCodec
@@ -802,6 +678,130 @@ internal static class CacheEntryCodec
 
                 text = Encoding.UTF8.GetString(source.Slice(2, length));
                 return true;
+            }
+        }
+
+        private static class JsonTreeWriteCodec
+        {
+            internal static int WriteCore(JsonElement element, Span<byte> destination)
+            {
+                switch (element.ValueKind)
+                {
+                    case JsonValueKind.Null or JsonValueKind.Undefined:
+                        return WriteNull(destination);
+                    case JsonValueKind.True or JsonValueKind.False:
+                        return WriteBool(element.GetBoolean(), destination);
+                    case JsonValueKind.String:
+                        return WriteString(element.GetString() ?? string.Empty, destination);
+                    case JsonValueKind.Number:
+                        if (TryGetInteger(element, out var integer))
+                        {
+                            destination[0] = ValueKind.Int64;
+                            BinaryPrimitives.WriteInt64LittleEndian(destination[1..], integer);
+                        }
+                        else
+                        {
+                            destination[0] = ValueKind.Double;
+                            BinaryPrimitives.WriteDoubleLittleEndian(destination[1..], element.GetDouble());
+                        }
+
+                        return 1 + sizeof(long);
+
+                    case JsonValueKind.Object:
+                        return WriteObject(element, destination);
+                    case JsonValueKind.Array:
+                        return WriteArray(element, destination);
+                    default:
+                        throw new InvalidDataException("Unsupported JSON value kind for binary tree encoding.");
+                }
+            }
+
+            private static bool TryGetInteger(JsonElement element, out long value)
+            {
+                if (element.TryGetInt64(out value))
+                    return true;
+
+                if (element.TryGetDouble(out var d) && double.IsInteger(d) && d is >= long.MinValue and <= long.MaxValue)
+                {
+                    value = Convert.ToInt64(d);
+                    return true;
+                }
+
+                value = 0;
+                return false;
+            }
+
+            private static int WriteArray(JsonElement element, Span<byte> destination)
+            {
+                var offset = 0;
+                destination[offset++] = ValueKind.Array;
+                var count = element.GetArrayLength();
+                BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], uint.CreateTruncating(count));
+                offset += 4;
+                foreach (var item in element.EnumerateArray())
+                    offset += WriteCore(item, destination[offset..]);
+
+                return offset;
+            }
+
+            private static int WriteBool(bool value, Span<byte> destination)
+            {
+                destination[0] = ValueKind.Bool;
+                if (value)
+                    destination[1] = 1;
+                else
+                    destination[1] = 0;
+                return 2;
+            }
+
+            private static int WriteNull(Span<byte> destination)
+            {
+                destination[0] = ValueKind.Null;
+                return 1;
+            }
+
+            private static int WriteObject(JsonElement element, Span<byte> destination)
+            {
+                var offset = 0;
+                destination[offset++] = ValueKind.Object;
+                ushort propertyCount = 0;
+                foreach (var property in element.EnumerateObject())
+                {
+                    _ = property;
+                    propertyCount++;
+                }
+
+                BinaryPrimitives.WriteUInt16LittleEndian(destination[offset..], propertyCount);
+                offset += 2;
+                foreach (var property in element.EnumerateObject())
+                {
+                    offset += WriteUtf8Prefixed(property.Name, destination[offset..]);
+                    offset += WriteCore(property.Value, destination[offset..]);
+                }
+
+                return offset;
+            }
+
+            private static int WriteString(string text, Span<byte> destination)
+            {
+                var offset = 0;
+                destination[offset++] = ValueKind.String;
+                var byteCount = Encoding.UTF8.GetByteCount(text);
+                BinaryPrimitives.WriteUInt32LittleEndian(destination[offset..], uint.CreateTruncating(byteCount));
+                offset += 4;
+                _ = Encoding.UTF8.GetBytes(text, destination[offset..]);
+                return offset + byteCount;
+            }
+
+            private static int WriteUtf8Prefixed(string text, Span<byte> destination)
+            {
+                var byteCount = Encoding.UTF8.GetByteCount(text);
+                if (byteCount > MaxUtf16StringLength)
+                    throw new InvalidDataException("Object property name exceeds maximum encoded length.");
+
+                BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
+                _ = Encoding.UTF8.GetBytes(text, destination[2..]);
+                return 2 + byteCount;
             }
         }
     }

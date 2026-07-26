@@ -2,7 +2,6 @@ using System;
 using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
 using Squirix.Transport.Grpc.Cache;
@@ -14,53 +13,53 @@ namespace Squirix.Internal;
 /// </summary>
 internal static class ProtoEx
 {
-    internal static async ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
+    internal static ValueTask<T?> FromCacheValueAsync<T>(CacheValue value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
 
         if (typeof(T) == typeof(object))
-            return Coerce<T>(await FromCacheValueAsObjectAsync(value, serializer).ConfigureAwait(false));
+            return new ValueTask<T?>(Coerce<T>(FromCacheValueAsObject(value, serializer)));
 
         switch (value.KindCase)
         {
             case CacheValue.KindOneofCase.StringValue:
                 if (typeof(T) == typeof(string))
-                    return ReinterpretReference<T, string>(value.StringValue);
+                    return new ValueTask<T?>(ReinterpretReference<T, string>(value.StringValue));
                 break;
 
             case CacheValue.KindOneofCase.BoolValue:
                 if (typeof(T) == typeof(bool))
-                    return ReinterpretScalar<T, bool>(value.BoolValue);
+                    return new ValueTask<T?>(ReinterpretScalar<T, bool>(value.BoolValue));
                 break;
 
             case CacheValue.KindOneofCase.Int32Value:
                 if (typeof(T) == typeof(int))
-                    return ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value));
+                    return new ValueTask<T?>(ReinterpretScalar<T, int>(int.CreateChecked(value.Int32Value)));
                 break;
 
             case CacheValue.KindOneofCase.Int64Value:
                 if (typeof(T) == typeof(long))
-                    return ReinterpretScalar<T, long>(value.Int64Value);
+                    return new ValueTask<T?>(ReinterpretScalar<T, long>(value.Int64Value));
                 break;
 
             case CacheValue.KindOneofCase.DoubleValue:
                 if (typeof(T) == typeof(double))
-                    return ReinterpretScalar<T, double>(value.DoubleValue);
+                    return new ValueTask<T?>(ReinterpretScalar<T, double>(value.DoubleValue));
                 break;
 
             case CacheValue.KindOneofCase.NullValue:
             case CacheValue.KindOneofCase.None:
-                return default;
+                return new ValueTask<T?>(default(T?));
 
             case CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue:
-                return await FromStructAsync<T>(structValue, serializer).ConfigureAwait(false);
+                return new ValueTask<T?>(FromStruct<T>(structValue, serializer));
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind.");
         }
 
-        return await FromStructAsync<T>(ToStructValueWrapper(value), serializer).ConfigureAwait(false);
+        return new ValueTask<T?>(FromStruct<T>(ToStructValueWrapper(value), serializer));
     }
 
     internal static CacheEntryWire MapEntryToProto<T>(CacheEntry<T> entry, ISquirixSerializer serializer)
@@ -76,64 +75,65 @@ internal static class ProtoEx
         };
     }
 
-    internal static async ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
+    internal static ValueTask<CacheEntry<T>> MapProtoEntryToCacheEntryAsync<T>(CacheEntryWire entry, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
-        return new CacheEntry<T>
-        {
-            Value = await FromStructAsync<T>(entry.Value, serializer).ConfigureAwait(false),
-            ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
-            Expiration = entry.Expiration?.ToTimeSpan(),
-        };
+        return new ValueTask<CacheEntry<T>>(
+            new CacheEntry<T>
+            {
+                Value = FromStruct<T>(entry.Value, serializer),
+                ExpiresUtc = entry.ExpiresUtc?.ToDateTime().ToUniversalTime(),
+                Expiration = entry.Expiration?.ToTimeSpan(),
+            });
     }
 
     private static T? Coerce<T>(object? value) => value is T result ? result : default;
 
-    private static async ValueTask<T?> DeserializeAsync<T>(Value value, ISquirixSerializer serializer)
+    private static T? Deserialize<T>(Value value, ISquirixSerializer serializer)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        var writer = new Utf8JsonWriter(buffer);
-        await using (writer.ConfigureAwait(false))
+        var buffer = new ArrayBufferWriter<byte>(256);
+
+        // Sync flush: WriteValue is synchronous; async Utf8JsonWriter disposal would allocate a state machine on every decode.
+#pragma warning disable MA0045
+        using (var writer = new Utf8JsonWriter(buffer))
         {
             WriteValue(writer, value);
-            await writer.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            writer.Flush();
         }
+#pragma warning restore MA0045
 
         return serializer.Deserialize<T>(buffer.WrittenSpan);
     }
 
-    private static async ValueTask<object?> FromCacheValueAsObjectAsync(CacheValue value, ISquirixSerializer serializer)
+    private static object? FromCacheValueAsObject(CacheValue value, ISquirixSerializer serializer) => value.KindCase switch
     {
-        return value.KindCase switch
-        {
-            CacheValue.KindOneofCase.StringValue => value.StringValue,
-            CacheValue.KindOneofCase.BoolValue => value.BoolValue,
-            CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
-            CacheValue.KindOneofCase.Int64Value => value.Int64Value,
-            CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
-            CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
-            CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => await FromStructAsync<object?>(structValue, serializer).ConfigureAwait(false),
-            _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
-        };
-    }
+        CacheValue.KindOneofCase.StringValue => value.StringValue,
+        CacheValue.KindOneofCase.BoolValue => value.BoolValue,
+        CacheValue.KindOneofCase.Int32Value => int.CreateChecked(value.Int32Value),
+        CacheValue.KindOneofCase.Int64Value => value.Int64Value,
+        CacheValue.KindOneofCase.DoubleValue => value.DoubleValue,
+        CacheValue.KindOneofCase.NullValue or CacheValue.KindOneofCase.None => null,
+        CacheValue.KindOneofCase.StructValue when value.StructValue is { } structValue => FromStruct<object?>(structValue, serializer),
+        _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
+    };
 
-    private static ValueTask<T?> FromStructAsync<T>(Struct value, ISquirixSerializer serializer)
+    private static T? FromStruct<T>(Struct value, ISquirixSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(serializer);
 
         if (value.Fields.Count is 1 && value.Fields.TryGetValue("value", out var wrapped))
-            return FromValueAsync<T>(wrapped, serializer);
+            return FromValue<T>(wrapped, serializer);
 
-        return DeserializeAsync<T>(Value.ForStruct(value), serializer);
+        return Deserialize<T>(Value.ForStruct(value), serializer);
     }
 
-    private static async ValueTask<T?> FromValueAsync<T>(Value value, ISquirixSerializer serializer)
+    private static T? FromValue<T>(Value value, ISquirixSerializer serializer)
     {
         if (typeof(T) == typeof(object))
-            return Coerce<T>(await ToUntypedValueAsync(value, serializer).ConfigureAwait(false));
+            return Coerce<T>(ToUntypedValue(value, serializer));
 
-        return await DeserializeAsync<T>(value, serializer).ConfigureAwait(false);
+        return Deserialize<T>(value, serializer);
     }
 
     private static ListValue ListFromJson(JsonElement el)
@@ -211,13 +211,13 @@ internal static class ProtoEx
         _ => throw new ArgumentOutOfRangeException(nameof(value), "Unsupported cache value kind."),
     };
 
-    private static async ValueTask<object?> ToUntypedValueAsync(Value value, ISquirixSerializer serializer) => value.KindCase switch
+    private static object? ToUntypedValue(Value value, ISquirixSerializer serializer) => value.KindCase switch
     {
         Value.KindOneofCase.StringValue => value.StringValue,
         Value.KindOneofCase.BoolValue => value.BoolValue,
         Value.KindOneofCase.NumberValue => NormalizeNumber(value.NumberValue),
         Value.KindOneofCase.NullValue or Value.KindOneofCase.None => null,
-        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => await DeserializeAsync<JsonElement>(value, serializer).ConfigureAwait(false),
+        Value.KindOneofCase.StructValue or Value.KindOneofCase.ListValue => Deserialize<JsonElement>(value, serializer),
         _ => throw new ArgumentOutOfRangeException(nameof(value), value.KindCase, "Unsupported value kind."),
     };
 

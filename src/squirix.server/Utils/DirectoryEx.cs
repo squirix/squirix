@@ -70,43 +70,6 @@ internal static class DirectoryEx
         forbidSymlinks,
         cancellationToken);
 
-    private static async Task<string> EnsureDirectoryReadyAsync(
-        string full,
-        bool ensureEmpty,
-        bool forbidSymlinks,
-        CancellationToken cancellationToken)
-    {
-        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
-
-        if (!ensureEmpty)
-            return full;
-
-        var root = Path.GetPathRoot(full) ?? string.Empty;
-        if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Refusing to clean a filesystem root.");
-
-        await CleanDirectoryContentsAsync(full, forbidSymlinks, cancellationToken).ConfigureAwait(false);
-        return full;
-    }
-
-    private static string EnsureDirectoryReady(string full, bool forbidSymlinks)
-    {
-        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
-        return full;
-    }
-
-    private static void EnsureDirectoryExistsAndIsRegular(string full, bool forbidSymlinks)
-    {
-        if (!Directory.Exists(full))
-        {
-            _ = Directory.CreateDirectory(full);
-            DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
-            return;
-        }
-
-        DirectorySymlinkGuard.EnsureRegularDirectory(full, false, forbidSymlinks);
-    }
-
     private static async Task CleanDirectoryContentsAsync(string dir, bool forbidSymlinks, CancellationToken cancellationToken)
     {
         // Delete contents (not the root). Retry a few times for Windows file locks.
@@ -114,7 +77,6 @@ internal static class DirectoryEx
         const int delayMs = 80;
 
         for (var attempt = 0; attempt < retries; attempt++)
-        {
             try
             {
                 var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
@@ -131,7 +93,7 @@ internal static class DirectoryEx
                     var d = directories[i];
                     var di = new DirectoryInfo(d);
                     if (forbidSymlinks && DirectorySymlinkGuard.IsSymlink(di))
-                        throw new IOException($"Refusing to descend into symlink/junction: '{d}'.");
+                        throw new IOException("Refusing to descend into symlink/junction.");
 
                     var validated = FilePathValidator.ResolveValidatedDirectoryPath(d);
                     Directory.Delete(validated, true);
@@ -147,7 +109,6 @@ internal static class DirectoryEx
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
-        }
     }
 
     private static void ClearReadOnlyAttributes(string file)
@@ -166,5 +127,38 @@ internal static class DirectoryEx
         {
             // Best-effort cleanup: inability to clear read-only attributes must not block deletion attempts.
         }
+    }
+
+    private static void EnsureDirectoryExistsAndIsRegular(string full, bool forbidSymlinks)
+    {
+        if (!Directory.Exists(full))
+        {
+            _ = Directory.CreateDirectory(full);
+            DirectorySymlinkGuard.EnsureRegularDirectory(full, true, forbidSymlinks);
+            return;
+        }
+
+        DirectorySymlinkGuard.EnsureRegularDirectory(full, false, forbidSymlinks);
+    }
+
+    private static string EnsureDirectoryReady(string full, bool forbidSymlinks)
+    {
+        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
+        return full;
+    }
+
+    private static async Task<string> EnsureDirectoryReadyAsync(string full, bool ensureEmpty, bool forbidSymlinks, CancellationToken cancellationToken)
+    {
+        EnsureDirectoryExistsAndIsRegular(full, forbidSymlinks);
+
+        if (!ensureEmpty)
+            return full;
+
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Refusing to clean a filesystem root.");
+
+        await CleanDirectoryContentsAsync(full, forbidSymlinks, cancellationToken).ConfigureAwait(false);
+        return full;
     }
 }

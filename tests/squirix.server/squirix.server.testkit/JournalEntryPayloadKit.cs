@@ -12,8 +12,7 @@ public static class JournalEntryPayloadKit
     /// <param name="value">Cache value to encode.</param>
     /// <param name="version">Entry version.</param>
     /// <returns>Binary cache-entry bytes for a journal Put frame.</returns>
-    public static byte[] EncodePut(object? value, long version = 1) =>
-        Encode(new NodeCacheEntry<object?> { Value = value, Version = version });
+    public static byte[] EncodePut(object? value, long version = 1) => Encode(new NodeCacheEntry<object?> { Value = value, Version = version });
 
     /// <summary>Encodes a cache entry into an exact-size owned buffer for tests.</summary>
     /// <typeparam name="T">The cache value type.</typeparam>

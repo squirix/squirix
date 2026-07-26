@@ -1,7 +1,10 @@
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Client;
 using Squirix.E2ETests.Cluster;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Hosting;
 using Xunit;
 
@@ -32,14 +35,9 @@ public sealed class TransportOptionsTests : EndToEndTestBase
             security,
             cancellationToken: DefaultCancellationToken);
         var uri = cluster.GetUri("nodeA");
+        var provider = CreateBearerTokenProvider(bearerToken);
 
-        await using var client = await LoopbackConnect.ConnectAsync(
-            options =>
-            {
-                options.Endpoints.Add(uri);
-                options.BearerTokenProvider = _ => new ValueTask<string>(bearerToken);
-            },
-            DefaultCancellationToken);
+        await using var client = await LoopbackConnect.ConnectAsync(uri, provider, DefaultCancellationToken);
 
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
         await cache.SetAsync("jwt-e2e", "ok", cancellationToken: DefaultCancellationToken);
@@ -68,7 +66,10 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         await using var client = await LoopbackConnect.ConnectAsync(uri, DefaultCancellationToken);
         var cache = await client.GetCacheAsync<string>("default", DefaultCancellationToken);
 
-        var ex = await Assert.ThrowsAsync<RpcException>(() => cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(cache.SetAsync("jwt-missing", "v", cancellationToken: DefaultCancellationToken));
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
+
+    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) =>
+        new FixedBearerTokenProvider(token).ProvideAsync;
 }

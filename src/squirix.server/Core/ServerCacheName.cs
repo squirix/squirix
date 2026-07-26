@@ -36,12 +36,14 @@ internal sealed record ServerCacheName
     {
         private const int MaxLength = 128;
 
+        private const string TooLongMessage = "Cache name exceeds the maximum length of 128 characters.";
+
         internal static string Validate(string? cacheName, string p) => TryValidate(cacheName, out var error) ? cacheName! : throw new ArgumentException(GetMessage(error), p);
 
         private static string GetMessage(ServerCacheNameValidationError error) => error switch
         {
             ServerCacheNameValidationError.Required => "Cache name is required.",
-            ServerCacheNameValidationError.TooLong => $"Cache name exceeds the maximum length of {MaxLength} characters.",
+            ServerCacheNameValidationError.TooLong => TooLongMessage,
             ServerCacheNameValidationError.InvalidCharacters => "Cache name contains invalid characters. Allowed characters are A-Z, a-z, 0-9, '.', '_', and '-'.",
             ServerCacheNameValidationError.ForbiddenDotSegment => "Cache name is reserved.",
             _ => throw new ArgumentOutOfRangeException(nameof(error), "Unknown cache name validation error."),

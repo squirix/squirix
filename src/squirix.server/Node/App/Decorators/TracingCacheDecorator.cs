@@ -88,7 +88,7 @@ internal sealed class TracingCacheDecorator<T> : ILogicalNamespacedCache<T>
         CacheOperationNames.Touch => SpanNames.Touch,
         CacheOperationNames.TryAdd => SpanNames.TryAdd,
         CacheOperationNames.Update => SpanNames.Update,
-        _ => $"squirix.cache.{operation}",
+        _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported cache operation."),
     };
 
     private static void RecordResult(Activity? activity, string result)

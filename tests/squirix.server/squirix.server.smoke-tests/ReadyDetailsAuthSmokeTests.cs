@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -26,40 +25,43 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
     public async Task ReadyDetailsRejectsMissingValidJwtConfigured()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
+        Assert.False(string.IsNullOrWhiteSpace(localIp));
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
+        var port = new Uri(bindUrl).Port;
+        var remoteDetailsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
+        var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
 
         await using var node = await StartNodeAsync(
             bindUrl,
             "node-ready-details-auth",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
-        var loopbackAnonymous = await HttpClient.GetAsync(new Uri($"{loopbackUrl}/health/ready/details"), DefaultCancellationToken);
-        Assert.True(loopbackAnonymous.IsSuccessStatusCode, $"Expected loopback success, got {loopbackAnonymous.StatusCode:D} {loopbackAnonymous.ReasonPhrase}");
+        var loopbackAnonymous = await HttpClient.GetAsync(new Uri(loopbackDetailsUrl), DefaultCancellationToken);
+        Assert.True(loopbackAnonymous.IsSuccessStatusCode);
 
-        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, $"{loopbackUrl}/health/ready/details"))
+        using (var loopbackAuthorized = new HttpRequestMessage(HttpMethod.Get, loopbackDetailsUrl))
         {
             loopbackAuthorized.Version = HttpVersion.Version20;
             loopbackAuthorized.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
             loopbackAuthorized.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
             var loopbackWithJwt = await HttpClient.SendAsync(loopbackAuthorized, DefaultCancellationToken);
-            Assert.True(loopbackWithJwt.IsSuccessStatusCode, $"Expected loopback success with JWT, got {loopbackWithJwt.StatusCode:D} {loopbackWithJwt.ReasonPhrase}");
+            Assert.True(loopbackWithJwt.IsSuccessStatusCode);
         }
 
-        var remoteAnonymous = await RemoteClient.GetAsync(new Uri($"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"), DefaultCancellationToken);
+        var remoteAnonymous = await RemoteClient.GetAsync(new Uri(remoteDetailsUrl), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, remoteAnonymous.StatusCode);
 
-        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"))
+        using (var remoteInvalid = new HttpRequestMessage(HttpMethod.Get, remoteDetailsUrl))
         {
             remoteInvalid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", InvalidBearerToken);
             var remoteInvalidJwt = await RemoteClient.SendAsync(remoteInvalid, DefaultCancellationToken);
             Assert.Equal(HttpStatusCode.Unauthorized, remoteInvalidJwt.StatusCode);
         }
 
-        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, $"https://{localIp}:{new Uri(bindUrl).Port.ToString(CultureInfo.InvariantCulture)}/health/ready/details");
+        using var remoteValid = new HttpRequestMessage(HttpMethod.Get, remoteDetailsUrl);
         remoteValid.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
         var remoteWithJwt = await RemoteClient.SendAsync(remoteValid, DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, remoteWithJwt.StatusCode);
