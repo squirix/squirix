@@ -48,7 +48,7 @@ await using var client = await SquirixClient.ConnectAsync(
     {
         options.Endpoints.Add(new Uri("https://cache-a.example.internal:5001"));
         options.Endpoints.Add(new Uri("https://cache-b.example.internal:5002"));
-        options.BearerTokenProvider = _ => new ValueTask<string>(Environment.GetEnvironmentVariable("SQUIRIX_JWT")!);
+        options.BearerTokenProvider = _ => new ValueTask<string>(Environment.GetEnvironmentVariable("SQUIRIX_CLIENT_JWT")!);
     },
     cancellationToken);
 ```
