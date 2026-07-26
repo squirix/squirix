@@ -8,7 +8,7 @@ For install, Docker, and first connection steps, see [getting started](getting-s
 
 ## Standalone host
 
-The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URL:
+The `squirix-server` global tool wraps the same runtime as the library host. Default gRPC listen URI:
 `https://localhost:5001`.
 
 ```bash

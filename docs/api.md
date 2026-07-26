@@ -92,9 +92,11 @@ Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgu
 gRPC `ResourceExhausted`.
 
 In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
-instead of minting a new id. Idempotency records are per-node in memory; when a retry lands on a different entry node
-(bootstrap endpoint switch or transport failover), the owner node replays the cached outcome for the same
-`operation_id` and fingerprint so the mutation is not applied twice.
+instead of minting a new id. Idempotency records are per-node in memory (durable nodes also persist outcomes through the
+journal/snapshot path); when a retry lands on a different entry node (bootstrap endpoint switch or transport failover),
+the owner node replays the cached outcome for the same `operation_id` and fingerprint so the mutation is not applied
+twice. Operators can tune in-memory store caps with `SQUIRIX_IDEMPOTENCY_*` — see
+[configuration.md — Environment variables](configuration.md#environment-variables).
 
 The approved RPC list is locked by a golden snapshot test:
 `tests/squirix.server/squirix.server.unit-tests/ApiSnapshots/SquirixGrpcEndpointSurface.golden.txt`.

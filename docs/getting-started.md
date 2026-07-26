@@ -159,5 +159,5 @@ application directory.
 ## Next steps
 
 - Embed the server in ASP.NET Core: [server mode](server-mode.md)
-- Tune cluster and persistence settings: [configuration](configuration.md)
+- Tune cluster / memory-pressure / metrics settings: [configuration](configuration.md)
 - Understand routing and consistency: [clustering](clustering.md)
