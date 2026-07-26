@@ -10,6 +10,20 @@ internal static class CacheKeyValidator
     /// </summary>
     private const int MaxLength = 1024;
 
+    private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";
+
+    /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
+    /// <param name="error">The validation failure.</param>
+    /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="error" /> is not a known validation failure.</exception>
+    internal static string GetMessage(ServerKeyValidationError error) => error switch
+    {
+        ServerKeyValidationError.Required => "Cache key is required.",
+        ServerKeyValidationError.TooLong => TooLongMessage,
+        ServerKeyValidationError.ControlCharacters => "Cache key contains control characters.",
+        _ => throw new ArgumentOutOfRangeException(nameof(error), "Unsupported cache key validation error."),
+    };
+
     /// <summary>Attempts to validate a key without throwing.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="error">The failure reason when validation fails.</param>
@@ -49,25 +63,11 @@ internal static class CacheKeyValidator
     /// <exception cref="ArgumentException">Thrown when <paramref name="key" /> is invalid.</exception>
     internal static string Validate(string? key, string parameterName) => TryValidate(key, out var error) ? key! : throw new ArgumentException(GetMessage(error), parameterName);
 
-    /// <summary>Returns a stable, non-user-input diagnostic message for the given validation error.</summary>
-    /// <param name="error">The validation failure.</param>
-    /// <returns>English message suitable for APIs and logs (no raw key material).</returns>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="error" /> is not a known validation failure.</exception>
-    internal static string GetMessage(ServerKeyValidationError error) => error switch
-    {
-        ServerKeyValidationError.Required => "Cache key is required.",
-        ServerKeyValidationError.TooLong => $"Cache key exceeds the maximum length of {MaxLength} characters.",
-        ServerKeyValidationError.ControlCharacters => "Cache key contains control characters.",
-        _ => throw new ArgumentOutOfRangeException(nameof(error), "Unsupported cache key validation error."),
-    };
-
     private static bool IsWhiteSpaceOnly(string key)
     {
         for (var i = 0; i < key.Length; i++)
-        {
             if (!char.IsWhiteSpace(key[i]))
                 return false;
-        }
 
         return true;
     }

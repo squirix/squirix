@@ -10,7 +10,7 @@ public sealed class ProbeSmokeTests : SmokeTestBase
 {
     /// <summary>Ensures documented health probes stay reachable without JWT when auth is enabled.</summary>
     [Fact]
-    public async Task HealthProbesRemainAccessibleWithoutJwtWhenAuthEnabled()
+    public async Task HealthProbesRemainAccessibleJwtWhenAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var uri = GetNextHttpUri();
@@ -19,12 +19,12 @@ public sealed class ProbeSmokeTests : SmokeTestBase
             uri,
             "node-health",
             new SmokeNodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
         var live = await HttpClient.GetAsync(new Uri(uri, "/health/live"), DefaultCancellationToken);
-        Assert.True(live.IsSuccessStatusCode, $"Expected /health/live success, got {live.StatusCode:D} {live.ReasonPhrase}");
+        Assert.True(live.IsSuccessStatusCode);
 
         var ready = await HttpClient.GetAsync(new Uri(uri, "/health/ready"), DefaultCancellationToken);
-        Assert.True(ready.IsSuccessStatusCode, $"Expected /health/ready success, got {ready.StatusCode:D} {ready.ReasonPhrase}");
+        Assert.True(ready.IsSuccessStatusCode);
     }
 }

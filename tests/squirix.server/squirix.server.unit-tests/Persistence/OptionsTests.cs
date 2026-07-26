@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Runtime;
 using Squirix.Server.Storage;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence;
@@ -21,7 +22,7 @@ public sealed class OptionsTests
     public static void ValidateRejectsNonPositiveScalars(string propertyName)
     {
         var options = CreateWithInvalidScalar(propertyName);
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }

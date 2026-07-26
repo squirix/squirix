@@ -248,6 +248,8 @@ internal sealed class RemoteCache<T> : ICache<T>
         return response.Found ? await ProtoEx.MapProtoEntryToCacheEntryAsync<T>(response.Entry, _serializer).ConfigureAwait(false) : null;
     }
 
+    private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
+
     /// <summary>Validates expiration arguments where a strictly positive duration is required (for example touch operations).</summary>
     private static class ExpirationInputValidator
     {
@@ -263,8 +265,6 @@ internal sealed class RemoteCache<T> : ICache<T>
                 throw new ArgumentOutOfRangeException(parameterName, expiration, "expiration must be greater than zero.");
         }
     }
-
-    private sealed record GetOrAddFlightState(RemoteCache<T> Cache, string Key, Func<string, CancellationToken, Task<T?>> ValueFactory, CacheEntryOptions? Options);
 
     /// <summary>Validates single-operation payloads such as cache entries and non-null factory delegates.</summary>
     private static class OperationInputValidator
@@ -356,26 +356,37 @@ internal sealed class RemoteCache<T> : ICache<T>
             (Cache: this, Action: action, State: state),
             cancellationToken);
 
-        private static class RemoteRpcErrorMapper
+        private static class CacheOperationContract
         {
-            /// <summary>Applies remote RPC error mapping and always throws (never returns normally).</summary>
-            /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
-            /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
-            /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
-            /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
-            [DoesNotReturn]
-            internal static void Map(RpcException ex)
-            {
-                ArgumentNullException.ThrowIfNull(ex);
+            private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
 
-                if (ex.StatusCode is StatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
-                    throw new OperationIdRequiredException(ex.Status.Detail, ex);
+            /// <summary>
+            /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
+            /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
+            /// </summary>
+            /// <param name="detail">The gRPC status detail string.</param>
+            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter increment type mismatch.</returns>
+            internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
+                                                                                            detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
+                                                                                                "expected",
+                                                                                                StringComparison.OrdinalIgnoreCase);
 
-                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
-                    throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
+            /// <summary>
+            /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
+            /// </summary>
+            /// <param name="message">An exception or RPC status detail string.</param>
+            /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
+            internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
+                                                                                             message.StartsWith(
+                                                                                                 InsertVersionMustExceedCurrentMessagePrefix,
+                                                                                                 StringComparison.Ordinal) && message.Contains(
+                                                                                                 ", provided=",
+                                                                                                 StringComparison.Ordinal);
 
-                ExceptionDispatchInfo.Capture(ex).Throw();
-            }
+            internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
+
+            internal static bool IsOperationIdReuseMismatchMessage(string? message) =>
+                string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
         }
 
         /// <summary>Deterministic classification helpers shared by transport mappers; does not perform HTTP or gRPC result mapping.</summary>
@@ -428,37 +439,26 @@ internal sealed class RemoteCache<T> : ICache<T>
             }
         }
 
-        private static class CacheOperationContract
+        private static class RemoteRpcErrorMapper
         {
-            private const string InsertVersionMustExceedCurrentMessagePrefix = "Version must be greater than current (current=";
+            /// <summary>Applies remote RPC error mapping and always throws (never returns normally).</summary>
+            /// <param name="ex">The gRPC transport exception from the remote cache pipeline.</param>
+            /// <exception cref="OperationIdRequiredException">When the server rejected a missing operation id.</exception>
+            /// <exception cref="OperationIdReuseMismatchException">When the server rejected an operation-id reuse mismatch.</exception>
+            /// <exception cref="RpcException">When no mapping applies; rethrows <paramref name="ex" /> with preserved stack.</exception>
+            [DoesNotReturn]
+            internal static void Map(RpcException ex)
+            {
+                ArgumentNullException.ThrowIfNull(ex);
 
-            /// <summary>
-            /// Determines whether <paramref name="detail" /> matches the stable increment counter type-mismatch contract (FailedPrecondition),
-            /// distinct from CAS <c>Version mismatch</c> and routing <c>StaleOwner</c> texts.
-            /// </summary>
-            /// <param name="detail">The gRPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="detail" /> identifies a counter increment type mismatch.</returns>
-            internal static bool IsCounterIncrementTypeMismatchRpcDetail(string? detail) => !string.IsNullOrWhiteSpace(detail) &&
-                                                                                            detail.Contains("Type mismatch", StringComparison.OrdinalIgnoreCase) && detail.Contains(
-                                                                                                "expected",
-                                                                                                StringComparison.OrdinalIgnoreCase);
+                if (ex.StatusCode is StatusCode.InvalidArgument && CacheOperationContract.IsOperationIdRequiredMessage(ex.Status.Detail))
+                    throw new OperationIdRequiredException(ex.Status.Detail, ex);
 
-            /// <summary>
-            /// Determines whether <paramref name="message" /> matches the insert explicit-version precondition message shape.
-            /// </summary>
-            /// <param name="message">An exception or RPC status detail string.</param>
-            /// <returns><see langword="true" /> when <paramref name="message" /> identifies an insert version downgrade.</returns>
-            internal static bool IsInsertVersionMustExceedCurrentMessage(string? message) => !string.IsNullOrEmpty(message) &&
-                                                                                             message.StartsWith(
-                                                                                                 InsertVersionMustExceedCurrentMessagePrefix,
-                                                                                                 StringComparison.Ordinal) && message.Contains(
-                                                                                                 ", provided=",
-                                                                                                 StringComparison.Ordinal);
+                if (ex.StatusCode is StatusCode.FailedPrecondition && CacheOperationContractClassifier.IsOperationIdReuseMismatchDetail(ex.Status.Detail))
+                    throw new OperationIdReuseMismatchException(ex.Status.Detail, ex);
 
-            internal static bool IsOperationIdRequiredMessage(string? message) => string.Equals(message, OperationIdRequiredException.StableDetail, StringComparison.Ordinal);
-
-            internal static bool IsOperationIdReuseMismatchMessage(string? message) =>
-                string.Equals(message, OperationIdReuseMismatchException.StableDetail, StringComparison.Ordinal);
+                ExceptionDispatchInfo.Capture(ex).Throw();
+            }
         }
     }
 }

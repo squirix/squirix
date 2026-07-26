@@ -1,4 +1,3 @@
-using System.Globalization;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Utils;
 
@@ -9,5 +8,5 @@ internal static class JournalPaths
 {
     internal static string BuildSegmentPath(string dataDir, int segmentIndex) => PathEx.Combine(
         dataDir,
-        $"{FilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{InvariantDigitStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
 }

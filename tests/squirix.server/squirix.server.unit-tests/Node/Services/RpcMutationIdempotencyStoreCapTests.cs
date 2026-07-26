@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -11,6 +12,23 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
 {
     private static readonly byte[] ResponseBytes = RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true });
 
+    /// <summary>Expired records are removed before capacity enforcement on new inserts.</summary>
+    [Fact]
+    public void ExpiredRecordsAreRemovedBeforeCapacityEnforcement()
+    {
+        const int cap = 2;
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMilliseconds(50) }, "test-node");
+        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
+        store.RecordSuccess("op-2", "fp-2", ResponseBytes);
+        store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-1));
+
+        store.RecordSuccess("op-3", "fp-3", ResponseBytes);
+
+        Assert.Equal(cap, store.RecordCount);
+        Assert.False(store.TryReplay("op-stale", "fp-stale", TryAddAsyncResponse.Parser, out _));
+        Assert.True(store.TryReplay("op-3", "fp-3", TryAddAsyncResponse.Parser, out _));
+    }
+
     /// <summary>Flooding unique operation ids keeps the in-memory record count within the configured cap.</summary>
     [Fact]
     public void FloodUniqueOperationIdsKeepsRecordCountWithinCap()
@@ -19,7 +37,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
 
         for (var i = 0; i < cap * 3; i++)
-            store.RecordSuccess($"op-{i:D4}", $"fp-{i:D4}", ResponseBytes);
+            store.RecordSuccess($"op-{InvariantIndexStrings.FormatD4(i)}", $"fp-{InvariantIndexStrings.FormatD4(i)}", ResponseBytes);
 
         Assert.Equal(cap, store.RecordCount);
     }
@@ -56,23 +74,6 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
         Assert.Equal(cap, store.RecordCount);
         Assert.True(store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out _));
         Assert.True(store.TryReplay("op-2", "fp-2", TryAddAsyncResponse.Parser, out _));
-    }
-
-    /// <summary>Expired records are removed before capacity enforcement on new inserts.</summary>
-    [Fact]
-    public void ExpiredRecordsAreRemovedBeforeCapacityEnforcement()
-    {
-        const int cap = 2;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMilliseconds(50) }, "test-node");
-        store.RecordSuccess("op-1", "fp-1", ResponseBytes);
-        store.RecordSuccess("op-2", "fp-2", ResponseBytes);
-        store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-1));
-
-        store.RecordSuccess("op-3", "fp-3", ResponseBytes);
-
-        Assert.Equal(cap, store.RecordCount);
-        Assert.False(store.TryReplay("op-stale", "fp-stale", TryAddAsyncResponse.Parser, out _));
-        Assert.True(store.TryReplay("op-3", "fp-3", TryAddAsyncResponse.Parser, out _));
     }
 
     /// <summary>Background sweep removes expired records without a new access.</summary>

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Squirix.Server.Cluster.Transport;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -72,13 +73,13 @@ public sealed class MtlsCertificateLoaderTests : ServerUnitTestBase
             InternalListenPort = 6103,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(() => _ = MtlsCertificateMaterial.Load(options, 6001, true, "untrusted-node"));
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => _ = MtlsCertificateMaterial.Load(value, 6001, true, "untrusted-node"));
         Assert.Contains("does not chain", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures standalone topology returns an empty material instance.</summary>
     [Fact]
-    public void LoadReturnsDisabledMaterialWhenInterNodeMtlsIsNotRequired()
+    public void LoadReturnsDisabledMaterialInterNodeMtlsIsRequired()
     {
         var material = MtlsCertificateMaterial.Load(new MtlsOptions(), 6001, false);
 

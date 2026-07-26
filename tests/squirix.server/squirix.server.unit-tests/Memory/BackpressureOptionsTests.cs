@@ -1,5 +1,6 @@
 using System;
 using Squirix.Server.Node.Backpressure;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -15,9 +16,7 @@ public sealed class BackpressureOptionsTests
     {
         var options = new AdmissionOptions();
 
-        var ex = Record.Exception(options.Validate);
-
-        Assert.Null(ex);
+        options.Validate();
         Assert.True(options.Enabled);
         Assert.Equal(256, options.MaxInFlight);
         Assert.Equal(128, options.MaxQueue);
@@ -34,7 +33,7 @@ public sealed class BackpressureOptionsTests
             NodeRateLimitPerSecond = 100,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains("NodeRateLimitBurst", ex.Message, StringComparison.Ordinal);
     }
@@ -49,7 +48,7 @@ public sealed class BackpressureOptionsTests
             PerClientMaxInFlight = 9,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains("PerClientMaxInFlight", ex.Message, StringComparison.Ordinal);
     }
@@ -65,7 +64,7 @@ public sealed class BackpressureOptionsTests
             RejectThreshold = 5,
         };
 
-        var ex = Assert.Throws<InvalidOperationException>(options.Validate);
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
         Assert.Contains("RejectThreshold", ex.Message, StringComparison.Ordinal);
     }

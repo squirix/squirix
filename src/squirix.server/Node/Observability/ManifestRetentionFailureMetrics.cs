@@ -9,8 +9,7 @@ internal sealed class ManifestRetentionFailureMetrics : IManifestRetentionFailur
     internal static ManifestRetentionFailureMetrics Instance { get; } = new();
 
     /// <inheritdoc />
-    public void RecordDeleteFailure(string artifactKind, string outcome) =>
-        StorageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
+    public void RecordDeleteFailure(string artifactKind, string outcome) => StorageRetentionMetrics.IncrementDeleteFailuresTotal(artifactKind, outcome);
 
     /// <summary>Low-cardinality manifest retention cleanup metrics on the shared <see cref="ServerMeterRegistry.Meter" />.</summary>
     private static class StorageRetentionMetrics

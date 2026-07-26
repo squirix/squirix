@@ -37,11 +37,22 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<IdempotencyOptions, IdempotencyOptionsValidator>(services, idempotency);
 
         if (args.PersistenceOptions is not null)
-            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, args.SnapshotOptions, cancellationToken).ConfigureAwait(false);
+            await AddValidatedPersistenceOptionsAsync(services, args.PersistenceOptions, null, cancellationToken).ConfigureAwait(false);
 
         var prometheusMetrics = await PrometheusMetricsBootstrap.LoadAsync(cancellationToken).ConfigureAwait(false);
         AddValidatedInstance<PrometheusMetricsEndpointOptions, PrometheusEndpointOptionsValidator>(services, prometheusMetrics);
         return services;
+    }
+
+    private static void AddValidatedInstance<TOptions, TValidator>(IServiceCollection services, TOptions source)
+        where TOptions : class
+        where TValidator : class, IValidateOptions<TOptions>
+    {
+        AddValidatedOptionsInstance(services, source);
+        _ = services.AddSingleton<IValidateOptions<TOptions>, TValidator>();
+        _ = services.AddHostedService(static sp => new StartupOptionsValidator<TOptions>(
+            sp.GetRequiredService<IOptions<TOptions>>(),
+            sp.GetRequiredService<IValidateOptions<TOptions>>()));
     }
 
     private static void AddValidatedMtlsOptions(IServiceCollection services, ValidatedOptionsArgs args)
@@ -54,15 +65,23 @@ internal static class NodeOptionsRegistration
         _ = services.AddHostedService(static sp => new StartupOptionsValidator<MtlsOptions>(
             sp.GetRequiredService<IOptions<MtlsOptions>>(),
             sp.GetRequiredService<IValidateOptions<MtlsOptions>>()));
-        _ = args.MtlsMaterial is not null
-            ? services.AddSingleton(args.MtlsMaterial)
-            : services.AddSingleton(static provider =>
-            {
-                var registeredCluster = provider.GetRequiredService<TopologyOptions>();
-                var options = provider.GetRequiredService<MtlsOptions>();
-                var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
-                return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
-            });
+        _ = args.MtlsMaterial is not null ? services.AddSingleton(args.MtlsMaterial) : services.AddSingleton(static provider =>
+        {
+            var registeredCluster = provider.GetRequiredService<TopologyOptions>();
+            var options = provider.GetRequiredService<MtlsOptions>();
+            var primaryListenPort = registeredCluster.Uri.IsAbsoluteUri ? registeredCluster.Uri.Port : default(int?);
+            return MtlsCertificateMaterial.Load(options, primaryListenPort, MtlsTopology.RequiresInterNodeMtls(registeredCluster));
+        });
+    }
+
+    private static void AddValidatedOptionsInstance<TOptions>(IServiceCollection services, TOptions source)
+        where TOptions : class
+    {
+        // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
+        // (requires a parameterless ctor) and CopyFrom cannot assign init-only properties after construction.
+        _ = services.AddSingleton(source);
+        _ = services.AddSingleton(Options.Create(source));
+        _ = services.AddSingleton<IOptionsMonitor<TOptions>>(new StaticOptionsMonitor<TOptions>(source));
     }
 
     private static async Task AddValidatedPersistenceOptionsAsync(
@@ -86,27 +105,6 @@ internal static class NodeOptionsRegistration
         AddValidatedInstance<JournalMetricsExporterOptions, JournalMetricsExporterOptionsValidator>(services, options);
     }
 
-    private static void AddValidatedInstance<TOptions, TValidator>(IServiceCollection services, TOptions source)
-        where TOptions : class
-        where TValidator : class, IValidateOptions<TOptions>
-    {
-        AddValidatedOptionsInstance(services, source);
-        _ = services.AddSingleton<IValidateOptions<TOptions>, TValidator>();
-        _ = services.AddHostedService(static sp => new StartupOptionsValidator<TOptions>(
-            sp.GetRequiredService<IOptions<TOptions>>(),
-            sp.GetRequiredService<IValidateOptions<TOptions>>()));
-    }
-
-    private static void AddValidatedOptionsInstance<TOptions>(IServiceCollection services, TOptions source)
-        where TOptions : class
-    {
-        // Register the pre-built instance directly. OptionsFactory would Activator.CreateInstance<TOptions>()
-        // (requires a parameterless ctor) and CopyFrom cannot assign init-only properties after construction.
-        _ = services.AddSingleton(source);
-        _ = services.AddSingleton(Options.Create(source));
-        _ = services.AddSingleton<IOptionsMonitor<TOptions>>(new StaticOptionsMonitor<TOptions>(source));
-    }
-
     /// <summary>Loads snapshot trigger settings from <c>Squirix.settings.json</c>.</summary>
     private static class SnapshotBootstrap
     {
@@ -118,21 +116,6 @@ internal static class NodeOptionsRegistration
             var (_, fileMerged) = await UnifiedSettings.TryMergeSnapshotFromFileAsync(new TriggerOptions(), cancellationToken).ConfigureAwait(false);
             return fileMerged;
         }
-    }
-
-    private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
-        where TOptions : class
-    {
-        internal StaticOptionsMonitor(TOptions value)
-        {
-            CurrentValue = value;
-        }
-
-        public TOptions CurrentValue { get; }
-
-        public TOptions Get(string? name) => CurrentValue;
-
-        public IDisposable? OnChange(Action<TOptions, string?> listener) => null;
     }
 
     [SuppressMessage("ReSharper", "ClassNeverInstantiated.Global", Justification = "Constructed by the dependency injection container via factory.")]
@@ -155,5 +138,20 @@ internal static class NodeOptionsRegistration
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class StaticOptionsMonitor<TOptions> : IOptionsMonitor<TOptions>
+        where TOptions : class
+    {
+        internal StaticOptionsMonitor(TOptions value)
+        {
+            CurrentValue = value;
+        }
+
+        public TOptions CurrentValue { get; }
+
+        public TOptions Get(string? name) => CurrentValue;
+
+        public IDisposable? OnChange(Action<TOptions, string?> listener) => null;
     }
 }

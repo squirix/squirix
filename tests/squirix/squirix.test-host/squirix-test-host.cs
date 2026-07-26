@@ -40,10 +40,7 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
 
                 var persisted = await cache.GetValueAsync(args[2], cancellationToken);
                 if (!persisted.Found || persisted.Value != value)
-                {
-                    throw new InvalidOperationException(
-                        $"Expected write verification for key '{args[2]}' to return value {value.ToString(CultureInfo.InvariantCulture)}, but it did not.");
-                }
+                    throw new InvalidOperationException("Expected write verification to return the written value, but it did not.");
             }
 
             return;
@@ -59,13 +56,10 @@ static async ValueTask RunCommandAsync(string[] args, CancellationToken cancella
                 var expectedValue = int.Parse(args[3], CultureInfo.InvariantCulture);
                 var read = await cache.GetValueAsync(args[2], cancellationToken);
                 if (!read.Found)
-                    throw new InvalidOperationException($"Expected key '{args[2]}' to exist after restart, but it was missing.");
+                    throw new InvalidOperationException("Expected key to exist after restart, but it was missing.");
 
                 if (read.Value != expectedValue)
-                {
-                    throw new InvalidOperationException(
-                        $"Expected {expectedValue.ToString(CultureInfo.InvariantCulture)} but got {read.Value.ToString(CultureInfo.InvariantCulture)}.");
-                }
+                    throw new InvalidOperationException("Expected value did not match the value read after restart.");
             }
 
             return;

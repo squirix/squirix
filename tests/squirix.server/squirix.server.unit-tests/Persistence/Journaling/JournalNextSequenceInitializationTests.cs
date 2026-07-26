@@ -21,13 +21,13 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 {
     /// <summary>Disjoint topology (manifest current journal newer than any segment) fails the same way as journal-only recovery.</summary>
     [Fact]
-    public async Task InitializationFailsWhenManifestCurrentJournalIsNewerThanLastAvailableSegment()
+    public async Task InitializationFailsManifestLastAvailableSegment()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-disjoint");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var only = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "only", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [only]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, only);
         await manifestStore.WriteAsync(
             new State
             {
@@ -39,21 +39,15 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
             DefaultCancellationToken);
 
         var manifest = await manifestStore.ReadCurrentOrDefaultAsync(DefaultCancellationToken);
-        var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
-            JournalCoordinatorFactory.CreateAsync(
-                persistence,
-                manifest,
-                manifestStore,
-                new JournalStartupGate(),
-                DefaultCancellationToken));
+        var ex = await NodeAsyncAssert.ThrowsAsync<InvalidDataException>(
+            JournalCoordinatorFactory.CreateAsync(persistence, manifest, manifestStore, new JournalStartupGate(), DefaultCancellationToken));
 
-        Assert.Contains("manifestCurrentJournal=3", ex.Message, StringComparison.Ordinal);
-        Assert.Contains("firstAvailableJournal=1", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("cannot determine a valid replay start", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Next sequence follows records at/after manifest CurrentJournal; obsolete lower segments are not consulted.</summary>
     [Fact]
-    public async Task NextSequenceDerivesFromActiveJournalRangeStartingAtManifestCurrentJournal()
+    public async Task NextSequenceDerivesActiveManifestCurrentJournal()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-active-range");
         var persistence = NewPersistence(dir);
@@ -61,7 +55,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var old = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "old", "a");
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(5UL, "live", "b");
         var live2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "live2", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [old]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, old);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 3, [live, live2]);
         var manifest = new State
         {
@@ -82,13 +76,13 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>LastAppliedSequence from snapshot metadata raises the sequence floor before scanning the active journal tail.</summary>
     [Fact]
-    public async Task NextSequenceRespectsSnapshotLastAppliedSequenceBeforeActiveJournalScan()
+    public async Task NextSequenceRespectsSnapshotActiveJournalScan()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-snap-watermark");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(51UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [envelope]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -115,13 +109,13 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>Scan start follows the first on-disk segment when it is already above manifest CurrentJournal.</summary>
     [Fact]
-    public async Task NextSequenceScanUsesMaxOfFirstAvailableSegmentAndManifestCurrentJournal()
+    public async Task NextSequenceScanUsesSegmentManifestCurrentJournal()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-first-available");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var envelope = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(20UL, "k", "v");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, [envelope]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 5, envelope);
         var manifest = new State
         {
             Format = 1,
@@ -142,7 +136,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>After a segment roll recorded in the manifest, a new writer continues monotonic allocation without rereading rolled segments.</summary>
     [Fact]
-    public async Task NextSequenceStaysMonotonicAcrossManifestSegmentBoundary()
+    public async Task NextSequenceStaysMonotonicManifestSegmentBoundary()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-roll-boundary");
         var persistence = NewPersistence(dir);
@@ -151,7 +145,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var s1 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "s1", "a");
         var s2 = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(2UL, "s2", "b");
         var s2B = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(3UL, "s2b", "c");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, [s1]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 1, s1);
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [s2, s2B]);
         var manifest = new State
         {
@@ -178,20 +172,20 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>CRC corruption in a segment below manifest CurrentJournal does not affect sequence initialization.</summary>
     [Fact]
-    public async Task ObsoleteJournalCorruptionBelowManifestCurrentJournalDoesNotAffectNextSequence()
+    public async Task ObsoleteJournalCorruptionBelowAffectNextSequence()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-obsolete-crc");
         var persistence = NewPersistence(dir);
         using var manifestStore = new ManifestStore(persistence);
         var obsoletePath = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}000001{FileExtensions.Journal}");
         var stale = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "stale", "x");
-        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, [stale]);
+        await BinaryJournalTestSegmentWriter.WriteSegmentAsync(obsoletePath, stale);
         var bytes = await File.ReadAllBytesAsync(obsoletePath, DefaultCancellationToken);
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(obsoletePath, bytes, DefaultCancellationToken);
 
         var live = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(10UL, "live", "y");
-        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, [live]);
+        await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(dir, 2, live);
         var manifest = new State
         {
             Format = 1,
@@ -211,7 +205,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>After compaction, sequence initialization matches the compacted tail without reading deleted lower segments.</summary>
     [Fact]
-    public async Task PostCompactionNextSequenceMatchesManifestWithoutObsoleteSegments()
+    public async Task PostCompactionNextSequenceManifestObsoleteSegments()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-post-compact");
         var persistence = NewPersistence(dir);
@@ -248,7 +242,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
 
     /// <summary>Truncated tail in the active segment still caps discovered sequence the same way as full-file replay.</summary>
     [Fact]
-    public async Task TruncatedFrameInActiveJournalSegmentBoundsNextSequence()
+    public async Task TruncatedFrameActiveJournalBoundsNextSequence()
     {
         using var dir = new TempDirectory("squirix-journal-next-seq-active-truncate");
         var persistence = NewPersistence(dir);
@@ -258,9 +252,7 @@ public sealed class JournalNextSequenceInitializationTests : ServerUnitTestBase
         var b = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(6UL, "b", "y");
         await BinaryJournalTestSegmentWriter.WriteSegmentAsync(path, [a, b]);
         await using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
-        {
             fs.SetLength(fs.Length - 1);
-        }
 
         await manifestStore.WriteAsync(
             new State

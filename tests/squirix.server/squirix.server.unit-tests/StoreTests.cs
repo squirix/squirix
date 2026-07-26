@@ -16,6 +16,20 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
 
     private TempDirectory Dir => _dir ?? throw new InvalidOperationException("Test directory is not initialized.");
 
+    /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
+    [Fact]
+    public async Task PublishRollBlockingIncrementsIndexWithoutDiskRead()
+    {
+        var options = new PersistenceOptions { DataDir = Dir.Path };
+        using var store = new ManifestStore(options);
+
+        store.PublishRollBlocking(1, 1);
+        store.PublishRollBlocking(2, 2);
+
+        var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
+        Assert.Equal(2, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
+    }
+
     /// <summary>Verifies the first write creates a current pointer and numbered manifest file.</summary>
     [Fact]
     public async Task WriteAsyncCreatesCurrentPointerAndManifestFile()
@@ -37,23 +51,9 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
         Assert.Equal(1UL, manifest.NextSequence);
     }
 
-    /// <summary>Verifies sequential roll publishes advance the current pointer while a persistent handle stays open.</summary>
-    [Fact]
-    public async Task PublishRollBlockingIncrementsIndexWithoutDiskRead()
-    {
-        var options = new PersistenceOptions { DataDir = Dir.Path };
-        using var store = new ManifestStore(options);
-
-        store.PublishRollBlocking(1, 1);
-        store.PublishRollBlocking(2, 2);
-
-        var currentPath = NodePathKit.Combine(Dir.Path, "man-current");
-        Assert.Equal(2, Pointer.Read(await File.ReadAllBytesAsync(currentPath, DefaultCancellationToken)));
-    }
-
     /// <summary>Verifies CURRENT is updated in place without leaving a temp pointer file.</summary>
     [Fact]
-    public async Task WriteAsyncUpdatesCurrentPointerInPlaceWithoutTmpFile()
+    public async Task WriteAsyncUpdatesCurrentPointerInPlaceTmpFile()
     {
         var options = new PersistenceOptions { DataDir = Dir.Path };
         using var store = new ManifestStore(options);
@@ -64,17 +64,17 @@ public sealed class StoreTests : ServerUnitTestBase, IAsyncLifetime
         Assert.Equal(12, (await File.ReadAllBytesAsync(NodePathKit.Combine(Dir.Path, "man-current"), DefaultCancellationToken)).Length);
     }
 
-    /// <summary>Creates a temporary directory for test storage.</summary>
-    public ValueTask InitializeAsync()
-    {
-        _dir = new TempDirectory("manifest");
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>Disposes the temporary directory after the test class finishes.</summary>
     public ValueTask DisposeAsync()
     {
         Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Creates a temporary directory for test storage.</summary>
+    public ValueTask InitializeAsync()
+    {
+        _dir = new TempDirectory("manifest");
         return ValueTask.CompletedTask;
     }
 

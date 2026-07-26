@@ -22,13 +22,60 @@ csharp_place_expr_method_on_single_line = if_owner_is_single_line
 csharp_style_prefer_switch_expression = true:suggestion
 csharp_style_namespace_declarations = file_scoped
 csharp_prefer_static_local_function = true:error
-csharp_prefer_braces = when_multiline:error
+# Omit braces whenever the body is a single embedded statement (including nested loops):
+#   for (...)
+#       for (...)
+#       {
+#           ...
+#       }
+# Keep braces only when the body has multiple statements (language-required) or an intentional block.
+# Use false (not when_multiline): when_multiline / SA1519 / RCS1001 force braces on outer loops whose
+# nested child spans multiple lines, which fights the nested-loop style above.
+# Severity must be on dotnet_diagnostic.IDE0011 (preference :severity is IDE-only and does not fail builds).
+csharp_prefer_braces = false
+dotnet_diagnostic.IDE0011.severity = error
 csharp_style_deconstructed_variable_declaration = true:warning
 csharp_style_expression_bodied_operators = false:warning
 csharp_style_expression_bodied_local_functions = false:warning
 # Prefer explicit discard when intentionally ignoring a value
 csharp_style_unused_value_expression_statement_preference = discard_variable:warning
 csharp_style_unused_value_assignment_preference = discard_variable:warning
+# LOC-oriented modernizations (warning => TreatWarningsAsErrors)
+csharp_style_implicit_object_creation_when_type_is_apparent = true:warning
+dotnet_diagnostic.IDE0090.severity = warning
+dotnet_style_object_initializer = true:warning
+dotnet_diagnostic.IDE0017.severity = warning
+dotnet_style_collection_initializer = true:warning
+dotnet_diagnostic.IDE0028.severity = warning
+dotnet_style_prefer_collection_expression = when_types_exactly_match:warning
+dotnet_diagnostic.IDE0300.severity = warning
+dotnet_diagnostic.IDE0301.severity = warning
+dotnet_diagnostic.IDE0305.severity = warning
+dotnet_style_coalesce_expression = true:warning
+dotnet_diagnostic.IDE0029.severity = warning
+dotnet_style_null_propagation = true:warning
+dotnet_diagnostic.IDE0031.severity = warning
+dotnet_style_prefer_compound_assignment = true:warning
+dotnet_diagnostic.IDE0074.severity = warning
+csharp_prefer_simple_using_statement = true:warning
+dotnet_diagnostic.IDE0063.severity = warning
+csharp_style_inlined_variable_declaration = true:warning
+dotnet_diagnostic.IDE0018.severity = warning
+csharp_style_pattern_matching_over_as_with_null_check = true:warning
+dotnet_diagnostic.IDE0019.severity = warning
+csharp_style_pattern_matching_over_is_with_cast_check = true:warning
+dotnet_diagnostic.IDE0020.severity = warning
+csharp_style_prefer_pattern_matching = true:warning
+dotnet_diagnostic.IDE0078.severity = warning
+csharp_style_prefer_not_pattern = true:warning
+dotnet_diagnostic.IDE0083.severity = warning
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+dotnet_diagnostic.IDE0041.severity = warning
+# Throw helpers instead of multi-line ArgumentNullException / ObjectDisposedException blocks
+dotnet_diagnostic.CA1510.severity = warning
+dotnet_diagnostic.CA1511.severity = warning
+dotnet_diagnostic.CA1512.severity = warning
+dotnet_diagnostic.CA1513.severity = warning
 # Nullable and language are enforced via MSBuild too
 dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
 csharp_space_after_cast = false
@@ -49,10 +96,29 @@ dotnet_diagnostic.CA1816.severity = error
 dotnet_diagnostic.SA1134.severity = error
 # Do not use regions
 dotnet_diagnostic.SA1124.severity = error
-# Disable SA1503 for single-line child statements
+# SA1503 always-require-braces / SA1519 multi-line-child braces conflict with nested-loop no-braces style
 dotnet_diagnostic.SA1503.severity = none
-# Require braces for multi-line statements
-dotnet_diagnostic.SA1519.severity = warning
+dotnet_diagnostic.SA1519.severity = none
+# SA1520: if/else siblings must use braces consistently (multi-statement if ⇒ braced else).
+# Keep as error; do not strip single-statement else braces when the if branch uses braces.
+dotnet_diagnostic.SA1520.severity = error
+# Roslynator: remove braces from single-line single-statement bodies.
+# RCS1002 fights SA1520 on mixed if/else (multi-statement if + single-statement else) — keep off.
+# RCS1004 is switch sections only. RCS1001/RCS1003/RCS1007 re-add braces around multi-line nested children — keep off.
+dotnet_diagnostic.RCS1001.severity = none
+dotnet_diagnostic.RCS1002.severity = none
+dotnet_diagnostic.RCS1003.severity = none
+dotnet_diagnostic.RCS1004.severity = error
+dotnet_diagnostic.RCS1007.severity = none
+# Squirix.Analyzers: outer for/foreach/while/do must omit braces when the body is only a nested loop.
+dotnet_diagnostic.SQR001.severity = error
+# Squirix.Analyzers: design/naming limits (SQR002–SQR007).
+dotnet_diagnostic.SQR002.severity = error
+dotnet_diagnostic.SQR003.severity = error
+dotnet_diagnostic.SQR004.severity = error
+dotnet_diagnostic.SQR005.severity = error
+dotnet_diagnostic.SQR006.severity = error
+dotnet_diagnostic.SQR007.severity = error
 # Prefix with this - disabled
 dotnet_diagnostic.SA1101.severity = none
 # Allow leading underscore fields
@@ -137,10 +203,29 @@ resharper_arguments_literal = positional
 resharper_arguments_style_other_highlighting = suggestion
 resharper_arguments_style_string_literal_highlighting = suggestion
 resharper_arguments_style_literal_highlighting = suggestion
-resharper_enforce_if_statement_braces_highlighting = warning
+# Align Rider with csharp_prefer_braces=false: omit braces for single embedded statements
+# (including outer nested loops). Do NOT enable braces_redundant — Rider cleanup would strip a
+# single-statement else while leaving a braced multi-statement if, which breaks SA1520.
+resharper_enforce_if_statement_braces_highlighting = none
+resharper_remove_redundant_braces_highlighting = none
 resharper_convert_to_primary_constructor_highlighting = none
-resharper_braces_for_ifelse = not_required_for_both
+resharper_braces_for_ifelse = not_required
+resharper_braces_for_for = not_required
+resharper_braces_for_foreach = not_required
+resharper_braces_for_while = not_required
+resharper_braces_for_dowhile = not_required
+resharper_braces_for_using = not_required
+resharper_braces_for_lock = not_required
+resharper_braces_for_fixed = not_required
 resharper_braces_redundant = false
+# Keep nested brace-less loops indented (Rider default false flattens them and trips Sonar S3973).
+# using/lock/fixed chains stay flat: they share one braced block, so S3973 does not apply.
+resharper_csharp_indent_nested_foreach_stmt = true
+resharper_csharp_indent_nested_for_stmt = true
+resharper_csharp_indent_nested_while_stmt = true
+resharper_csharp_indent_nested_usings_stmt = false
+resharper_csharp_indent_nested_lock_stmt = false
+resharper_csharp_indent_nested_fixed_stmt = false
 resharper_loop_can_be_converted_to_query_highlighting = none
 resharper_loop_can_be_partly_converted_to_query_highlighting = none
 resharper_foreach_can_be_converted_to_query_using_another_get_enumerator_highlighting = none
@@ -149,6 +234,8 @@ resharper_arrange_redundant_parentheses_highlighting = none
 resharper_for_can_be_converted_to_foreach_highlighting = none
 resharper_convert_if_statement_to_return_statement_highlighting = none
 resharper_convert_if_statement_to_switch_statement_highlighting = none
+# Keep explicit byte[] fixtures; do not nudge collection expressions toward "..."u8.
+resharper_use_utf8_string_literal_highlighting = none
 # Allocation-free delegates: static keyword (general), and captures on [RequireStaticDelegate] parameters.
 # Rider hint "Closure can be eliminated: method has overload..." has no editorconfig key — use the TState overload instead.
 resharper_lambda_expression_can_be_made_static_highlighting = error
@@ -247,6 +334,10 @@ dotnet_diagnostic.EPS13.severity = warning
 resharper_csharp_keep_existing_linebreaks = false
 resharper_keep_existing_linebreaks = false
 resharper_keep_existing_expr_member_arrangement = false
+# Collapse consecutive blank lines (default is often 2)
+resharper_keep_max_blank_lines_in_code = 1
+resharper_keep_max_blank_lines_in_declarations = 1
+resharper_keep_max_blank_lines_in_declarations_inside_members = 1
 
 # Expression-bodied members
 resharper_csharp_place_expr_method_on_single_line = always
@@ -363,6 +454,10 @@ dotnet_diagnostic.xUnit2021.severity = error
 # BenchmarkDotNet rules (BDN1xxx) default to error; keep explicit for discoverability in editorconfig.
 dotnet_diagnostic.BDN1400.severity = error
 dotnet_diagnostic.BDN1500.severity = error
+
+[**/{AsyncAssert,NodeAsyncAssert}.cs]
+# VSTHRD003: The closure-free exception assertions exist to observe an operation the caller already started.
+dotnet_diagnostic.VSTHRD003.severity = none
 
 [**/*Grpc.cs]
 dotnet_diagnostic.SA1518.severity = none

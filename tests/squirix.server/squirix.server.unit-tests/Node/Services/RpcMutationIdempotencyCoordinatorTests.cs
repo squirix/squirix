@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Node.Services;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
@@ -79,6 +80,17 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         Assert.True(response.Added);
     }
 
+    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
+    [Fact]
+    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
+    {
+        var store = new RpcMutationIdempotencyStore();
+        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
+
+        Assert.False(replayed);
+        Assert.Null(response);
+    }
+
     /// <summary>Ensures conforming operation ids pass validation.</summary>
     [Fact]
     public void RequireOperationIdAcceptsValidValue()
@@ -91,7 +103,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
     [Fact]
     public void RequireOperationIdRejectsEmptyValue()
     {
-        var ex = Assert.Throws<RpcException>(static () => _ = RpcMutationContracts.RequireOperationId(string.Empty));
+        var ex = NodeExceptionAssert.For<RpcException>().Throws(string.Empty, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdRequiredDetail, ex.Status.Detail);
@@ -101,7 +113,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
     [Fact]
     public void RequireOperationIdRejectsInvalidFormat()
     {
-        var ex = Assert.Throws<RpcException>(static () => _ = RpcMutationContracts.RequireOperationId("not-a-valid-operation-id"));
+        var ex = NodeExceptionAssert.For<RpcException>().Throws("not-a-valid-operation-id", static value => _ = RpcMutationContracts.RequireOperationId(value));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
@@ -112,7 +124,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
     public void RequireOperationIdRejectsTooLongValue()
     {
         var tooLong = new string('a', RpcMutationContracts.OperationIdLength + 1);
-        var ex = Assert.Throws<RpcException>(() => _ = RpcMutationContracts.RequireOperationId(tooLong));
+        var ex = NodeExceptionAssert.For<RpcException>().Throws(tooLong, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdTooLongDetail, ex.Status.Detail);
@@ -123,7 +135,7 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
     public void RequireOperationIdRejectsUppercaseHex()
     {
         var uppercase = ValidOperationId.ToUpperInvariant();
-        var ex = Assert.Throws<RpcException>(() => _ = RpcMutationContracts.RequireOperationId(uppercase));
+        var ex = NodeExceptionAssert.For<RpcException>().Throws(uppercase, static value => _ = RpcMutationContracts.RequireOperationId(value));
 
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(RpcMutationContracts.OperationIdInvalidFormatDetail, ex.Status.Detail);
@@ -150,24 +162,15 @@ public sealed class RpcMutationIdempotencyCoordinatorTests : ServerUnitTestBase
         var store = new RpcMutationIdempotencyStore();
         store.RecordSuccess("op-1", "fp-1", RpcMutationIdempotencyStore.SerializeResponseBytes(new TryAddAsyncResponse { Added = true }));
 
-        var ex = Assert.Throws<ServerOpIdMismatchException>(() =>
-        {
-            var replayed = store.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
-            Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
-        });
+        var ex = NodeExceptionAssert.For<ServerOpIdMismatchException>().Throws(
+            store,
+            static value =>
+            {
+                var replayed = value.TryReplay("op-1", "fp-2", TryAddAsyncResponse.Parser, out var replay);
+                Assert.Fail($"Expected reuse mismatch, got replayed={replayed}, replay={replay}");
+            });
 
         Assert.Equal(ServerOpIdMismatchException.StableDetail, ex.Message);
-    }
-
-    /// <summary>Ensures unknown operation ids do not produce a replayed response.</summary>
-    [Fact]
-    public void ReplayReturnsFalseWhenOperationIdIsUnknown()
-    {
-        var store = new RpcMutationIdempotencyStore();
-        var replayed = store.TryReplay("op-1", "fp-1", TryAddAsyncResponse.Parser, out var response);
-
-        Assert.False(replayed);
-        Assert.Null(response);
     }
 
     private sealed class ExecutionCounter

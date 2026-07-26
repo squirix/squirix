@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Squirix.Server.Cluster.Transport;
@@ -42,8 +43,8 @@ internal static class RuntimeServiceRegistration
     /// <param name="nodes">Distinct node identifiers.</param>
     /// <param name="virtualNodes">Virtual nodes per physical node.</param>
     /// <returns>A locator using the same ring algorithm as cluster hosting.</returns>
-    internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) =>
-        new ConsistentHashNodeLocator(nodes, virtualNodes);
+    [PublicAPI]
+    internal static INodeLocator CreateHashLocator(ReadOnlySpan<string> nodes, int virtualNodes = 128) => new ConsistentHashNodeLocator(nodes, virtualNodes);
 
     private static ServerPeer[] CopyPeers(TopologyOptions cluster)
     {
@@ -170,7 +171,7 @@ internal static class RuntimeServiceRegistration
             private static string[] CollectDistinctNodes(ReadOnlySpan<string> nodes)
             {
                 var seen = new HashSet<string>(StringComparer.Ordinal);
-                string[] buffer = [];
+                var buffer = new string[nodes.Length];
                 var writeIndex = 0;
 
                 for (var i = 0; i < nodes.Length; i++)
@@ -179,20 +180,10 @@ internal static class RuntimeServiceRegistration
                     if (string.IsNullOrWhiteSpace(value) || !seen.Add(value))
                         continue;
 
-                    if (writeIndex == buffer.Length)
-                        buffer = GrowDistinctBuffer(buffer, writeIndex);
-
                     buffer[writeIndex++] = value;
                 }
 
                 return TrimDistinctBuffer(buffer, writeIndex);
-            }
-
-            private static string[] GrowDistinctBuffer(string[] buffer, int writeIndex)
-            {
-                var grown = new string[buffer.Length is 0 ? 4 : buffer.Length * 2];
-                buffer.AsSpan(0, writeIndex).CopyTo(grown);
-                return grown;
             }
 
             private static string[] TrimDistinctBuffer(string[] buffer, int writeIndex)
@@ -235,6 +226,8 @@ internal static class RuntimeServiceRegistration
                 /// </summary>
                 private const byte RouteKeySeparator = 58;
 
+                private const int StackHashBufferThreshold = 512;
+
                 /// <summary>
                 /// ASCII &#39;#&#39;.
                 /// </summary>
@@ -248,17 +241,16 @@ internal static class RuntimeServiceRegistration
                     ArgumentNullException.ThrowIfNull(key);
 
                     var byteCount = checked(CountDigits(cacheName.Length) + 1 + Encoding.UTF8.GetByteCount(cacheName) + 1 + Encoding.UTF8.GetByteCount(key));
-                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+                    if (byteCount <= StackHashBufferThreshold)
+                    {
+                        Span<byte> buffer = stackalloc byte[byteCount];
+                        return Hash(WriteCacheRouteKey(cacheName, key, buffer));
+                    }
 
+                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
                     try
                     {
-                        var buffer = rented.AsSpan(0, byteCount);
-                        var written = WriteNonNegativeIntUtf8(cacheName.Length, buffer);
-                        buffer[written++] = RouteKeySeparator;
-                        written += Encoding.UTF8.GetBytes(cacheName.AsSpan(), buffer[written..]);
-                        buffer[written++] = 0x1F;
-                        written += Encoding.UTF8.GetBytes(key.AsSpan(), buffer[written..]);
-                        return Hash(buffer[..written]);
+                        return Hash(WriteCacheRouteKey(cacheName, key, rented.AsSpan(0, byteCount)));
                     }
                     finally
                     {
@@ -272,15 +264,16 @@ internal static class RuntimeServiceRegistration
                     ArgumentOutOfRangeException.ThrowIfNegative(index);
 
                     var byteCount = checked(Encoding.UTF8.GetByteCount(node) + 1 + CountDigits(index));
-                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
+                    if (byteCount <= StackHashBufferThreshold)
+                    {
+                        Span<byte> buffer = stackalloc byte[byteCount];
+                        return Hash(WriteVNodeKey(node, index, buffer));
+                    }
 
+                    var rented = ArrayPool<byte>.Shared.Rent(byteCount);
                     try
                     {
-                        var buffer = rented.AsSpan(0, byteCount);
-                        var written = Encoding.UTF8.GetBytes(node.AsSpan(), buffer);
-                        buffer[written++] = VNodeSeparator;
-                        written += WriteNonNegativeIntUtf8(index, buffer[written..]);
-                        return Hash(buffer[..written]);
+                        return Hash(WriteVNodeKey(node, index, rented.AsSpan(0, byteCount)));
                     }
                     finally
                     {
@@ -307,6 +300,16 @@ internal static class RuntimeServiceRegistration
                     return BitConverter.ToUInt64(digest);
                 }
 
+                private static ReadOnlySpan<byte> WriteCacheRouteKey(string cacheName, string key, Span<byte> buffer)
+                {
+                    var written = WriteNonNegativeIntUtf8(cacheName.Length, buffer);
+                    buffer[written++] = RouteKeySeparator;
+                    written += Encoding.UTF8.GetBytes(cacheName.AsSpan(), buffer[written..]);
+                    buffer[written++] = 0x1F;
+                    written += Encoding.UTF8.GetBytes(key.AsSpan(), buffer[written..]);
+                    return buffer[..written];
+                }
+
                 private static int WriteNonNegativeIntUtf8(int value, Span<byte> destination)
                 {
                     var digits = CountDigits(value);
@@ -317,6 +320,14 @@ internal static class RuntimeServiceRegistration
                     }
 
                     return digits;
+                }
+
+                private static ReadOnlySpan<byte> WriteVNodeKey(string node, int index, Span<byte> buffer)
+                {
+                    var written = Encoding.UTF8.GetBytes(node.AsSpan(), buffer);
+                    buffer[written++] = VNodeSeparator;
+                    written += WriteNonNegativeIntUtf8(index, buffer[written..]);
+                    return buffer[..written];
                 }
             }
         }

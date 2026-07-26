@@ -22,13 +22,13 @@ public sealed class OidcJwtAuthSmokeTests : SmokeTestBase
             uri,
             "node-oidc-auth",
             new SmokeNodeStartOptions { Security = authority.ToSecurityOptions(Audience) },
-            cancellationToken: DefaultCancellationToken);
+            DefaultCancellationToken);
 
         using var channel = CreateGrpcChannel(uri);
         var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
         var request = new GetValueAsyncRequest { CacheName = "default", Key = "oidc-smoke" };
 
-        var missingAuth = await Assert.ThrowsAsync<RpcException>(() => client.GetValueAsync(request, cancellationToken: DefaultCancellationToken).ResponseAsync);
+        var missingAuth = await NodeAsyncAssert.ThrowsAsync<RpcException>(client.GetValueAsync(request, cancellationToken: DefaultCancellationToken).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, missingAuth.StatusCode);
 
         var validHeaders = new Metadata { { "authorization", $"Bearer {authority.CreateBearerToken(Audience)}" } };

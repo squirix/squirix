@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -21,15 +20,15 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies authenticated remote scrapes succeed when server auth is enabled.</summary>
     [Fact]
-    public async Task AuthenticatedReadyDetailsScrapeSucceedsOnNonLoopbackListenerWhenAuthEnabled()
+    public async Task AuthenticatedReadyDetailsScrapeListenerAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/health/ready/details");
+        using var req = new HttpRequestMessage(HttpMethod.Get, InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/health/ready/details"));
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));
@@ -40,28 +39,28 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
 
     /// <summary>Verifies loopback scrapes succeed without credentials when server auth is enabled.</summary>
     [Fact]
-    public async Task LoopbackReadyDetailsScrapeSucceedsWithoutCredentialsWhenAuthEnabled()
+    public async Task LoopbackReadyDetailsScrapeCredentialsAuthEnabled()
     {
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
-        var response = await HttpClient.GetAsync(new Uri($"https://127.0.0.1:{mainPort.ToString(CultureInfo.InvariantCulture)}/health/ready/details"), DefaultCancellationToken);
+        var response = await HttpClient.GetAsync(new Uri(InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/health/ready/details")), DefaultCancellationToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     /// <summary>Verifies remote scrapes without credentials are rejected when server auth is enabled.</summary>
     [Fact]
-    public async Task RemoteReadyDetailsScrapeReturns401WithoutCredentialsWhenAuthEnabled()
+    public async Task RemoteReadyDetailsScrapeCredentialsAuthEnabled()
     {
         var localIp = LocalHostNetworking.GetLocalNonLoopbackIpv4();
-        Assert.False(string.IsNullOrWhiteSpace(localIp), "Test requires a non-loopback IPv4 address on the host.");
+        Assert.False(string.IsNullOrWhiteSpace(localIp));
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var mainPort = AllocateDedicatedPort();
-        var uri = $"https://0.0.0.0:{mainPort.ToString(CultureInfo.InvariantCulture)}";
+        var uri = InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", mainPort);
 
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
 
@@ -69,6 +68,7 @@ public sealed class ReadyDetailsEndpointAccessTests : NodeIntegrationTestBase
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    private static Task<HttpResponseMessage> GetReadyDetailsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) =>
-        NonLoopbackIpHttpClient.GetAsync(new Uri($"https://{localIp}:{port.ToString(CultureInfo.InvariantCulture)}/health/ready/details"), cancellationToken);
+    private static Task<HttpResponseMessage> GetReadyDetailsViaLocalIpAsync(string localIp, int port, CancellationToken cancellationToken) => NonLoopbackIpHttpClient.GetAsync(
+        new Uri(InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details")),
+        cancellationToken);
 }

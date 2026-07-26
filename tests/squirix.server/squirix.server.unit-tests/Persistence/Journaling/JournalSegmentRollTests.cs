@@ -1,6 +1,5 @@
 using System;
 using System.Buffers;
-using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,6 +9,7 @@ using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.Storage.Journaling.Read;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Persistence.Manifest;
 using Squirix.Server.UnitTests.Support;
@@ -25,7 +25,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     /// <summary>When the next manifest file cannot be created, the roll fails before the overflow frame is appended.</summary>
     [Fact]
-    public async Task BlockedNextManifestFilePreventsOverflowFrameFromBeingAppended()
+    public async Task BlockedNextManifestFileOverflowFrameAppended()
     {
         using var dir = new TempDirectory("squirix-journal-roll-manifest-blocked");
         var options = CreateOptions(dir);
@@ -74,7 +74,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     /// <summary>An overflow frame is written only after a successful roll, on the new journal segment file.</summary>
     [Fact]
-    public async Task OverflowingAppendLandsOnNextSegmentAfterManifestRoll()
+    public async Task OverflowingAppendLandsOnNextSegmentManifestRoll()
     {
         using var dir = new TempDirectory("squirix-journal-roll-overflow");
         var options = CreateOptions(dir);
@@ -127,7 +127,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         if (!File.Exists(path))
             return false;
 
-        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{segmentIndex.ToString(CultureInfo.InvariantCulture)}");
+        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{InvariantIndexStrings.Format(segmentIndex)}");
         _ = Directory.CreateDirectory(isolatedDataDir);
         File.Copy(path, JournalReadPath.BuildSegmentPath(isolatedDataDir, segmentIndex), true);
 
@@ -200,5 +200,5 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     private static string SegmentPath(string dataDir, int segmentIndex) => NodePathKit.Combine(
         dataDir,
-        $"{FilePrefixes.Journal}{segmentIndex.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
 }

@@ -20,8 +20,6 @@ internal sealed record JournalWorkItem
         ResetSequence = resetSequence;
     }
 
-    internal JournalWorkKind Kind { get; }
-
     internal JournalDurabilityWaiter? Completion { get; }
 
     internal JournalDurabilityWaiter? DurabilityWaiter { get; }
@@ -29,6 +27,8 @@ internal sealed record JournalWorkItem
     internal byte[]? FrameBytes { get; }
 
     internal int FrameLength { get; }
+
+    internal JournalWorkKind Kind { get; }
 
     internal int ResetSegmentIndex { get; }
 

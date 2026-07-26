@@ -4,29 +4,21 @@ using System.Threading.Tasks;
 
 namespace Squirix.Server.Node.App;
 
-internal sealed record DurableMutationPipeline<TContext, TAppendState, TApplyState, TResult>
+/// <summary>Append + apply stages for a durable mutation, with a single packed state bag.</summary>
+/// <typeparam name="TState">Caller-owned state passed to append and apply delegates.</typeparam>
+/// <typeparam name="TResult">Mutation result type.</typeparam>
+internal sealed record DurableMutationPipeline<TState, TResult>
 {
-    internal DurableMutationPipeline(
-        TContext context,
-        TAppendState appendState,
-        Func<TContext, TAppendState, CancellationToken, ValueTask> appendJournal,
-        TApplyState applyState,
-        Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> applyMemory)
+    internal DurableMutationPipeline(TState state, Func<TState, CancellationToken, ValueTask> appendJournal, Func<TState, CancellationToken, ValueTask<TResult>> applyMemory)
     {
-        Context = context;
-        AppendState = appendState;
+        State = state;
         AppendJournal = appendJournal;
-        ApplyState = applyState;
         ApplyMemory = applyMemory;
     }
 
-    internal Func<TContext, TAppendState, CancellationToken, ValueTask> AppendJournal { get; }
+    internal Func<TState, CancellationToken, ValueTask> AppendJournal { get; }
 
-    internal TAppendState AppendState { get; }
+    internal Func<TState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
 
-    internal Func<TContext, TApplyState, CancellationToken, ValueTask<TResult>> ApplyMemory { get; }
-
-    internal TApplyState ApplyState { get; }
-
-    internal TContext Context { get; }
+    internal TState State { get; }
 }

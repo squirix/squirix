@@ -12,7 +12,7 @@ internal static class PathValidationKit
     internal static void ValidateNoInvalidChars(string path)
     {
         if (path.AsSpan().IndexOfAny(InvalidPathChars) >= 0)
-            throw new ArgumentException($"Path contains invalid characters: '{path}'.", nameof(path));
+            throw new ArgumentException("Path contains invalid characters.", nameof(path));
 
         if (path.Contains('*', StringComparison.Ordinal) || path.Contains('?', StringComparison.Ordinal))
             throw new ArgumentException("Path must not contain wildcards (* or ?).", nameof(path));
@@ -23,8 +23,10 @@ internal static class PathValidationKit
         var root = Path.GetPathRoot(fullPath) ?? string.Empty;
         var rest = fullPath.AsSpan(root.Length);
         while (TryReadNextSegment(ref rest, out var segment))
-            ValidateSegment(segment, fullPath);
+            ValidateSegment(segment);
     }
+
+    private static bool IsDirectorySeparator(char c) => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
 
     private static bool IsWindowsReservedName(ReadOnlySpan<char> segment)
     {
@@ -35,9 +37,7 @@ internal static class PathValidationKit
 
         if (name.Equals("CON", StringComparison.OrdinalIgnoreCase) || name.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("AUX", StringComparison.OrdinalIgnoreCase) || name.Equals("NUL", StringComparison.OrdinalIgnoreCase))
-        {
             return true;
-        }
 
         if (name.Length < 4)
             return false;
@@ -47,24 +47,6 @@ internal static class PathValidationKit
             return false;
 
         return int.TryParse(name[3..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 0 and <= 9;
-    }
-
-    private static void ValidateSegment(ReadOnlySpan<char> segment, string fullPath)
-    {
-        if (segment.IsEmpty)
-            throw new ArgumentException($"Empty segment in path: '{fullPath}'.", nameof(fullPath));
-
-        if (OperatingSystem.IsWindows())
-        {
-            if (segment.EndsWith(' ') || segment.EndsWith('.'))
-                throw new ArgumentException($"Segment ends with space or dot: '{segment}' in '{fullPath}'.", nameof(fullPath));
-
-            if (IsWindowsReservedName(segment))
-                throw new ArgumentException($"Segment is a reserved Windows name: '{segment}' in '{fullPath}'.", nameof(fullPath));
-        }
-
-        if (segment.IndexOfAny(InvalidFileNameChars) >= 0)
-            throw new ArgumentException($"Segment contains invalid characters: '{segment}' in '{fullPath}'.", nameof(fullPath));
     }
 
     private static bool TryReadNextSegment(ref ReadOnlySpan<char> path, out ReadOnlySpan<char> segment)
@@ -91,5 +73,21 @@ internal static class PathValidationKit
         return !segment.IsEmpty;
     }
 
-    private static bool IsDirectorySeparator(char c) => c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
+    private static void ValidateSegment(ReadOnlySpan<char> segment)
+    {
+        if (segment.IsEmpty)
+            throw new ArgumentException("Empty segment in path.", nameof(segment));
+
+        if (OperatingSystem.IsWindows())
+        {
+            if (segment.EndsWith(' ') || segment.EndsWith('.'))
+                throw new ArgumentException("Segment ends with space or dot.", nameof(segment));
+
+            if (IsWindowsReservedName(segment))
+                throw new ArgumentException("Segment is a reserved Windows name.", nameof(segment));
+        }
+
+        if (segment.IndexOfAny(InvalidFileNameChars) >= 0)
+            throw new ArgumentException("Segment contains invalid characters.", nameof(segment));
+    }
 }

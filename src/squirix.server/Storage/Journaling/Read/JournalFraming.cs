@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Globalization;
 using System.IO;
 using Squirix.Server.Utils;
 
@@ -21,6 +20,10 @@ internal static class JournalFraming
 
     /// <summary>Gets the on-disk segment file magic (four ASCII bytes).</summary>
     private static ReadOnlySpan<byte> Magic => "SJRN"u8;
+
+    internal static InvalidDataException CreateTruncatedHeaderException() => new("journal segment has a truncated file header.");
+
+    internal static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
 
     internal static int FrameTotalLength(int bodyLength) => FrameHeaderSize + bodyLength + FrameFooterSize;
 
@@ -43,11 +46,6 @@ internal static class JournalFraming
         var crc = Crc32C.Compute(body);
         BinaryPrimitives.WriteUInt32LittleEndian(frame.Slice(FrameHeaderSize + body.Length, FrameFooterSize), crc);
     }
-
-    internal static InvalidDataException CreateTruncatedHeaderException(long fileLength) =>
-        new($"journal segment has a truncated file header ({fileLength.ToString(CultureInfo.InvariantCulture)} bytes).");
-
-    internal static void EnsureSegmentHeaderSupported(ReadOnlySpan<byte> header) => ThrowIfSegmentHeaderInvalid(header.Length, header);
 
     private static InvalidDataException CreateInvalidHeaderException() => new("invalid or missing journal file header");
 
@@ -73,7 +71,7 @@ internal static class JournalFraming
             case 0:
                 return;
             case < FileHeaderSize:
-                throw CreateTruncatedHeaderException(fileLength);
+                throw CreateTruncatedHeaderException();
             default:
                 ThrowIfSegmentHeaderBytesInvalid(header);
                 return;

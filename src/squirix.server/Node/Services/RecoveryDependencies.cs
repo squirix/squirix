@@ -24,15 +24,15 @@ internal sealed class RecoveryDependencies<T>
         SnapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
     }
 
-    internal PersistenceOptions Persistence { get; }
-
-    internal ManifestStore ManifestStore { get; }
-
-    internal ILocalCacheRecovery<T> LocalCache { get; }
+    internal RpcMutationIdempotencyStore Idempotency { get; }
 
     internal JournalStartupGate JournalStartupGate { get; }
 
-    internal RpcMutationIdempotencyStore Idempotency { get; }
+    internal ILocalCacheRecovery<T> LocalCache { get; }
+
+    internal ManifestStore ManifestStore { get; }
+
+    internal PersistenceOptions Persistence { get; }
 
     internal ISnapshotReader SnapshotReader { get; }
 }

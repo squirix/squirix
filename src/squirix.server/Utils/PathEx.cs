@@ -73,6 +73,8 @@ internal static class PathEx
         if (Path.IsPathRooted(relativePath))
             throw new ArgumentException("Path must be relative.", nameof(relativePath));
 
+        ValidateSegment(relativePath);
+
         var root = Path.GetFullPath(rootDirectory);
         var fullPath = Path.GetFullPath(Path.Join(root, relativePath));
 
@@ -126,5 +128,13 @@ internal static class PathEx
 
         if (Path.IsPathRooted(segment))
             throw new ArgumentException("Path segments must be relative.", nameof(segment));
+
+        if (string.Equals(segment, ".", StringComparison.Ordinal) || string.Equals(segment, "..", StringComparison.Ordinal))
+            throw new ArgumentException("Path segments must not be '.' or '..'.", nameof(segment));
+
+        var span = segment.AsSpan();
+        while (DirectoryPathValidator.TryReadNextSegment(ref span, out var part))
+            if (PathValidation.IsDotOrDotDot(part))
+                throw new ArgumentException("Path segments must not contain '.' or '..'.", nameof(segment));
     }
 }

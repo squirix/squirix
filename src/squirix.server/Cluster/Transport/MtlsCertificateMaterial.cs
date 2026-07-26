@@ -120,8 +120,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
             if (MtlsCertificateIdentity.MatchesNodeId(nodeCertificate, nodeId))
                 return;
 
-            var certificateNodeId = MtlsCertificateIdentity.TryGetNodeId(nodeCertificate, out var parsedNodeId) ? parsedNodeId : "<missing>";
-            throw new InvalidOperationException($"Cluster mTLS node certificate identity '{certificateNodeId}' does not match configured NodeId '{nodeId}'.");
+            throw new InvalidOperationException("Cluster mTLS node certificate identity does not match configured NodeId.");
         }
 
         /// <summary>Loads the local node certificate and private key.</summary>
@@ -134,9 +133,7 @@ internal sealed class MtlsCertificateMaterial : IDisposable
             ArgumentNullException.ThrowIfNull(options);
 
             if (!string.IsNullOrWhiteSpace(options.CertPfxPath))
-            {
                 return X509CertificateLoader.LoadPkcs12FromFile(options.CertPfxPath, options.CertPfxPassword, X509KeyStorageFlags.Exportable);
-            }
 
             var certificate = X509Certificate2.CreateFromPemFile(options.CertPath!, options.KeyPath);
             return certificate.HasPrivateKey ? certificate : throw new InvalidOperationException("Cluster mTLS node certificate must include a private key.");

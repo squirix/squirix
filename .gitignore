@@ -77,5 +77,8 @@ nunit-*.xml
 NDependOut/
 *.ndar
 
+# SonarScanner for .NET local working directory
+.sonarqube/
+
 # C# DevKit
 *.lscache

@@ -17,6 +17,8 @@ namespace Squirix.Server.Node.Hosting;
 
 internal static class SquirixEndpointMapping
 {
+    private static readonly string[] JwtBearerAuthorizationPolicies = [SquirixAuthorizationPolicies.JwtBearer];
+
     internal static WebApplication MapSquirixEndpoints(this WebApplication app, bool authEnabled)
     {
         MapHealthEndpoints(app);
@@ -29,11 +31,14 @@ internal static class SquirixEndpointMapping
         var mtlsMaterial = app.Services.GetRequiredService<MtlsCertificateMaterial>();
         var cacheGrpc = app.MapGrpcService<SquirixServiceAdapter<object?>>();
         if (authEnabled)
-            _ = cacheGrpc.RequireAuthorization(SquirixAuthorizationPolicies.JwtBearer);
+            _ = cacheGrpc.RequireAuthorization(JwtBearerAuthorizationPolicies);
 
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost($"*:{mtlsOptions.InternalListenPort.ToString(CultureInfo.InvariantCulture)}").AllowAnonymous();
+
+        // Per-app filter: a shared static array would be overwritten when multiple in-process nodes map endpoints.
+        string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
         return app;
     }
 
@@ -85,6 +90,12 @@ internal static class SquirixEndpointMapping
                     snapshot.MemoryPressure.EntryCount,
                     snapshot.MemoryPressure.RejectedWriteCount,
                     snapshot.MemoryPressure.WriteRejectionActive);
+                var journalDisk = new HealthJournalDiskDetails(
+                    snapshot.JournalDisk.State,
+                    snapshot.JournalDisk.MaxBytes,
+                    snapshot.JournalDisk.UsedBytes,
+                    snapshot.JournalDisk.HighWaterBytes,
+                    snapshot.JournalDisk.WriteRejectionActive);
                 var retentionCleanup = new HealthRetentionCleanupDetails(
                     snapshot.RetentionCleanup.Degraded,
                     snapshot.RetentionCleanup.ConsecutiveWriteFailures,
@@ -96,7 +107,7 @@ internal static class SquirixEndpointMapping
                         snapshot.JournalBacklogOps,
                         snapshot.SnapshotAgeSeconds,
                         snapshot.SnapshotInFlight,
-                        new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup)),
+                        new HealthReadyDetailSections(compaction, clientPool, coordination, memoryPressure, retentionCleanup, journalDisk)),
                     RestJsonSerializerContext.Default.HealthReadyDetailsResponse);
             });
     }

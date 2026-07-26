@@ -1,5 +1,5 @@
 using System;
-using System.Globalization;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Node.MemoryPressure;
 
@@ -25,9 +25,7 @@ internal static class OptionsResolver
 
         var availableBytes = budgetProvider.GetTotalAvailableBytes();
         if (availableBytes <= 0)
-        {
             throw new InvalidOperationException("MemoryPressure cannot resolve RAM budget: available process memory is zero.");
-        }
 
         var capBytes = ComputeRamCapBytes(availableBytes);
         var maxBytes = raw.MaxEstimatedCacheBytes switch
@@ -35,7 +33,7 @@ internal static class OptionsResolver
             null => capBytes,
             <= 0 => throw new InvalidOperationException("MemoryPressure MaxEstimatedCacheBytes must be positive when set."),
             { } configured when configured > capBytes => throw new InvalidOperationException(
-                $"MemoryPressure MaxEstimatedCacheBytes ({configured.ToString(CultureInfo.InvariantCulture)}) exceeds the {RamBudgetPercent.ToString(CultureInfo.InvariantCulture)}% RAM cap ({capBytes.ToString(CultureInfo.InvariantCulture)})."),
+                $"MemoryPressure MaxEstimatedCacheBytes ({InvariantDigitStrings.Format(configured)}) exceeds the {InvariantDigitStrings.Format(RamBudgetPercent)}% RAM cap ({InvariantDigitStrings.Format(capBytes)})."),
             { } configured => configured,
         };
 

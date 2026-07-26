@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Squirix.E2ETests.Cluster;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests;
@@ -12,25 +13,29 @@ namespace Squirix.E2ETests;
 [Trait(Category.TraitName, Category.TraitValue)]
 public sealed class MixedMutationStressTests : LoadTestBase
 {
+    private static readonly string[] WriterValues = CreateWriterValues(string.Empty);
+
+    private static readonly string[] WriterValuesV2 = CreateWriterValues("-v2");
+
     /// <summary>
     /// Races concurrent TryAdd then Insert over a shared key set and asserts a single add winner per key
     /// and a converged final value drawn from the writer set.
     /// </summary>
     [Fact]
-    public async Task ConcurrentMixedMutationsKeepClientVisibleInvariants()
+    public async Task ConcurrentMixedMutationsClientVisibleInvariants()
     {
         var profile = LoadProfiles.MixedMutation;
         using var deadline = CreateDeadline(profile);
         var token = deadline.Token;
 
         var keys = CreateKeySet(LoadProfiles.ScaleOperations(50));
-        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsKeepClientVisibleInvariants), cancellationToken: token);
+        await using var cluster = await HostedCluster.StartSingleNodeAsync(nameof(ConcurrentMixedMutationsClientVisibleInvariants), cancellationToken: token);
 
         var caches = await ConnectOrderCachesAsync(cluster, profile.Writers, token);
         var addSuccesses = await RunTryAddContentionAsync(caches, keys, profile, token);
         AssertSingleTryAddWinnerPerKey(keys, addSuccesses);
 
-        var expectedValues = BuildWriterValues(profile.Writers, "-v2");
+        var expectedValues = BuildWriterValues(profile.Writers, WriterValuesV2);
         await RunInsertContentionAsync(caches, keys, profile, token);
         await AssertConvergedValuesAsync(caches[0], keys, expectedValues, token);
     }
@@ -58,11 +63,11 @@ public sealed class MixedMutationStressTests : LoadTestBase
             Assert.Equal(1, addSuccesses[k]);
     }
 
-    private static HashSet<string> BuildWriterValues(int writers, string suffix)
+    private static HashSet<string> BuildWriterValues(int writers, string[] writerValues)
     {
         var expectedValues = new HashSet<string>(StringComparer.Ordinal);
         for (var w = 0; w < writers; w++)
-            _ = expectedValues.Add($"w{w.ToString(CultureInfo.InvariantCulture)}{suffix}");
+            _ = expectedValues.Add(writerValues[w]);
 
         return expectedValues;
     }
@@ -81,39 +86,33 @@ public sealed class MixedMutationStressTests : LoadTestBase
     {
         var keys = new string[keyCount];
         for (var k = 0; k < keyCount; k++)
-            keys[k] = $"mixed:{k.ToString(CultureInfo.InvariantCulture)}";
+            keys[k] = InvariantIndexStrings.FormatPrefixed("mixed", k);
 
         return keys;
     }
 
-    private static Task RunInsertContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token) => RunWritersAsync(
-        profile.Writers,
-        async w => await SetKeysFromWriterAsync(caches[w], keys, w, token),
-        profile.Budget);
+    private static string[] CreateWriterValues(string suffix)
+    {
+        var values = new string[32];
+        for (var w = 0; w < values.Length; w++)
+            values[w] = $"w{InvariantIndexStrings.Format(w)}{suffix}";
+
+        return values;
+    }
+
+    private static Task RunInsertContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
+    {
+        var runner = new InsertContentionRunner(caches, keys, token);
+        return RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
+    }
 
     private static async Task<int[]> RunTryAddContentionAsync(ICache<object?>[] caches, string[] keys, LoadProfile profile, CancellationToken token)
     {
         var addSuccesses = new int[keys.Length];
-        await RunWritersAsync(profile.Writers, async w => await TryAddKeysFromWriterAsync(caches[w], keys, w, addSuccesses, token), profile.Budget);
+        var runner = new TryAddContentionRunner(caches, keys, addSuccesses, token);
+        await RunWritersAsync(profile.Writers, runner.RunAsync, profile.Budget);
 
         return addSuccesses;
-    }
-
-    private static async Task SetKeysFromWriterAsync(ICache<object?> cache, string[] keys, int writer, CancellationToken token)
-    {
-        var value = $"w{writer.ToString(CultureInfo.InvariantCulture)}-v2";
-        for (var k = 0; k < keys.Length; k++)
-            await cache.SetAsync(keys[k], value, cancellationToken: token);
-    }
-
-    private static async Task TryAddKeysFromWriterAsync(ICache<object?> cache, string[] keys, int writer, int[] addSuccesses, CancellationToken token)
-    {
-        var value = $"w{writer.ToString(CultureInfo.InvariantCulture)}";
-        for (var k = 0; k < keys.Length; k++)
-        {
-            if (await cache.TryAddAsync(keys[k], value, cancellationToken: token))
-                _ = Interlocked.Increment(ref addSuccesses[k]);
-        }
     }
 
     /// <summary>
@@ -145,15 +144,66 @@ public sealed class MixedMutationStressTests : LoadTestBase
         {
             var raw = Environment.GetEnvironmentVariable(ScaleVariable);
             if (!string.IsNullOrWhiteSpace(raw) && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed > 0d)
-            {
                 return parsed;
-            }
 
 #if DEBUG
             return 0.1d;
 #else
             return 1d;
 #endif
+        }
+    }
+
+    private sealed class InsertContentionRunner
+    {
+        private readonly ICache<object?>[] _caches;
+        private readonly string[] _keys;
+        private readonly CancellationToken _token;
+
+        internal InsertContentionRunner(ICache<object?>[] caches, string[] keys, CancellationToken token)
+        {
+            _caches = caches;
+            _keys = keys;
+            _token = token;
+            RunAsync = RunCoreAsync;
+        }
+
+        internal Func<int, Task> RunAsync { get; }
+
+        private async Task RunCoreAsync(int writer)
+        {
+            var cache = _caches[writer];
+            var value = WriterValuesV2[writer];
+            for (var k = 0; k < _keys.Length; k++)
+                await cache.SetAsync(_keys[k], value, cancellationToken: _token);
+        }
+    }
+
+    private sealed class TryAddContentionRunner
+    {
+        private readonly int[] _addSuccesses;
+        private readonly ICache<object?>[] _caches;
+        private readonly string[] _keys;
+        private readonly CancellationToken _token;
+
+        internal TryAddContentionRunner(ICache<object?>[] caches, string[] keys, int[] addSuccesses, CancellationToken token)
+        {
+            _caches = caches;
+            _keys = keys;
+            _addSuccesses = addSuccesses;
+            _token = token;
+            RunAsync = RunCoreAsync;
+        }
+
+        internal Func<int, Task> RunAsync { get; }
+
+        private async Task RunCoreAsync(int writer)
+        {
+            var cache = _caches[writer];
+            var value = WriterValues[writer];
+            for (var k = 0; k < _keys.Length; k++)
+                if (await cache.TryAddAsync(_keys[k], value, cancellationToken: _token))
+                    _ = Interlocked.Increment(ref _addSuccesses[k]);
         }
     }
 }

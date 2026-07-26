@@ -30,33 +30,15 @@ internal sealed record EncodeContext
         return new EncodeContext(keyUtf8, payloadUtf8Length);
     }
 
-    private static int GetOperationPayloadLength(JournalRecord record)
+    private static int GetOperationPayloadLength(JournalRecord record) => record.Operation switch
     {
-        switch (record.Operation)
-        {
-            case JournalOperationKind.Put:
-                return record.PutEntryBytes.Length;
-
-            case JournalOperationKind.TouchExpiration:
-                return 8;
-
-            case JournalOperationKind.Remove:
-            case JournalOperationKind.RemoveExpiration:
-                return 0;
-
-            case JournalOperationKind.IdempotencyOutcome:
-                return 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
-                       Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length;
-
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
-            default:
-                throw new NotSupportedException($"the length of operation {record.Operation} cannot be determined.");
-        }
-    }
+        JournalOperationKind.Put => record.PutEntryBytes.Length,
+        JournalOperationKind.TouchExpiration => 8,
+        JournalOperationKind.Remove or JournalOperationKind.RemoveExpiration => 0,
+        JournalOperationKind.IdempotencyOutcome => 2 + Encoding.UTF8.GetByteCount(record.IdempotencyOperationId ?? string.Empty) + 2 +
+                                                   Encoding.UTF8.GetByteCount(record.IdempotencyFingerprint ?? string.Empty) + 4 + record.IdempotencyResponseBytes.Length,
+        _ => throw new NotSupportedException("The length of the journal operation cannot be determined."),
+    };
 
     private sealed record Utf8KeyLengths
     {

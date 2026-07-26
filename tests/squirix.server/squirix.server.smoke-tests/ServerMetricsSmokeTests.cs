@@ -1,5 +1,4 @@
 using System;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Sdk;
@@ -7,14 +6,8 @@ using Xunit.Sdk;
 namespace Squirix.Server.SmokeTests;
 
 /// <summary>Smoke tests for the built-in Prometheus-compatible metrics endpoint on the server host.</summary>
-public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
+public sealed class ServerMetricsSmokeTests : SmokeTestBase
 {
-    [GeneratedRegex("""^squirix_journal_appends_total\{[^}]*op="insert"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
-    private static partial Regex AppendsTotalRegex { get; }
-
-    [GeneratedRegex("""^squirix_ops_total\{[^}]*operation="set"[^}]*\} \d+""", RegexOptions.Multiline | RegexOptions.NonBacktracking)]
-    private static partial Regex OpsTotalRegex { get; }
-
     /// <summary>
     /// Verifies that the server host exposes <c>/metrics</c> and that basic cache operations appear in the scrape output.
     /// </summary>
@@ -36,9 +29,41 @@ public sealed partial class ServerMetricsSmokeTests : SmokeTestBase
         Assert.DoesNotContain("cache=\"", body, StringComparison.InvariantCulture);
         Assert.DoesNotContain("exception_type=", body, StringComparison.InvariantCulture);
 
-        var hasOps = OpsTotalRegex.IsMatch(body);
-        var match = AppendsTotalRegex.IsMatch(body);
-        Assert.True(hasOps || match, $"Expected ops or journal insert counters in metrics output. Body snippet:\n{body[..Math.Min(body.Length, 2000)]}");
+        // Line scan instead of GeneratedRegex: NonBacktracking cannot source-generate patterns with .* / [^}]* (SYSLIB1044).
+        var hasOps = ContainsMetricWithLabel(body, "squirix_ops_total{", "operation=\"set\"");
+        var hasAppends = ContainsMetricWithLabel(body, "squirix_journal_appends_total{", "op=\"insert\"");
+        Assert.True(hasOps || hasAppends);
+    }
+
+    /// <summary>Returns whether any scrape line starts with <paramref name="metricPrefix" /> and contains <paramref name="label" />.</summary>
+    /// <param name="body">Prometheus scrape text.</param>
+    /// <param name="metricPrefix">Metric name prefix including the opening brace.</param>
+    /// <param name="label">Required label fragment inside the metric line.</param>
+    /// <returns><see langword="true" /> when a matching line is found.</returns>
+    private static bool ContainsMetricWithLabel(string body, string metricPrefix, string label)
+    {
+        var remaining = body.AsSpan();
+        while (!remaining.IsEmpty)
+        {
+            var eol = remaining.IndexOfAny('\r', '\n');
+            var line = eol < 0 ? remaining : remaining[..eol];
+            if (eol < 0)
+            {
+                remaining = [];
+            }
+            else
+            {
+                var skip = eol + 1;
+                if (remaining[eol] is '\r' && skip < remaining.Length && remaining[skip] is '\n')
+                    skip++;
+                remaining = remaining[skip..];
+            }
+
+            if (line.StartsWith(metricPrefix, StringComparison.Ordinal) && line.Contains(label, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     private async Task<string> GetWithRetryAsync(Uri metricsUrl, TimeSpan delay, int attempts)

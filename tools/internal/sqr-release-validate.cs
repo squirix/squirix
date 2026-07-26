@@ -352,27 +352,20 @@ static string? ResolveDotnetPath()
 
 static async Task<int> RunDotnetAsync(string dotnetPath, string workingDirectory, IReadOnlyList<string> args)
 {
-    var quotedArgs = new string[args.Count];
-    for (var i = 0; i < args.Count; i++)
-        quotedArgs[i] = QuoteIfNeeded(args[i]);
-
     var processStartInfo = new ProcessStartInfo
     {
         FileName = dotnetPath,
         WorkingDirectory = workingDirectory,
         UseShellExecute = false,
-        Arguments = string.Join(' ', quotedArgs),
     };
+    foreach (var arg in args)
+        processStartInfo.ArgumentList.Add(arg);
+
     using var proc = Process.Start(processStartInfo);
     if (proc is not null)
         await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
     return proc?.ExitCode ?? 1;
-}
-
-static string QuoteIfNeeded(string value)
-{
-    return value.Contains(' ', StringComparison.Ordinal) ? $"\"{value}\"" : value;
 }
 
 static IReadOnlyList<string> NewPackArguments(string projectPath, string configuration, string packageOutputPath, string packageVersion)

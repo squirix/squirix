@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -8,6 +7,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Node.App;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 
 namespace Squirix.Server.Benchmarks;
@@ -56,20 +56,17 @@ public class DurableMutationGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"m{writerId.ToString(CultureInfo.InvariantCulture)}");
+                var key = new CacheKey("bench", $"m{InvariantIndexStrings.Format(writerId)}");
                 var coordinator = host.Coordinator;
-                var append = (Key: key, Payload: payload);
                 for (var i = 0; i < operationsPerWriter; i++)
                 {
                     await executor.ExecuteAsync(
                         key,
                         static _ => ValueTask.FromResult(DurableMutationCondition<int>.Apply()),
-                        new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, ReadOnlyMemory<byte> Payload), int, int>(
-                            coordinator,
-                            append,
-                            static (journal, state, ct) => journal.AppendPutAsync(state.Key, state.Payload, ct),
-                            0,
-                            static (_, _, _) => new ValueTask<int>(1)),
+                        new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, ReadOnlyMemory<byte> Payload), int>(
+                            (coordinator, key, payload),
+                            static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                            static (_, _) => new ValueTask<int>(1)),
                         cancellationToken).ConfigureAwait(false);
                 }
             });

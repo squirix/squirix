@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
@@ -9,6 +10,25 @@ namespace Squirix.Server.Storage.Entries.Binary;
 /// <summary>Tag encoding helpers for <see cref="CacheEntryCodec" />.</summary>
 internal static class CacheEntryTagEncoding
 {
+    internal static int ComputeLength(FrozenDictionary<string, string>? tags)
+    {
+        if (tags is null || tags.Count is 0)
+            return 2;
+
+        var length = 2;
+        foreach (var (key, value) in tags)
+        {
+            var keyBytes = Encoding.UTF8.GetByteCount(key);
+            var valueBytes = Encoding.UTF8.GetByteCount(value);
+            if (keyBytes > CacheEntryCodec.MaxUtf16StringLength || valueBytes > CacheEntryCodec.MaxUtf16StringLength)
+                throw new InvalidDataException("Snapshot tag key or value exceeds maximum encoded length.");
+
+            length += 2 + 2 + keyBytes + valueBytes;
+        }
+
+        return length;
+    }
+
     internal static bool TryRead(ReadOnlySpan<byte> source, out FrozenDictionary<string, string>? tags, out int bytesRead)
     {
         tags = null;
@@ -16,7 +36,7 @@ internal static class CacheEntryTagEncoding
         if (source.Length < 2)
             return false;
 
-        var count = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(source);
+        var count = BinaryPrimitives.ReadUInt16LittleEndian(source);
         bytesRead = 2;
         if (count is 0)
             return true;
@@ -39,44 +59,6 @@ internal static class CacheEntryTagEncoding
         return true;
     }
 
-    internal static int ComputeLength(FrozenDictionary<string, string>? tags)
-    {
-        if (tags is null || tags.Count is 0)
-            return 2;
-
-        var length = 2;
-        foreach (var (key, value) in tags)
-        {
-            var keyBytes = Encoding.UTF8.GetByteCount(key);
-            var valueBytes = Encoding.UTF8.GetByteCount(value);
-            if (keyBytes > CacheEntryCodec.MaxUtf16StringLength || valueBytes > CacheEntryCodec.MaxUtf16StringLength)
-                throw new InvalidDataException("Snapshot tag key or value exceeds maximum encoded length.");
-
-            length += 2 + 2 + keyBytes + valueBytes;
-        }
-
-        return length;
-    }
-
-    internal static int Write(FrozenDictionary<string, string>? tags, Span<byte> destination)
-    {
-        if (tags is null || tags.Count is 0)
-        {
-            System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(destination, 0);
-            return 2;
-        }
-
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(tags.Count));
-        var offset = 2;
-        foreach (var (key, value) in tags)
-        {
-            offset += WriteUtf8Prefixed(key, destination[offset..]);
-            offset += WriteUtf8Prefixed(value, destination[offset..]);
-        }
-
-        return offset;
-    }
-
     internal static bool TryReadUtf32Prefixed(ReadOnlySpan<byte> source, out ReadOnlySpan<byte> bytes, out int bytesRead)
     {
         bytes = default;
@@ -84,7 +66,7 @@ internal static class CacheEntryTagEncoding
         if (source.Length < 4)
             return false;
 
-        var length = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(source);
+        var length = BinaryPrimitives.ReadUInt32LittleEndian(source);
         var lengthInt = int.CreateChecked(length);
         bytesRead = 4 + lengthInt;
         if (source.Length < bytesRead)
@@ -101,7 +83,7 @@ internal static class CacheEntryTagEncoding
         if (source.Length < 2)
             return false;
 
-        var length = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(source);
+        var length = BinaryPrimitives.ReadUInt16LittleEndian(source);
         bytesRead = 2 + length;
         if (source.Length < bytesRead)
             return false;
@@ -110,9 +92,28 @@ internal static class CacheEntryTagEncoding
         return true;
     }
 
+    internal static int Write(FrozenDictionary<string, string>? tags, Span<byte> destination)
+    {
+        if (tags is null || tags.Count is 0)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(destination, 0);
+            return 2;
+        }
+
+        BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(tags.Count));
+        var offset = 2;
+        foreach (var (key, value) in tags)
+        {
+            offset += WriteUtf8Prefixed(key, destination[offset..]);
+            offset += WriteUtf8Prefixed(value, destination[offset..]);
+        }
+
+        return offset;
+    }
+
     internal static int WriteUtf32Prefixed(ReadOnlySpan<byte> bytes, Span<byte> destination)
     {
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(bytes.Length));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(bytes.Length));
         bytes.CopyTo(destination[4..]);
         return 4 + bytes.Length;
     }
@@ -120,7 +121,7 @@ internal static class CacheEntryTagEncoding
     internal static int WriteUtf32PrefixedString(string text, Span<byte> destination)
     {
         var byteCount = Encoding.UTF8.GetByteCount(text);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(byteCount));
+        BinaryPrimitives.WriteUInt32LittleEndian(destination, uint.CreateTruncating(byteCount));
         _ = Encoding.UTF8.GetBytes(text, destination[4..]);
         return 4 + byteCount;
     }
@@ -131,7 +132,7 @@ internal static class CacheEntryTagEncoding
         if (byteCount > CacheEntryCodec.MaxUtf16StringLength)
             throw new InvalidDataException("Snapshot string exceeds maximum encoded length.");
 
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination, ushort.CreateTruncating(byteCount));
         _ = Encoding.UTF8.GetBytes(text, destination[2..]);
         return 2 + byteCount;
     }

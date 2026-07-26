@@ -6,5 +6,6 @@ internal static class FilePrefixes
     public const string Journal = "jrn-";
 
     public const string Manifest = "man-";
+
     internal const string Snapshot = "snp-";
 }

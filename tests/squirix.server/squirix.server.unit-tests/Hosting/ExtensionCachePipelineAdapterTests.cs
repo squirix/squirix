@@ -67,6 +67,11 @@ public sealed class ExtensionCachePipelineAdapterTests
             return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(_entry is not null, _entry?.Value));
         }
 
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            new(new CacheRemoveResult<object?>(false, null));
+
+        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => new(false);
+
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
         {
             InsertEntryCalls++;
@@ -77,11 +82,6 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => new(false);
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            new(new CacheRemoveResult<object?>(false, null));
-
-        public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => new(false);
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
     }
@@ -100,6 +100,15 @@ public sealed class ExtensionCachePipelineAdapterTests
             return default;
         }
 
+        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
+        {
+            GetValueCalls++;
+            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(false, null));
+        }
+
+        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
+            new(new CacheRemoveResult<object?>(false, null));
+
         public ValueTask<bool> RemoveExpirationAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) => new(false);
 
         public ValueTask SetEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken)
@@ -111,15 +120,6 @@ public sealed class ExtensionCachePipelineAdapterTests
         public ValueTask<bool> TouchAsync(string operationId, string cacheName, string key, TimeSpan expiration, CancellationToken cancellationToken) => new(false);
 
         public ValueTask<bool> TryAddEntryAsync(string operationId, string cacheName, string key, NodeCacheEntry<object?> entry, CancellationToken cancellationToken) => new(false);
-
-        public ValueTask<NodeCacheValueResult<object?>> GetValueAsync(string cacheName, string key, CancellationToken cancellationToken)
-        {
-            GetValueCalls++;
-            return new ValueTask<NodeCacheValueResult<object?>>(new NodeCacheValueResult<object?>(false, null));
-        }
-
-        public ValueTask<CacheRemoveResult<object?>> RemoveAsync(string operationId, string cacheName, string key, CancellationToken cancellationToken) =>
-            new(new CacheRemoveResult<object?>(false, null));
 
         public ValueTask<bool> UpdateAsync(string operationId, string cacheName, string key, object? value, CancellationToken cancellationToken) => new(false);
     }

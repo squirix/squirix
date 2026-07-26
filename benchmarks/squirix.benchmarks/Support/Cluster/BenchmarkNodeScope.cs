@@ -39,7 +39,7 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     {
         var nodeId = $"bench-{Guid.NewGuid():N}";
         var uri = ListenPortPool.ServerBenchmarks.NextHttpUri();
-        return StartAsync(nodeId, uri, [(nodeId, uri)], durabilityMode, cancellationToken, true);
+        return StartAsync(nodeId, uri, durabilityMode, cancellationToken, true);
     }
 
     internal Task<BenchmarkClientLease> OpenClientAsync(CancellationToken cancellationToken) => BenchmarkClientLease.ConnectAsync(Uri, cancellationToken);
@@ -47,7 +47,6 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
     private static async Task<BenchmarkNodeScope> StartAsync(
         string nodeId,
         Uri uri,
-        (string NodeId, Uri Uri)[] topology,
         BenchmarkDurabilityMode durabilityMode,
         CancellationToken cancellationToken,
         bool warmUpClient = false)
@@ -58,11 +57,11 @@ internal sealed class BenchmarkNodeScope : IAsyncDisposable
         if (durabilityMode is BenchmarkDurabilityMode.Persistence)
         {
             dataDir = new TempDirectory("squirix-bench");
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, dataDir, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, dataDir, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, topology, cancellationToken).ConfigureAwait(false);
+            host = await TestNodeHostFactory.StartNodeAsync(nodeId, uri, cancellationToken).ConfigureAwait(false);
         }
 
         try

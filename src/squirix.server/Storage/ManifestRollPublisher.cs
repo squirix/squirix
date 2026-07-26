@@ -8,9 +8,15 @@ namespace Squirix.Server.Storage;
 /// <summary>Publishes journal roll metadata on a dedicated thread so WAL I/O does not block on manifest disk writes.</summary>
 internal sealed class ManifestRollPublisher : IDisposable
 {
+    private static readonly ParameterizedThreadStart ProcessQueueCallback = static state =>
+    {
+        if (state is ManifestRollPublisher publisher)
+            publisher.ProcessQueue();
+    };
+
     private readonly ManifestStore _manifestStore;
     private readonly Action<Exception>? _onRollFailed;
-    private readonly BlockingCollection<ManifestRollRequest> _queue = new();
+    private readonly BlockingCollection<ManifestRollRequest> _queue = [];
     private readonly Thread _thread;
     private int _disposed;
     private int _inFlight;
@@ -19,8 +25,12 @@ internal sealed class ManifestRollPublisher : IDisposable
     {
         _manifestStore = manifestStore ?? throw new ArgumentNullException(nameof(manifestStore));
         _onRollFailed = onRollFailed;
-        _thread = new Thread(ProcessQueue) { IsBackground = true, Name = "squirix-manifest-roll" };
-        _thread.Start();
+        _thread = new Thread(ProcessQueueCallback)
+        {
+            IsBackground = true,
+            Name = "squirix-manifest-roll",
+        };
+        _thread.Start(this);
     }
 
     public void Dispose()

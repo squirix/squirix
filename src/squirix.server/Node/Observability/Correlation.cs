@@ -14,10 +14,8 @@ internal static class Correlation
 
     internal static IDisposable BeginStandardScope(ILogger logger, string nodeId, string? method = null)
     {
-        var act = Activity.Current;
-        var traceId = act?.TraceId.ToString() ?? string.Empty;
-        var spanId = act?.SpanId.ToString() ?? string.Empty;
-        var scope = logger.BeginScope(new StandardScopeState(traceId, spanId, nodeId, method));
+        // Capture Activity by reference and format ids only if a scope provider enumerates state.
+        var scope = logger.BeginScope(new StandardScopeState(Activity.Current, nodeId, method));
         return scope ?? NoopDisposable.Instance;
     }
 
@@ -30,17 +28,15 @@ internal static class Correlation
         }
     }
 
-    private sealed record StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
+    private sealed class StandardScopeState : IReadOnlyList<KeyValuePair<string, object?>>
     {
+        private readonly Activity? _activity;
         private readonly string? _method;
         private readonly string _nodeId;
-        private readonly string _spanId;
-        private readonly string _traceId;
 
-        internal StandardScopeState(string traceId, string spanId, string nodeId, string? method)
+        internal StandardScopeState(Activity? activity, string nodeId, string? method)
         {
-            _traceId = traceId;
-            _spanId = spanId;
+            _activity = activity;
             _nodeId = nodeId;
             _method = method;
         }
@@ -50,30 +46,32 @@ internal static class Correlation
         public KeyValuePair<string, object?> this[int index] =>
             index switch
             {
-                0 => new KeyValuePair<string, object?>("trace_id", _traceId),
-                1 => new KeyValuePair<string, object?>("span_id", _spanId),
+                0 => new KeyValuePair<string, object?>("trace_id", FormatTraceId(_activity)),
+                1 => new KeyValuePair<string, object?>("span_id", FormatSpanId(_activity)),
                 2 => new KeyValuePair<string, object?>("node_id", _nodeId),
                 3 when _method is not null => new KeyValuePair<string, object?>("rpc.method", _method),
                 _ => throw new ArgumentOutOfRangeException(nameof(index)),
             };
 
-        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() => new Enumerator(_traceId, _spanId, _nodeId, _method);
+        IEnumerator<KeyValuePair<string, object?>> IEnumerable<KeyValuePair<string, object?>>.GetEnumerator() => new Enumerator(_activity, _nodeId, _method);
 
-        IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_traceId, _spanId, _nodeId, _method);
+        IEnumerator IEnumerable.GetEnumerator() => new Enumerator(_activity, _nodeId, _method);
+
+        private static string FormatSpanId(Activity? activity) => activity is null ? string.Empty : activity.SpanId.ToString();
+
+        private static string FormatTraceId(Activity? activity) => activity is null ? string.Empty : activity.TraceId.ToString();
 
         /// <summary>Mutable enumerator state lives on a class so ND1903 does not require an immutable struct.</summary>
         private sealed class Enumerator : IEnumerator<KeyValuePair<string, object?>>
         {
+            private readonly Activity? _activity;
             private readonly string? _method;
             private readonly string _nodeId;
-            private readonly string _spanId;
-            private readonly string _traceId;
             private int _index;
 
-            internal Enumerator(string traceId, string spanId, string nodeId, string? method)
+            internal Enumerator(Activity? activity, string nodeId, string? method)
             {
-                _traceId = traceId;
-                _spanId = spanId;
+                _activity = activity;
                 _nodeId = nodeId;
                 _method = method;
                 _index = 0;
@@ -93,10 +91,10 @@ internal static class Correlation
                 switch (_index++)
                 {
                     case 0:
-                        Current = new KeyValuePair<string, object?>("trace_id", _traceId);
+                        Current = new KeyValuePair<string, object?>("trace_id", FormatTraceId(_activity));
                         return true;
                     case 1:
-                        Current = new KeyValuePair<string, object?>("span_id", _spanId);
+                        Current = new KeyValuePair<string, object?>("span_id", FormatSpanId(_activity));
                         return true;
                     case 2:
                         Current = new KeyValuePair<string, object?>("node_id", _nodeId);

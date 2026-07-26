@@ -30,7 +30,7 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
     /// <summary>Put and IdempotencyOutcome journal appends must precede the durability commit for idempotent RPCs.</summary>
     [Fact]
-    public async Task IdempotentMutationAppendsOutcomeBeforeDurabilityCommit()
+    public async Task IdempotentMutationAppendsOutcomeDurabilityCommit()
     {
         using var dir = new TempDirectory("squirix-idempotent-durability-order");
         var options = new PersistenceOptions
@@ -68,12 +68,10 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
                 var added = await state.Executor.ExecuteAsync(
                     null,
                     static _ => new ValueTask<DurableMutationCondition<bool>>(DurableMutationCondition<bool>.Apply()),
-                    new DurableMutationPipeline<IJournalCoordinator, (CacheKey Key, byte[] Payload), byte, bool>(
-                        state.Journal,
-                        (state.Key, state.Payload),
-                        static (j, append, ct) => j.AppendPutAsync(append.Key, append.Payload, ct),
-                        0,
-                        static (_, _, _) => new ValueTask<bool>(true)),
+                    new DurableMutationPipeline<(IJournalCoordinator Journal, CacheKey Key, byte[] Payload), bool>(
+                        (state.Journal, state.Key, state.Payload),
+                        static (s, ct) => s.Journal.AppendPutAsync(s.Key, s.Payload, ct),
+                        static (_, _) => new ValueTask<bool>(true)),
                     cancellationToken).ConfigureAwait(false);
                 return new TryAddAsyncResponse { Added = added };
             },
@@ -127,11 +125,17 @@ public sealed class RpcIdempotencyOrderTests : ServerUnitTestBase
 
         public bool HasFlushLoopFailure => _inner.HasFlushLoopFailure;
 
+        public long HighWaterBytes => _inner.HighWaterBytes;
+
         public bool IsJournalGroupCommitEnabled => _inner.IsJournalGroupCommitEnabled;
+
+        public long MaxBytes => _inner.MaxBytes;
 
         public ulong NextSequence => _inner.NextSequence;
 
         public double RecentAppendLatencyMs => _inner.RecentAppendLatencyMs;
+
+        public long UsedBytes => _inner.UsedBytes;
 
         public ValueTask AppendIdempotencyOutcomeAsync(string operationId, string fingerprint, byte[] responseBytes, CancellationToken cancellationToken)
         {

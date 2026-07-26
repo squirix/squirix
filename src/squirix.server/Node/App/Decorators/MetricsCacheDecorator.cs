@@ -118,6 +118,11 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
             result = CacheOperationClassifier.ClassifyException(ex);
             throw;
         }
+        catch (JournalCapacityExceededException ex)
+        {
+            result = CacheOperationClassifier.ClassifyException(ex);
+            throw;
+        }
         catch (RpcException ex)
         {
             result = CacheOperationClassifier.ClassifyException(ex);
@@ -160,6 +165,11 @@ internal sealed class MetricsCacheDecorator<T> : ILogicalNamespacedCache<T>
             throw;
         }
         catch (ResourceExhaustedException ex)
+        {
+            Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
+            throw;
+        }
+        catch (JournalCapacityExceededException ex)
         {
             Record(cacheName, operation, CacheOperationClassifier.ClassifyException(ex), startTimestamp);
             throw;

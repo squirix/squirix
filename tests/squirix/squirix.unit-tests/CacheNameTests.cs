@@ -1,5 +1,6 @@
 using System;
 using Squirix.Core;
+using Squirix.TestKit;
 using Xunit;
 
 namespace Squirix.UnitTests;
@@ -32,8 +33,8 @@ public sealed class CacheNameTests : UnitTestBase
     [Fact]
     public void ParsePublicRejectsNullOrWhitespace()
     {
-        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(null); });
-        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic(string.Empty); });
-        _ = Assert.Throws<ArgumentException>(static () => { _ = CacheName.ParsePublic("   "); });
+        _ = ExceptionAssert.For<ArgumentException>().Throws(0, static _ => CacheName.ParsePublic(null));
+        _ = ExceptionAssert.For<ArgumentException>().Throws(string.Empty, static value => CacheName.ParsePublic(value));
+        _ = ExceptionAssert.For<ArgumentException>().Throws("   ", static value => CacheName.ParsePublic(value));
     }
 }

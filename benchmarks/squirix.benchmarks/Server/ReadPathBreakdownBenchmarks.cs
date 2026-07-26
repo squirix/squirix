@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -9,6 +8,7 @@ using Squirix.Benchmarks.Support.Cluster;
 using Squirix.Benchmarks.Support.Grpc;
 using Squirix.Internal.Cluster.Reliability;
 using Squirix.Internal.Cluster.Transport;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.Benchmarks;
 using Squirix.Transport.Grpc.Cache;
 
@@ -28,12 +28,12 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
     private readonly string[] _keys = new string[KeyCount];
     private ClientPool? _clientPool;
     private BenchmarkNodeScope? _node;
+    private Peer[]? _peers;
     private BenchmarkClientLease? _publicClient;
     private ICache<string>? _publicSdk;
     private BenchmarkRawGrpcCache? _rawGrpc;
     private GetValueAsyncRequest? _reusedRequest;
     private BenchmarkNodeReadSurface? _serverPipeline;
-    private Peer[]? _peers;
 
     /// <summary>Stops benchmark dependencies.</summary>
     [GlobalCleanup]
@@ -86,15 +86,6 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         }
     }
 
-    /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
-    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
-    public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
-    {
-        var cache = _rawGrpc!;
-        for (var i = 0; i < ReadBatch; i++)
-            _consumer.Consume(await cache.GetValueFoundAsync(_keys[i], CancellationToken.None).ConfigureAwait(false));
-    }
-
     /// <summary>Reads through generated gRPC stubs while reusing the request instance, isolating per-call request allocation cost.</summary>
     [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag, reused request instance")]
     public async Task SquirixGrpcFoundOnlyReusedBatchedAsync()
@@ -106,6 +97,15 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
             request.Key = _keys[i];
             _consumer.Consume(await cache.GetValueFoundAsync(request, CancellationToken.None).ConfigureAwait(false));
         }
+    }
+
+    /// <summary>Reads through generated gRPC stubs and consumes only the found flag, avoiding client-side value decoding.</summary>
+    [Benchmark(OperationsPerInvoke = ReadBatch, Description = "Raw gRPC GetValue found flag only, no SDK decode")]
+    public async Task SquirixGrpcTransportFoundOnlyBatchedAsync()
+    {
+        var cache = _rawGrpc!;
+        for (var i = 0; i < ReadBatch; i++)
+            _consumer.Consume(await cache.GetValueFoundAsync(_keys[i], CancellationToken.None).ConfigureAwait(false));
     }
 
     /// <summary>Reads through generated gRPC stubs only, without the public Squirix client SDK stack.</summary>
@@ -167,9 +167,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static string FormatKey(int index) => $"key:{index.ToString("D5", CultureInfo.InvariantCulture)}";
+    private static string FormatKey(int index) => InvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
 
-    private static string FormatValue(int index) => $"value:{index.ToString("D5", CultureInfo.InvariantCulture)}";
+    private static string FormatValue(int index) => InvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
 
     private void SeedKeys()
     {
@@ -179,14 +179,17 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
 
     private async Task SeedNodeAsync()
     {
-        var client = await _node!.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
-        await using (client.ConfigureAwait(false))
+        if (_node is not null)
         {
-            var cache = await client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
-            for (var i = 0; i < KeyCount; i++)
+            var client = await _node.OpenClientAsync(CancellationToken.None).ConfigureAwait(false);
+            await using (client.ConfigureAwait(false))
             {
-                var key = _keys[i];
-                await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                var cache = await client.Client.GetCacheAsync<string>(CacheName, CancellationToken.None).ConfigureAwait(false);
+                for (var i = 0; i < KeyCount; i++)
+                {
+                    var key = _keys[i];
+                    await cache.SetAsync(key, FormatValue(i), cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                }
             }
         }
     }

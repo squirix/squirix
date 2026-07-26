@@ -16,7 +16,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 {
     /// <summary>Ensures client and server projects compile the same shared gRPC transport mapper sources.</summary>
     [Fact]
-    public void ClientAndServerProjectsShouldCompileSharedGrpcTransportMappersFromSameSources()
+    public void ClientServerProjectsCompileMappersSameSources()
     {
         string[] expectedIncludes =
         [
@@ -31,7 +31,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server assembly generates server-side gRPC service bases from the shared transport namespace.</summary>
     [Fact]
-    public void ServerAssemblyShouldGenerateGrpcServiceBaseFromSharedTransportNamespace()
+    public void ServerAssemblyGenerateGrpcSharedTransportNamespace()
     {
         Assert.False(typeof(CacheEntryWire).IsPublic);
         Assert.False(typeof(SquirixCacheService).IsPublic);
@@ -40,7 +40,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures the server project generates the basic KV and expiration transport contract from shared source.</summary>
     [Fact]
-    public void ServerProjectShouldGenerateNarrowCacheGrpcTransportContractFromSharedSource()
+    public void ServerProjectGenerateNarrowContractSharedSource()
     {
         var protobuf = ServerArchitectureFixtures.GetServerProjectIndex().RequireIncludedElement("Protobuf", @"..\shared\Squirix\Transport\Grpc\Protos\SquirixCache.proto");
 
@@ -55,7 +55,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures shared stale-owner marker constants are compiled into the server build from shared source.</summary>
     [Fact]
-    public void SharedGrpcStaleOwnerMarkerConstantsShouldBePresentInServerBuild()
+    public void SharedGrpcStaleOwnerConstantsPresentServerBuild()
     {
         var found = false;
         var entries = GrpcStaleOwnerMarkers.CreateStaleOwnerTrailers();
@@ -73,10 +73,10 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
 
     /// <summary>Ensures share-sourced gRPC transport mapper sources do not reference core internal runtime contracts.</summary>
     [Fact]
-    public async Task SharedGrpcTransportMapperSourcesShouldNotDependOnCoreInternalRuntimeTypes()
+    public async Task SharedGrpcTransportMapperCoreInternalRuntimeTypes()
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
-        Assert.True(Directory.Exists(mapperDirectory), $"Expected mapper directory at {mapperDirectory}.");
+        Assert.True(Directory.Exists(mapperDirectory));
 
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));
 
@@ -88,14 +88,14 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
             for (var markerIndex = 0; markerIndex < ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers.Length; markerIndex++)
             {
                 var marker = ServerArchitectureFixtures.ForbiddenSharedGrpcTransportMapperRuntimeMarkers[markerIndex];
-                Assert.False(text.Contains(marker, StringComparison.Ordinal), $"{Path.GetFileName(path)}:{marker}");
+                Assert.False(text.Contains(marker, StringComparison.Ordinal));
             }
         }
     }
 
     /// <summary>Ensures share-sourced gRPC transport mappers use the shared mapper namespace.</summary>
     [Fact]
-    public async Task SharedGrpcTransportMappersShouldUseGrpcMappersNamespace()
+    public async Task SharedGrpcTransportMappersUseGrpcMappersNamespace()
     {
         var mapperDirectory = Path.Join(RepositoryPaths.FindRepositoryRoot(), "src", "shared", "Squirix", "Transport", "Grpc", "Mappers");
         var mapperPaths = new List<string>(Directory.GetFiles(mapperDirectory, "*.cs", SearchOption.TopDirectoryOnly));

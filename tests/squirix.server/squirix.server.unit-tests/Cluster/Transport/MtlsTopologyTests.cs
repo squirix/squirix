@@ -30,16 +30,16 @@ public sealed class MtlsTopologyTests
 
     /// <summary>Ensures a standalone node with only the local peer does not require inter-node mTLS.</summary>
     [Fact]
-    public void RequiresInterNodeMtlsReturnsFalseForStandaloneTopology()
+    public void RequiresInterNodeMtlsFalseStandaloneTopology()
     {
-        var cluster = CreateCluster("node-a", NodeAUrl, [new ServerPeer { NodeId = "node-a", Uri = NodeAUrl }]);
+        var cluster = CreateCluster("node-a", NodeAUrl, new ServerPeer { NodeId = "node-a", Uri = NodeAUrl });
 
         Assert.False(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
 
     /// <summary>Ensures a multi-node topology with remote peers requires inter-node mTLS.</summary>
     [Fact]
-    public void RequiresInterNodeMtlsReturnsTrueWhenRemotePeersAreConfigured()
+    public void RequiresInterNodeMtlsTrueRemotePeersConfigured()
     {
         var cluster = CreateCluster(
             "node-a",
@@ -51,6 +51,13 @@ public sealed class MtlsTopologyTests
 
         Assert.True(MtlsTopology.RequiresInterNodeMtls(cluster));
     }
+
+    private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer peer) => new(peer)
+    {
+        ClusterId = "test",
+        NodeId = nodeId,
+        Uri = uri,
+    };
 
     private static TopologyOptions CreateCluster(string nodeId, Uri uri, ServerPeer[] peers) => new(peers)
     {

@@ -42,8 +42,9 @@ is_text_path() {
 }
 
 is_binary_path() {
+    local path="$1"
     local ext
-    ext="$(path_extension "$1")"
+    ext="$(path_extension "${path}")"
 
     case "${ext}" in
         png|jpg|jpeg|gif|webp|ico|woff|woff2|zip|nupkg|snupkg|dll|exe|pdf|pdb|trx)
@@ -57,12 +58,13 @@ is_binary_path() {
 
 verify_lf_in_git_blob() {
     local path="$1"
+    local blob_ref="HEAD:${path}"
 
-    if ! git cat-file -e "HEAD:${path}" 2>/dev/null; then
+    if ! git cat-file -e "${blob_ref}" 2>/dev/null; then
         return 0
     fi
 
-    if git show "HEAD:${path}" | grep -q $'\r'; then
+    if git show "${blob_ref}" | grep -q $'\r'; then
         echo "error: ${path} must use LF line endings (CR found in git blob; see .editorconfig end_of_line = lf)" >&2
         return 1
     fi

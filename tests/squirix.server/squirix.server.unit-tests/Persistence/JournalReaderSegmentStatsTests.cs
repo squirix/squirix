@@ -1,7 +1,7 @@
-using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.TestKit;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
@@ -30,7 +30,7 @@ public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
 
     /// <summary>GetOnDiskSegmentStats returns an empty result when the directory does not exist.</summary>
     [Fact]
-    public void GetOnDiskSegmentStatsReturnsEmptyWhenDirectoryMissing()
+    public void GetOnDiskSegmentStatsReturnsEmptyDirectoryMissing()
     {
         var dir = NodePathKit.Combine(NodePathKit.GetProcTempPath("squirix-journal-stats"), "missing-directory");
 
@@ -41,7 +41,7 @@ public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
     }
 
     private static Task WriteSegmentAsync(string dir, int index, int byteCount) => File.WriteAllBytesAsync(
-        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{index.ToString("000000", CultureInfo.InvariantCulture)}{FileExtensions.Journal}"),
+        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}"),
         new byte[byteCount],
         DefaultCancellationToken);
 }

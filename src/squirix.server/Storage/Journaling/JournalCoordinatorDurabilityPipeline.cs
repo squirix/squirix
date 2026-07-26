@@ -39,9 +39,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
                     _owner.BackgroundCancellation.Token,
                     TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                     TaskScheduler.Default).ConfigureAwait(false))
-            {
                 failures.Add(new TimeoutException("journal I/O thread did not exit within 30 seconds."));
-            }
         }
         catch (OperationCanceledException) when (_owner.BackgroundCancellation.IsCancellationRequested)
         {
@@ -75,7 +73,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         try
         {
             var beginWaitTask = begin.AwaitAsync(cancellationToken);
-            var beginItem = new JournalWorkItem(JournalWorkKind.MaintenanceBegin, completion: begin);
+            var beginItem = new JournalWorkItem(JournalWorkKind.MaintenanceBegin, begin);
             await _owner.Ring.EnqueueAsync(beginItem, cancellationToken).ConfigureAwait(false);
 
             await beginWaitTask.ConfigureAwait(false);
@@ -89,11 +87,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
             try
             {
                 var endWaitTask = end.AwaitAsync(cancellationToken);
-                var endItem = new JournalWorkItem(
-                    JournalWorkKind.MaintenanceEnd,
-                    completion: end,
-                    resetSegmentIndex: resetSegmentIndex,
-                    resetSequence: resetSequence);
+                var endItem = new JournalWorkItem(JournalWorkKind.MaintenanceEnd, end, resetSegmentIndex: resetSegmentIndex, resetSequence: resetSequence);
                 await _owner.Ring.EnqueueAsync(endItem, cancellationToken).ConfigureAwait(false);
 
                 await endWaitTask.ConfigureAwait(false);

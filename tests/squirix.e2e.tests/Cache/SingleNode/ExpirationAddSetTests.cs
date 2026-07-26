@@ -7,7 +7,7 @@ namespace Squirix.E2ETests.Cache.SingleNode;
 /// <summary>Integration tests for single-node Add/Set/Get expiration semantics.</summary>
 public sealed class ExpirationAddSetTests : TestBase
 {
-    /// <summary>Initializes a new instance of the <see cref="ExpirationAddSetTests"/> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ExpirationAddSetTests" /> class.</summary>
     /// <param name="fixture">Shared single-node cluster fixture.</param>
     public ExpirationAddSetTests(SingleNodeFixture fixture)
         : base(fixture)
@@ -16,7 +16,7 @@ public sealed class ExpirationAddSetTests : TestBase
 
     /// <summary>Verifies AddAsync with immediate expiration reports success but does not leave a live key.</summary>
     [Fact]
-    public async Task AddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
+    public async Task AddAsyncEntryImmediateExpirationNotLeaveLiveKey()
     {
         var cache = await Client.GetCacheAsync<string>("add-immediate-expiration-public-extra", DefaultCancellationToken);
 
@@ -133,6 +133,28 @@ public sealed class ExpirationAddSetTests : TestBase
         Assert.False((await cache.GetValueAsync("k1", DefaultCancellationToken)).Found);
     }
 
+    /// <summary>Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.</summary>
+    [Fact]
+    public async Task SetAsyncValueDropOverwritingExistingExpiringEntry()
+    {
+        var cache = await Client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", DefaultCancellationToken);
+
+        await cache.SetAsync(
+            "k",
+            "v1",
+            new CacheEntryOptions
+            {
+                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(10),
+            },
+            DefaultCancellationToken);
+
+        await cache.SetAsync("k", "v2", cancellationToken: DefaultCancellationToken);
+
+        var expiration = await cache.GetExpirationAsync("k", DefaultCancellationToken);
+
+        Assert.True(expiration.Value > TimeSpan.Zero);
+    }
+
     /// <summary>Verifies value-based SetAsync applies relative expiration options to the stored entry.</summary>
     [Fact]
     public async Task SetAsyncValueOptionsApplyRelativeExpiration()
@@ -159,31 +181,9 @@ public sealed class ExpirationAddSetTests : TestBase
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
 
-    /// <summary>Verifies value-based SetAsync does not drop expiration when overwriting an existing expiring entry.</summary>
-    [Fact]
-    public async Task SetAsyncValueShouldNotDropExpirationWhenOverwritingExistingExpiringEntry()
-    {
-        var cache = await Client.GetCacheAsync<string>("expiration-insert-value-overwrite-public-extra", DefaultCancellationToken);
-
-        await cache.SetAsync(
-            "k",
-            "v1",
-            new CacheEntryOptions
-            {
-                ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(10),
-            },
-            DefaultCancellationToken);
-
-        await cache.SetAsync("k", "v2", cancellationToken: DefaultCancellationToken);
-
-        var expiration = await cache.GetExpirationAsync("k", DefaultCancellationToken);
-
-        Assert.True(expiration.Value > TimeSpan.Zero);
-    }
-
     /// <summary>Verifies TryAddAsync with immediate expiration returns true but does not leave a live key.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryWithImmediateExpirationDoesNotLeaveLiveKey()
+    public async Task TryAddAsyncEntryImmediateExpirationNotLeaveLiveKey()
     {
         var cache = await Client.GetCacheAsync<string>("try-add-immediate-expiration-public-extra", DefaultCancellationToken);
 
@@ -249,11 +249,7 @@ public sealed class ExpirationAddSetTests : TestBase
         Assert.True(expiration.Expiration <= expiresAt - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5));
 
         // Prove absolute expiry is honored without sleeping for the long ExpiresAt window used above.
-        await cache.SetAsync(
-            "k-short",
-            "v",
-            new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(250) },
-            DefaultCancellationToken);
+        await cache.SetAsync("k-short", "v", new CacheEntryOptions { Expiration = TimeSpan.FromMilliseconds(250) }, DefaultCancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(400), TimeProvider.System, DefaultCancellationToken);
         Assert.False((await cache.GetValueAsync("k-short", DefaultCancellationToken)).Found);
     }

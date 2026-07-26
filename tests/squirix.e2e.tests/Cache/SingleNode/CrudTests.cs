@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.E2ETests.Cache.SingleNode;
@@ -17,7 +18,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync with options preserves expiration metadata through the public API.</summary>
@@ -48,7 +49,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -60,7 +61,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies AddAsync(string, T) adds on miss and throws on existing key.</summary>
@@ -72,7 +73,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
         await cache.AddAsync("k1", "v1", cancellationToken: DefaultCancellationToken);
         Assert.Equal("v1", (await cache.GetValueAsync("k1", DefaultCancellationToken)).Value);
 
-        _ = await Assert.ThrowsAsync<CacheConflictException>(() => cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
+        _ = await NodeAsyncAssert.ThrowsAsync<CacheConflictException>(cache.AddAsync("k1", "v2", cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Verifies the public core transport does not round-trip internal tag metadata.</summary>
@@ -260,7 +261,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies two cache facades for the same name share logical storage before client disposal.</summary>
     [Fact]
-    public async Task RepeatedGetCacheAsyncForSameNameSharesLogicalStorage()
+    public async Task RepeatedGetCacheAsyncSameNameSharesLogicalStorage()
     {
         var first = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
         var second = await Client.GetCacheAsync<string>("same-name-facades-public-extra", DefaultCancellationToken);
@@ -276,9 +277,8 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
     {
         var cache = await Client.GetCacheAsync<string>("invalid-expiration-both-public-extra", DefaultCancellationToken);
 
-        _ = await Assert.ThrowsAnyAsync<ArgumentException>(async () =>
-        {
-            await cache.SetAsync(
+        _ = await NodeAsyncAssert.ThrowsAnyAsync<ArgumentException>(
+            cache.SetAsync(
                 "k",
                 "v",
                 new CacheEntryOptions
@@ -286,8 +286,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
                     ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1),
                     Expiration = TimeSpan.FromMinutes(1),
                 },
-                DefaultCancellationToken);
-        });
+                DefaultCancellationToken));
 
         Assert.False((await cache.GetValueAsync("k", DefaultCancellationToken)).Found);
     }
@@ -316,7 +315,7 @@ public sealed class CrudTests(SingleNodeFixture fixture) : TestBase(fixture)
 
     /// <summary>Verifies TryAddAsync with options preserves expiration metadata through the public API.</summary>
     [Fact]
-    public async Task TryAddAsyncEntryPreservesExpirationThroughPublicApi()
+    public async Task TryAddAsyncEntryPreservesExpirationPublicApi()
     {
         var cache = await Client.GetCacheAsync<string>("missing-try-add-entry-expiration", DefaultCancellationToken);
 

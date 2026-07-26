@@ -62,27 +62,17 @@ collect_changed_paths() {
         return
     fi
 
-    if [[ "${event_name}" == "push" ]]; then
-        if [[ -n "${GITHUB_EVENT_BEFORE:-}" && "${GITHUB_EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
-            git diff --name-only --diff-filter=ACMRT "${GITHUB_EVENT_BEFORE}" "${GITHUB_SHA}"
-            return
-        fi
+    if [[ "${event_name}" == "push"
+        && -n "${GITHUB_EVENT_BEFORE:-}"
+        && "${GITHUB_EVENT_BEFORE}" != "0000000000000000000000000000000000000000" ]]; then
+        git diff --name-only --diff-filter=ACMRT "${GITHUB_EVENT_BEFORE}" "${GITHUB_SHA}"
+        return
     fi
 
     return 1
 }
 
 event_name="${GITHUB_EVENT_NAME:-}"
-
-if [[ "${event_name}" == "schedule" || "${event_name}" == "workflow_dispatch" ]]; then
-    run_full
-    exit 0
-fi
-
-if [[ "${event_name}" == "push" ]]; then
-    run_full
-    exit 0
-fi
 
 if [[ "${event_name}" != "pull_request" ]]; then
     run_full

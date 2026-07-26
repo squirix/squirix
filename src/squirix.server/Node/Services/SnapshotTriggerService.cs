@@ -28,6 +28,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
 
     private readonly TimeProvider _timeProvider;
 
+    private readonly EventHandler _onJournalAppended;
+
     private int _fatalFailure;
 
     public SnapshotTriggerService(ILogger<SnapshotTriggerService<T>> log, Coordinator coordinator, IJournalCoordinator journal, TimeProvider? timeProvider = null)
@@ -36,13 +38,14 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _onJournalAppended = OnJournalAppended;
     }
 
     public bool HasFatalFailure => Volatile.Read(ref _fatalFailure) is not 0;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _journal.OnAppended += OnJournalAppended;
+        _journal.OnAppended += _onJournalAppended;
         LogManager.SnapshotTriggerStarted(_log, 1);
 
         try
@@ -60,20 +63,18 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         }
         finally
         {
-            _journal.OnAppended -= OnJournalAppended;
+            _journal.OnAppended -= _onJournalAppended;
             _ = _snapshotRequests.Writer.TryComplete();
             LogManager.SnapshotTriggerStopped(_log);
         }
+    }
 
-        return;
+    private void OnJournalAppended(object? sender, EventArgs e)
+    {
+        if (_log.IsEnabled(LogLevel.Trace))
+            LogManager.SnapshotTriggerJournalAppended(_log);
 
-        void OnJournalAppended(object? sender, EventArgs e)
-        {
-            if (_log.IsEnabled(LogLevel.Trace))
-                LogManager.SnapshotTriggerJournalAppended(_log);
-
-            _ = _snapshotRequests.Writer.TryWrite(true);
-        }
+        _ = _snapshotRequests.Writer.TryWrite(true);
     }
 
     private void RecordFatalCrash(Exception ex)

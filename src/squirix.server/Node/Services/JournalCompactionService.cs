@@ -134,10 +134,10 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
     private async Task<AttemptResult> RunCompactionAsync(int snapshotIndex, int replayFromSegment, int segments, long bytes, CancellationToken cancellationToken)
     {
         using var activity = ActivitySourceHolder.StartInternal("journal.compact");
-        _ = activity?.SetTag("compaction.snapshot_index", snapshotIndex);
-        _ = activity?.SetTag("compaction.replay_from_journal_segment", replayFromSegment);
-        _ = activity?.SetTag("compaction.tail_segments", segments);
-        _ = activity?.SetTag("compaction.tail_bytes", bytes);
+        _ = activity?.SetTag("compaction.snapshot_index", ActivityTagValues.Int32(snapshotIndex));
+        _ = activity?.SetTag("compaction.replay_from_journal_segment", ActivityTagValues.Int32(replayFromSegment));
+        _ = activity?.SetTag("compaction.tail_segments", ActivityTagValues.Int32(segments));
+        _ = activity?.SetTag("compaction.tail_bytes", ActivityTagValues.Int64(bytes));
 
         ChangeState(RunState.Running);
         LogManager.CompactionStart(_log, snapshotIndex, segments, bytes);
@@ -157,7 +157,7 @@ internal sealed class JournalCompactionService<T> : BackgroundService, IJournalC
             CompactionMetrics.DurationSeconds.WithLabels(_nodeId, resultLabel).Observe(elapsed.TotalSeconds);
 
             _ = activity?.SetTag("compaction.result", resultLabel);
-            _ = activity?.SetTag("compaction.duration_ms", elapsed.TotalMilliseconds);
+            _ = activity?.SetTag("compaction.duration_ms", ActivityTagValues.Double(elapsed.TotalMilliseconds));
         }
 
         LastRunUtc = DateTime.UtcNow;

@@ -6,12 +6,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using Squirix.Server.Logging;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.Utils;
 
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Background fire-and-forget worker that schedules and runs manifest retention cleanup.</summary>
 internal sealed class RetentionWorker
 {
+    private static readonly Action<object?> RunRetentionWorkerLoopCallback = static state =>
+    {
+        if (state is RetentionWorker worker)
+            worker.RunRetentionWorkerLoop();
+    };
+
     private readonly RetentionContext _retentionContext;
     private readonly IRetentionCleanupReadinessStatus? _retentionReadiness;
     private volatile State? _pendingRetentionManifest;
@@ -29,32 +36,53 @@ internal sealed class RetentionWorker
         if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
             return;
 
-        _ = Task.Factory.StartNew(RunRetentionWorkerLoop, CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+        StartRetentionWorkerLoop();
     }
 
     private void RunRetentionWorkerLoop()
     {
         try
         {
-            while (_pendingRetentionManifest is { } manifest)
+            while (true)
             {
-                _pendingRetentionManifest = null;
+                var manifest = Interlocked.Exchange(ref _pendingRetentionManifest, null);
+                if (manifest is null)
+                    break;
+
                 var cleanupFailed = RetentionCleanup.Run(_retentionContext, manifest);
                 _retentionReadiness?.RecordWriteOutcome(cleanupFailed);
             }
         }
         finally
         {
+            // Release the "worker running" flag, then re-arm if ScheduleRetentionCleanup
+            // queued more work while this loop still held the flag.
             _ = Interlocked.Exchange(ref _retentionWorkerScheduled, 0);
-            if (_pendingRetentionManifest is not null && Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is 0)
-            {
-                _ = Task.Factory.StartNew(
-                    RunRetentionWorkerLoop,
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-                    TaskScheduler.Default);
-            }
+            _ = TryRestartIfPendingWorkRemains();
         }
+    }
+
+    private void StartRetentionWorkerLoop() =>
+        _ = Task.Factory.StartNew(
+            RunRetentionWorkerLoopCallback,
+            this,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+
+    /// <summary>Restarts the retention loop when pending work remains after the previous loop released its schedule flag.</summary>
+    /// <returns><see langword="true" /> when a new retention loop was scheduled; otherwise <see langword="false" />.</returns>
+    private bool TryRestartIfPendingWorkRemains()
+    {
+        // Another thread may publish work while the drain loop exits with the schedule flag still held.
+        if (_pendingRetentionManifest is null)
+            return false;
+
+        if (Interlocked.CompareExchange(ref _retentionWorkerScheduled, 1, 0) is not 0)
+            return false;
+
+        StartRetentionWorkerLoop();
+        return true;
     }
 
     /// <summary>Retention cleanup for numbered manifest files, snapshots, and journal segments.</summary>
@@ -66,6 +94,34 @@ internal sealed class RetentionWorker
             var snapshotCleanupFailed = TryCleanupOldSnapshots(context, manifest.LastSnapshot);
             var journalCleanupFailed = TryCleanupObsoleteJournalSegments(context, manifest);
             return manifestCleanupFailed || snapshotCleanupFailed || journalCleanupFailed;
+        }
+
+        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, SnapshotRef? currentSnapshot)
+        {
+            var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
+            var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < context.SnapshotRetention && i < ordered.Length; i++)
+                _ = keep.Add(ordered[i].Path);
+
+            if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
+                _ = keep.Add(currentSnapshot.Path);
+
+            return keep;
+        }
+
+        private static bool DeleteStaleSnapshots(RetentionContext context, IndexedStorageFile[] ordered, HashSet<string> keep)
+        {
+            var failed = false;
+            for (var i = context.SnapshotRetention; i < ordered.Length; i++)
+            {
+                var stale = ordered[i];
+                if (keep.Contains(stale.Path))
+                    continue;
+
+                failed |= TryDeleteRetentionArtifact(context, stale.Path, ManifestRetentionArtifactKind.Snapshot);
+            }
+
+            return failed;
         }
 
         private static IndexedStorageFile[] GetIndexedFiles(ReadOnlySpan<string> files, Func<string, int> parseIndex)
@@ -92,6 +148,21 @@ internal sealed class RetentionWorker
             Array.Sort(result, static (left, right) => right.Index.CompareTo(left.Index));
             return result;
         }
+
+        private static int ParseSnapshotIndex(ReadOnlySpan<char> name, ReadOnlySpan<char> extension)
+        {
+            if (name.IsEmpty)
+                return 0;
+            if (!name.StartsWith(FilePrefixes.Snapshot.AsSpan(), StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            var numberPart = name.Slice(FilePrefixes.Snapshot.Length, name.Length - FilePrefixes.Snapshot.Length - extension.Length);
+            return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
+        }
+
+        private static int ParseSnapshotIndex(string name) => ParseSnapshotIndex(name.AsSpan(), FileExtensions.Snapshot.AsSpan());
 
         private static void ReportRetentionCleanupException(RetentionContext context, string artifactKind, Exception exception)
         {
@@ -133,9 +204,6 @@ internal sealed class RetentionWorker
                     if (segment.Index >= replayFromSegment)
                         continue;
 
-                    if (segment.Index >= manifest.CurrentJournal)
-                        continue;
-
                     failed |= TryDeleteRetentionArtifact(context, segment.Path, ManifestRetentionArtifactKind.JournalSegment);
                 }
 
@@ -157,7 +225,8 @@ internal sealed class RetentionWorker
         {
             try
             {
-                var files = Directory.GetFiles(context.DataDir, context.ManifestFileGlob);
+                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
+                var files = Directory.GetFiles(dataDir, context.ManifestFileGlob);
                 if (files.Length <= context.ManifestRetention)
                     return false;
 
@@ -171,6 +240,11 @@ internal sealed class RetentionWorker
                     failed |= TryDeleteRetentionArtifact(context, ordered[i].Path, ManifestRetentionArtifactKind.Manifest);
 
                 return failed;
+            }
+            catch (ArgumentException ex)
+            {
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Manifest, ex);
+                return true;
             }
             catch (IOException ex)
             {
@@ -188,7 +262,8 @@ internal sealed class RetentionWorker
         {
             try
             {
-                var files = Directory.GetFiles(context.DataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
+                var dataDir = FilePathValidator.ResolveValidatedDirectoryPath(context.DataDir);
+                var files = Directory.GetFiles(dataDir, $"{FilePrefixes.Snapshot}*{FileExtensions.Snapshot}");
                 if (files.Length <= context.SnapshotRetention)
                     return false;
 
@@ -197,6 +272,11 @@ internal sealed class RetentionWorker
                     return false;
 
                 return DeleteStaleSnapshots(context, ordered, BuildSnapshotKeepSet(context, ordered, currentSnapshot));
+            }
+            catch (ArgumentException ex)
+            {
+                ReportRetentionCleanupException(context, ManifestRetentionArtifactKind.Snapshot, ex);
+                return true;
             }
             catch (IOException ex)
             {
@@ -210,34 +290,6 @@ internal sealed class RetentionWorker
             }
         }
 
-        private static HashSet<string> BuildSnapshotKeepSet(RetentionContext context, IndexedStorageFile[] ordered, SnapshotRef? currentSnapshot)
-        {
-            var keepCapacity = context.SnapshotRetention + (string.IsNullOrWhiteSpace(currentSnapshot?.Path) ? 0 : 1);
-            var keep = new HashSet<string>(keepCapacity, StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < context.SnapshotRetention && i < ordered.Length; i++)
-                _ = keep.Add(ordered[i].Path);
-
-            if (!string.IsNullOrWhiteSpace(currentSnapshot?.Path))
-                _ = keep.Add(currentSnapshot.Path);
-
-            return keep;
-        }
-
-        private static bool DeleteStaleSnapshots(RetentionContext context, IndexedStorageFile[] ordered, HashSet<string> keep)
-        {
-            var failed = false;
-            for (var i = context.SnapshotRetention; i < ordered.Length; i++)
-            {
-                var stale = ordered[i];
-                if (keep.Contains(stale.Path))
-                    continue;
-
-                failed |= TryDeleteRetentionArtifact(context, stale.Path, ManifestRetentionArtifactKind.Snapshot);
-            }
-
-            return failed;
-        }
-
         private static bool TryDeleteRetentionArtifact(RetentionContext context, string path, string artifactKind)
         {
             if (context.FileOperations.TryDelete(path))
@@ -246,21 +298,6 @@ internal sealed class RetentionWorker
             ReportRetentionDeleteFailure(context, artifactKind, path);
             return true;
         }
-
-        private static int ParseSnapshotIndex(ReadOnlySpan<char> name, ReadOnlySpan<char> extension)
-        {
-            if (name.IsEmpty)
-                return 0;
-            if (!name.StartsWith(FilePrefixes.Snapshot.AsSpan(), StringComparison.OrdinalIgnoreCase))
-                return 0;
-            if (!name.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-                return 0;
-
-            var numberPart = name.Slice(FilePrefixes.Snapshot.Length, name.Length - FilePrefixes.Snapshot.Length - extension.Length);
-            return int.TryParse(numberPart, CultureInfo.InvariantCulture, out var n) ? n : 0;
-        }
-
-        private static int ParseSnapshotIndex(string name) => ParseSnapshotIndex(name.AsSpan(), FileExtensions.Snapshot.AsSpan());
 
         private sealed record IndexedStorageFile(string Path, int Index);
     }

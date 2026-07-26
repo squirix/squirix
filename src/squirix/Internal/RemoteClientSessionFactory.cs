@@ -28,13 +28,11 @@ internal static class RemoteClientSessionFactory
 
         var peers = new Peer[normalizedEndpoints.Length];
         for (var i = 0; i < normalizedEndpoints.Length; i++)
-        {
             peers[i] = new Peer
             {
-                NodeId = $"endpoint-{i.ToString(CultureInfo.InvariantCulture)}",
+                NodeId = FormatEndpointNodeId(i),
                 Uri = normalizedEndpoints[i],
             };
-        }
 
         var credentials = BuildCallCredentials(bearerTokenProvider);
 
@@ -57,6 +55,13 @@ internal static class RemoteClientSessionFactory
         }
     }
 
+    /// <summary>Creates the serializer used by remote client sessions (metrics-decorated by default).</summary>
+    /// <param name="serializer">Optional inner serializer; defaults to System.Text.Json.</param>
+    /// <param name="enableMetrics">When <see langword="true" />, wraps the serializer with metrics recording.</param>
+    /// <returns>Configured serializer instance.</returns>
+    internal static ISquirixSerializer CreateSerializer(ISquirixSerializer? serializer = null, bool enableMetrics = true) =>
+        SerializationProvider.Create(serializer, enableMetrics);
+
     private static CallCredentials? BuildCallCredentials(Func<CancellationToken, ValueTask<string>>? bearerTokenProvider)
     {
         if (bearerTokenProvider is null)
@@ -65,26 +70,53 @@ internal static class RemoteClientSessionFactory
         return new BearerTokenCallCredentials(bearerTokenProvider).Credentials;
     }
 
+    private static string FormatEndpointNodeId(int index)
+    {
+        var digits = 1;
+        for (var n = index; n >= 10; n /= 10)
+            digits++;
+
+        return string.Create(
+            9 + digits,
+            index,
+            static (span, value) =>
+            {
+                "endpoint-".AsSpan().CopyTo(span);
+                _ = value.TryFormat(span[9..], out _, provider: CultureInfo.InvariantCulture);
+            });
+    }
+
     private static Uri[] NormalizeEndpoints(IList<Uri> endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<Uri>();
+        var buffer = new Uri[endpoints.Count];
+        var count = 0;
 
         for (var index = 0; index < endpoints.Count; index++)
         {
             var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
             if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-                throw new ArgumentException($"Endpoint '{endpoint}' must be an absolute Squirix server URL.", nameof(endpoints));
+                throw new ArgumentException("Endpoint must be an absolute Squirix server URL.", nameof(endpoints));
 
             GrpcTransportEndpoints.RequireHttps(endpoint);
             var authority = endpoint.GetLeftPart(UriPartial.Authority);
-            if (seen.Add(authority))
-                result.Add(endpoint);
+            if (!seen.Add(authority))
+                continue;
+
+            buffer[count++] = endpoint;
         }
 
-        return result.Count is 0 ? throw new InvalidOperationException("At least one Squirix server endpoint must be configured.") : [.. result];
+        if (count is 0)
+            throw new InvalidOperationException("At least one Squirix server endpoint must be configured.");
+
+        if (count == buffer.Length)
+            return buffer;
+
+        var trimmed = new Uri[count];
+        buffer.AsSpan(0, count).CopyTo(trimmed);
+        return trimmed;
     }
 
     private static class SerializationProvider
@@ -121,10 +153,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -136,10 +168,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -151,10 +183,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -166,10 +198,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.Deserialize<T>(payload);
-                    Record("deserialize", true, start);
+                    Record(SerializerMetrics.OpDeserialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("deserialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpDeserialize, ex, start))
                 {
                     throw;
                 }
@@ -181,9 +213,9 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     _inner.Serialize(destination, value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }
@@ -195,10 +227,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.SerializeToElement(value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }
@@ -210,10 +242,10 @@ internal static class RemoteClientSessionFactory
                 try
                 {
                     var result = _inner.SerializeToUtf8Bytes(value);
-                    Record("serialize", true, start);
+                    Record(SerializerMetrics.OpSerialize, true, start);
                     return result;
                 }
-                catch (Exception ex) when (TryRecordSerializerFailure("serialize", ex, start))
+                catch (Exception ex) when (TryRecordSerializerFailure(SerializerMetrics.OpSerialize, ex, start))
                 {
                     throw;
                 }
@@ -258,6 +290,8 @@ internal static class RemoteClientSessionFactory
         private const string BearerSchemePrefix = "Bearer ";
 
         private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
+        private string? _cachedAuthorizationHeader;
+        private string? _cachedToken;
 
         internal BearerTokenCallCredentials(Func<CancellationToken, ValueTask<string>> tokenProvider)
         {
@@ -267,13 +301,35 @@ internal static class RemoteClientSessionFactory
 
         internal CallCredentials Credentials { get; }
 
-        private static async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
+        private async Task AddAuthorizationHeaderAsync(ValueTask<string> tokenTask, Metadata metadata)
         {
             var token = await tokenTask.ConfigureAwait(false);
-            metadata.Add(AuthorizationHeader, string.Concat(BearerSchemePrefix, token));
+            var header = ResolveAuthorizationHeader(token);
+            metadata.Add(AuthorizationHeader, header);
         }
 
         private Task InterceptAsync(AuthInterceptorContext context, Metadata metadata) => AddAuthorizationHeaderAsync(_tokenProvider(context.CancellationToken), metadata);
+
+        private string ResolveAuthorizationHeader(string token)
+        {
+            var cachedToken = _cachedToken;
+            var cachedHeader = _cachedAuthorizationHeader;
+            if (cachedToken is not null && cachedHeader is not null && string.Equals(cachedToken, token, StringComparison.Ordinal))
+                return cachedHeader;
+
+            var header = string.Create(
+                BearerSchemePrefix.Length + token.Length,
+                (BearerSchemePrefix, token),
+                static (span, state) =>
+                {
+                    state.BearerSchemePrefix.AsSpan().CopyTo(span);
+                    state.token.AsSpan().CopyTo(span[state.BearerSchemePrefix.Length..]);
+                });
+
+            _cachedToken = token;
+            _cachedAuthorizationHeader = header;
+            return header;
+        }
     }
 
     private sealed class RemoteClientSession : IRemoteClientSession

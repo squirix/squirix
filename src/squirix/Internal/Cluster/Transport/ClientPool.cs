@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -72,6 +71,8 @@ internal sealed class ClientPool : IClientPool
 
     internal IReadOnlyList<string> BootstrapNodeIds { get; }
 
+    void IClientPool.BeginDrain() => BeginDrain();
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) is 1)
@@ -79,7 +80,6 @@ internal sealed class ClientPool : IClientPool
 
         BeginDrain();
         for (var i = 0; i < _nodeIds.Length; i++)
-        {
             try
             {
                 await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
@@ -92,10 +92,8 @@ internal sealed class ClientPool : IClientPool
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
-        }
 
         for (var i = 0; i < _nodeIds.Length; i++)
-        {
             try
             {
                 _channels[_nodeIds[i]].Dispose();
@@ -109,14 +107,11 @@ internal sealed class ClientPool : IClientPool
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }
-        }
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];
 
     public ICallPolicy PolicyFor(string nodeId) => _policies[nodeId];
-
-    void IClientPool.BeginDrain() => BeginDrain();
 
     /// <summary>
     /// Connects to bootstrap endpoints and returns the first reachable node id in configuration order.
@@ -142,40 +137,26 @@ internal sealed class ClientPool : IClientPool
 
             // Primary peer uses the configured bootstrap deadline; secondary peers use a short fail-fast budget.
             var connectOptions = primaryNodeId is null ? _connectOptions : BootstrapConnectOptions.SecondaryPeerAfterPrimary;
-
-            try
+            var failure = await TryWarmPeerAsync(channel, id, connectOptions, cancellationToken).ConfigureAwait(false);
+            if (failure is null)
             {
-                await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
-                ClientPoolMetrics.AddWarmup();
-
-                // Only the first successful peer keeps the full connect budget; later peers fail fast.
                 primaryNodeId ??= id;
+                continue;
             }
-            catch (RpcException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (IOException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (HttpRequestException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
-            catch (InvalidOperationException ex)
-            {
-                lastFailure = ex;
-                failuresByNode[id] = ex;
-            }
+
+            lastFailure = failure;
+            failuresByNode[id] = failure;
         }
 
         if (primaryNodeId is null)
             throw lastFailure ?? new InvalidOperationException("No bootstrap endpoints are configured.");
 
+        RecordSecondaryWarmupFailures(primaryNodeId, failuresByNode);
+        return primaryNodeId;
+    }
+
+    private static void RecordSecondaryWarmupFailures(string primaryNodeId, Dictionary<string, Exception> failuresByNode)
+    {
         // Unreachable secondary peers are tolerated once a primary is known; diagnostics record each skip.
         foreach (var pair in failuresByNode)
         {
@@ -184,14 +165,26 @@ internal sealed class ClientPool : IClientPool
 
             ClientPoolBootstrapWarmupDiagnostics.RecordBootstrapPeerSkipped(pair.Key, pair.Value);
         }
-
-        return primaryNodeId;
     }
 
     private void BeginDrain()
     {
         for (var i = 0; i < _nodeIds.Length; i++)
             _policies[_nodeIds[i]].BeginDrain();
+    }
+
+    private async ValueTask<Exception?> TryWarmPeerAsync(GrpcChannel channel, string id, BootstrapConnectOptions connectOptions, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await GrpcChannelConnectWarmup.ConnectWithRetryAsync(channel, id, connectOptions, cancellationToken, _timeProvider).ConfigureAwait(false);
+            ClientPoolMetrics.AddWarmup();
+            return null;
+        }
+        catch (Exception ex) when (ex is RpcException or IOException or HttpRequestException or InvalidOperationException)
+        {
+            return ex;
+        }
     }
 
     private static class GrpcChannelConnectWarmup
@@ -222,7 +215,7 @@ internal sealed class ClientPool : IClientPool
                     break;
 
                 var attemptTimeout = remaining < options.PerAttemptTimeout ? remaining : options.PerAttemptTimeout;
-                var failure = await TryConnectOnceAsync(channel, endpointName, options, attemptTimeout, cancellationToken).ConfigureAwait(false);
+                var failure = await TryConnectOnceAsync(channel, attemptTimeout, cancellationToken).ConfigureAwait(false);
                 if (failure is null)
                     return;
 
@@ -239,8 +232,7 @@ internal sealed class ClientPool : IClientPool
                 await Task.Delay(backoff, time, cancellationToken).ConfigureAwait(false);
             }
 
-            throw lastFailure ?? new InvalidOperationException(
-                $"Failed to connect to endpoint '{endpointName}' within {options.OverallDeadline.TotalSeconds.ToString(CultureInfo.InvariantCulture)}s.");
+            throw lastFailure ?? new InvalidOperationException("Failed to connect to endpoint within the configured deadline.");
         }
 
         private static TimeSpan BackoffWithJitter(int attempt, BootstrapConnectOptions options)
@@ -252,12 +244,7 @@ internal sealed class ClientPool : IClientPool
             return TimeSpan.FromMilliseconds(finalMs);
         }
 
-        private static async ValueTask<Exception?> TryConnectOnceAsync(
-            GrpcChannel channel,
-            string endpointName,
-            BootstrapConnectOptions options,
-            TimeSpan attemptTimeout,
-            CancellationToken cancellationToken)
+        private static async ValueTask<Exception?> TryConnectOnceAsync(GrpcChannel channel, TimeSpan attemptTimeout, CancellationToken cancellationToken)
         {
             // Linked CTS distinguishes caller cancellation from per-attempt connect timeouts.
             using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -271,8 +258,7 @@ internal sealed class ClientPool : IClientPool
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Attempt timeout: preserve the failure and retry with backoff until the overall deadline expires.
-                return new InvalidOperationException(
-                    $"Failed to connect to endpoint '{endpointName}' within {options.PerAttemptTimeout.TotalMilliseconds.ToString(CultureInfo.InvariantCulture)}ms.");
+                return new InvalidOperationException("Failed to connect to endpoint within the per-attempt timeout.");
             }
             catch (HttpRequestException ex)
             {

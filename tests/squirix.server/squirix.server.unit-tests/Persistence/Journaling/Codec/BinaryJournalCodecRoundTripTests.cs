@@ -1,8 +1,11 @@
 using System;
+using System.Buffers.Binary;
+using System.IO;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling.Abstractions;
 using Squirix.Server.Storage.Journaling.Codec;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
@@ -10,6 +13,46 @@ namespace Squirix.Server.UnitTests.Persistence.Journaling.Codec;
 /// <summary>Round-trip tests for <see cref="BinaryJournalCodec" /> encode paths.</summary>
 public sealed class BinaryJournalCodecRoundTripTests
 {
+    private static readonly byte[] IdempotencyResponseFixture = [0x08, 0x01];
+
+    private static readonly byte[] TruncatedFrameBody = [0x01, 0x02, 0x03, 0x04];
+
+    /// <summary>Decode rejects truncated frame bodies.</summary>
+    [Fact]
+    public void DecodeRejectsTruncatedFrameBody()
+    {
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            TruncatedFrameBody,
+            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Decode rejects unknown opcodes.</summary>
+    [Fact]
+    public void DecodeRejectsUnknownOpcode()
+    {
+        var record = CreateRecord(JournalOperationKind.Remove);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+        bodyBytes[16] = 0xFF;
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        Assert.Contains("Unknown journal opcode", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Decode rejects put frames whose payload length exceeds the buffer.</summary>
+    [Fact]
+    public void DecodeRejectsTruncatedPutPayload()
+    {
+        var record = CreateRecord(JournalOperationKind.Put);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+        BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
+            bodyBytes,
+            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>
     [Fact]
     public void PrepareEncodeRejectsInternalOnlyOperations()
@@ -22,8 +65,8 @@ public sealed class BinaryJournalCodecRoundTripTests
             Key = CacheKey.Default("k"),
         };
 
-        var ex = Assert.Throws<NotSupportedException>(() => BinaryJournalCodec.PrepareEncode(record));
-        Assert.Contains("AwaitDurabilityCommit", ex.Message, StringComparison.Ordinal);
+        var ex = NodeExceptionAssert.For<NotSupportedException>().Throws(record, static value => BinaryJournalCodec.PrepareEncode(value));
+        Assert.Contains("cannot be determined", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Idempotency outcome journal records round-trip through PrepareEncode, Encode, and Decode.</summary>
@@ -49,61 +92,52 @@ public sealed class BinaryJournalCodecRoundTripTests
     private static JournalRecord CreateRecord(JournalOperationKind operation)
     {
         var key = new CacheKey("ns", "codec-key");
-        switch (operation)
+        return operation switch
         {
-            case JournalOperationKind.Put:
-                return new JournalRecord
-                {
-                    Sequence = 1,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.Put,
-                    Key = key,
-                    PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
-                };
-            case JournalOperationKind.Remove:
-                return new JournalRecord
-                {
-                    Sequence = 2,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.Remove,
-                    Key = key,
-                };
-            case JournalOperationKind.RemoveExpiration:
-                return new JournalRecord
-                {
-                    Sequence = 3,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.RemoveExpiration,
-                    Key = key,
-                };
-            case JournalOperationKind.TouchExpiration:
-                return new JournalRecord
-                {
-                    Sequence = 4,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.TouchExpiration,
-                    Key = key,
-                    TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
-                };
-            case JournalOperationKind.IdempotencyOutcome:
-                return new JournalRecord
-                {
-                    Sequence = 5,
-                    UnixMs = 123,
-                    Operation = JournalOperationKind.IdempotencyOutcome,
-                    Key = new CacheKey(string.Empty, string.Empty),
-                    IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
-                    IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
-                    IdempotencyResponseBytes = new byte[] { 0x08, 0x01 },
-                };
-            case JournalOperationKind.AwaitDurabilityCommit:
-            case JournalOperationKind.WaitForStartup:
-            case JournalOperationKind.MaintenanceExclusive:
-            case JournalOperationKind.SnapshotCut:
-            case JournalOperationKind.UnderSnapshotBarrier:
-            default:
-                throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation.");
-        }
+            JournalOperationKind.Put => new JournalRecord
+            {
+                Sequence = 1,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Put,
+                Key = key,
+                PutEntryBytes = JournalEntryPayloadKit.EncodePut("value"),
+            },
+            JournalOperationKind.Remove => new JournalRecord
+            {
+                Sequence = 2,
+                UnixMs = 123,
+                Operation = JournalOperationKind.Remove,
+                Key = key,
+            },
+            JournalOperationKind.RemoveExpiration => new JournalRecord
+            {
+                Sequence = 3,
+                UnixMs = 123,
+                Operation = JournalOperationKind.RemoveExpiration,
+                Key = key,
+            },
+            JournalOperationKind.TouchExpiration => new JournalRecord
+            {
+                Sequence = 4,
+                UnixMs = 123,
+                Operation = JournalOperationKind.TouchExpiration,
+                Key = key,
+                TouchExpirationUtc = new DateTime(2026, 6, 30, 12, 0, 0, DateTimeKind.Utc),
+            },
+            JournalOperationKind.IdempotencyOutcome => new JournalRecord
+            {
+                Sequence = 5,
+                UnixMs = 123,
+                Operation = JournalOperationKind.IdempotencyOutcome,
+                Key = new CacheKey(string.Empty, string.Empty),
+                IdempotencyOperationId = "0123456789abcdef0123456789abcdef",
+                IdempotencyFingerprint = "try-add-entry-async|default|k|abc123",
+                IdempotencyResponseBytes = IdempotencyResponseFixture,
+            },
+            JournalOperationKind.AwaitDurabilityCommit or JournalOperationKind.WaitForStartup or JournalOperationKind.MaintenanceExclusive or JournalOperationKind.SnapshotCut
+                or JournalOperationKind.UnderSnapshotBarrier => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Unsupported encodable operation."),
+        };
     }
 
     private static void PrepareEncodeRoundTripsDecodeCore(JournalOperationKind operation)

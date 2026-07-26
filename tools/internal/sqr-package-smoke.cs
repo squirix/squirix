@@ -92,13 +92,9 @@ try
 finally
 {
     if (settingsBackup is not null)
-    {
         await File.WriteAllBytesAsync(settingsPath, settingsBackup, CancellationToken.None).ConfigureAwait(false);
-    }
     else if (File.Exists(settingsPath))
-    {
         File.Delete(settingsPath);
-    }
 }
 
 static string BuildSettingsJson(string uri)

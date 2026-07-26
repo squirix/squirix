@@ -13,6 +13,9 @@ internal sealed record PersistenceOptions
     [JsonInclude]
     internal int FlushIntervalMs { get; init; } = 10;
 
+    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
+    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
+
     /// <summary>Gets the maximum number of concurrent durable mutations that can share one durability flush.</summary>
     [JsonInclude]
     [JsonPropertyName("groupCommitMaxBatch")]
@@ -69,9 +72,6 @@ internal sealed record PersistenceOptions
 
     [JsonInclude]
     internal int SnapshotRetentionCount { get; init; } = 3;
-
-    /// <summary>Gets a value indicating whether journal group commit is enabled.</summary>
-    internal bool IsJournalGroupCommitEnabled => JournalGroupCommitMaxWait > TimeSpan.Zero;
 
     /// <summary>Validates scalar bounds; throws when any configured value is out of range.</summary>
     /// <exception cref="InvalidOperationException">Thrown when a scalar is out of range.</exception>
