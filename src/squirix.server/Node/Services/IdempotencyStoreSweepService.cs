@@ -23,7 +23,14 @@ internal sealed class IdempotencyStoreSweepService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(_options.BackgroundSweepInterval);
-        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-            _store.SweepExpired(DateTime.UtcNow);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+                _store.SweepExpired(DateTime.UtcNow);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on host stop/dispose; do not fault BackgroundService (StopHost).
+        }
     }
 }
