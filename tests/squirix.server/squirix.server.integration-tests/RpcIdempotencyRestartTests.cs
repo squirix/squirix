@@ -118,11 +118,11 @@ public sealed class RpcIdempotencyRestartTests : NodeIntegrationTestBase
             var client = new SquirixCacheService.SquirixCacheServiceClient(channel);
             var first = await client.TryAddEntryAsync(request, cancellationToken: DefaultCancellationToken);
             Assert.True(first.Added);
-            await AssertJournalContainsPutAndIdempotencyOutcomeAsync(node.DataDir);
         }
 
         await node.AbruptShutdownAsync();
         await JournalSegmentLeaseWait.WaitForReleasedAsync(node.DataDir, DefaultCancellationToken);
+        await AssertJournalContainsPutAndIdempotencyOutcomeAsync(node.DataDir);
 
         var restartUri = GetNextHttpUri();
         await using var restarted = await StartNodeAsync(restartUri, "node-a", new NodeStartOptions { UsePersistence = true, CleanTestDir = false, ExtraScope = Scope });
