@@ -45,7 +45,17 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, "tmp");
-        Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(candidate), true, out var resolved));
+        var info = new DirectoryInfo(candidate);
+
+        // Darwin ships /tmp -> /private/tmp; that path cannot exercise the non-link failure branch.
+        if (info.LinkTarget is not null)
+        {
+            Assert.True(MacOsCompatibilitySymlink.TryFollow(info, true, out var followed));
+            Assert.False(string.IsNullOrEmpty(followed));
+            return;
+        }
+
+        Assert.False(MacOsCompatibilitySymlink.TryFollow(info, true, out var resolved));
         Assert.Equal(string.Empty, resolved);
     }
 

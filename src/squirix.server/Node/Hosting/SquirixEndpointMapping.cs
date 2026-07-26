@@ -18,7 +18,6 @@ namespace Squirix.Server.Node.Hosting;
 internal static class SquirixEndpointMapping
 {
     private static readonly string[] JwtBearerAuthorizationPolicies = [SquirixAuthorizationPolicies.JwtBearer];
-    private static readonly string[] InternalHostFilter = new string[1];
 
     internal static WebApplication MapSquirixEndpoints(this WebApplication app, bool authEnabled)
     {
@@ -37,8 +36,9 @@ internal static class SquirixEndpointMapping
         if (!mtlsMaterial.Enabled || mtlsOptions.InternalListenPort <= 0)
             return app;
 
-        InternalHostFilter[0] = string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}");
-        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(InternalHostFilter).AllowAnonymous();
+        // Per-app filter: a shared static array would be overwritten when multiple in-process nodes map endpoints.
+        string[] internalHostFilter = [string.Create(CultureInfo.InvariantCulture, $"*:{mtlsOptions.InternalListenPort}")];
+        _ = app.MapGrpcService<SquirixServiceAdapter<object?>>().RequireHost(internalHostFilter).AllowAnonymous();
         return app;
     }
 
