@@ -5,12 +5,12 @@ namespace Squirix.Server.Adapters.Rest;
 internal sealed record HealthLeaseDetails
 {
     [JsonConstructor]
-    internal HealthLeaseDetails(bool configured, int active, int expired, int renewals)
+    internal HealthLeaseDetails(bool configured, int active, int pendingGrants, int pendingReleases)
     {
         Configured = configured;
         Active = active;
-        Expired = expired;
-        Renewals = renewals;
+        PendingGrants = pendingGrants;
+        PendingReleases = pendingReleases;
     }
 
     [JsonInclude]
@@ -20,8 +20,8 @@ internal sealed record HealthLeaseDetails
     internal bool Configured { get; }
 
     [JsonInclude]
-    internal int Expired { get; }
+    internal int PendingGrants { get; }
 
     [JsonInclude]
-    internal int Renewals { get; }
+    internal int PendingReleases { get; }
 }

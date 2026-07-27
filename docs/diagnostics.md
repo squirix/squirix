@@ -22,8 +22,8 @@ diagnostics surfaces currently exposed by the node host.
 - `compaction.inFlight`
 - `clientPool.configured`
 - `clientPool.peers`
-- `coordination.leases`
-- `coordination.watches`
+- `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
+- `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
 - `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
   accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
   `LocalCache<T>` does not own this policy.
@@ -40,6 +40,8 @@ diagnostics surfaces currently exposed by the node host.
   `writeRejectionActive`. Soft high-water is observability only; hard-cap oversize durable appends fail with
   `JOURNAL_DISK_QUOTA` while `/health/ready` stays healthy. See
   [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
+- `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
+  `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 
 Readiness behavior (`GET /health/ready`):
 
@@ -65,8 +67,9 @@ Privacy and bounds:
 
 Current limitation:
 
-- `coordination.watches` reports `configured = false` and zero counters because watch coordination metrics are not
-  exposed by the squirix node host.
+- `coordination.leases` and `coordination.watches` both report `configured = false` and zero counters because lease and
+  watch coordination metrics are not exposed by the squirix node host. Do not treat the nested counters as live
+  coordination state.
 
 This route is a readiness/diagnostics payload, not a complete observability surface.
 

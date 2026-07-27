@@ -57,6 +57,12 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         Assert.False(journalDisk.TryGetProperty("UsedBytes", out _));
         Assert.False(journalDisk.TryGetProperty("HighWaterBytes", out _));
         Assert.False(journalDisk.TryGetProperty("WriteRejectionActive", out _));
+        Assert.True(healthElement.TryGetProperty("coordination", out var coordination));
+        Assert.True(coordination.TryGetProperty("leases", out var leases));
+        Assert.True(leases.TryGetProperty("pendingGrants", out _));
+        Assert.True(leases.TryGetProperty("pendingReleases", out _));
+        Assert.False(leases.TryGetProperty("expired", out _));
+        Assert.False(leases.TryGetProperty("renewals", out _));
         Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
         Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));

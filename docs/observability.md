@@ -17,9 +17,9 @@ Critical memory pressure and journal disk at the configured hard quota do **not*
 `/health/ready/details` (`memoryPressure`, `journalDisk`) and metrics for capacity incidents. Durable oversize journal
 appends fail with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`).
 
-When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age, compaction state, and
-journal on-disk pressure. All nodes report client pool peers, coordination leases, and memory pressure aggregates (no
-raw keys or values).
+When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age, compaction state,
+retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers, stubbed coordination
+leases/watches (`configured = false`), and memory pressure aggregates (no raw keys or values).
 
 Full field reference: [diagnostics.md](diagnostics.md).
 
