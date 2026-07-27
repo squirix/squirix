@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App.Decorators;
@@ -39,8 +38,10 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
         var removedCount = 0;
         foreach (var result in results)
+        {
             if (result.Removed)
                 removedCount++;
+        }
 
         Assert.Equal(1, removedCount);
         Assert.Equal(0, accounting.ReadEntryCount());
@@ -169,8 +170,10 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
 
         var addedCount = 0;
         foreach (var added in results)
+        {
             if (added)
                 addedCount++;
+        }
 
         Assert.Equal(1, addedCount);
         Assert.Equal(1, accounting.ReadEntryCount());
@@ -345,18 +348,6 @@ public sealed class AdmissionCacheDecoratorTests : ServerUnitTestBase
             var updatedValue = _updatedValue ?? throw new InvalidOperationException("Updated value is required for UpdateAsync.");
             return _cache.UpdateAsync(UnitMutationOpIds.Default, CacheName, _key, updatedValue, DefaultCancellationToken).AsTask();
         }
-    }
-
-    private sealed class FixedOwnerLocator : INodeLocator
-    {
-        private readonly string _owner;
-
-        internal FixedOwnerLocator(string owner)
-        {
-            _owner = owner;
-        }
-
-        string INodeLocator.GetOwner(string cacheName, string key) => _owner;
     }
 
     private sealed class SynchronizedConcurrentRunner<T>

@@ -2,6 +2,7 @@ using System;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -71,66 +72,35 @@ public sealed class PressureOptionsTests
     [Fact]
     public void ValidateAcceptsValidConfiguration()
     {
-        var o = new PressureOptions
+        var options = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
             HighPressureThresholdPercent = 50,
             CriticalPressureThresholdPercent = 90,
         };
-        o.Validate();
+
+        options.Validate();
     }
 
-    /// <summary>Verifies a critical threshold above 100 is rejected.</summary>
-    [Fact]
-    public void ValidateRejectsCriticalThresholdAboveOneHundred()
+    /// <summary>Verifies invalid threshold combinations are rejected.</summary>
+    /// <param name="critical">Critical threshold value.</param>
+    /// <param name="high">High threshold value.</param>
+    /// <param name="expectedMessageFragment">Expected validation detail fragment.</param>
+    [Theory]
+    [InlineData(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
+    [InlineData(90, 90, "HighPressureThresholdPercent")]
+    [InlineData(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
+    public void ValidateRejectsInvalidThresholdCombinations(int critical, int high, string expectedMessageFragment)
     {
         var options = new PressureOptions
         {
             MaxEstimatedCacheBytes = 1024,
-            CriticalPressureThresholdPercent = 101,
+            HighPressureThresholdPercent = high,
+            CriticalPressureThresholdPercent = critical,
         };
+
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
 
-        Assert.Contains(nameof(PressureOptions.CriticalPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies the high threshold must be strictly less than the critical threshold.</summary>
-    [Fact]
-    public void ValidateRejectsHighNotStrictlyBelowCritical()
-    {
-        var o = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 1024,
-            HighPressureThresholdPercent = 90,
-            CriticalPressureThresholdPercent = 90,
-        };
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(o, static value => value.Validate());
-        Assert.Contains("HighPressureThresholdPercent", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Verifies a non-positive high threshold is rejected.</summary>
-    [Fact]
-    public void ValidateRejectsHighThresholdOutOfRange()
-    {
-        var options = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 1024,
-            HighPressureThresholdPercent = 0,
-        };
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
-
-        Assert.Contains(nameof(PressureOptions.HighPressureThresholdPercent), ex.Message, StringComparison.Ordinal);
-    }
-
-    private sealed class FixedMemoryBudgetProvider : IMemoryBudgetProvider
-    {
-        private readonly long _availableBytes;
-
-        internal FixedMemoryBudgetProvider(long availableBytes)
-        {
-            _availableBytes = availableBytes;
-        }
-
-        long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
+        Assert.Contains(expectedMessageFragment, ex.Message, StringComparison.Ordinal);
     }
 }

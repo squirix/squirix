@@ -1,6 +1,7 @@
 using System;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.TestKit;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Memory;
@@ -59,17 +60,5 @@ public sealed class PressureOptionsResolverTests
             static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions(), new FixedMemoryBudgetProvider(value)));
 
         Assert.Contains("available process memory is zero", ex.Message, StringComparison.Ordinal);
-    }
-
-    private sealed class FixedMemoryBudgetProvider : IMemoryBudgetProvider
-    {
-        private readonly long _availableBytes;
-
-        internal FixedMemoryBudgetProvider(long availableBytes)
-        {
-            _availableBytes = availableBytes;
-        }
-
-        long IMemoryBudgetProvider.GetTotalAvailableBytes() => _availableBytes;
     }
 }

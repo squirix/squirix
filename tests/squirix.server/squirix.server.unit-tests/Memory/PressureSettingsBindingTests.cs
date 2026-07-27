@@ -1,9 +1,8 @@
-using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
-using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -26,20 +25,16 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
 
-        var path = await WriteSettingsAsync("""{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""");
-        try
-        {
-            var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, DefaultCancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync(
+            "squirix-mp-",
+            """{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""",
+            DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
-            Assert.True(found);
-            Assert.Equal(4096, merged.MaxEstimatedCacheBytes);
-            Assert.Equal(70, merged.HighPressureThresholdPercent);
-            Assert.Equal(90, merged.CriticalPressureThresholdPercent);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.Equal(4096, merged.MaxEstimatedCacheBytes);
+        Assert.Equal(70, merged.HighPressureThresholdPercent);
+        Assert.Equal(90, merged.CriticalPressureThresholdPercent);
     }
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
@@ -53,20 +48,13 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
 
-        var path = await WriteSettingsAsync("""{"MemoryPressure":{"highPressureThresholdPercent":60}}""");
-        try
-        {
-            var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, DefaultCancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-mp-", """{"MemoryPressure":{"highPressureThresholdPercent":60}}""", DefaultCancellationToken);
+        var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, DefaultCancellationToken);
 
-            Assert.True(found);
-            Assert.Equal(1024, merged.MaxEstimatedCacheBytes);
-            Assert.Equal(60, merged.HighPressureThresholdPercent);
-            Assert.Equal(95, merged.CriticalPressureThresholdPercent);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.Equal(1024, merged.MaxEstimatedCacheBytes);
+        Assert.Equal(60, merged.HighPressureThresholdPercent);
+        Assert.Equal(95, merged.CriticalPressureThresholdPercent);
     }
 
     /// <summary>Verifies System.Text.Json round-trip preserves option values (same shape as JSON configuration files).</summary>
@@ -86,12 +74,5 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
         Assert.NotNull(restored);
         restored.Validate();
         Assert.Equal(original, restored);
-    }
-
-    private static async Task<string> WriteSettingsAsync(string json)
-    {
-        var path = Path.Join(Path.GetTempPath(), InvariantIndexStrings.FormatPrefixedMiddleSuffix("squirix-mp-", Path.GetRandomFileName(), ".json"));
-        await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
-        return path;
     }
 }

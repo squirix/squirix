@@ -1,7 +1,5 @@
-using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Errors;
 using Squirix.Server.UnitTests.Support;
@@ -37,18 +35,8 @@ public sealed class SquirixExceptionHttpExtensionsTests : ServerUnitTestBase
     public async Task ToHttpResultMapsStatusCodes(SquirixErrorCode code, int expectedStatus)
     {
         var exception = new SquirixException(code, "ErrorName", "detail");
-        var http = exception.ToHttpResult();
-        var context = new DefaultHttpContext
-        {
-            Response =
-            {
-                Body = new MemoryStream(),
-            },
-            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider(),
-        };
+        var status = await HttpResultTestKit.ExecuteStatusAsync(exception.ToHttpResult(), DefaultCancellationToken);
 
-        await http.ExecuteAsync(context);
-
-        Assert.Equal(expectedStatus, context.Response.StatusCode);
+        Assert.Equal(expectedStatus, status);
     }
 }

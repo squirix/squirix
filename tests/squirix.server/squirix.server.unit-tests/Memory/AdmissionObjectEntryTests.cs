@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.LocalCache;
@@ -43,17 +42,5 @@ public sealed class AdmissionObjectEntryTests : ServerUnitTestBase
         Assert.True(await cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "a", entry, DefaultCancellationToken));
         _ = await NodeAsyncAssert.ThrowsAsync<ResourceExhaustedException, bool>(cache.TryAddEntryAsync(UnitMutationOpIds.Default, CacheName, "b", entry, DefaultCancellationToken));
         Assert.Equal(1, accounting.ReadEntryCount());
-    }
-
-    private sealed class FixedOwnerLocator : INodeLocator
-    {
-        private readonly string _owner;
-
-        internal FixedOwnerLocator(string owner)
-        {
-            _owner = owner;
-        }
-
-        string INodeLocator.GetOwner(string cacheName, string key) => _owner;
     }
 }
