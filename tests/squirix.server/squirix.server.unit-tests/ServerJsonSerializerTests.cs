@@ -62,16 +62,10 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));
     }
 
-    /// <summary>Ensures REST response DTOs keep the public web JSON contract.</summary>
+    /// <summary>Ensures REST error DTOs keep the public web JSON contract.</summary>
     [Fact]
-    public void RestContextPreservesPublicResponseJsonShape()
+    public void RestContextPreservesErrorResponseJsonShape()
     {
-        var element = JsonSerializer.SerializeToElement(new IncrementResponse(42), RestJsonSerializerContext.Default.IncrementResponse);
-
-        Assert.True(element.TryGetProperty("value", out var value));
-        Assert.Equal(42, value.GetInt64());
-        Assert.False(element.TryGetProperty("Value", out _));
-
         var error = JsonSerializer.SerializeToElement(new ErrorResponse("missing", "notFound", null), RestJsonSerializerContext.Default.ErrorResponse);
 
         Assert.True(error.TryGetProperty("error", out _));

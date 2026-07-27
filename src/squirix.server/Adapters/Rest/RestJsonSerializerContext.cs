@@ -5,7 +5,6 @@ namespace Squirix.Server.Adapters.Rest;
 
 /// <summary>Source-generated JSON metadata for health/metrics HTTP response DTOs and shared error payloads.</summary>
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
-[JsonSerializable(typeof(IncrementResponse))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(HealthReadyDetailsResponse))]
 [JsonSerializable(typeof(HealthCompactionDetails))]
