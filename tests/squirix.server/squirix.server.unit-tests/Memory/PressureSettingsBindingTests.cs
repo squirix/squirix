@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Runtime;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -89,7 +90,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
 
     private static async Task<string> WriteSettingsAsync(string json)
     {
-        var path = Path.Join(Path.GetTempPath(), "squirix-mp-" + Path.GetRandomFileName() + ".json");
+        var path = Path.Join(Path.GetTempPath(), InvariantIndexStrings.FormatPrefixedMiddleSuffix("squirix-mp-", Path.GetRandomFileName(), ".json"));
         await File.WriteAllTextAsync(path, json, DefaultCancellationToken);
         return path;
     }

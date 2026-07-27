@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Observability.Metrics;
+using Squirix.Server.TestKit;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -88,7 +89,7 @@ public sealed class PrometheusMetricsSettingsTests
 
     private static async Task<string> WriteSettingsAsync(string json)
     {
-        var path = Path.Join(Path.GetTempPath(), "squirix-prom-" + Path.GetRandomFileName() + ".json");
+        var path = Path.Join(Path.GetTempPath(), InvariantIndexStrings.FormatPrefixedMiddleSuffix("squirix-prom-", Path.GetRandomFileName(), ".json"));
         await File.WriteAllTextAsync(path, json, TestContext.Current.CancellationToken);
         return path;
     }

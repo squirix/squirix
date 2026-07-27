@@ -62,7 +62,7 @@ public sealed class CorrelationClientInterceptorTests
         var values = CollectHeaderValues(capture.Headers, "traceparent");
 
         _ = Assert.Single(values);
-        Assert.NotEqual("00-stale-stale-00", values[0]);
+        Assert.NotEqual("00-stale-stale-00", values[0], StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

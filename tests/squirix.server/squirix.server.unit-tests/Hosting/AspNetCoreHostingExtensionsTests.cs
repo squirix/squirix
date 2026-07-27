@@ -22,8 +22,15 @@ namespace Squirix.Server.UnitTests.Hosting;
 /// <summary>Verifies the public ASP.NET Core custom-hosting entry point.</summary>
 public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 {
+    private static readonly Action<WebApplication> MapJournalQuotaEndpoint = static app => app.MapGet(
+        "/throw-journal-quota",
+        static _ => throw new JournalCapacityExceededException());
+
+    private static readonly Action<ExtensionOptions> ConfigureJournalQuotaExtensions = static extensions => extensions.MapEndpoints = MapJournalQuotaEndpoint;
     private static readonly SocketsHttpHandler LoopbackHandler = LoopbackHttp.CreateHandler();
     private static readonly HttpClient LoopbackClient = new(LoopbackHandler, false);
+
+    private static readonly Action<WebApplication> MapExtensionTestEndpoint = static app => app.MapGet("/extension-test", static () => "ok");
 
     /// <summary>Ensures a custom ASP.NET Core application can register, map, and start a standalone Squirix node.</summary>
     [Fact]
@@ -92,8 +99,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         _ = await builder.AddSquirixServerAsync(
             optionsConfigurer.Apply,
             loadDiscoveredSettings: false,
-            configureExtensions: static extensions =>
-                extensions.MapEndpoints = static app => app.MapGet("/throw-journal-quota", static _ => throw new JournalCapacityExceededException()),
+            configureExtensions: ConfigureJournalQuotaExtensions,
             cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
@@ -287,7 +293,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         private void ApplyCore(ExtensionOptions extensions)
         {
             extensions.ConfigureServices = ConfigureServices;
-            extensions.MapEndpoints = static app => app.MapGet("/extension-test", static () => "ok");
+            extensions.MapEndpoints = MapExtensionTestEndpoint;
         }
 
         private void ConfigureServices(IServiceCollection services) => services.AddSingleton(_marker);

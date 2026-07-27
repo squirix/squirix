@@ -48,7 +48,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-dirpath-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, "squirix-dirpath-outside-" + Guid.NewGuid().ToString("N"));
+        var outside = Path.Join(parent.FullName, InvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(
             outside,
             root.Path,

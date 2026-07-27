@@ -65,6 +65,26 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
         Assert.Same(anchor, pool.ForNode("n0"));
     }
 
+    /// <summary>Inter-node address rewrite rejects a non-absolute primary peer URI.</summary>
+    [Fact]
+    public void ConstructorRejectsRelativePeerUri()
+    {
+        var peers = new ServerPeer[]
+        {
+            new() { NodeId = "n0", Uri = new Uri("relative-peer", UriKind.Relative) },
+        };
+        var args = new ServerClientPoolArgs
+        {
+            InterNodeMtlsEnabled = true,
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6101 },
+            PolicyFactory = static _ => new ServerCallPolicy(),
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _ = new ServerClientPool(peers, args));
+
+        Assert.Equal("Cluster peer URI is invalid.", ex.Message);
+    }
+
     private static ServerPeer[] BuildPeers(int n)
     {
         var peers = new ServerPeer[n];

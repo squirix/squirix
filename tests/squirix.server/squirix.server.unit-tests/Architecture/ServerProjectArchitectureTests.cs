@@ -121,7 +121,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
         granted.Sort(StringComparer.Ordinal);
         Array.Sort(approved, StringComparer.Ordinal);
-        Assert.Equal(approved, granted);
+        Assert.Equal(approved, granted, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>

@@ -20,7 +20,7 @@ public sealed class DirectoryExTests
         if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
             return;
 
-        var name = "squirix-directoryex-macos-tmp-" + Guid.NewGuid().ToString("N");
+        var name = InvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-macos-tmp-");
         string? created = null;
         try
         {
@@ -79,7 +79,7 @@ public sealed class DirectoryExTests
         using var root = new TempDirectory("squirix-directoryex-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, "squirix-directoryex-outside-" + Guid.NewGuid().ToString("N"));
+        var outside = Path.Join(parent.FullName, InvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(outside, root.Path, static (path, basePath) => DirectoryEx.CreateDirectory(path, basePath));
     }
 
@@ -197,7 +197,7 @@ public sealed class DirectoryExTests
             var processStartInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = "/c mklink /J \"" + linkPath + "\" \"" + targetPath + "\"",
+                Arguments = InvariantIndexStrings.FormatMklinkJunctionArguments(linkPath, targetPath),
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,

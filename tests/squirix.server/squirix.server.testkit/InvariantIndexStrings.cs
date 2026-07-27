@@ -130,6 +130,75 @@ public static class InvariantIndexStrings
             });
     }
 
+    /// <summary>Builds <c>{prefix}{guid:N}</c> in a single allocation.</summary>
+    /// <param name="prefix">Literal prefix.</param>
+    /// <returns>The composed name.</returns>
+    public static string FormatPrefixedGuidN(string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+
+        var guid = Guid.NewGuid();
+        return string.Create(
+            prefix.Length + 32,
+            (prefix, guid),
+            static (span, state) =>
+            {
+                state.prefix.AsSpan().CopyTo(span);
+                _ = state.guid.TryFormat(span[state.prefix.Length..], out _, "N");
+            });
+    }
+
+    /// <summary>Builds <c>{prefix}{middle}{suffix}</c> in a single allocation.</summary>
+    /// <param name="prefix">Literal prefix.</param>
+    /// <param name="middle">Middle segment (for example a random file name).</param>
+    /// <param name="suffix">Literal suffix.</param>
+    /// <returns>The composed name.</returns>
+    public static string FormatPrefixedMiddleSuffix(string prefix, string middle, string suffix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        ArgumentNullException.ThrowIfNull(middle);
+        ArgumentNullException.ThrowIfNull(suffix);
+
+        return string.Create(
+            prefix.Length + middle.Length + suffix.Length,
+            (prefix, middle, suffix),
+            static (span, state) =>
+            {
+                state.prefix.AsSpan().CopyTo(span);
+                state.middle.AsSpan().CopyTo(span[state.prefix.Length..]);
+                state.suffix.AsSpan().CopyTo(span[(state.prefix.Length + state.middle.Length)..]);
+            });
+    }
+
+    /// <summary>Builds <c>/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
+    /// <param name="linkPath">Junction link path.</param>
+    /// <param name="targetPath">Junction target path.</param>
+    /// <returns>cmd.exe arguments for <c>mklink /J</c>.</returns>
+    public static string FormatMklinkJunctionArguments(string linkPath, string targetPath)
+    {
+        ArgumentNullException.ThrowIfNull(linkPath);
+        ArgumentNullException.ThrowIfNull(targetPath);
+
+        const string head = "/c mklink /J \"";
+        const string mid = "\" \"";
+        const string tail = "\"";
+        return string.Create(
+            head.Length + linkPath.Length + mid.Length + targetPath.Length + tail.Length,
+            (linkPath, targetPath),
+            static (span, state) =>
+            {
+                head.AsSpan().CopyTo(span);
+                var at = head.Length;
+                state.linkPath.AsSpan().CopyTo(span[at..]);
+                at += state.linkPath.Length;
+                mid.AsSpan().CopyTo(span[at..]);
+                at += mid.Length;
+                state.targetPath.AsSpan().CopyTo(span[at..]);
+                at += state.targetPath.Length;
+                tail.AsSpan().CopyTo(span[at..]);
+            });
+    }
+
     /// <summary>Builds <c>{prefix}:{index}</c> in a single allocation.</summary>
     /// <param name="prefix">Key prefix.</param>
     /// <param name="index">Numeric suffix.</param>
