@@ -69,38 +69,6 @@ public static class InvariantIndexStrings
         return index.ToString("D8", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
-    /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
-    /// <param name="host">Host name or address.</param>
-    /// <param name="port">TCP port.</param>
-    /// <returns>An absolute origin string.</returns>
-    public static string FormatOrigin(string scheme, string host, int port)
-    {
-        ArgumentNullException.ThrowIfNull(scheme);
-        ArgumentNullException.ThrowIfNull(host);
-
-        var digitLength = CountDigits(port);
-        return string.Create(
-            scheme.Length + 3 + host.Length + 1 + digitLength,
-            (scheme, host, port),
-            static (span, state) =>
-            {
-                state.scheme.AsSpan().CopyTo(span);
-                span[state.scheme.Length] = ':';
-                span[state.scheme.Length + 1] = '/';
-                span[state.scheme.Length + 2] = '/';
-                state.host.AsSpan().CopyTo(span[(state.scheme.Length + 3)..]);
-                span[state.scheme.Length + 3 + state.host.Length] = ':';
-                _ = state.port.TryFormat(span[(state.scheme.Length + 4 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
-            });
-    }
-
-    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
-    /// <param name="host">Host name or address.</param>
-    /// <param name="port">TCP port.</param>
-    /// <returns>An absolute HTTPS origin string.</returns>
-    public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
-
     /// <summary>Builds <c>https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
@@ -127,6 +95,38 @@ public static class InvariantIndexStrings
                 span[afterHost] = ':';
                 _ = state.port.TryFormat(span[(afterHost + 1)..], out var written, provider: CultureInfo.InvariantCulture);
                 state.absolutePath.AsSpan().CopyTo(span[(afterHost + 1 + written)..]);
+            });
+    }
+
+    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
+    /// <param name="host">Host name or address.</param>
+    /// <param name="port">TCP port.</param>
+    /// <returns>An absolute HTTPS origin string.</returns>
+    public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
+
+    /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
+    /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
+    /// <param name="host">Host name or address.</param>
+    /// <param name="port">TCP port.</param>
+    /// <returns>An absolute origin string.</returns>
+    public static string FormatOrigin(string scheme, string host, int port)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+        ArgumentNullException.ThrowIfNull(host);
+
+        var digitLength = CountDigits(port);
+        return string.Create(
+            scheme.Length + 3 + host.Length + 1 + digitLength,
+            (scheme, host, port),
+            static (span, state) =>
+            {
+                state.scheme.AsSpan().CopyTo(span);
+                span[state.scheme.Length] = ':';
+                span[state.scheme.Length + 1] = '/';
+                span[state.scheme.Length + 2] = '/';
+                state.host.AsSpan().CopyTo(span[(state.scheme.Length + 3)..]);
+                span[state.scheme.Length + 3 + state.host.Length] = ':';
+                _ = state.port.TryFormat(span[(state.scheme.Length + 4 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
             });
     }
 

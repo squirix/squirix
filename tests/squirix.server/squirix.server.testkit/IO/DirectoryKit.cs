@@ -292,9 +292,6 @@ public static class DirectoryKit
         }
     }
 
-    private static bool IsDirectorySeparator(char value) =>
-        value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
-
     private static int IndexOfDirectorySeparator(ReadOnlySpan<char> value)
     {
         var primary = value.IndexOf(Path.DirectorySeparatorChar);
@@ -306,13 +303,7 @@ public static class DirectoryKit
         return primary < alternate ? primary : alternate;
     }
 
-    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
-    {
-        var length = span.Length;
-        while (length > 0 && IsDirectorySeparator(span[length - 1]))
-            length--;
-        return length;
-    }
+    private static bool IsDirectorySeparator(char value) => value == Path.DirectorySeparatorChar || value == Path.AltDirectorySeparatorChar;
 
     private static bool IsSubPathOf(string candidateFull, string baseFull)
     {
@@ -378,5 +369,13 @@ public static class DirectoryKit
             _ = Directory.CreateDirectory(baseFull);
 
         return baseFull;
+    }
+
+    private static int TrimTrailingSeparatorsLength(ReadOnlySpan<char> span)
+    {
+        var length = span.Length;
+        while (length > 0 && IsDirectorySeparator(span[length - 1]))
+            length--;
+        return length;
     }
 }

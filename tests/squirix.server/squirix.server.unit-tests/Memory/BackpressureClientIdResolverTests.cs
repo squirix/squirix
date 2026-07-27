@@ -9,6 +9,20 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>Covers JWT / connection / missing-context backpressure client id resolution.</summary>
 public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 {
+    /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>
+    [Fact]
+    public void ResolveCachesClientIdOnHttpContext()
+    {
+        var accessor = new FixedHttpContextAccessor(CreateContext(true, "tenant-a", "conn-1"));
+        var resolver = new HttpContextClientIdResolver(accessor);
+
+        var first = resolver.Resolve();
+        var second = resolver.Resolve();
+
+        Assert.Equal("jwt:tenant-a", first);
+        Assert.Same(first, second);
+    }
+
     /// <summary>Anonymous requests fall back to the ASP.NET Core connection id.</summary>
     [Fact]
     public void ResolveUsesConnectionIdWhenAnonymous()
@@ -85,20 +99,6 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(context));
 
         Assert.Equal("jwt:oidc-subject", resolver.Resolve());
-    }
-
-    /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>
-    [Fact]
-    public void ResolveCachesClientIdOnHttpContext()
-    {
-        var accessor = new FixedHttpContextAccessor(CreateContext(true, "tenant-a", "conn-1"));
-        var resolver = new HttpContextClientIdResolver(accessor);
-
-        var first = resolver.Resolve();
-        var second = resolver.Resolve();
-
-        Assert.Equal("jwt:tenant-a", first);
-        Assert.Same(first, second);
     }
 
     /// <summary>In-process calls without HttpContext share the runtime bucket.</summary>

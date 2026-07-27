@@ -25,8 +25,7 @@ public sealed class PressureSettingsBindingTests : ServerUnitTestBase
             CriticalPressureThresholdPercent = 95,
         };
 
-        var path = await WriteSettingsAsync("""{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""")
-           ;
+        var path = await WriteSettingsAsync("""{"MemoryPressure":{"maxEstimatedCacheBytes":4096,"highPressureThresholdPercent":70,"criticalPressureThresholdPercent":90}}""");
         try
         {
             var (found, merged) = await PressureBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, DefaultCancellationToken);

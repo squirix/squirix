@@ -8,8 +8,7 @@ namespace Squirix.Server.TestKit;
 public readonly record struct NodeExceptionExpectation<TException>
     where TException : Exception
 {
-    private static readonly string MissingMessage =
-        $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
+    private static readonly string MissingMessage = $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
 
     /// <summary>Invokes an operation with one state value and asserts it throws exactly <typeparamref name="TException" />.</summary>
     /// <typeparam name="TState">Operation state type.</typeparam>

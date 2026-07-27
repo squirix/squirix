@@ -24,6 +24,18 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         Assert.Equal(42, roundTrip["value"]);
     }
 
+    /// <summary>Ensures REST error DTOs keep the public web JSON contract.</summary>
+    [Fact]
+    public void RestContextPreservesErrorResponseJsonShape()
+    {
+        var error = JsonSerializer.SerializeToElement(new ErrorResponse("missing", "notFound", null), RestJsonSerializerContext.Default.ErrorResponse);
+
+        Assert.True(error.TryGetProperty("error", out _));
+        Assert.True(error.TryGetProperty("code", out _));
+        Assert.True(error.TryGetProperty("detail", out var detail));
+        Assert.Equal(JsonValueKind.Null, detail.ValueKind);
+    }
+
     /// <summary>Ensures health diagnostics DTOs keep stable nested JSON shapes.</summary>
     [Fact]
     public void RestContextPreservesHealthJsonShape()
@@ -66,18 +78,6 @@ public sealed class ServerJsonSerializerTests : ServerUnitTestBase
         Assert.True(healthElement.TryGetProperty("retentionCleanup", out var retentionCleanup));
         Assert.False(retentionCleanup.GetProperty("degraded").GetBoolean());
         Assert.False(healthElement.TryGetProperty("JournalBacklogOps", out _));
-    }
-
-    /// <summary>Ensures REST error DTOs keep the public web JSON contract.</summary>
-    [Fact]
-    public void RestContextPreservesErrorResponseJsonShape()
-    {
-        var error = JsonSerializer.SerializeToElement(new ErrorResponse("missing", "notFound", null), RestJsonSerializerContext.Default.ErrorResponse);
-
-        Assert.True(error.TryGetProperty("error", out _));
-        Assert.True(error.TryGetProperty("code", out _));
-        Assert.True(error.TryGetProperty("detail", out var detail));
-        Assert.Equal(JsonValueKind.Null, detail.ValueKind);
     }
 
     /// <summary>Ensures SerializeToElement can still round-trip application payloads through reflection fallback.</summary>

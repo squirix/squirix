@@ -32,10 +32,7 @@ public sealed class CorrelationClientInterceptorTests
 
         Assert.NotNull(activity);
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", default),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
 
@@ -59,10 +56,7 @@ public sealed class CorrelationClientInterceptorTests
 
         Assert.NotNull(activity);
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "traceparent");
@@ -87,10 +81,7 @@ public sealed class CorrelationClientInterceptorTests
         Assert.NotNull(activity);
         activity.TraceStateString = "vendor=value";
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "tracestate");

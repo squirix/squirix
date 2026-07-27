@@ -57,8 +57,9 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects empty paths.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsEmpty() =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws("  ", static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
+    public void ResolveValidatedDirectoryPathRejectsEmpty() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+        "  ",
+        static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
 
     /// <summary>Rejects when a regular file already exists at the target.</summary>
     [Fact]

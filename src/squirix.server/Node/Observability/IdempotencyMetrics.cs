@@ -61,11 +61,10 @@ internal static class IdempotencyMetrics
         _ = ServerMeterRegistry.Meter.CreateObservableGauge("squirix_idempotency_records", ObserveRecordCount, "{record}", "Current in-memory idempotency record count");
     }
 
-    private static TagList NodeTags(string nodeId) =>
-        new()
-        {
-            { "node", nodeId },
-        };
+    private static TagList NodeTags(string nodeId) => new()
+    {
+        { "node", nodeId },
+    };
 
     private static IEnumerable<Measurement<long>> ObserveRecordCount()
     {

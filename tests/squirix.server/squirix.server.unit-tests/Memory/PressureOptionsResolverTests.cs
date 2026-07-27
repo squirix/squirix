@@ -34,9 +34,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             900_000L,
-            static value => _ = OptionsResolver.Resolve(
-                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
-                new FixedMemoryBudgetProvider(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("exceeds the 80% RAM cap", ex.Message, StringComparison.Ordinal);
     }
@@ -47,9 +45,7 @@ public sealed class PressureOptionsResolverTests
     {
         var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(
             0L,
-            static value => _ = OptionsResolver.Resolve(
-                new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value },
-                new FixedMemoryBudgetProvider(1_000_000)));
+            static value => _ = OptionsResolver.Resolve(new UnresolvedMemoryPressureOptions { MaxEstimatedCacheBytes = value }, new FixedMemoryBudgetProvider(1_000_000)));
 
         Assert.Contains("must be positive", ex.Message, StringComparison.Ordinal);
     }
