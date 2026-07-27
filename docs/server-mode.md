@@ -12,9 +12,11 @@ The `squirix-server` global tool wraps the same runtime as the library host. Def
 `https://localhost:5001`.
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet tool install --global squirix.server.tool --version <version>
 squirix-server run
 ```
+
+Pin `<version>` from the [root README](../README.md).
 
 Durable mode:
 
@@ -29,8 +31,10 @@ CLI reference and Docker examples: [getting-started.md](getting-started.md), [co
 Embed the server runtime from the **`squirix.server`** NuGet package:
 
 ```bash
-dotnet add package squirix.server --version 0.1.0-preview.7
+dotnet add package squirix.server --version <version>
 ```
+
+Pin `<version>` from the [root README](../README.md).
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);

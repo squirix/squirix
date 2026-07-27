@@ -12,9 +12,11 @@ Prerequisites:
 ### NuGet global tool
 
 ```bash
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet tool install --global squirix.server.tool --version <version>
 squirix-server run
 ```
+
+Pin `<version>` from the [root README](../README.md) (same value as the NuGet badge).
 
 The host listens on `https://localhost:5001` by default (loopback bind), runs as an in-memory cache, and prints
 ready-to-use client and operational endpoint URLs. **No JWT is required** on this default URL — any local process can
@@ -59,16 +61,16 @@ Port **5000** is the primary HTTPS listener (gRPC, `/health`, `/metrics`). Image
 HTTPS certificate; use `curl -k` from the host. When JWT is configured, pass a bearer token for `/metrics` scrapes from
 outside the container.
 
-Release image (pinned NuGet tool version):
+Release image (NuGet tool; Dockerfile default `SQUIRIX_VERSION` matches the published package):
 
 ```bash
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.7 .
+docker build -f docker/Dockerfile.release -t squirix-server:release .
 docker run --rm \
   -p 5000:5000 \
   -e SQUIRIX_JWT_SIGNING_KEY=dev-squirix-docker-jwt-key!!!!!! \
   -e SQUIRIX_JWT_ISSUER=https://squirix.docker.dev \
   -e SQUIRIX_JWT_AUDIENCE=squirix \
-  squirix-server:0.1.0-preview.7 run --urls https://0.0.0.0:5000
+  squirix-server:release run --urls https://0.0.0.0:5000
 ```
 
 Two-node cluster (`docker compose up -d` in `docker/`): node A on `https://localhost:5001`, node B on
@@ -83,8 +85,10 @@ dotnet run --project src/squirix.server.host/Squirix.Server.Host.csproj -- run
 ## 2. Add the client SDK
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.7
+dotnet add package squirix --version <version>
 ```
+
+Pin `<version>` from the [root README](../README.md).
 
 ## 3. Connect and use a typed cache
 
