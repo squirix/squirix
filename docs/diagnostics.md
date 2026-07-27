@@ -17,13 +17,14 @@ diagnostics surfaces currently exposed by the node host.
 - `journalBacklogOps` (persistence enabled): journal operations not covered by the latest snapshot watermark
 - `snapshotAgeSeconds` (persistence enabled): age of the latest snapshot, or `null` if no snapshot exists
 - `snapshotInFlight` (persistence enabled): whether a snapshot is currently running
-- `compaction.state` (persistence enabled): current journal compaction service state
+- `compaction.state` (persistence enabled): journal compaction service state —
+  `Idle`, `Waiting`, `Running`, `BackingOff`, or `Failed` (ephemeral nodes always report `Idle`)
 - `compaction.lastRunUtc`
 - `compaction.inFlight`
-- `clientPool.configured`
-- `clientPool.peers`
-- `coordination.leases`
-- `coordination.watches`
+- `clientPool.configured`: currently always `true` (client pool wiring is always present in the node host)
+- `clientPool.peers`: configured peer count from topology (`Peers.Length`)
+- `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
+- `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
 - `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate
   accounting — `normal`, `high`, or `critical` (see [configuration.md#memory-pressure-squirixsettingsjson](configuration.md#memory-pressure-squirixsettingsjson)).
   `LocalCache<T>` does not own this policy.
@@ -32,7 +33,16 @@ diagnostics surfaces currently exposed by the node host.
 - `memoryPressure.entryCount`: current global approximate accounted live entry count
 - `memoryPressure.rejectedWriteCount`: number of memory admission rejections recorded since process start for this
   accounting instance
-- `memoryPressure.writeRejectionActive`: always `true`; growing writes are rejected at critical pressure
+- `memoryPressure.writeRejectionActive`: currently always reported as `true` (not gated on critical pressure).
+  Use `memoryPressure.state` (`critical`) plus `rejectedWriteCount` / client `MEMORY_PRESSURE` signals for admission
+  state; do not treat this boolean as a live rejection latch.
+- `journalDisk` (persistence enabled): journal on-disk size pressure for the configured `JournalMaxTotalBytesMb` cap —
+  `state` (`normal` / `high` / `critical`), `maxBytes`, `usedBytes`, `highWaterBytes` (80% soft mark), and
+  `writeRejectionActive`. Soft high-water is observability only; hard-cap oversize durable appends fail with
+  `JOURNAL_DISK_QUOTA` while `/health/ready` stays healthy. See
+  [operational-runbook.md — Journal disk quota](operational-runbook.md#journal-disk-quota).
+- `retentionCleanup` (persistence enabled): retention cleanup readiness aggregates —
+  `degraded`, `consecutiveWriteFailures`, `recentFailureCount`, `lastFailureUtc`.
 
 Readiness behavior (`GET /health/ready`):
 
@@ -43,9 +53,11 @@ Readiness behavior (`GET /health/ready`):
   state, or a fatal snapshot trigger failure.
 - The default ASP.NET Core readiness check is unchanged: **normal** and **high** memory pressure do **not** fail
   readiness by themselves.
-- **Critical** pressure does **not** flip readiness to unhealthy in the current host: operators rely on
+- **Critical** memory pressure does **not** flip readiness to unhealthy in the current host: operators rely on
   `/health/ready/details` (`memoryPressure`) and metrics for visibility. Treat **critical** plus rising
   `rejectedWriteCount` as a capacity incident; see [operational-runbook.md](operational-runbook.md).
+- Journal disk at the hard quota similarly keeps `/health/ready` healthy and surfaces pressure on
+  `/health/ready/details` (`journalDisk`) so operators can reclaim space without a membership flap.
 
 Privacy and bounds:
 
@@ -56,8 +68,9 @@ Privacy and bounds:
 
 Current limitation:
 
-- `coordination.watches` reports `configured = false` and zero counters because watch coordination metrics are not
-  exposed by the squirix node host.
+- `coordination.leases` and `coordination.watches` both report `configured = false` and zero counters because lease and
+  watch coordination metrics are not exposed by the squirix node host. Do not treat the nested counters as live
+  coordination state.
 
 This route is a readiness/diagnostics payload, not a complete observability surface.
 
@@ -71,10 +84,10 @@ Logical cache operation spans are owned by `TracingCacheDecorator<T>` in the hos
 validation so rejected invalid requests are still observable, but it does not change cancellation, exception, or
 operation behavior.
 
-Spans are emitted through the shared `Squirix` `ActivitySource` with bounded names such as `cache.get`,
-`cache.get_entry`, `cache.get_expiration`, `cache.insert`, `cache.add`, `cache.try_add`, `cache.remove`,
-`cache.try_remove`, `cache.contains`, and `cache.touch` (server pipeline; exported client
-`RemoveExpirationAsync`). Tags are intentionally limited to:
+Spans are emitted through the shared `Squirix` `ActivitySource` with bounded names such as `squirix.cache.get`,
+`squirix.cache.get_entry`, `squirix.cache.set`, `squirix.cache.try_add`, `squirix.cache.update`,
+`squirix.cache.remove`, `squirix.cache.remove_expiration`, and `squirix.cache.touch`. Tags are intentionally limited
+to:
 
 - `cache.operation`
 - `cache.result`
@@ -95,7 +108,7 @@ Ownership boundaries:
 
 Generic logical cache operation metrics (`squirix_ops_total`, `squirix_op_latency_seconds`) are recorded by
 `MetricsCacheDecorator<T>`. Operation names and result categories use shared server classifiers (`CacheOperationNames`,
-`CacheOperationResults`, `CacheOperationClassifier`). `MetricsCacheDecorator<T>` bridges `INamespacedCache<T>` to
+`CacheOperationResults`, `CacheOperationClassifier`). `MetricsCacheDecorator<T>` bridges `ILogicalNamespacedCache<T>` to
 `CacheMetrics.RecordOperation` using those types.
 
 These instruments describe logical cache operations only and use bounded `operation` / `result` labels on the
@@ -113,7 +126,7 @@ manifest, and storage health metrics remain owned by the storage layer (`Journal
 Backpressure metrics are owned by `Gate` and exposed through the `Squirix` meter as runtime cache-operation
 admission diagnostics. `BackpressureCacheDecorator<T>` applies this policy before logical reads and writes enter memory
 admission, clustered routing, journal append, memory mutation, memory accounting, or idempotency outcome updates.
-REST/gRPC adapters keep transport-specific protection and map runtime backpressure failures to HTTP 429 or gRPC
+gRPC adapters keep transport-specific protection and map runtime backpressure failures to gRPC
 `ResourceExhausted`; they do not own duplicate logical cache-operation backpressure. Keep these signals separate from
 memory-pressure metrics: backpressure describes request concurrency, queueing, slowdown, and rate-limit pressure, while
 memory pressure describes estimated cache working-set capacity.

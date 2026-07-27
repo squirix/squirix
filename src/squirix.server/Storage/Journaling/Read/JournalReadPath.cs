@@ -163,8 +163,10 @@ internal static class JournalReadPath
                     return true;
 
                 while (OpenNextSegment())
+                {
                     if (TryMoveCurrentSegment())
                         return true;
+                }
 
                 return false;
             }

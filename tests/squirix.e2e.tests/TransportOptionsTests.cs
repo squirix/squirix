@@ -70,6 +70,5 @@ public sealed class TransportOptionsTests : EndToEndTestBase
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
     }
 
-    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) =>
-        new FixedBearerTokenProvider(token).ProvideAsync;
+    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
 }

@@ -80,6 +80,7 @@ internal sealed class ClientPool : IClientPool
 
         BeginDrain();
         for (var i = 0; i < _nodeIds.Length; i++)
+        {
             try
             {
                 await _policies[_nodeIds[i]].DisposeAsync().ConfigureAwait(false);
@@ -92,8 +93,10 @@ internal sealed class ClientPool : IClientPool
             {
                 // Best-effort drain: one failing policy dispose must not block disposal of other peers.
             }
+        }
 
         for (var i = 0; i < _nodeIds.Length; i++)
+        {
             try
             {
                 _channels[_nodeIds[i]].Dispose();
@@ -107,6 +110,7 @@ internal sealed class ClientPool : IClientPool
             {
                 // Best-effort drain: channel disposal failures are suppressed so all peers are still attempted.
             }
+        }
     }
 
     public SquirixCacheService.SquirixCacheServiceClient ForNode(string nodeId) => _cacheClients[nodeId];

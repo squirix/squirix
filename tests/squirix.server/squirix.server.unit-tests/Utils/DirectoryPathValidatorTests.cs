@@ -48,7 +48,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-dirpath-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, "squirix-dirpath-outside-" + Guid.NewGuid().ToString("N"));
+        var outside = Path.Join(parent.FullName, InvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(
             outside,
             root.Path,
@@ -57,8 +57,9 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>Rejects empty paths.</summary>
     [Fact]
-    public void ResolveValidatedDirectoryPathRejectsEmpty() =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws("  ", static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
+    public void ResolveValidatedDirectoryPathRejectsEmpty() => _ = NodeExceptionAssert.For<ArgumentException>().Throws(
+        "  ",
+        static value => DirectoryPathValidator.ResolveValidatedDirectoryPath(value, null, false));
 
     /// <summary>Rejects when a regular file already exists at the target.</summary>
     [Fact]

@@ -8,7 +8,6 @@ internal static class InvariantDigitStrings
 {
     private const int CachedD6Count = 10_000;
     private const int CachedNonNegativeCount = 1024;
-
     private static readonly string[] CachedNonNegative = CreateCachedNonNegative();
     private static readonly string[] CachedD6 = CreateCachedD6();
 

@@ -193,7 +193,7 @@ internal static class Program
         /// <summary>Parsed CLI command and option flags for the standalone server host.</summary>
         /// <param name="Name">Command name such as <c>run</c>, <c>init</c>, or <c>help</c>.</param>
         /// <param name="Strict">Whether strict configuration validation is requested.</param>
-        /// <param name="Uri">Optional listen URL override from <c>--urls</c>.</param>
+        /// <param name="Uri">Optional listen URI override from <c>--urls</c>.</param>
         /// <param name="DataDirectory">Optional data directory override from <c>--data-dir</c>.</param>
         /// <param name="Persist">Whether persistence was requested via <c>--persist</c>.</param>
         /// <param name="SettingsPath">Optional settings file path from <c>--settings</c>.</param>

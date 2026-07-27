@@ -13,11 +13,8 @@ public sealed class SquirixErrorMapperTests : ServerUnitTestBase
     [Fact]
     public void MapsEveryKnownErrorCode()
     {
-        AssertMapping(SquirixErrorCode.InvalidCacheName, "INVALID_CACHE_NAME", StatusCode.InvalidArgument);
+        AssertMapping(SquirixErrorCode.None, "INTERNAL_ERROR", StatusCode.Internal);
         AssertMapping(SquirixErrorCode.InvalidCacheKey, "INVALID_CACHE_KEY", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.BadRequest, "BAD_REQUEST", StatusCode.InvalidArgument);
-        AssertMapping(SquirixErrorCode.NotFound, "NOT_FOUND", StatusCode.NotFound);
-        AssertMapping(SquirixErrorCode.Conflict, "CONFLICT", StatusCode.FailedPrecondition);
         AssertMapping(SquirixErrorCode.PayloadTooLarge, "PAYLOAD_TOO_LARGE", StatusCode.ResourceExhausted);
         AssertMapping(SquirixErrorCode.TooManyRequests, "TOO_MANY_REQUESTS", StatusCode.ResourceExhausted);
         AssertMapping(SquirixErrorCode.MemoryPressure, "MEMORY_PRESSURE", StatusCode.ResourceExhausted);

@@ -13,11 +13,13 @@ squirix nodes expose HTTP health and metrics endpoints plus server-side OpenTele
 
 When persistence is enabled, readiness stays unhealthy until journal recovery completes. Fatal journal maintenance
 failures also affect readiness. Ephemeral nodes skip journal recovery and report readiness without `journal_recovery`.
-Critical memory pressure does **not** flip readiness by itself — use `/health/ready/details` and metrics for capacity
-incidents.
+Critical memory pressure and journal disk at the configured hard quota do **not** flip readiness by themselves — use
+`/health/ready/details` (`memoryPressure`, `journalDisk`) and metrics for capacity incidents. Durable oversize journal
+appends fail with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`).
 
-When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age, and compaction state.
-All nodes report client pool peers, coordination leases, and memory pressure aggregates (no raw keys or values).
+When persistence is enabled, `/health/ready/details` includes journal backlog, snapshot age, compaction state,
+retention-cleanup status, and journal on-disk pressure. All nodes report client pool peers, stubbed coordination
+leases/watches (`configured = false`), and memory pressure aggregates (no raw keys or values).
 
 Full field reference: [diagnostics.md](diagnostics.md).
 
@@ -35,8 +37,9 @@ Client-side bootstrap warm-up skips emit `squirix_client_pool_bootstrap_warmup_s
 ## Tracing
 
 - Server journal operations emit OpenTelemetry spans
-- Client logical cache operations emit spans through `TracingCacheDecorator<T>`
-- Bootstrap warm-up skips emit `client.bootstrap.warmup.peer_skipped` activities
+- Server logical cache operations emit spans through `TracingCacheDecorator<T>` (`squirix.cache.*` activity names;
+  see [diagnostics.md](diagnostics.md#logical-operation-tracing))
+- Client bootstrap warm-up skips emit `client.bootstrap.warmup.peer_skipped` activities
 
 Use logical spans (`cache.operation`, `cache.result`) for operation triage and gRPC interceptor spans for transport
 failures.

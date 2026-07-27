@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Squirix.Server.Cluster;
 using Squirix.Server.Core;
 using Squirix.Server.LocalCache;
 using Squirix.Server.Node.App;
@@ -120,18 +119,6 @@ public sealed class JournalLoggingCacheDecoratorTests : ServerUnitTestBase
         var executor = new DurableMutationExecutor(journal);
         var cache = new JournalLoggingCacheDecorator<string>(Self, new FixedOwnerLocator(owner), inner, journal, executor);
         return new Harness(dir, manifestStore, journal, physical, inner, cache);
-    }
-
-    private sealed class FixedOwnerLocator : INodeLocator
-    {
-        private readonly string _owner;
-
-        internal FixedOwnerLocator(string owner)
-        {
-            _owner = owner;
-        }
-
-        public string GetOwner(string cacheName, string key) => _owner;
     }
 
     private sealed class Harness : IAsyncDisposable

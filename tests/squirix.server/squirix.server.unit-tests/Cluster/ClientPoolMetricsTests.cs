@@ -14,6 +14,25 @@ public sealed class ClientPoolMetricsTests : ServerUnitTestBase
     private const string MeterName = "Squirix";
     private const string PoolDisposalsTotalInstrumentName = "squirix_peer_pool_disposals_total";
 
+    /// <summary>Inter-node address rewrite rejects a non-absolute primary peer URI.</summary>
+    [Fact]
+    public void ConstructorRejectsRelativePeerUri()
+    {
+        var peers = new ServerPeer[]
+        {
+            new() { NodeId = "n0", Uri = new Uri("relative-peer", UriKind.Relative) },
+        };
+        var args = new ServerClientPoolArgs
+        {
+            InterNodeMtlsEnabled = true,
+            MtlsOptions = new MtlsOptions { InternalListenPort = 6101 },
+            PolicyFactory = static _ => new ServerCallPolicy(),
+        };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(peers, args, static (peerList, poolArgs) => _ = new ServerClientPool(peerList, poolArgs));
+        Assert.Equal("Cluster peer URI is invalid.", ex.Message);
+    }
+
     /// <summary>Ensures Dispose emits squirix_peer_pool_disposals_total counter events.</summary>
     [Fact]
     public async Task DisposeIncrementsDisposalsTotal()

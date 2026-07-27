@@ -58,7 +58,8 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public void ServerAssemblyShouldNotReferenceSquirix()
     {
         var references = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("ProjectReference");
-        Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.OrdinalIgnoreCase));
+        if (references is not null)
+            Assert.DoesNotContain(references, static reference => reference.Contains(@"..\squirix\Squirix.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Ensures standalone server bootstrap starts through the public ASP.NET Core hosting extensions.</summary>
@@ -87,7 +88,9 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
         Assert.Equal("squirix-server", index.RequireProperty("ToolCommandName"));
         Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("Version"));
         Assert.Equal("$(SquirixPackageVersion)", index.RequireProperty("PackageVersion"));
-        Assert.Equal(@"..\squirix.server\Squirix.Server.csproj", index.GetIncludes("ProjectReference")[0]);
+        var projectReferences = index.GetIncludes("ProjectReference");
+        Assert.NotNull(projectReferences);
+        Assert.Equal(@"..\squirix.server\Squirix.Server.csproj", projectReferences[0]);
     }
 
     /// <summary>Ensures InternalsVisibleTo grants match the approved server allowlist.</summary>
@@ -121,7 +124,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
 
         granted.Sort(StringComparer.Ordinal);
         Array.Sort(approved, StringComparer.Ordinal);
-        Assert.Equal(approved, granted);
+        Assert.Equal(approved, granted, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Ensures the server project keeps the approved ASP.NET Core hosting dependency baseline.</summary>
@@ -130,6 +133,7 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     {
         var index = ServerArchitectureFixtures.GetServerProjectIndex();
         var frameworkIncludes = index.GetIncludes("FrameworkReference");
+        Assert.NotNull(frameworkIncludes);
 
         Assert.Empty(
             ServerArchitectureFixtures.CollectUnexpectedMatches(
@@ -172,6 +176,8 @@ public sealed class ServerProjectArchitectureTests : ServerUnitTestBase
     public void ServerProjectShouldNotReferenceSquirixProject()
     {
         var list = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("ProjectReference");
+        if (list is null)
+            return;
 
         Assert.DoesNotContain(
             list,

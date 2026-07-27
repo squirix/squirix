@@ -65,6 +65,11 @@ public sealed class ItemsGaugeReporterServiceTests
         return listener;
     }
 
+    private sealed class FaultingStats : ILocalCacheStats
+    {
+        public int EntryCount => throw new InvalidOperationException("stats-down");
+    }
+
     private sealed class ItemsGaugeSubscription
     {
         private readonly List<long> _values;
@@ -74,20 +79,14 @@ public sealed class ItemsGaugeReporterServiceTests
             _values = values;
         }
 
-        internal static bool IsItemsTotal(Instrument instrument) =>
-            string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(instrument.Name, "squirix_items_total", StringComparison.OrdinalIgnoreCase);
+        internal static bool IsItemsTotal(Instrument instrument) => string.Equals(instrument.Meter.Name, "Squirix", StringComparison.OrdinalIgnoreCase) &&
+                                                                    string.Equals(instrument.Name, "squirix_items_total", StringComparison.OrdinalIgnoreCase);
 
         internal void OnInstrumentPublished(Instrument instrument, MeterListener listener)
         {
             if (IsItemsTotal(instrument))
                 listener.EnableMeasurementEvents(instrument, _values);
         }
-    }
-
-    private sealed class FaultingStats : ILocalCacheStats
-    {
-        public int EntryCount => throw new InvalidOperationException("stats-down");
     }
 
     private sealed class NodeMeasurementSink : IDisposable

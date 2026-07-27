@@ -143,7 +143,7 @@ internal sealed class ServerClientPool : IServerClientPool
         /// <param name="interNodeMtlsEnabled">Whether inter-node mTLS transport is active.</param>
         /// <returns>The HTTPS gRPC address for pooled cluster clients.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="peer" /> or <paramref name="mtlsOptions" /> is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is enabled but the internal listen port or peer URL is invalid.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when inter-node mTLS is enabled but the internal listen port or peer URI is invalid.</exception>
         internal static Uri Resolve(ServerPeer peer, MtlsOptions mtlsOptions, bool interNodeMtlsEnabled)
         {
             ArgumentNullException.ThrowIfNull(peer);
@@ -160,7 +160,7 @@ internal sealed class ServerClientPool : IServerClientPool
 
             var primaryUri = peer.Uri;
             if (!primaryUri.IsAbsoluteUri)
-                throw new InvalidOperationException("Cluster peer URL is invalid.");
+                throw new InvalidOperationException("Cluster peer URI is invalid.");
 
             return new UriBuilder(primaryUri.Scheme, primaryUri.Host, mtlsOptions.InternalListenPort).Uri;
         }

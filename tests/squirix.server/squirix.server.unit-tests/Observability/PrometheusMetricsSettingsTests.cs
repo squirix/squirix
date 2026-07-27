@@ -1,6 +1,6 @@
-using System.IO;
 using System.Threading.Tasks;
 using Squirix.Server.Node.Observability.Metrics;
+using Squirix.Server.TestKit.IO;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -21,19 +21,15 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        var path = await WriteSettingsAsync("""{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""");
-        try
-        {
-            var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync(
+            "squirix-prom-",
+            """{"PrometheusMetrics":{"path":"/custom-metrics","enabled":false}}""",
+            TestContext.Current.CancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
 
-            Assert.True(found);
-            Assert.False(merged.Enabled);
-            Assert.Equal("/custom-metrics", merged.Path);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.False(merged.Enabled);
+        Assert.Equal("/custom-metrics", merged.Path);
     }
 
     /// <summary>Verifies a partial JSON section overrides only present fields and keeps baseline for absent ones.</summary>
@@ -46,19 +42,12 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        var path = await WriteSettingsAsync("""{"PrometheusMetrics":{"enabled":false}}""");
-        try
-        {
-            var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{"enabled":false}}""", TestContext.Current.CancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
 
-            Assert.True(found);
-            Assert.False(merged.Enabled);
-            Assert.Equal("/metrics", merged.Path);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.True(found);
+        Assert.False(merged.Enabled);
+        Assert.Equal("/metrics", merged.Path);
     }
 
     /// <summary>Verifies merge preserves baseline values when settings properties are null (absent from JSON).</summary>
@@ -71,25 +60,11 @@ public sealed class PrometheusMetricsSettingsTests
             Path = "/metrics",
         };
 
-        var path = await WriteSettingsAsync("""{"PrometheusMetrics":{}}""");
-        try
-        {
-            var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(path, baseline, TestContext.Current.CancellationToken);
+        using var settings = await TempSettingsFile.WriteAsync("squirix-prom-", """{"PrometheusMetrics":{}}""", TestContext.Current.CancellationToken);
+        var (found, merged) = await PrometheusMetricsBootstrap.TryMergeFromSettingsFilePathAsync(settings.Path, baseline, TestContext.Current.CancellationToken);
 
-            Assert.True(found);
-            Assert.True(merged.Enabled);
-            Assert.Equal("/metrics", merged.Path);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    private static async Task<string> WriteSettingsAsync(string json)
-    {
-        var path = Path.Join(Path.GetTempPath(), "squirix-prom-" + Path.GetRandomFileName() + ".json");
-        await File.WriteAllTextAsync(path, json, TestContext.Current.CancellationToken);
-        return path;
+        Assert.True(found);
+        Assert.True(merged.Enabled);
+        Assert.Equal("/metrics", merged.Path);
     }
 }

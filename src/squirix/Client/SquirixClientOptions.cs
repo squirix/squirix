@@ -14,11 +14,6 @@ public sealed class SquirixClientOptions
     /// Gets or sets a delegate that provides a bearer token for each gRPC call.
     /// Called before every RPC; implementations should cache tokens when appropriate.
     /// </summary>
-    /// <remarks>
-    /// This property uses a <c>set</c> accessor (not <c>init</c>) because
-    /// <see cref="SquirixClient.ConnectAsync(Action{SquirixClientOptions}, CancellationToken)" /> constructs options first,
-    /// then invokes a configure delegate that assigns members after construction.
-    /// </remarks>
     public Func<CancellationToken, ValueTask<string>>? BearerTokenProvider { get; set; }
 
     /// <summary>Gets bootstrap Squirix server endpoints used by remote clients.</summary>

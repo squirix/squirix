@@ -28,11 +28,13 @@ internal static class RemoteClientSessionFactory
 
         var peers = new Peer[normalizedEndpoints.Length];
         for (var i = 0; i < normalizedEndpoints.Length; i++)
+        {
             peers[i] = new Peer
             {
                 NodeId = FormatEndpointNodeId(i),
                 Uri = normalizedEndpoints[i],
             };
+        }
 
         var credentials = BuildCallCredentials(bearerTokenProvider);
 
@@ -98,7 +100,7 @@ internal static class RemoteClientSessionFactory
         {
             var endpoint = endpoints[index] ?? throw new ArgumentException("Endpoint must be a non-null absolute URI.", nameof(endpoints));
             if (!endpoint.IsAbsoluteUri || string.IsNullOrWhiteSpace(endpoint.Scheme) || string.IsNullOrWhiteSpace(endpoint.Host))
-                throw new ArgumentException("Endpoint must be an absolute Squirix server URL.", nameof(endpoints));
+                throw new ArgumentException("Endpoint must be an absolute Squirix server URI.", nameof(endpoints));
 
             GrpcTransportEndpoints.RequireHttps(endpoint);
             var authority = endpoint.GetLeftPart(UriPartial.Authority);

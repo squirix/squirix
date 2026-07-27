@@ -77,6 +77,7 @@ internal static class DirectoryEx
         const int delayMs = 80;
 
         for (var attempt = 0; attempt < retries; attempt++)
+        {
             try
             {
                 var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
@@ -109,6 +110,7 @@ internal static class DirectoryEx
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), TimeProvider.System, cancellationToken).ConfigureAwait(false);
             }
+        }
     }
 
     private static void ClearReadOnlyAttributes(string file)

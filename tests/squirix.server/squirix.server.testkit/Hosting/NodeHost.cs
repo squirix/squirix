@@ -16,11 +16,7 @@ internal static class NodeHost
         var builder = CreateBuilder(options.ConfigureLogging);
         var configureArgs = new CompositionArgsConfigurer(options);
 
-        await ServerHostingComposition.ConfigureBuilderAsync(
-            builder,
-            cluster,
-            configureArgs.Configure,
-            cancellationToken).ConfigureAwait(false);
+        await ServerHostingComposition.ConfigureBuilderAsync(builder, cluster, configureArgs.Configure, cancellationToken).ConfigureAwait(false);
 
         var app = builder.Build();
         _ = ServerHostingComposition.MapServer(app);
@@ -56,7 +52,10 @@ internal static class NodeHost
     {
         private readonly NodeHostStartOptions _options;
 
-        internal CompositionArgsConfigurer(NodeHostStartOptions options) => _options = options;
+        internal CompositionArgsConfigurer(NodeHostStartOptions options)
+        {
+            _options = options;
+        }
 
         internal void Configure(ICompositionArgs args)
         {

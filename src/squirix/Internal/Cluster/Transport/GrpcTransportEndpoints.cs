@@ -11,7 +11,7 @@ internal static class GrpcTransportEndpoints
     internal static HttpMessageHandler CreateChannelHandler() => new SocketsHttpHandler();
 
     /// <summary>Ensures the endpoint uses HTTPS gRPC transport.</summary>
-    /// <param name="uri">The configured endpoint URL.</param>
+    /// <param name="uri">The configured endpoint URI.</param>
     /// <exception cref="ArgumentException">Thrown when <paramref name="uri" /> uses plaintext HTTP.</exception>
     internal static void RequireHttps(Uri uri)
     {

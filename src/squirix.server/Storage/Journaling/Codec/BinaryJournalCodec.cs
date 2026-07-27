@@ -77,6 +77,8 @@ internal static class BinaryJournalCodec
 
     internal static EncodeContext PrepareEncode(JournalRecord record) => EncodeContext.From(record);
 
+    private static NotSupportedException CreateOperationNotEncodableException() => new("Journal operation cannot be encoded.");
+
     private static JournalRecord DecodeIdempotencyOutcome(ulong seq, long unixMs, CacheKey cacheKey, byte[] frameBuffer, ReadOnlySpan<byte> frameBody, int offset, int payloadLen)
     {
         var payload = frameBody.Slice(offset, payloadLen);
@@ -168,8 +170,6 @@ internal static class BinaryJournalCodec
             _ => throw CreateOperationNotEncodableException(),
         };
     }
-
-    private static NotSupportedException CreateOperationNotEncodableException() => new("Journal operation cannot be encoded.");
 
     private static void WriteFixedPrefix(Span<byte> destination, JournalRecord record, int nsLen, int keyLen, int payloadLen)
     {

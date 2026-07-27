@@ -105,8 +105,10 @@ public class PublicSdkOperationsBenchmarks
     {
         var cache = _squirix!;
         for (var i = 0; i < WriteBatch; i++)
+        {
             await cache.SetAsync(_existingKeys[i], InvariantIndexStrings.FormatPrefixedPadded("overwrite", i, "D5", 5), cancellationToken: CancellationToken.None)
                        .ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -168,10 +170,12 @@ public class PublicSdkOperationsBenchmarks
         var cache = _squirix!;
         var offset = Interlocked.Add(ref _writeOffset, WriteBatch);
         for (var i = 0; i < WriteBatch; i++)
+        {
             await cache.SetAsync(
                 InvariantIndexStrings.FormatPrefixedPadded("write", offset + i, "D10", 10),
                 InvariantIndexStrings.FormatPrefixedPadded("value", i, "D5", 5),
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private static Task<string?> ColdFactoryAsync(string key, CancellationToken cancellationToken)

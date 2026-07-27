@@ -19,8 +19,10 @@ internal sealed class KeyOwnerHelper
     {
         var uniqueNodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nodeId in nodeIds)
+        {
             if (!string.IsNullOrWhiteSpace(nodeId))
                 _ = uniqueNodes.Add(nodeId);
+        }
 
         if (uniqueNodes.Count is 0)
             throw new ArgumentException("At least one node is required.", nameof(nodeIds));

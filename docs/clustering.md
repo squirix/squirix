@@ -16,11 +16,14 @@ Applications connect with one or more bootstrap URLs in `SquirixClientOptions.En
 — interchangeable views of the same cluster — **not independent shards**.
 
 ```csharp
+using System;
+using Squirix.Client;
+
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
-        options.Endpoints.Add("https://squirix-a:5001");
-        options.Endpoints.Add("https://squirix-b:5002");
+        options.Endpoints.Add(new Uri("https://squirix-a:5001"));
+        options.Endpoints.Add(new Uri("https://squirix-b:5002"));
     },
     cancellationToken);
 ```
@@ -34,6 +37,7 @@ Details: [bootstrap-client-failover.md](bootstrap-client-failover.md).
 - Durability is per node; no replication or automatic failover
 - Multi-key operations are not transactions across owners
 - Memory pressure may reject growing writes before they are persisted
+- Journal disk quota may reject durable appends with `JOURNAL_DISK_QUOTA` before they are persisted
 
 Non-goals: cluster-wide linearizability proofs, cross-owner atomic updates, dynamic membership-driven routing.
 
@@ -58,4 +62,4 @@ Before changing topology in containers, validate settings:
 squirix-server validate-config --settings ./Squirix.settings.json --strict
 ```
 
-`Cluster.Url` must match the local peer entry in each node's settings file.
+`Cluster.Uri` must match the local peer entry in each node's settings file.

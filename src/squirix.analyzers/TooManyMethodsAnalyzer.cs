@@ -18,7 +18,6 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
                                                             "Stateless types with only constants are not matched.";
 
     private static readonly LocalizableString MessageFormat = "Type '{0}' has {1} methods (limit {2}); prefer splitting responsibilities";
-
     private static readonly LocalizableString Title = "Avoid types with too many methods";
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Design", DiagnosticSeverity.Warning, true, Description);
 

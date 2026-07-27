@@ -34,8 +34,8 @@ public sealed class ClientArchitectureTests
     [Fact]
     public void ClientAssemblyShouldNotExposeInternalsToServer()
     {
-        var assemblyInfoPath = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
-        var text = File.ReadAllText(assemblyInfoPath);
+        var path = PathKit.Combine(PathKit.Combine(RepositoryRoot.Value, "src/squirix/Properties"), "AssemblyInfo.cs");
+        var text = File.ReadAllText(path);
         Assert.DoesNotContain("InternalsVisibleTo(\"Squirix.Server\"", text, StringComparison.Ordinal);
     }
 
@@ -44,7 +44,8 @@ public sealed class ClientArchitectureTests
     public void ClientAssemblyShouldNotReferenceSquirixServer()
     {
         var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
-        Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
+        if (references is not null)
+            Assert.DoesNotContain(references, static reference => reference.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Ensures the basic SDK path generates the narrow KV and expiration transport contract from shared source.</summary>
@@ -64,12 +65,17 @@ public sealed class ClientArchitectureTests
     public void ClientProjectShouldNotReferenceServerHosting()
     {
         var index = ClientProjectIndex.Value;
+        var packageReferences = index.GetIncludes("PackageReference");
+        if (packageReferences is not null)
+        {
+            Assert.DoesNotContain(
+                packageReferences,
+                static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
+        }
 
-        Assert.DoesNotContain(
-            index.GetIncludes("PackageReference"),
-            static include => include.Equals("Grpc.AspNetCore", StringComparison.Ordinal) || include.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal));
-
-        Assert.DoesNotContain(index.GetIncludes("FrameworkReference"), static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
+        var frameworkReferences = index.GetIncludes("FrameworkReference");
+        if (frameworkReferences is not null)
+            Assert.DoesNotContain(frameworkReferences, static include => include.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
     /// <summary>Ensures the core project does not depend on the server project.</summary>
@@ -77,6 +83,8 @@ public sealed class ClientArchitectureTests
     public void ClientProjectShouldNotReferenceServerProject()
     {
         var references = ClientProjectIndex.Value.GetIncludes("ProjectReference");
+        if (references is null)
+            return;
 
         Assert.DoesNotContain(
             references,
@@ -134,8 +142,10 @@ public sealed class ClientArchitectureTests
             AddMsbuildInclude(includes, includedElements, localName, include, root);
 
         for (var node = root.FirstNode; node is not null; node = node.NextNode)
+        {
             if (node is XElement child)
                 CollectMsbuildIncludes(child, includes, includedElements);
+        }
     }
 
     private static XDocument LoadClientProject()
@@ -180,7 +190,7 @@ public sealed class ClientArchitectureTests
             _includedElements = includedElements;
         }
 
-        internal List<string> GetIncludes(string itemName) => _includes.TryGetValue(itemName, out var list) ? list : [];
+        internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
         internal XElement RequireIncludedElement(string localName, string include)
         {

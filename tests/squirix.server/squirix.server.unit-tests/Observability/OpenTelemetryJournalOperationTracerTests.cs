@@ -1,8 +1,8 @@
-using System;
 using System.Diagnostics;
 using Squirix.Server.Node.Observability;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -16,7 +16,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     [Fact]
     public void BeginAppliesPayloadAndFrameTotalTags()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
@@ -36,7 +36,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     [Fact]
     public void BeginAppliesStrictFsyncAndGroupCommitTags()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         var context = new JournalOperationTraceContext
@@ -56,7 +56,7 @@ public sealed class OpenTelemetryJournalOperationTracerTests
     [Fact]
     public void BeginOmitsDurabilityTagsWhenContextValuesAreNull()
     {
-        using var listener = CreateSquirixSamplingListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         IJournalOperationTracer journalTracer = new OpenTelemetryJournalOperationTracer();
         using var scope = journalTracer.Begin(JournalOperationKind.Put, null);
@@ -72,17 +72,5 @@ public sealed class OpenTelemetryJournalOperationTracerTests
         Assert.NotNull(activity);
         Assert.Equal(expectedDisplayName, activity.DisplayName);
         return activity;
-    }
-
-    /// <summary>Enables sampling so the Squirix activity source returns a non-null activity.</summary>
-    private static ActivityListener CreateSquirixSamplingListener()
-    {
-        var listener = new ActivityListener
-        {
-            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
-            Sample = static (ref _) => ActivitySamplingResult.AllData,
-        };
-        ActivitySource.AddActivityListener(listener);
-        return listener;
     }
 }

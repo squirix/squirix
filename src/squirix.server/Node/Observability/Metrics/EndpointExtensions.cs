@@ -217,6 +217,7 @@ internal static class EndpointExtensions
                 }
 
                 for (var i = 0; i < s.Length; i++)
+                {
                     _ = s[i] switch
                     {
                         '\\' => sb.Append(@"\\"),
@@ -224,6 +225,7 @@ internal static class EndpointExtensions
                         '"' => sb.Append(@"\"""),
                         _ => sb.Append(s[i]),
                     };
+                }
             }
 
             /// <summary>Builds a Prometheus label set string from sorted tags.</summary>

@@ -134,7 +134,9 @@ internal static class PathEx
 
         var span = segment.AsSpan();
         while (DirectoryPathValidator.TryReadNextSegment(ref span, out var part))
+        {
             if (PathValidation.IsDotOrDotDot(part))
                 throw new ArgumentException("Path segments must not contain '.' or '..'.", nameof(segment));
+        }
     }
 }

@@ -1,12 +1,13 @@
 # Serialization and Serializer Customization
 
 squirix uses `ISquirixSerializer` for cache payloads on the wire and in server durability paths. The default
-implementation is `SystemTextJsonSerializer` (`System.Text.Json` with relaxed web defaults).
+implementation is `SystemTextJsonSerializer` (`System.Text.Json` with relaxed web defaults). Both types live in the
+`Squirix` namespace (`ISquirixSerializer` is public; `SystemTextJsonSerializer` is the internal default).
 
 Client and server packages keep **separate** serializer hosts:
 
-- **Client** (`Squirix.Serialization.Provider`): immutable default used by transport helpers; each
-  `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixClientOptions.Serializer`.
+- **Client:** each `SquirixClient.ConnectAsync` session gets its own serializer from `SquirixClientOptions.Serializer`
+  (or the built-in default when unset). The default is session-local; connect does not mutate process-wide client state.
 - **Server:** uses a built-in JSON encoder for durability and adapters. `AddSquirixServerAsync` / `SquirixServer.StartAsync`
   do not expose a serializer hook on `SquirixServerOptions`.
 
@@ -19,12 +20,11 @@ using System;
 using System.Threading;
 using Squirix;
 using Squirix.Client;
-using Squirix.Serialization;
 
 await using var client = await SquirixClient.ConnectAsync(
     options =>
     {
-        options.Endpoints.Add("https://localhost:5001");
+        options.Endpoints.Add(new Uri("https://localhost:5001"));
         options.Serializer = new MyCustomSerializer();
     },
     CancellationToken.None);
@@ -58,7 +58,8 @@ Serializer swapping is safe only when encoders agree on payload shape:
 
 ## Server nodes
 
-- Standalone and embedded server hosts use the default JSON encoder for journal, snapshots, and gRPC/REST payloads.
+- Standalone and embedded server hosts use the default JSON encoder for journal, snapshots, and gRPC payloads.
+  Health/metrics HTTP responses use the server's JSON serializer context separately.
 - **Clients** choose the serializer per `SquirixClient.ConnectAsync` session (`SquirixClientOptions.Serializer`).
 - Server and client serializers must agree on payload shape for a given cache; mismatched encoders against existing
   on-disk data require migration.
@@ -71,5 +72,5 @@ Serializer swapping is safe only when encoders agree on payload shape:
 
 ## Further reading
 
-- `Squirix.Serialization.ISquirixSerializer`
-- `Squirix.Serialization.SystemTextJsonSerializer`
+- `Squirix.ISquirixSerializer`
+- Internal default: `Squirix.SystemTextJsonSerializer`

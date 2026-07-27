@@ -70,13 +70,8 @@ internal sealed class Publisher : IDisposable
 
         _publishWork = new PublishWork(targetPath, encodedLength, nextIndex);
 
-        await Task.Factory.StartNew(
-                         WritePublishedManifestBlockingCallback,
-                         this,
-                         cancellationToken,
-                         TaskCreationOptions.DenyChildAttach,
-                         TaskScheduler.Default)
-                     .ConfigureAwait(false);
+        await Task.Factory.StartNew(WritePublishedManifestBlockingCallback, this, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)
+                  .ConfigureAwait(false);
 
         _setCache(manifest, nextIndex);
     }

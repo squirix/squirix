@@ -110,6 +110,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
         var length = files.LongLength;
         var total = 0L;
         foreach (var f in files)
+        {
             try
             {
                 total += new FileInfo(f).Length;
@@ -122,6 +123,7 @@ internal sealed class JournalMetricsExporterService : BackgroundService
             {
                 // Best-effort metrics scan: transient per-file IO failures should not stop gauge refresh.
             }
+        }
 
         VolatileWrite(ref _segments, length);
         VolatileWrite(ref _sizeBytes, total);

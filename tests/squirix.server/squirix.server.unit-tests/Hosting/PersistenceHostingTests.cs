@@ -48,10 +48,7 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
             });
 
         var optionsConfigurer = new PersistenceOptionsConfigurer(port, dir.Path);
-        _ = await builder.AddSquirixServerAsync(
-            optionsConfigurer.Apply,
-            loadDiscoveredSettings: false,
-            cancellationToken: DefaultCancellationToken);
+        _ = await builder.AddSquirixServerAsync(optionsConfigurer.Apply, loadDiscoveredSettings: false, cancellationToken: DefaultCancellationToken);
 
         await using var app = builder.Build();
         var persistence = app.Services.GetRequiredService<PersistenceOptions>();

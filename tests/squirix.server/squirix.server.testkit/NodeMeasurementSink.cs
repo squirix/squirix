@@ -72,8 +72,10 @@ public sealed class NodeMeasurementSink : IDisposable
     private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName)
     {
         foreach (var measurement in events)
+        {
             if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase))
                 return true;
+        }
 
         return false;
     }
@@ -81,8 +83,10 @@ public sealed class NodeMeasurementSink : IDisposable
     private static bool HasEventCore(ConcurrentQueue<CapturedMeasurement> events, string instrumentName, (string Key, string Value) tag1)
     {
         foreach (var measurement in events)
+        {
             if (string.Equals(measurement.InstrumentName, instrumentName, StringComparison.OrdinalIgnoreCase) && MeasurementHasTag(in measurement, tag1.Key, tag1.Value))
                 return true;
+        }
 
         return false;
     }
@@ -126,8 +130,10 @@ public sealed class NodeMeasurementSink : IDisposable
         if (measurement.OverflowTags is not null)
         {
             foreach (var tag in measurement.OverflowTags)
+            {
                 if (string.Equals(tag.Key, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, expectedValue))
                     return true;
+            }
 
             return false;
         }

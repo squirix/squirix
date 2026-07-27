@@ -69,38 +69,6 @@ public static class InvariantIndexStrings
         return index.ToString("D8", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
-    /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
-    /// <param name="host">Host name or address.</param>
-    /// <param name="port">TCP port.</param>
-    /// <returns>An absolute origin string.</returns>
-    public static string FormatOrigin(string scheme, string host, int port)
-    {
-        ArgumentNullException.ThrowIfNull(scheme);
-        ArgumentNullException.ThrowIfNull(host);
-
-        var digitLength = CountDigits(port);
-        return string.Create(
-            scheme.Length + 3 + host.Length + 1 + digitLength,
-            (scheme, host, port),
-            static (span, state) =>
-            {
-                state.scheme.AsSpan().CopyTo(span);
-                span[state.scheme.Length] = ':';
-                span[state.scheme.Length + 1] = '/';
-                span[state.scheme.Length + 2] = '/';
-                state.host.AsSpan().CopyTo(span[(state.scheme.Length + 3)..]);
-                span[state.scheme.Length + 3 + state.host.Length] = ':';
-                _ = state.port.TryFormat(span[(state.scheme.Length + 4 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
-            });
-    }
-
-    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
-    /// <param name="host">Host name or address.</param>
-    /// <param name="port">TCP port.</param>
-    /// <returns>An absolute HTTPS origin string.</returns>
-    public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
-
     /// <summary>Builds <c>https://{host}:{port}{absolutePath}</c> in a single allocation.</summary>
     /// <param name="host">Host name or address.</param>
     /// <param name="port">TCP port.</param>
@@ -127,6 +95,107 @@ public static class InvariantIndexStrings
                 span[afterHost] = ':';
                 _ = state.port.TryFormat(span[(afterHost + 1)..], out var written, provider: CultureInfo.InvariantCulture);
                 state.absolutePath.AsSpan().CopyTo(span[(afterHost + 1 + written)..]);
+            });
+    }
+
+    /// <summary>Builds <c>https://{host}:{port}</c> in a single allocation.</summary>
+    /// <param name="host">Host name or address.</param>
+    /// <param name="port">TCP port.</param>
+    /// <returns>An absolute HTTPS origin string.</returns>
+    public static string FormatHttpsOrigin(string host, int port) => FormatOrigin("https", host, port);
+
+    /// <summary>Builds <c>{scheme}://{host}:{port}</c> in a single allocation.</summary>
+    /// <param name="scheme">URI scheme such as <c>https</c> or <c>http</c>.</param>
+    /// <param name="host">Host name or address.</param>
+    /// <param name="port">TCP port.</param>
+    /// <returns>An absolute origin string.</returns>
+    public static string FormatOrigin(string scheme, string host, int port)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+        ArgumentNullException.ThrowIfNull(host);
+
+        var digitLength = CountDigits(port);
+        return string.Create(
+            scheme.Length + 3 + host.Length + 1 + digitLength,
+            (scheme, host, port),
+            static (span, state) =>
+            {
+                state.scheme.AsSpan().CopyTo(span);
+                span[state.scheme.Length] = ':';
+                span[state.scheme.Length + 1] = '/';
+                span[state.scheme.Length + 2] = '/';
+                state.host.AsSpan().CopyTo(span[(state.scheme.Length + 3)..]);
+                span[state.scheme.Length + 3 + state.host.Length] = ':';
+                _ = state.port.TryFormat(span[(state.scheme.Length + 4 + state.host.Length)..], out _, provider: CultureInfo.InvariantCulture);
+            });
+    }
+
+    /// <summary>Builds <c>{prefix}{guid:N}</c> in a single allocation.</summary>
+    /// <param name="prefix">Literal prefix.</param>
+    /// <returns>The composed name.</returns>
+    public static string FormatPrefixedGuidN(string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+
+        var guid = Guid.NewGuid();
+        return string.Create(
+            prefix.Length + 32,
+            (prefix, guid),
+            static (span, state) =>
+            {
+                state.prefix.AsSpan().CopyTo(span);
+                _ = state.guid.TryFormat(span[state.prefix.Length..], out _, "N");
+            });
+    }
+
+    /// <summary>Builds <c>{prefix}{middle}{suffix}</c> in a single allocation.</summary>
+    /// <param name="prefix">Literal prefix.</param>
+    /// <param name="middle">Middle segment (for example a random file name).</param>
+    /// <param name="suffix">Literal suffix.</param>
+    /// <returns>The composed name.</returns>
+    public static string FormatPrefixedMiddleSuffix(string prefix, string middle, string suffix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        ArgumentNullException.ThrowIfNull(middle);
+        ArgumentNullException.ThrowIfNull(suffix);
+
+        return string.Create(
+            prefix.Length + middle.Length + suffix.Length,
+            (prefix, middle, suffix),
+            static (span, state) =>
+            {
+                state.prefix.AsSpan().CopyTo(span);
+                state.middle.AsSpan().CopyTo(span[state.prefix.Length..]);
+                state.suffix.AsSpan().CopyTo(span[(state.prefix.Length + state.middle.Length)..]);
+            });
+    }
+
+    /// <summary>Builds <c>/c mklink /J "{link}" "{target}"</c> in a single allocation.</summary>
+    /// <param name="linkPath">Junction link path.</param>
+    /// <param name="targetPath">Junction target path.</param>
+    /// <returns>cmd.exe arguments for <c>mklink /J</c>.</returns>
+    public static string FormatMklinkJunctionArguments(string linkPath, string targetPath)
+    {
+        ArgumentNullException.ThrowIfNull(linkPath);
+        ArgumentNullException.ThrowIfNull(targetPath);
+
+        const string head = "/c mklink /J \"";
+        const string mid = "\" \"";
+        const string tail = "\"";
+        return string.Create(
+            head.Length + linkPath.Length + mid.Length + targetPath.Length + tail.Length,
+            (linkPath, targetPath),
+            static (span, state) =>
+            {
+                head.AsSpan().CopyTo(span);
+                var at = head.Length;
+                state.linkPath.AsSpan().CopyTo(span[at..]);
+                at += state.linkPath.Length;
+                mid.AsSpan().CopyTo(span[at..]);
+                at += mid.Length;
+                state.targetPath.AsSpan().CopyTo(span[at..]);
+                at += state.targetPath.Length;
+                tail.AsSpan().CopyTo(span[at..]);
             });
     }
 

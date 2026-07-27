@@ -39,10 +39,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         bytes[^1] ^= 0xFF;
         await File.WriteAllBytesAsync(path, bytes, DefaultCancellationToken);
 
-        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            reader,
-            path,
-            static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken));
+        _ = NodeExceptionAssert.For<InvalidDataException>().Throws(reader, path, static (r, p) => _ = r.LoadStrictAsync<object?>(p, cancellationToken: DefaultCancellationToken));
     }
 
     /// <summary>Writes mixed entries and idempotency records, then loads them back.</summary>
@@ -114,8 +111,10 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             return false;
 
         foreach (var pair in left)
+        {
             if (!right.TryGetValue(pair.Key, out var other) || !string.Equals(pair.Value, other, StringComparison.Ordinal))
                 return false;
+        }
 
         return true;
     }

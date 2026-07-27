@@ -21,6 +21,8 @@ dotnet test squirix.slnx --configuration Release --no-build
 - **Static topology** — peers are configured explicitly; dynamic membership is future work
 - **Single-key operations** — cross-key or multi-node atomicity is out of scope for v0.1
 - **Narrow client API** — basic KV + expiration; no batch, scan, watch, counters, or tag invalidation yet
+- **Journal disk quota is per node** — `JournalMaxTotalBytesMb` (host default 2048 MiB; not a settings JSON section
+  in v0.1 public hosting) covers journal segments on that node only
 - **0.x compatibility** — no promise of upgrade or on-disk persistence compatibility until 1.0.0
 - **.NET 10 only** — older TFMs are intentionally out of scope for the preview line
 

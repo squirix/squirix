@@ -15,6 +15,10 @@ public sealed class ActivityTagValuesTests : ServerUnitTestBase
         Assert.Equal(ActivityTagValues.False, ActivityTagValues.Bool(false));
     }
 
+    /// <summary>Double formatting delegates to invariant digit helpers.</summary>
+    [Fact]
+    public void DoubleFormatsInvariantValue() => Assert.Equal("1.5", ActivityTagValues.Double(1.5d));
+
     /// <summary>Cached non-negative integers reuse interned digit strings.</summary>
     [Fact]
     public void NonNegativeIntegersReuseCachedStrings()
@@ -25,8 +29,4 @@ public sealed class ActivityTagValuesTests : ServerUnitTestBase
         Assert.Equal("-7", ActivityTagValues.Int64(-7));
         Assert.Equal("2048", ActivityTagValues.Int32(2048));
     }
-
-    /// <summary>Double formatting delegates to invariant digit helpers.</summary>
-    [Fact]
-    public void DoubleFormatsInvariantValue() => Assert.Equal("1.5", ActivityTagValues.Double(1.5d));
 }

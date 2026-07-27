@@ -9,12 +9,25 @@ namespace Squirix.Server.UnitTests.Memory;
 /// <summary>Covers JWT / connection / missing-context backpressure client id resolution.</summary>
 public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
 {
+    /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>
+    [Fact]
+    public void ResolveCachesClientIdOnHttpContext()
+    {
+        var accessor = new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a"))));
+        var resolver = new HttpContextClientIdResolver(accessor);
+
+        var first = resolver.Resolve();
+        var second = resolver.Resolve();
+
+        Assert.Equal("jwt:tenant-a", first);
+        Assert.Same(first, second);
+    }
+
     /// <summary>Anonymous requests fall back to the ASP.NET Core connection id.</summary>
     [Fact]
     public void ResolveUsesConnectionIdWhenAnonymous()
     {
-        var accessor = new FixedHttpContextAccessor(CreateContext(false, null, "conn-42"));
-        var resolver = new HttpContextClientIdResolver(accessor);
+        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-42")));
 
         Assert.Equal("conn:conn-42", resolver.Resolve());
     }
@@ -23,15 +36,7 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveUsesConnectionWhenAuthHasNoSubject()
     {
-        var context = new DefaultHttpContext
-        {
-            Connection =
-            {
-                Id = "conn-no-sub",
-            },
-            User = new ClaimsPrincipal(new ClaimsIdentity("Bearer")),
-        };
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(context));
+        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-no-sub", AuthenticatedWithoutClaims())));
 
         Assert.Equal("conn:conn-no-sub", resolver.Resolve());
     }
@@ -40,65 +45,28 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
     [Fact]
     public void ResolveUsesJwtSubjectWhenAuthenticated()
     {
-        var accessor = new FixedHttpContextAccessor(CreateContext(true, "tenant-a", "conn-1"));
-        var resolver = new HttpContextClientIdResolver(accessor);
+        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "tenant-a")))));
 
         Assert.Equal("jwt:tenant-a", resolver.Resolve());
     }
 
-    /// <summary>Blank NameIdentifier is ignored so a raw sub claim can still scope the client id.</summary>
+    /// <summary>Blank NameIdentifier is ignored so a raw subclaim can still scope the client id.</summary>
     [Fact]
     public void ResolveUsesRawSubWhenNameIdentifierIsWhitespace()
     {
-        var claimsIdentity = new ClaimsIdentity(
-            [
-                new Claim(ClaimTypes.NameIdentifier, "   "),
-                new Claim("sub", "oidc-subject"),
-            ],
-            "Bearer");
-        var claimsPrincipal = new ClaimsPrincipal(claimsIdentity);
-        var context = new DefaultHttpContext
-        {
-            Connection =
-            {
-                Id = "conn-1",
-            },
-            User = claimsPrincipal,
-        };
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(context));
+        var resolver = new HttpContextClientIdResolver(
+            new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim(ClaimTypes.NameIdentifier, "   "), new Claim("sub", "oidc-subject")))));
 
         Assert.Equal("jwt:oidc-subject", resolver.Resolve());
     }
 
-    /// <summary>Raw JWT sub claim is used when NameIdentifier is absent.</summary>
+    /// <summary>Raw JWT subclaim is used when NameIdentifier is absent.</summary>
     [Fact]
     public void ResolveUsesRawSubWhenNameIdentifierMissing()
     {
-        var context = new DefaultHttpContext
-        {
-            Connection =
-            {
-                Id = "conn-1",
-            },
-            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "oidc-subject")], "Bearer")),
-        };
-        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(context));
+        var resolver = new HttpContextClientIdResolver(new FixedHttpContextAccessor(CreateContext("conn-1", Authenticated(new Claim("sub", "oidc-subject")))));
 
         Assert.Equal("jwt:oidc-subject", resolver.Resolve());
-    }
-
-    /// <summary>Resolved client ids are cached on the HttpContext for the request lifetime.</summary>
-    [Fact]
-    public void ResolveCachesClientIdOnHttpContext()
-    {
-        var accessor = new FixedHttpContextAccessor(CreateContext(true, "tenant-a", "conn-1"));
-        var resolver = new HttpContextClientIdResolver(accessor);
-
-        var first = resolver.Resolve();
-        var second = resolver.Resolve();
-
-        Assert.Equal("jwt:tenant-a", first);
-        Assert.Same(first, second);
     }
 
     /// <summary>In-process calls without HttpContext share the runtime bucket.</summary>
@@ -109,21 +77,18 @@ public sealed class BackpressureClientIdResolverTests : ServerUnitTestBase
         Assert.Equal(HttpContextClientIdResolver.MissingHttpContextClientId, resolver.Resolve());
     }
 
-    private static DefaultHttpContext CreateContext(bool authenticated, string? subject, string connectionId)
-    {
-        var context = new DefaultHttpContext
-        {
-            Connection =
-            {
-                Id = connectionId,
-            },
-        };
-        if (!authenticated || subject is null)
-            return context;
+    private static ClaimsPrincipal Authenticated(params Claim[] claims) => new(new ClaimsIdentity(claims, "Bearer"));
 
-        context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, subject)], "Bearer"));
-        return context;
-    }
+    private static ClaimsPrincipal AuthenticatedWithoutClaims() => new(new ClaimsIdentity("Bearer"));
+
+    private static DefaultHttpContext CreateContext(string connectionId, ClaimsPrincipal? user = null) => new()
+    {
+        Connection =
+        {
+            Id = connectionId,
+        },
+        User = user ?? new ClaimsPrincipal(),
+    };
 
     private sealed class FixedHttpContextAccessor : IHttpContextAccessor
     {
