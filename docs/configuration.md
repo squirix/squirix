@@ -148,7 +148,7 @@ section in settings (mapped into the same options model).
 | `ClusterId`          | string   | `cluster`                | Non-empty; validated with topology                                     |
 | `NodeId`             | string   | `node`                   | Non-empty; validated with topology                                     |
 | `Uri`                | `Uri`    | `https://localhost:5001` | Absolute HTTPS URI                                                     |
-| `Peers`              | peer list | empty (local added)     | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules             |
+| `Peers`              | peers    | empty (local added)      | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules             |
 | `VirtualNodes`       | int      | `128`                    | `1..16384`                                                             |
 | `PersistenceEnabled` | bool     | `false`                  | Any boolean                                                            |
 | `WaitForRecovery`    | bool     | `true`                   | Any boolean; applies when persistence is enabled                       |
