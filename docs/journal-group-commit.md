@@ -129,7 +129,8 @@ JsonFramed write backend was removed in `8d2664c5`; numbers below are from pre-r
 
 **Recommendations for production concurrent durable writes:**
 
-- Start with **`JournalGroupCommitMaxWait = 1–5 ms`** and **`JournalGroupCommitMaxBatch = 32`** (defaults).
+- As a production starting point after enabling group commit, try **`JournalGroupCommitMaxWait = 1–5 ms`** with
+  **`JournalGroupCommitMaxBatch = 32`** (default batch cap). The library default remains `MaxWait = 0` (disabled).
 - Prefer the **DurableMutationExecutor** group-commit path (conflict key + barrier) over calling `AppendPutAsync` and
   `AwaitDurabilityCommitAsync` separately on hot paths.
 
