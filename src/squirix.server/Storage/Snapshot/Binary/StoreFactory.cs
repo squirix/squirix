@@ -36,7 +36,9 @@ internal static class StoreFactory
             var entries = new List<(CacheKey Key, NodeCacheEntry<T> Entry)>(1024);
             var idempotencyRecords = new List<PersistedIdempotencyRecord>(16);
             using (var enumerator = new SnapshotRecordEnumerator(path, true, cancellationToken))
+            {
                 while (enumerator.MoveNext())
+                {
                     switch (enumerator.Current)
                     {
                         case EntryRecord entry:
@@ -53,6 +55,8 @@ internal static class StoreFactory
                             idempotencyRecords.Add(idempotency.Record);
                             break;
                     }
+                }
+            }
 
             return Task.FromResult(new LoadResult<T>(entries, idempotencyRecords));
         }

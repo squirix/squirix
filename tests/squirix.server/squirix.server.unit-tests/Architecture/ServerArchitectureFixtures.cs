@@ -121,9 +121,12 @@ internal static class ServerArchitectureFixtures
         return projectOffenders;
     }
 
-    internal static List<string> CollectUnexpectedMatches(List<string> includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
+    internal static List<string> CollectUnexpectedMatches(List<string>? includes, Func<string, bool> isMatch, string[] baseline, StringComparer comparer)
     {
         var unexpected = new List<string>();
+        if (includes is null)
+            return unexpected;
+
         for (var index = 0; index < includes.Count; index++)
         {
             var include = includes[index];
@@ -241,8 +244,10 @@ internal static class ServerArchitectureFixtures
         }
 
         for (var node = root.FirstNode; node is not null; node = node.NextNode)
+        {
             if (node is XElement child)
                 CollectIndexData(child, properties, includes, includedElements, localNames);
+        }
     }
 
     private static bool IsGeneratedOutputPath(string path)

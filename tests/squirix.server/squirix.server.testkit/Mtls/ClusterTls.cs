@@ -150,8 +150,10 @@ public sealed class ClusterTls : IDisposable
 
         var firstNodeId = topology[0].NodeId;
         for (var i = 1; i < topology.Length; i++)
+        {
             if (!string.Equals(topology[i].NodeId, firstNodeId, StringComparison.Ordinal))
                 return true;
+        }
 
         return false;
     }

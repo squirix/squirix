@@ -202,8 +202,10 @@ public sealed class MixedMutationStressTests : LoadTestBase
             var cache = _caches[writer];
             var value = WriterValues[writer];
             for (var k = 0; k < _keys.Length; k++)
+            {
                 if (await cache.TryAddAsync(_keys[k], value, cancellationToken: _token))
                     _ = Interlocked.Increment(ref _addSuccesses[k]);
+            }
         }
     }
 }

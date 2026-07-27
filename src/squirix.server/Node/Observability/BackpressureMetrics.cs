@@ -116,6 +116,7 @@ internal static class BackpressureMetrics
 
             var total = 0;
             for (var i = 0; i < copied; i++)
+            {
                 try
                 {
                     total += selector(snapshot[i]);
@@ -128,6 +129,7 @@ internal static class BackpressureMetrics
                 {
                     // Keep metrics observation resilient if one observer source is torn down concurrently.
                 }
+            }
 
             if (copied < snapshot.Length)
                 Array.Clear(snapshot, copied, snapshot.Length - copied);

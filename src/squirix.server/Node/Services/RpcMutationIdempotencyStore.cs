@@ -205,8 +205,10 @@ internal sealed class RpcMutationIdempotencyStore : IIdempotencySnapshotExporter
     private void SweepExpiredLocked(DateTime utcNow)
     {
         foreach (var (key, value) in _records)
+        {
             if (utcNow - value.CreatedUtc > _options.Retention)
                 _ = _records.TryRemove(key, out _);
+        }
     }
 
     private bool TryEvictOldestLocked()

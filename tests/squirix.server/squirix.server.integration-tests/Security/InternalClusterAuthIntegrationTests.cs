@@ -221,8 +221,10 @@ public sealed class InternalClusterAuthIntegrationTests : NodeIntegrationTestBas
     private static ServerPeer FindPeer(IReadOnlyList<ServerPeer> peers, string nodeId)
     {
         foreach (var peer in peers)
+        {
             if (string.Equals(peer.NodeId, nodeId, StringComparison.OrdinalIgnoreCase))
                 return peer;
+        }
 
         throw new InvalidOperationException("Expected peer was not found.");
     }

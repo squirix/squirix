@@ -83,8 +83,10 @@ internal static class RecoveryReplayTestRegistration
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)
+            {
                 if (services[i].ServiceType == typeof(TService))
                     services.RemoveAt(i);
+            }
 
             _ = services.AddSingleton(factory);
         }
@@ -93,8 +95,10 @@ internal static class RecoveryReplayTestRegistration
             where TService : class
         {
             for (var i = services.Count - 1; i >= 0; i--)
+            {
                 if (services[i].ServiceType == typeof(TService))
                     services.RemoveAt(i);
+            }
 
             _ = services.AddSingleton(instance);
         }

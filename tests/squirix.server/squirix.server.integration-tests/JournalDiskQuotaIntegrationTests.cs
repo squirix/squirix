@@ -62,6 +62,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
         {
             var bytes = payload.AsMemory(0, 200 * 1024);
             for (var i = 0; i < 32; i++)
+            {
                 try
                 {
                     await journal.AppendPutAndAwaitDurabilityAsync(new CacheKey(ServerCacheNames.DefaultNamespace, $"quota:k{i}"), bytes, DefaultCancellationToken)
@@ -75,6 +76,7 @@ public sealed class JournalDiskQuotaIntegrationTests : NodeIntegrationTestBase
                 {
                     return capacity;
                 }
+            }
 
             Assert.Fail($"Expected journal capacity rejection. used={journal.UsedBytes} max={journal.MaxBytes} high={journal.HighWaterBytes}");
             throw new InvalidOperationException("unreachable");

@@ -76,20 +76,20 @@ public sealed class TypedValueTests(SingleNodeFixture fixture) : TestBase(fixtur
     {
         var cache = await Client.GetCacheAsync<TypedCustomerProfile>("typed-single-get-or-add", DefaultCancellationToken);
         var expected = TypedValueFactory.CreateProfile("k");
-        var factoryCalls = new CallCounter();
+        var counter = new CallCounter();
 
         var first = await cache.GetOrAddAsync(
             "k",
             static (key, _) => Task.FromResult<TypedCustomerProfile?>(TypedValueFactory.CreateProfile(key)),
             cancellationToken: DefaultCancellationToken);
 
-        var second = await cache.GetOrAddAsync("k", factoryCalls.CreateUpdatedProfileAsync, cancellationToken: DefaultCancellationToken);
+        var second = await cache.GetOrAddAsync("k", counter.CreateUpdatedProfileAsync, cancellationToken: DefaultCancellationToken);
 
         Assert.True(first.Found);
         TypedValueAssertions.AssertProfileEquals(expected, first.Value!);
         Assert.True(second.Found);
         TypedValueAssertions.AssertProfileEquals(expected, second.Value!);
-        Assert.Equal(1, factoryCalls.Count);
+        Assert.Equal(1, counter.Count);
     }
 
     /// <summary>Verifies GetEntryReturnTypedValueAndMetadataOnSingleNode.</summary>

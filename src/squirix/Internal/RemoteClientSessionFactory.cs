@@ -28,11 +28,13 @@ internal static class RemoteClientSessionFactory
 
         var peers = new Peer[normalizedEndpoints.Length];
         for (var i = 0; i < normalizedEndpoints.Length; i++)
+        {
             peers[i] = new Peer
             {
                 NodeId = FormatEndpointNodeId(i),
                 Uri = normalizedEndpoints[i],
             };
+        }
 
         var credentials = BuildCallCredentials(bearerTokenProvider);
 

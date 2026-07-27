@@ -8,19 +8,19 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Squirix.Analyzers;
 
 /// <summary>
-/// Flags outer loops whose block contains only a nested loop — braces must be omitted.
+/// Requires braces when a loop body is a single embedded statement that spans multiple lines,
+/// except when that statement is a nested loop.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
-public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
+public sealed class RequireMultilineLoopBodyBracesAnalyzer : DiagnosticAnalyzer
 {
-    private const string DiagnosticId = "SQR001";
+    private const string DiagnosticId = "SQR008";
 
-    private static readonly LocalizableString Description = "When an outer loop's body is only a nested loop (no other statements), omit the outer braces.";
+    private static readonly LocalizableString Description = "When a loop body is a single embedded statement that spans multiple lines, add braces around the body. Nested loops alone are exempt.";
 
-    private static readonly LocalizableString MessageFormat = "Omit braces from outer {0} when it only contains a nested loop";
-    private static readonly LocalizableString Title = "Omit braces from outer loop that only contains a nested loop";
+    private static readonly LocalizableString MessageFormat = "Add braces to {0} body when the embedded statement spans multiple lines";
+    private static readonly LocalizableString Title = "Add braces to multiline embedded loop body";
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Style", DiagnosticSeverity.Error, true, Description);
-
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Rule];
@@ -44,17 +44,16 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeLoop(SyntaxNodeAnalysisContext context)
     {
         var body = LoopStatementSyntaxHelpers.GetLoopBody(context.Node);
-        if (body is not BlockSyntax block)
+        if (body is null or BlockSyntax)
             return;
 
-        if (block.Statements.Count != 1)
+        if (LoopStatementSyntaxHelpers.IsLoopStatement(body))
             return;
 
-        var only = block.Statements[0];
-        if (!LoopStatementSyntaxHelpers.IsLoopStatement(only))
+        if (!LoopStatementSyntaxHelpers.SpansMultipleLines(body))
             return;
 
         var loopKind = LoopStatementSyntaxHelpers.GetLoopKindName(context.Node);
-        context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), loopKind));
+        context.ReportDiagnostic(Diagnostic.Create(Rule, body.GetFirstToken().GetLocation(), loopKind));
     }
 }

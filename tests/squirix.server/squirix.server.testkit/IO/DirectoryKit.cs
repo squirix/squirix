@@ -112,6 +112,7 @@ public static class DirectoryKit
     public static void DeleteDirectory(string dir)
     {
         for (var i = 0; i < 6; i++)
+        {
             try
             {
                 if (Directory.Exists(dir))
@@ -127,6 +128,7 @@ public static class DirectoryKit
             {
                 // Retry after transient access failure.
             }
+        }
 
         if (Directory.Exists(dir))
             Directory.Delete(dir, true);
@@ -151,6 +153,7 @@ public static class DirectoryKit
         const int retries = 3;
 
         for (var attempt = 0; attempt < retries; attempt++)
+        {
             try
             {
                 var files = Directory.GetFiles(dir, "*", SearchOption.TopDirectoryOnly);
@@ -182,6 +185,7 @@ public static class DirectoryKit
             {
                 // Retry after transient access failure.
             }
+        }
     }
 
     private static void ClearReadOnlyAttributes(string file)
@@ -231,6 +235,7 @@ public static class DirectoryKit
     private static async Task DeleteDirectoryCoreAsync(string dir, CancellationToken cancellationToken)
     {
         for (var i = 0; i < 6; i++)
+        {
             try
             {
                 if (Directory.Exists(dir))
@@ -246,6 +251,7 @@ public static class DirectoryKit
             {
                 await Task.Delay(25 * (i + 1), cancellationToken).ConfigureAwait(false);
             }
+        }
 
         if (Directory.Exists(dir))
             Directory.Delete(dir, true);

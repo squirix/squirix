@@ -111,8 +111,10 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
             return false;
 
         foreach (var pair in left)
+        {
             if (!right.TryGetValue(pair.Key, out var other) || !string.Equals(pair.Value, other, StringComparison.Ordinal))
                 return false;
+        }
 
         return true;
     }

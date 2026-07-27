@@ -127,6 +127,7 @@ public static class ExportedApiMetadata
     private static void CollectExportedTypes(INamespaceSymbol namespaceSymbol, HashSet<string> identities)
     {
         foreach (var member in namespaceSymbol.GetMembers())
+        {
             switch (member)
             {
                 case INamespaceSymbol nestedNamespace:
@@ -136,6 +137,7 @@ public static class ExportedApiMetadata
                     CollectExportedTypeTree(type, identities);
                     break;
             }
+        }
     }
 
     private static string FormatEventLine(string typeIdentity, string name) => $"E:{typeIdentity}::{name}";
@@ -261,8 +263,10 @@ public static class ExportedApiMetadata
 
         var attributes = type.GetAttributes();
         for (var i = 0; i < attributes.Length; i++)
+        {
             if (string.Equals(attributes[i].AttributeClass?.Name, "CompilerGeneratedAttribute", StringComparison.Ordinal))
                 return false;
+        }
 
         return true;
     }
