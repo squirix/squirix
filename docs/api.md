@@ -89,7 +89,9 @@ reuse with a different payload (`FailedPrecondition`).
 | Tag value UTF-8 size | 1024 bytes |
 
 Violations return stable public codes: `INVALID_ENTRY_TAGS` as gRPC `InvalidArgument`, and `PAYLOAD_TOO_LARGE` as
-gRPC `ResourceExhausted`.
+gRPC `ResourceExhausted`. Other live public codes include `INVALID_CACHE_KEY`, `TOO_MANY_REQUESTS`,
+`MEMORY_PRESSURE`, `JOURNAL_DISK_QUOTA`, and the `OPERATION_ID_*` family. Cache **names** still fail as
+`ArgumentException` → gRPC `InvalidArgument` without a structured `INVALID_CACHE_NAME` code.
 
 In a multi-node cluster, the entry node forwards the **client** `operation_id` to the key owner over inter-node gRPC
 instead of minting a new id. Idempotency records are per-node in memory (durable nodes also persist outcomes through the

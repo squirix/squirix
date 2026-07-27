@@ -218,6 +218,13 @@ There is **no** `Squirix:Persistence` JSON merge in v0.1 public hosting — putt
 | `JournalMaxSegmentCount`      | int    | `32`                                                       | `> 0` (Pipelined journal segment count cap)                                                                                                |
 | `JournalMaxTotalBytesMb`      | int    | `2048`                                                     | `> 0` (Pipelined journal total on-disk size hard cap)                                                                                      |
 
+Additional host defaults (also not merged from `Squirix.settings.json`):
+
+- `JournalWriteBatchBytes` — `16777216` (16 MiB); `> 0`; journal write-coalescing buffer (larger frames bypass coalescing)
+- `RetentionCleanupDegradedConsecutiveWrites` — `3`; consecutive retention-cleanup write failures before degraded readiness
+- `RetentionCleanupDegradedWindowFailures` — `5`; failures inside the sliding window before degraded readiness
+- `RetentionCleanupDegradedWindowMinutes` — `15`; sliding window used with `RetentionCleanupDegradedWindowFailures`
+
 `JournalMaxTotalBytesMb` soft high-water for `/health/ready/details` is fixed at 80% of this limit. Durable writes
 that would exceed the hard cap are rejected with `JOURNAL_DISK_QUOTA` (gRPC `ResourceExhausted`); readiness
 stays healthy. See [Journal disk quota](operational-runbook.md#journal-disk-quota) for operator guidance.
@@ -473,7 +480,9 @@ startup; the process refuses to start without them.
 
 ## Validation failures
 
-Typical examples:
+Typical examples from options validators (host composition / `validate-config`). Backpressure and Persistence
+messages apply when those option objects are constructed or overridden in a custom host — they are **not** produced
+by merging JSON sections that v0.1 public hosting ignores:
 
 - `Backpressure RejectThreshold must be greater than or equal to SlowdownThreshold.`
 - `Backpressure PerClientMaxInFlight cannot exceed MaxInFlight.`

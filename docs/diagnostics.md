@@ -17,11 +17,12 @@ diagnostics surfaces currently exposed by the node host.
 - `journalBacklogOps` (persistence enabled): journal operations not covered by the latest snapshot watermark
 - `snapshotAgeSeconds` (persistence enabled): age of the latest snapshot, or `null` if no snapshot exists
 - `snapshotInFlight` (persistence enabled): whether a snapshot is currently running
-- `compaction.state` (persistence enabled): current journal compaction service state
+- `compaction.state` (persistence enabled): journal compaction service state —
+  `Idle`, `Waiting`, `Running`, `BackingOff`, or `Failed` (ephemeral nodes always report `Idle`)
 - `compaction.lastRunUtc`
 - `compaction.inFlight`
-- `clientPool.configured`
-- `clientPool.peers`
+- `clientPool.configured`: currently always `true` (client pool wiring is always present in the node host)
+- `clientPool.peers`: configured peer count from topology (`Peers.Length`)
 - `coordination.leases`: `configured`, `active`, `pendingGrants`, `pendingReleases`
 - `coordination.watches`: `configured`, `active`, `droppedEvents`, `bufferedEvents`
 - `memoryPressure.state`: coarse pressure derived from configured limits and **decorator-maintained** approximate

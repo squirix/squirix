@@ -3,20 +3,11 @@ namespace Squirix.Server.Errors;
 /// <summary>Defines stable squirix error codes used by protocol adapters and structured error payloads.</summary>
 public enum SquirixErrorCode
 {
-    /// <summary>Cache name validation failed.</summary>
-    InvalidCacheName = 0,
+    /// <summary>Unspecified; not emitted as a structured protocol error.</summary>
+    None = 0,
 
     /// <summary>Cache key validation failed.</summary>
     InvalidCacheKey = 1,
-
-    /// <summary>Request validation failed.</summary>
-    BadRequest = 2,
-
-    /// <summary>Requested resource was not found.</summary>
-    NotFound = 3,
-
-    /// <summary>Request conflicts with current resource state.</summary>
-    Conflict = 4,
 
     /// <summary>Request payload exceeds the configured limit.</summary>
     PayloadTooLarge = 5,
