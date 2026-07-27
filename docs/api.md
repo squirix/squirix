@@ -8,10 +8,11 @@ Entry point (`Squirix.Client`):
 
 ```csharp
 using System;
+using System.Threading;
 using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
-var cache = await client.GetCacheAsync<T>("cache-name", cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), CancellationToken.None);
+var cache = await client.GetCacheAsync<T>("cache-name", CancellationToken.None);
 ```
 
 `ICache<T>` methods (v0.1 exported surface):

@@ -42,11 +42,12 @@ Client:
 
 ```csharp
 using System;
+using System.Threading;
 using Squirix.Client;
 
-await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), cancellationToken);
-var cache = await client.GetCacheAsync<string>("demo", cancellationToken);
-await cache.SetAsync("greeting", "hello", cancellationToken: cancellationToken);
+await using var client = await SquirixClient.ConnectAsync(new Uri("https://localhost:5001"), CancellationToken.None);
+var cache = await client.GetCacheAsync<string>("demo", CancellationToken.None);
+await cache.SetAsync("greeting", "hello", cancellationToken: CancellationToken.None);
 ```
 
 Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.md).
