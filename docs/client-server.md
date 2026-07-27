@@ -58,7 +58,7 @@ During early preview evaluation you may reference `Squirix.Server.csproj` from a
 `Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC
 contracts and shared proto source.
 
-## Features in 0.1.0
+## Features in 0.1.0-preview.7
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes

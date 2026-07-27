@@ -143,11 +143,16 @@ so gRPC clients and operational routes (`/health`, `/metrics`) share one TLS por
 Configure these through `await builder.AddSquirixServerAsync(...)`, `SquirixServer.StartAsync(...)`, or the `Squirix:Cluster`
 section in settings (mapped into the same options model).
 
-| Field                       | Type   | Default | Validation                                                                 |
-| --------------------------- | ------ | ------- | -------------------------------------------------------------------------- |
-| `PersistenceEnabled`        | bool   | `false` | Any boolean                                                                |
-| `WaitForRecovery`           | bool   | `true`  | Any boolean; applies when persistence is enabled                           |
-| `DataDirectory`             | string | `null`  | Optional path when persistence is enabled; requires `UsePersistence()`     |
+| Field                | Type     | Default                  | Validation                                                             |
+| -------------------- | -------- | ------------------------ | ---------------------------------------------------------------------- |
+| `ClusterId`          | string   | `cluster`                | Non-empty; validated with topology                                     |
+| `NodeId`             | string   | `node`                   | Non-empty; validated with topology                                     |
+| `Uri`                | `Uri`    | `https://localhost:5001` | Absolute HTTPS URI                                                     |
+| `Peers`              | peer list | empty (local added)     | `SquirixServerPeerOptions` `NodeId` / `Uri` topology rules             |
+| `VirtualNodes`       | int      | `128`                    | `1..16384`                                                             |
+| `PersistenceEnabled` | bool     | `false`                  | Any boolean                                                            |
+| `WaitForRecovery`    | bool     | `true`                   | Any boolean; applies when persistence is enabled                       |
+| `DataDirectory`      | string?  | `null`                   | Optional path when persistence is enabled; requires `UsePersistence()` |
 
 Call `options.UsePersistence()` (or `options.UsePersistence("./data")`) to enable journal/snapshot persistence. The standalone
 host accepts `--persist`; `--data-dir` requires `--persist`.
