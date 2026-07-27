@@ -36,7 +36,8 @@ Configure the v0.1 client when calling `SquirixClient.ConnectAsync`:
 For local HTTPS development, trust the ASP.NET Core development certificate with
 `dotnet dev-certs https --trust`.
 
-Example:
+Example (requires a JWT in `SQUIRIX_CLIENT_JWT`, for example `export SQUIRIX_CLIENT_JWT=...` /
+`set SQUIRIX_CLIENT_JWT=...`):
 
 ```csharp
 using System;
@@ -48,7 +49,14 @@ await using var client = await SquirixClient.ConnectAsync(
     {
         options.Endpoints.Add(new Uri("https://cache-a.example.internal:5001"));
         options.Endpoints.Add(new Uri("https://cache-b.example.internal:5002"));
-        options.BearerTokenProvider = _ => new ValueTask<string>(Environment.GetEnvironmentVariable("SQUIRIX_CLIENT_JWT")!);
+        options.BearerTokenProvider = static _ =>
+        {
+            var token = Environment.GetEnvironmentVariable("SQUIRIX_CLIENT_JWT");
+            if (string.IsNullOrWhiteSpace(token))
+                throw new InvalidOperationException("SQUIRIX_CLIENT_JWT is not set.");
+
+            return new ValueTask<string>(token);
+        };
     },
     cancellationToken);
 ```
