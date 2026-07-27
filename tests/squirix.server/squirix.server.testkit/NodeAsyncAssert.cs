@@ -129,7 +129,6 @@ public static class NodeAsyncAssert
     private static class MissingCache<TException>
         where TException : Exception
     {
-        internal static readonly string Message =
-            $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
+        internal static readonly string Message = $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
     }
 }

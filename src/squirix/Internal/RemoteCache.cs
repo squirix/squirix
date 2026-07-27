@@ -394,7 +394,7 @@ internal sealed class RemoteCache<T> : ICache<T>
         {
             /// <summary>
             /// Stable contract classification for cache-operation transport faults that must stay aligned across
-            /// REST projections, gRPC adapters, remote cluster helpers, and <c>DomainTransportErrorMapper</c>.
+            /// gRPC adapters, remote cluster helpers, and <c>DomainTransportErrorMapper</c>.
             /// </summary>
             private enum CacheOperationFailedPreconditionKind
             {

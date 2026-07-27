@@ -68,8 +68,10 @@ public sealed class MeasurementSink : IDisposable
         if (measurement.OverflowTags is not null)
         {
             foreach (var tag in measurement.OverflowTags)
+            {
                 if (string.Equals(tag.Key, key, StringComparison.OrdinalIgnoreCase) && TagValueEquals(tag.Value, expectedValue))
                     return true;
+            }
 
             return false;
         }

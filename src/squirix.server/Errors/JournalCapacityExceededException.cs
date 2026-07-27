@@ -8,7 +8,7 @@ namespace Squirix.Server.Errors;
 public sealed class JournalCapacityExceededException : Exception
 {
     /// <summary>
-    /// Stable, bounded detail text shared with REST/gRPC mappings (no raw paths, keys, or sizes).
+    /// Stable, bounded detail text shared with gRPC and health/metrics HTTP error mappings (no raw paths, keys, or sizes).
     /// </summary>
     internal const string StableDetail = "The cache rejected this operation because on-disk journal usage is at the configured limit.";
 

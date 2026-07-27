@@ -107,12 +107,6 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
 
     private void AdjustInFlight(int adjustment) => _ = Interlocked.Add(ref _inFlight, adjustment);
 
-    private int ObserveInFlight() => Volatile.Read(ref _inFlight);
-
-    private int ObserveQueueDepth() => Volatile.Read(ref _queueDepth);
-
-    private int ObserveTrackedClients() => _clients.Count;
-
     private async Task ApplySlowdownAsync(string transport, string operation, int inFlight, CancellationToken cancellationToken)
     {
         var window = Math.Max(1d, _options.RejectThreshold - _options.SlowdownThreshold);
@@ -133,6 +127,12 @@ internal sealed class AdmissionGate : IBackpressureGate, IDisposable
         BackpressureMetrics.AddBypass(transport, operation);
         return (Decision.Accepted(), Lease.Empty);
     }
+
+    private int ObserveInFlight() => Volatile.Read(ref _inFlight);
+
+    private int ObserveQueueDepth() => Volatile.Read(ref _queueDepth);
+
+    private int ObserveTrackedClients() => _clients.Count;
 
     private (Decision Decision, Lease Lease)? RejectByClientRateLimitIfLimited(string transport, string operation, ClientState client)
     {

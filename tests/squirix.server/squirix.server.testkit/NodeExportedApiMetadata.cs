@@ -127,6 +127,7 @@ public static class NodeExportedApiMetadata
     private static void CollectExportedTypes(INamespaceSymbol namespaceSymbol, HashSet<string> identities)
     {
         foreach (var member in namespaceSymbol.GetMembers())
+        {
             switch (member)
             {
                 case INamespaceSymbol nestedNamespace:
@@ -136,6 +137,7 @@ public static class NodeExportedApiMetadata
                     CollectExportedTypeTree(type, identities);
                     break;
             }
+        }
     }
 
     private static string FormatEventLine(string typeIdentity, string name) => $"E:{typeIdentity}::{name}";
@@ -193,16 +195,13 @@ public static class NodeExportedApiMetadata
         {
             ITypeParameterSymbol typeParameter => FormatTypeParameterName(typeParameter),
             IPointerTypeSymbol pointer => $"{FormatTypeName(pointer.PointedAtType)}*",
-            IArrayTypeSymbol array => array.Rank is 1
-                ? $"{FormatTypeName(array.ElementType)}[]"
-                : $"{FormatTypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]",
+            IArrayTypeSymbol array => array.Rank is 1 ? $"{FormatTypeName(array.ElementType)}[]" : $"{FormatTypeName(array.ElementType)}[{new string(',', array.Rank - 1)}]",
             _ => type is INamedTypeSymbol { IsGenericType: true } namedType ? FormatGenericTypeName(namedType) : GetTypeMetadataName(type),
         };
     }
 
     private static string FormatTypeParameterName(ITypeParameterSymbol typeParameter) => typeParameter.TypeParameterKind is TypeParameterKind.Method
-        ? $"!{InvariantIndexStrings.Format(typeParameter.Ordinal)}"
-        : $"!!{InvariantIndexStrings.Format(typeParameter.Ordinal)}";
+        ? $"!{InvariantIndexStrings.Format(typeParameter.Ordinal)}" : $"!!{InvariantIndexStrings.Format(typeParameter.Ordinal)}";
 
     private static string GetNamespace(ITypeSymbol type)
     {
@@ -264,8 +263,10 @@ public static class NodeExportedApiMetadata
 
         var attributes = type.GetAttributes();
         for (var i = 0; i < attributes.Length; i++)
+        {
             if (string.Equals(attributes[i].AttributeClass?.Name, "CompilerGeneratedAttribute", StringComparison.Ordinal))
                 return false;
+        }
 
         return true;
     }

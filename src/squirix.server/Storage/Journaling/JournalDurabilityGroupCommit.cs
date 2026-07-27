@@ -137,8 +137,10 @@ internal sealed class JournalDurabilityGroupCommit
         }
 
         for (var i = 0; i < batch.Count; i++)
+        {
             if (batch[i].IsAbandonedByCaller())
                 batch[i].ReturnToPool();
+        }
 
         batch.Clear();
     }
@@ -155,8 +157,10 @@ internal sealed class JournalDurabilityGroupCommit
         }
 
         for (var i = 0; i < batch.Count; i++)
+        {
             if (batch[i].IsAbandonedByCaller())
                 batch[i].ReturnToPool();
+        }
 
         batch.Clear();
     }

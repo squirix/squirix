@@ -28,10 +28,11 @@ docker build -f docker/Dockerfile -t squirix-server .
 
 ## Build (release — from NuGet tool)
 
-Published releases (nuget.org):
+Published releases (nuget.org). Image tag is arbitrary; the Dockerfile `SQUIRIX_VERSION` ARG defaults to the published
+package version (override with `--build-arg` when needed):
 
 ```bash
-docker build -f docker/Dockerfile.release -t squirix-server:0.1.0-preview.7 .
+docker build -f docker/Dockerfile.release -t squirix-server:release .
 ```
 
 Verify a not-yet-published tool package locally:
@@ -41,7 +42,7 @@ dotnet clean src/squirix.server.host/Squirix.Server.Host.csproj -c Release
 dotnet pack src/squirix.server.host/Squirix.Server.Host.csproj -c Release -o docker/nuget-packages
 docker build -f docker/Dockerfile.release -t squirix-server:local \
   --build-arg LOCAL_PACKAGES=true \
-  --build-arg SQUIRIX_VERSION=0.1.0-preview.7 .
+  --build-arg SQUIRIX_VERSION=<version from Directory.Build.props> .
 ```
 
 Or use the release compose file (expects packed `.nupkg` files in `docker/nuget-packages/`). **Secrets are not
@@ -111,7 +112,7 @@ Endpoints (two-node `docker compose` example):
 
 Mounted settings use **Docker DNS hostnames** for cluster traffic (`https://squirix-node-a:5000`,
 `https://squirix-node-b:5000`). Host applications use the **published** ports (`5001`, `5002`) instead. Each node's
-`Cluster.Url` must match its local peer entry (see [configuration.md](configuration.md)).
+`Cluster.Uri` must match its local peer entry (see [configuration.md](configuration.md)).
 
 ## HTTPS in containers
 

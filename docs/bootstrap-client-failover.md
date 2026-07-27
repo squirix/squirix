@@ -24,7 +24,8 @@ Remote applications connect with `SquirixClient.ConnectAsync` and one or more bo
 ## Per-operation failover (v0.1 exported client)
 
 The v0.1 `Squirix` client exposes basic key/value and expiration operations on `ICache<T>` only. Each exported method
-maps to one or more gRPC calls on the server.
+maps to **one** unary gRPC RPC on the server (transport failover may **retry** that same RPC on another bootstrap
+endpoint).
 
 | Operation kind                                                                                                                                                  | Failover behavior                                                              |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |

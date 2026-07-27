@@ -24,6 +24,7 @@ public sealed class ServerGrpcArchitectureTests : ServerUnitTestBase
         ];
 
         var serverIncludes = ServerArchitectureFixtures.GetServerProjectIndex().GetIncludes("Compile");
+        Assert.NotNull(serverIncludes);
 
         foreach (var include in expectedIncludes)
             Assert.Contains(include, serverIncludes, StringComparer.Ordinal);

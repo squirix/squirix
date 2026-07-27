@@ -1,5 +1,3 @@
-using System;
-using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.Adapters.Endpoint;
@@ -46,32 +44,5 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
         public WriteOptions? WriteOptions { get; set; }
 
         public Task WriteAsync(T message) => Task.CompletedTask;
-    }
-
-    private sealed class TestServerCallContext : ServerCallContext
-    {
-        protected override AuthContext AuthContextCore => new(null, []);
-
-        protected override CancellationToken CancellationTokenCore => CancellationToken.None;
-
-        protected override DateTime DeadlineCore => DateTime.MaxValue;
-
-        protected override string HostCore => "localhost";
-
-        protected override string MethodCore => "/Test.Test/Unary";
-
-        protected override string PeerCore => "ipv4:127.0.0.1:5001";
-
-        protected override Metadata RequestHeadersCore { get; } = [];
-
-        protected override Metadata ResponseTrailersCore => [];
-
-        protected override Status StatusCore { get; set; } = Status.DefaultSuccess;
-
-        protected override WriteOptions? WriteOptionsCore { get; set; }
-
-        protected override ContextPropagationToken CreatePropagationTokenCore(ContextPropagationOptions? options) => throw new NotSupportedException();
-
-        protected override Task WriteResponseHeadersAsyncCore(Metadata responseHeaders) => Task.CompletedTask;
     }
 }

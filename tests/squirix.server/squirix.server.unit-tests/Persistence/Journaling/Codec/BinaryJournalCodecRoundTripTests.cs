@@ -21,9 +21,19 @@ public sealed class BinaryJournalCodecRoundTripTests
     [Fact]
     public void DecodeRejectsTruncatedFrameBody()
     {
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            TruncatedFrameBody,
-            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(TruncatedFrameBody, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
+        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Decode rejects put frames whose payload length exceeds the buffer.</summary>
+    [Fact]
+    public void DecodeRejectsTruncatedPutPayload()
+    {
+        var record = CreateRecord(JournalOperationKind.Put);
+        var prepared = BinaryJournalCodec.PrepareEncode(record);
+        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
+        BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
+        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
         Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
     }
 
@@ -37,20 +47,6 @@ public sealed class BinaryJournalCodecRoundTripTests
         bodyBytes[16] = 0xFF;
         var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(bodyBytes, static value => _ = BinaryJournalCodec.Decode(value, value.Length));
         Assert.Contains("Unknown journal opcode", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Decode rejects put frames whose payload length exceeds the buffer.</summary>
-    [Fact]
-    public void DecodeRejectsTruncatedPutPayload()
-    {
-        var record = CreateRecord(JournalOperationKind.Put);
-        var prepared = BinaryJournalCodec.PrepareEncode(record);
-        var bodyBytes = BufferKit.ToOwnedBytes(prepared.BodyLength, (record, prepared), static (ctx, body) => _ = BinaryJournalCodec.Encode(ctx.record, body, in ctx.prepared));
-        BinaryPrimitives.WriteInt32LittleEndian(bodyBytes.AsSpan(21), bodyBytes.Length);
-        var ex = NodeExceptionAssert.For<InvalidDataException>().Throws(
-            bodyBytes,
-            static value => _ = BinaryJournalCodec.Decode(value, value.Length));
-        Assert.Contains("truncated", ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Internal-only journal operations must not be prepared for on-disk encoding.</summary>

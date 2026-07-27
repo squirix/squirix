@@ -18,7 +18,7 @@ application -> Squirix client SDK -> squirix server node(s)
 
 - **Typed application surface** instead of untyped string payloads at the SDK boundary
 - **Explicit client/server packages** so applications do not accidentally embed server durability code
-- **Operational visibility** through health, admin, metrics, and tracing hooks on the server
+- **Operational visibility** through health, readiness, metrics, and tracing hooks on the server
 - **Durability-first server design** with journal, snapshots, and recovery as first-class server concerns
 - **Focused 0.1 scope** — a narrow API that can evolve based on real feedback
 
@@ -31,18 +31,18 @@ NuGet ids use lowercase **`squirix.*`**. C# namespaces and exported types remain
 
 All published packages: [nuget.org/profiles/squirix](https://www.nuget.org/profiles/squirix).
 
-| NuGet package | Role | nuget.org |
-| --- | --- | --- |
-| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity | `0.1.0-preview.7` |
-| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) | `0.1.0-preview.7` |
-| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool | `0.1.0-preview.7` |
+| NuGet package | Role |
+| --- | --- |
+| [`squirix`](https://www.nuget.org/packages/squirix/) | Client SDK — `SquirixClient`, `ICache<T>`, serialization, connectivity |
+| [`squirix.server`](https://www.nuget.org/packages/squirix.server/) | Server runtime — routing, durability, gRPC host (library) |
+| [`squirix.server.tool`](https://www.nuget.org/packages/squirix.server.tool/) | Standalone `squirix-server` executable as a .NET global tool |
 
-Install:
+Install (pin the version from the [root README](../README.md) / nuget.org):
 
 ```bash
-dotnet add package squirix --version 0.1.0-preview.7
-dotnet add package squirix.server --version 0.1.0-preview.7
-dotnet tool install --global squirix.server.tool --version 0.1.0-preview.7
+dotnet add package squirix --version <version>
+dotnet add package squirix.server --version <version>
+dotnet tool install --global squirix.server.tool --version <version>
 ```
 
 During early preview evaluation you may reference `Squirix.Server.csproj` from a clone instead of the NuGet package.
@@ -58,7 +58,7 @@ During early preview evaluation you may reference `Squirix.Server.csproj` from a
 `Squirix.Server` does not reference the `Squirix` client assembly. Wire compatibility is through gRPC
 contracts and shared proto source.
 
-## Features in 0.1.0
+## Features in 0.1
 
 - Strict client/server architecture with wire-contract boundaries
 - Strongly typed `ICache<T>` with explicit read results and expiration on writes

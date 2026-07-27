@@ -5,18 +5,17 @@ namespace Squirix.Server.Cluster;
 
 internal static class TopologyValidator
 {
-    private const int MaxDataDirectoryLength = 1024;
-    private const int MaxIdentifierLength = 128;
-    private const int MaxPeers = 1024;
-    private const int MaxUrlLength = 2048;
-    private const int MaxVirtualNodes = 16384;
-
     private const string ClusterIdRequired = "ClusterId is required.";
     private const string ClusterIdTooLong = "ClusterId cannot exceed 128 characters.";
     private const string DataDirectoryEmpty = "DataDirectory cannot be empty or whitespace.";
     private const string DataDirectoryRequiresPersistence = "DataDirectory requires persistence. Call UsePersistence() or pass --persist.";
     private const string DataDirectoryTooLong = "DataDirectory cannot exceed 1024 characters.";
     private const string LocalPeerUriMismatch = "Peers entry for the local NodeId must use the same Uri as Uri.";
+    private const int MaxDataDirectoryLength = 1024;
+    private const int MaxIdentifierLength = 128;
+    private const int MaxPeers = 1024;
+    private const int MaxUrlLength = 2048;
+    private const int MaxVirtualNodes = 16384;
     private const string NodeIdRequired = "NodeId is required.";
     private const string NodeIdTooLong = "NodeId cannot exceed 128 characters.";
     private const string PeersDuplicateNodeId = "Peers contains duplicate NodeId.";
@@ -153,13 +152,7 @@ internal static class TopologyValidator
         ValidatePeers(failures, args.NodeId, args.NodeUri, readPeer, peers);
     }
 
-    private static void ValidateUri(
-        List<string> failures,
-        Uri? value,
-        string httpsRequiredMessage,
-        string tooLongMessage,
-        string hostRequiredMessage,
-        string originRequiredMessage)
+    private static void ValidateUri(List<string> failures, Uri? value, string httpsRequiredMessage, string tooLongMessage, string hostRequiredMessage, string originRequiredMessage)
     {
         if (value?.IsAbsoluteUri is not true || !string.Equals(value.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {

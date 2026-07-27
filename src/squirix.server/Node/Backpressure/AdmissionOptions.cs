@@ -2,7 +2,7 @@ using System;
 
 namespace Squirix.Server.Node.Backpressure;
 
-/// <summary>Configures node-level admission control for inbound REST and gRPC requests.</summary>
+/// <summary>Configures node-level admission control for inbound gRPC cache requests.</summary>
 internal sealed record AdmissionOptions
 {
     internal bool Enabled { get; init; } = true;
@@ -67,26 +67,6 @@ internal sealed record AdmissionOptions
         ValidatePerClientRateLimit();
     }
 
-    private void ValidateNodeRateLimit()
-    {
-        ValidateRateLimit(
-            NodeRateLimitPerSecond,
-            NodeRateLimitBurst,
-            "Backpressure NodeRateLimitPerSecond must be greater than zero when configured.",
-            "Backpressure NodeRateLimitBurst must be greater than zero when configured.",
-            "Backpressure NodeRateLimitBurst must be greater than or equal to NodeRateLimitPerSecond.");
-    }
-
-    private void ValidatePerClientRateLimit()
-    {
-        ValidateRateLimit(
-            PerClientRateLimitPerSecond,
-            PerClientRateLimitBurst,
-            "Backpressure PerClientRateLimitPerSecond must be greater than zero when configured.",
-            "Backpressure PerClientRateLimitBurst must be greater than zero when configured.",
-            "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.");
-    }
-
     private static void ValidateRateLimit(int? rate, int? burst, string rateRequiredMessage, string burstRequiredMessage, string burstGteRateMessage)
     {
         if (rate is not null)
@@ -108,5 +88,25 @@ internal sealed record AdmissionOptions
         {
             throw new InvalidOperationException(rateRequiredMessage);
         }
+    }
+
+    private void ValidateNodeRateLimit()
+    {
+        ValidateRateLimit(
+            NodeRateLimitPerSecond,
+            NodeRateLimitBurst,
+            "Backpressure NodeRateLimitPerSecond must be greater than zero when configured.",
+            "Backpressure NodeRateLimitBurst must be greater than zero when configured.",
+            "Backpressure NodeRateLimitBurst must be greater than or equal to NodeRateLimitPerSecond.");
+    }
+
+    private void ValidatePerClientRateLimit()
+    {
+        ValidateRateLimit(
+            PerClientRateLimitPerSecond,
+            PerClientRateLimitBurst,
+            "Backpressure PerClientRateLimitPerSecond must be greater than zero when configured.",
+            "Backpressure PerClientRateLimitBurst must be greater than zero when configured.",
+            "Backpressure PerClientRateLimitBurst must be greater than or equal to PerClientRateLimitPerSecond.");
     }
 }

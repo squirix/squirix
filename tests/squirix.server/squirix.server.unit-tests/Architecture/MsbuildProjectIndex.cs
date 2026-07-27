@@ -28,7 +28,7 @@ internal sealed class MsbuildProjectIndex
 
     internal bool ContainsElement(string localName) => _localNames.Contains(localName);
 
-    internal List<string> GetIncludes(string itemName) => _includes.TryGetValue(itemName, out var list) ? list : [];
+    internal List<string>? GetIncludes(string itemName) => _includes.GetValueOrDefault(itemName);
 
     internal XElement RequireIncludedElement(string localName, string include)
     {

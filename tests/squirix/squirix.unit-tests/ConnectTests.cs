@@ -36,4 +36,14 @@ public sealed class ConnectTests : UnitTestBase
 
         Assert.Contains("HTTPS", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>Verifies relative endpoints are rejected as non-absolute server URIs.</summary>
+    [Fact]
+    public async Task ConnectAsyncOptionsRejectRelativeEndpoint()
+    {
+        var ex = await AsyncAssert.ThrowsAsync<ArgumentException, ISquirixClient>(
+            SquirixClient.ConnectAsync(static options => options.Endpoints.Add(new Uri("not-absolute", UriKind.Relative)), DefaultCancellationToken));
+
+        Assert.Contains("absolute Squirix server URI", ex.Message, StringComparison.Ordinal);
+    }
 }

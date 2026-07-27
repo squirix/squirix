@@ -60,8 +60,12 @@ public sealed class CrossNodeCrudTests(TwoNodeFixture fixture) : CrossNodeTestBa
 
         var tasks = new Task[50];
         for (var i = 0; i < tasks.Length; i++)
-            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken)
-                : Cluster.CacheB.SetAsync(key, $"b-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken);
+        {
+            tasks[i] = i % 2 is 0 ? Cluster.CacheA.SetAsync(key, $"a-{InvariantIndexStrings.Format(i)}", cancellationToken: DefaultCancellationToken) : Cluster.CacheB.SetAsync(
+                key,
+                $"b-{InvariantIndexStrings.Format(i)}",
+                cancellationToken: DefaultCancellationToken);
+        }
 
         await Task.WhenAll(tasks);
 

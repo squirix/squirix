@@ -10,7 +10,10 @@ internal sealed class SingleItemReadOnlyList<T> : IReadOnlyList<T>
 {
     private readonly T _item;
 
-    internal SingleItemReadOnlyList(T item) => _item = item;
+    internal SingleItemReadOnlyList(T item)
+    {
+        _item = item;
+    }
 
     public int Count => 1;
 

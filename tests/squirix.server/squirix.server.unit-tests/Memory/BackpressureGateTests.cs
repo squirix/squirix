@@ -414,11 +414,29 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         Assert.True(sink.HasEvent("squirix_backpressure_slowdown_total", ("transport", "rest"), ("op", "put")));
     }
 
+    private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)
+    {
+        var subscription = new BackpressureGaugeSubscription(measurements);
+        var listener = new MeterListener
+        {
+            InstrumentPublished = subscription.OnInstrumentPublished,
+        };
+        listener.SetMeasurementEventCallback<int>(static (instrument, measurement, _, state) =>
+        {
+            if (state is FrozenDictionary<string, List<int>> map && map.TryGetValue(instrument.Name, out var target))
+                target.Add(measurement);
+        });
+        listener.Start();
+        return listener;
+    }
+
     private static bool HasAtLeast(List<int> values, int min)
     {
         for (var i = 0; i < values.Count; i++)
+        {
             if (values[i] >= min)
                 return true;
+        }
 
         return false;
     }
@@ -489,22 +507,6 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
         Assert.True(task.IsCanceled);
     }
 
-    private static MeterListener CreateBackpressureGaugeListener(FrozenDictionary<string, List<int>> measurements)
-    {
-        var subscription = new BackpressureGaugeSubscription(measurements);
-        var listener = new MeterListener
-        {
-            InstrumentPublished = subscription.OnInstrumentPublished,
-        };
-        listener.SetMeasurementEventCallback<int>(static (instrument, measurement, _, state) =>
-        {
-            if (state is FrozenDictionary<string, List<int>> map && map.TryGetValue(instrument.Name, out var target))
-                target.Add(measurement);
-        });
-        listener.Start();
-        return listener;
-    }
-
     private sealed class BackpressureGaugeSubscription
     {
         private readonly FrozenDictionary<string, List<int>> _measurements;
@@ -523,9 +525,10 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
                 listener.EnableMeasurementEvents(instrument, _measurements);
         }
 
-        private static bool IsBackpressureGauge(string name) =>
-            string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
-            string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) ||
-            string.Equals(name, BackpressureTrackedClientsInstrumentName, StringComparison.Ordinal);
+        private static bool IsBackpressureGauge(string name) => string.Equals(name, BackpressureInFlightInstrumentName, StringComparison.Ordinal) ||
+                                                                string.Equals(name, BackpressureQueueDepthInstrumentName, StringComparison.Ordinal) || string.Equals(
+                                                                    name,
+                                                                    BackpressureTrackedClientsInstrumentName,
+                                                                    StringComparison.Ordinal);
     }
 }

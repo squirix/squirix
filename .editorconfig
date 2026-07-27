@@ -31,6 +31,7 @@ csharp_prefer_static_local_function = true:error
 # Keep braces only when the body has multiple statements (language-required) or an intentional block.
 # Use false (not when_multiline): when_multiline / SA1519 / RCS1001 force braces on outer loops whose
 # nested child spans multiple lines, which fights the nested-loop style above.
+# Multiline embedded bodies (for example try/catch) are enforced by SQR008 instead.
 # Severity must be on dotnet_diagnostic.IDE0011 (preference :severity is IDE-only and does not fail builds).
 csharp_prefer_braces = false
 dotnet_diagnostic.IDE0011.severity = error
@@ -112,6 +113,8 @@ dotnet_diagnostic.RCS1004.severity = error
 dotnet_diagnostic.RCS1007.severity = none
 # Squirix.Analyzers: outer for/foreach/while/do must omit braces when the body is only a nested loop.
 dotnet_diagnostic.SQR001.severity = error
+# Squirix.Analyzers: multiline embedded loop bodies (except nested loops) must use braces.
+dotnet_diagnostic.SQR008.severity = error
 # Squirix.Analyzers: design/naming limits (SQR002–SQR007).
 dotnet_diagnostic.SQR002.severity = error
 dotnet_diagnostic.SQR003.severity = error

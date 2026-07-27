@@ -19,7 +19,7 @@ Environment variable reference: [configuration.md](../configuration.md#environme
 
 | Surface | Listener | Client identity | Typical caller |
 | --- | --- | --- | --- |
-| External cache API | Primary `Cluster.Url` port | JWT bearer (when auth is enabled) | Application SDK, operators |
+| External cache API | Primary `Cluster.Uri` port | JWT bearer (when auth is enabled) | Application SDK, operators |
 | Inter-node forwarding | `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT` | mTLS client certificate (`CN` = peer `NodeId`, cluster CA) | Other Squirix nodes |
 
 Reasons for the split:
@@ -39,7 +39,7 @@ Inter-node mTLS is **mandatory at startup** when the cluster topology includes a
 entry whose `NodeId` differs from the local `Cluster.NodeId`). Standalone nodes with no remote peers do not load cluster
 mTLS material.
 
-Multi-node settings must use **HTTPS** `Cluster.Url` values. Plaintext `http://` cluster URLs are rejected.
+Multi-node settings must use **HTTPS** `Cluster.Uri` values. Plaintext `http://` cluster URLs are rejected.
 
 ## Production model
 
@@ -93,8 +93,9 @@ the internal port equals the primary port, or when the loaded node certificate C
 The primary Kestrel certificate (ASP.NET Core development certificate, `ASPNETCORE_Kestrel__Certificates__Default__*`
 in containers, or your ingress TLS termination) is **independent** from cluster mTLS material.
 
-Optional `Peer.InterNodeUrl` in settings overrides the computed internal URL for advanced topologies; when omitted,
-peers are reached at the same host as `Peer.Url` with the configured internal port.
+Outbound peer connections use `https://<peer-host>:<internal-port>`, where `<peer-host>` comes from each
+`Peers[].Uri` and `<internal-port>` is `SQUIRIX_CLUSTER_MTLS_INTERNAL_PORT`. There is no public settings field to
+override the inter-node URI per peer in v0.1.
 
 ## Inter-node JWT (not used)
 

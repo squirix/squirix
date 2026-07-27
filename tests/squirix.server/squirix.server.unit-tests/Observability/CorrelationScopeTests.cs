@@ -13,6 +13,30 @@ namespace Squirix.Server.UnitTests.Observability;
 /// <summary>Covers structured correlation scope state enumeration.</summary>
 public sealed class CorrelationScopeTests : ServerUnitTestBase
 {
+    /// <summary>Scope with a method includes the rpc.method field.</summary>
+    [Fact]
+    public void BeginStandardScopeWithMethodExposesFourFields()
+    {
+        var logger = new CapturingLogger();
+        using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
+        var state = Assert.IsType<IReadOnlyList<KeyValuePair<string, object?>>>(logger.LastState, false);
+        Assert.Equal(4, state.Count);
+        Assert.Equal(string.Empty, state[0].Value);
+        Assert.Equal(string.Empty, state[1].Value);
+        Assert.Equal("node-b", state[2].Value);
+        Assert.Equal("rpc.method", state[3].Key);
+        Assert.Equal("GetEntry", state[3].Value);
+
+        using var enumerator = state.GetEnumerator();
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.MoveNext());
+        Assert.False(enumerator.MoveNext());
+        enumerator.Reset();
+        Assert.True(enumerator.MoveNext());
+    }
+
     /// <summary>Scope without a method exposes trace, span, and node fields.</summary>
     [Fact]
     public void BeginStandardScopeWithoutMethodExposesThreeFields()
@@ -39,30 +63,6 @@ public sealed class CorrelationScopeTests : ServerUnitTestBase
         IEnumerable enumerable = state;
         using var nonGeneric = enumerable.GetEnumerator() as IDisposable;
         Assert.NotNull(nonGeneric);
-    }
-
-    /// <summary>Scope with a method includes the rpc.method field.</summary>
-    [Fact]
-    public void BeginStandardScopeWithMethodExposesFourFields()
-    {
-        var logger = new CapturingLogger();
-        using var scope = Correlation.BeginStandardScope(logger, "node-b", "GetEntry");
-        var state = Assert.IsType<IReadOnlyList<KeyValuePair<string, object?>>>(logger.LastState, false);
-        Assert.Equal(4, state.Count);
-        Assert.Equal(string.Empty, state[0].Value);
-        Assert.Equal(string.Empty, state[1].Value);
-        Assert.Equal("node-b", state[2].Value);
-        Assert.Equal("rpc.method", state[3].Key);
-        Assert.Equal("GetEntry", state[3].Value);
-
-        using var enumerator = state.GetEnumerator();
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.True(enumerator.MoveNext());
-        Assert.False(enumerator.MoveNext());
-        enumerator.Reset();
-        Assert.True(enumerator.MoveNext());
     }
 
     /// <summary>Indexer rejects out-of-range access.</summary>

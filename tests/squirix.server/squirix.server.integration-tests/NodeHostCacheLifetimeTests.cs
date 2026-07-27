@@ -28,8 +28,6 @@ public sealed class NodeHostCacheLifetimeTests : NodeIntegrationTestBase
         var uri = GetNextHttpUri();
         var host = await StartNodeAsync(uri, "nodeA");
         await host.DisposeAsync();
-        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(
-            host,
-            static value => _ = value.Services.GetRequiredService<ICacheRuntime>());
+        _ = NodeExceptionAssert.For<ObjectDisposedException>().Throws(host, static value => _ = value.Services.GetRequiredService<ICacheRuntime>());
     }
 }

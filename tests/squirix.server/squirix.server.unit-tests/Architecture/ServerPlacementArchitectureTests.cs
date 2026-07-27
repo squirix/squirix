@@ -117,8 +117,10 @@ public sealed class ServerPlacementArchitectureTests : ServerUnitTestBase
         private static bool ResidesInOneOfExactNamespaces(string typeNamespace, string[] exactNamespaces)
         {
             for (var namespaceIndex = 0; namespaceIndex < exactNamespaces.Length; namespaceIndex++)
+            {
                 if (string.Equals(typeNamespace, exactNamespaces[namespaceIndex], StringComparison.Ordinal))
                     return true;
+            }
 
             return false;
         }

@@ -62,13 +62,12 @@ internal sealed class RetentionWorker
         }
     }
 
-    private void StartRetentionWorkerLoop() =>
-        _ = Task.Factory.StartNew(
-            RunRetentionWorkerLoopCallback,
-            this,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
-            TaskScheduler.Default);
+    private void StartRetentionWorkerLoop() => _ = Task.Factory.StartNew(
+        RunRetentionWorkerLoopCallback,
+        this,
+        CancellationToken.None,
+        TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+        TaskScheduler.Default);
 
     /// <summary>Restarts the retention loop when pending work remains after the previous loop released its schedule flag.</summary>
     /// <returns><see langword="true" /> when a new retention loop was scheduled; otherwise <see langword="false" />.</returns>

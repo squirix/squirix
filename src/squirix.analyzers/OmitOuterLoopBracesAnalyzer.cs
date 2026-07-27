@@ -43,7 +43,7 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
 
     private static void AnalyzeLoop(SyntaxNodeAnalysisContext context)
     {
-        var body = GetLoopBody(context.Node);
+        var body = LoopStatementSyntaxHelpers.GetLoopBody(context.Node);
         if (body is not BlockSyntax block)
             return;
 
@@ -51,43 +51,10 @@ public sealed class OmitOuterLoopBracesAnalyzer : DiagnosticAnalyzer
             return;
 
         var only = block.Statements[0];
-        if (!IsLoopStatement(only))
+        if (!LoopStatementSyntaxHelpers.IsLoopStatement(only))
             return;
 
-        var loopKind = GetLoopKindName(context.Node);
+        var loopKind = LoopStatementSyntaxHelpers.GetLoopKindName(context.Node);
         context.ReportDiagnostic(Diagnostic.Create(Rule, block.OpenBraceToken.GetLocation(), loopKind));
-    }
-
-    private static StatementSyntax? GetLoopBody(SyntaxNode node)
-    {
-        return node.Kind() switch
-        {
-            SyntaxKind.ForStatement => ((ForStatementSyntax)node).Statement,
-            SyntaxKind.ForEachStatement or SyntaxKind.ForEachVariableStatement => ((CommonForEachStatementSyntax)node).Statement,
-            SyntaxKind.WhileStatement => ((WhileStatementSyntax)node).Statement,
-            SyntaxKind.DoStatement => ((DoStatementSyntax)node).Statement,
-            _ => null,
-        };
-    }
-
-    private static string GetLoopKindName(SyntaxNode node)
-    {
-        return node.Kind() switch
-        {
-            SyntaxKind.ForStatement => "for",
-            SyntaxKind.ForEachStatement or SyntaxKind.ForEachVariableStatement => "foreach",
-            SyntaxKind.WhileStatement => "while",
-            SyntaxKind.DoStatement => "do",
-            _ => "loop",
-        };
-    }
-
-    private static bool IsLoopStatement(StatementSyntax statement)
-    {
-        return statement.Kind() switch
-        {
-            SyntaxKind.ForStatement or SyntaxKind.ForEachStatement or SyntaxKind.ForEachVariableStatement or SyntaxKind.WhileStatement or SyntaxKind.DoStatement => true,
-            _ => false,
-        };
     }
 }

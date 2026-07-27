@@ -54,8 +54,10 @@ internal sealed record CacheName
         private static bool IsWhiteSpaceOnly(string cacheName)
         {
             for (var i = 0; i < cacheName.Length; i++)
+            {
                 if (!char.IsWhiteSpace(cacheName[i]))
                     return false;
+            }
 
             return true;
         }

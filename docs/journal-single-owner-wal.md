@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — implemented in `JournalCoordinator` (`JournalBackend.Pipelined`).
+Accepted — implemented in `JournalCoordinator` (pipelined binary journal).
 
 ## Context
 

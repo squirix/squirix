@@ -17,7 +17,6 @@ public sealed class TypeNamespacePrefixAnalyzer : DiagnosticAnalyzer
         "Type simple names must not start with the immediate parent namespace segment " + "(drop the redundant leaf-folder prefix).";
 
     private static readonly LocalizableString MessageFormat = "Type name '{0}' starts with parent namespace segment '{1}'; remove the redundant prefix";
-
     private static readonly LocalizableString Title = "Avoid type names that repeat the parent namespace segment";
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Naming", DiagnosticSeverity.Warning, true, Description);
 

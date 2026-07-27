@@ -17,7 +17,6 @@ public sealed class MethodNameTooLongAnalyzer : DiagnosticAnalyzer
         "Method simple names must be at most 50 characters " + "(excluding explicit interface implementations). Applies to production and test code.";
 
     private static readonly LocalizableString MessageFormat = "Method name '{0}' length is {1} (limit {2})";
-
     private static readonly LocalizableString Title = "Avoid methods with name too long";
     private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, "Naming", DiagnosticSeverity.Warning, true, Description);
 

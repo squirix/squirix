@@ -138,7 +138,10 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     {
         private readonly T _payload;
 
-        internal JsonEndpoint(T payload) => _payload = payload;
+        internal JsonEndpoint(T payload)
+        {
+            _payload = payload;
+        }
 
         internal IResult Invoke() => Results.Json(_payload);
     }

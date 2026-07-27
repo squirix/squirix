@@ -33,11 +33,7 @@ internal sealed class ClientInterceptor : Interceptor
         return OutboundUnaryCallLease<TResponse>.WrapAsync(scope, ownedActivity, rentedHeaders, call);
     }
 
-    private static CallOptions AttachTraceHeaders(
-        CallOptions options,
-        string method,
-        out Activity? ownedActivity,
-        out Metadata? rentedHeaders)
+    private static CallOptions AttachTraceHeaders(CallOptions options, string method, out Activity? ownedActivity, out Metadata? rentedHeaders)
     {
         // Reuse the ambient Activity when present; otherwise start one owned by the outbound call.
         ownedActivity = null;
@@ -107,11 +103,7 @@ internal sealed class ClientInterceptor : Interceptor
         private readonly IDisposable _scope;
         private int _disposed;
 
-        private OutboundUnaryCallLease(
-            IDisposable scope,
-            Activity? ownedActivity,
-            Metadata? rentedHeaders,
-            AsyncUnaryCall<TResponse> inner)
+        private OutboundUnaryCallLease(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             _scope = scope;
             _ownedActivity = ownedActivity;
@@ -119,11 +111,7 @@ internal sealed class ClientInterceptor : Interceptor
             _inner = inner;
         }
 
-        internal static AsyncUnaryCall<TResponse> WrapAsync(
-            IDisposable scope,
-            Activity? ownedActivity,
-            Metadata? rentedHeaders,
-            AsyncUnaryCall<TResponse> inner)
+        internal static AsyncUnaryCall<TResponse> WrapAsync(IDisposable scope, Activity? ownedActivity, Metadata? rentedHeaders, AsyncUnaryCall<TResponse> inner)
         {
             var lease = new OutboundUnaryCallLease<TResponse>(scope, ownedActivity, rentedHeaders, inner);
             return new AsyncUnaryCall<TResponse>(lease.ResponseAsync(), inner.ResponseHeadersAsync, inner.GetStatus, inner.GetTrailers, lease.DisposeCall);

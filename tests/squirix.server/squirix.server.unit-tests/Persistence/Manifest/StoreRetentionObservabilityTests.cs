@@ -17,8 +17,8 @@ namespace Squirix.Server.UnitTests.Persistence.Manifest;
 /// <summary>Tests that manifest retention cleanup failures are observable without breaking manifest commits.</summary>
 public sealed class StoreRetentionObservabilityTests : ServerUnitTestBase
 {
-    private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
     private static readonly ManifestRetentionFailureMetrics RetentionFailureMetrics = ManifestRetentionFailureMetrics.Instance;
+    private static readonly byte[] StaleManifestBytes = [0x53, 0x51, 0x4D, 0x46, 0x01];
 
     /// <summary>Ensures repeated retention cleanup failures degrade readiness while manifest commits keep succeeding.</summary>
     [Fact]

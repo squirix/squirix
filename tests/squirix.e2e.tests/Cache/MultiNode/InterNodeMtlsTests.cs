@@ -137,6 +137,8 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
     private static void AssertForwardRejected(RpcException exception) =>
         Assert.True(exception.StatusCode is StatusCode.Unavailable or StatusCode.Internal or StatusCode.Unknown or StatusCode.DeadlineExceeded);
 
+    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
+
     private static async Task<TwoNodeNamedCaches<object?>> StartTwoNodeCachesWithProfilesAsync(TwoNodeStartOptions startOptions, [CallerMemberName] string testName = "")
     {
         var cluster = await HostedCluster.StartTwoNodeAsync(startOptions, testName, cancellationToken: DefaultCancellationToken);
@@ -162,6 +164,4 @@ public sealed class InterNodeMtlsTests : EndToEndTestBase
             throw;
         }
     }
-
-    private static Func<CancellationToken, ValueTask<string>> CreateBearerTokenProvider(string token) => new FixedBearerTokenProvider(token).ProvideAsync;
 }

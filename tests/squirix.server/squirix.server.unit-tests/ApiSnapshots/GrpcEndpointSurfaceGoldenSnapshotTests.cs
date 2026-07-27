@@ -57,8 +57,10 @@ public sealed class GrpcEndpointSurfaceGoldenSnapshotTests : ServerUnitTestBase
     {
         var result = new List<string>();
         foreach (var item in left)
+        {
             if (!right.Contains(item))
                 result.Add(item);
+        }
 
         result.Sort(StringComparer.Ordinal);
         return result;

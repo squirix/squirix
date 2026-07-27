@@ -18,6 +18,8 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
     private readonly IJournalCoordinator _journal;
     private readonly ILogger<SnapshotTriggerService<T>> _log;
 
+    private readonly EventHandler _onJournalAppended;
+
     private readonly Channel<bool> _snapshotRequests = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1)
         {
@@ -27,8 +29,6 @@ internal sealed class SnapshotTriggerService<T> : BackgroundService, ISnapshotRe
         });
 
     private readonly TimeProvider _timeProvider;
-
-    private readonly EventHandler _onJournalAppended;
 
     private int _fatalFailure;
 

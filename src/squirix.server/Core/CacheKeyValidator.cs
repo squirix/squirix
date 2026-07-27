@@ -66,8 +66,10 @@ internal static class CacheKeyValidator
     private static bool IsWhiteSpaceOnly(string key)
     {
         for (var i = 0; i < key.Length; i++)
+        {
             if (!char.IsWhiteSpace(key[i]))
                 return false;
+        }
 
         return true;
     }

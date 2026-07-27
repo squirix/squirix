@@ -180,9 +180,9 @@ internal static class ServerHostingComposition
             });
         }
 
-        /// <summary>Ensures the node URL uses HTTPS gRPC transport.</summary>
-        /// <param name="cluster">Cluster configuration including the node URL.</param>
-        /// <exception cref="InvalidOperationException">Thrown when the node URL uses plaintext HTTP.</exception>
+        /// <summary>Ensures the node URI uses HTTPS gRPC transport.</summary>
+        /// <param name="cluster">Cluster configuration including the node URI.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the node URI uses plaintext HTTP.</exception>
         internal static void EnsureHttpsTransport(TopologyOptions cluster)
         {
             ArgumentNullException.ThrowIfNull(cluster);

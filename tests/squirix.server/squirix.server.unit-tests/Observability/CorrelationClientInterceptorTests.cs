@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text;
 using System.Threading.Tasks;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Microsoft.Extensions.Logging.Abstractions;
 using Squirix.Server.Node.Observability;
+using Squirix.Server.UnitTests.Support;
 using Xunit;
 
 namespace Squirix.Server.UnitTests.Observability;
@@ -22,7 +22,7 @@ public sealed class CorrelationClientInterceptorTests
     [Fact]
     public void ClientInterceptorAddsTraceParentCurrentActivity()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
@@ -32,10 +32,7 @@ public sealed class CorrelationClientInterceptorTests
 
         Assert.NotNull(activity);
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", default),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", default), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
 
@@ -48,7 +45,7 @@ public sealed class CorrelationClientInterceptorTests
     [Fact]
     public void ClientInterceptorReplacesExistingTraceParentHeader()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
@@ -59,16 +56,13 @@ public sealed class CorrelationClientInterceptorTests
 
         Assert.NotNull(activity);
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "traceparent");
 
         _ = Assert.Single(values);
-        Assert.NotEqual("00-stale-stale-00", values[0]);
+        Assert.NotEqual("00-stale-stale-00", values[0], StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -77,7 +71,7 @@ public sealed class CorrelationClientInterceptorTests
     [Fact]
     public void ClientInterceptorReplacesExistingTraceStateHeader()
     {
-        using var listener = CreateSquirixActivityListener();
+        using var listener = ActivityListenerTestKit.CreateSquirixSamplingListener();
 
         var capture = new HeaderCapture();
         var interceptor = CreateInterceptor();
@@ -87,10 +81,7 @@ public sealed class CorrelationClientInterceptorTests
         Assert.NotNull(activity);
         activity.TraceStateString = "vendor=value";
 
-        _ = interceptor.AsyncUnaryCall(
-            "req",
-            new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)),
-            capture.OnContinueAsync);
+        _ = interceptor.AsyncUnaryCall("req", new ClientInterceptorContext<string, string>(method, "localhost", new CallOptions(staleHeaders)), capture.OnContinueAsync);
 
         Assert.NotNull(capture.Headers);
         var values = CollectHeaderValues(capture.Headers, "tracestate");
@@ -115,21 +106,6 @@ public sealed class CorrelationClientInterceptorTests
     }
 
     private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
-
-    private static ClientInterceptor CreateInterceptor() => new(NullLogger<ClientInterceptor>.Instance, "n1");
-
-    private static ActivityListener CreateSquirixActivityListener()
-    {
-        var listener = new ActivityListener
-        {
-            ShouldListenTo = static source => string.Equals(source.Name, ActivitySourceHolder.SourceName, StringComparison.OrdinalIgnoreCase),
-            Sample = static (ref _) => ActivitySamplingResult.AllData,
-        };
-
-        ActivitySource.AddActivityListener(listener);
-
-        return listener;
-    }
 
     private static Method<string, string> CreateUnaryStringMethod()
     {
