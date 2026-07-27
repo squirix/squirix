@@ -85,18 +85,22 @@ await builder.AddSquirixServerAsync(
 ## Tests and samples
 
 `SquirixServer.StartAsync` loads discovered `Squirix.settings.json` / `squirix.settings.json`, or creates ephemeral
-defaults with a free HTTPS port. The returned handle does **not** expose the listen URI — pass the same origin you
-configured (or the known local-tool default) to the client:
+defaults with a **free HTTPS port**. The returned handle does **not** expose the listen URI, so do **not** assume
+`https://localhost:5001` unless that origin is set as `Cluster.Uri` in an explicit settings file. Prefer
+`AddSquirixServerAsync` when the client must know the listen URI:
 
 ```csharp
 using System;
+using Microsoft.AspNetCore.Builder;
 using Squirix.Client;
 using Squirix.Server;
 
-var listenUri = new Uri("https://localhost:5001"); // must match Cluster.Uri in settings when a file is present
-await using var server = await SquirixServer.StartAsync(cancellationToken);
+var builder = WebApplication.CreateBuilder(args);
+var listenUri = new Uri("https://localhost:5001");
+await builder.AddSquirixServerAsync(options => options.Uri = listenUri);
+var app = builder.Build();
+app.MapSquirixServer();
+await app.StartAsync(cancellationToken);
+
 await using var client = await SquirixClient.ConnectAsync(listenUri, cancellationToken);
 ```
-
-For options controlled entirely in code, prefer `await builder.AddSquirixServerAsync(...)` on `WebApplicationBuilder`
-over `SquirixServer.StartAsync`.
