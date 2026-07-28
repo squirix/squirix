@@ -8,14 +8,10 @@ namespace Squirix.Server.LocalCache;
 /// <typeparam name="T">The cache value type.</typeparam>
 internal sealed class CacheEntrySizeEstimator<T> : ICacheEntrySizeEstimator<T>
 {
-    /// <summary>
-    /// Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).
-    /// </summary>
+    /// <summary>Fixed structural overhead per stored entry (dictionary node, metadata handles, alignment slack).</summary>
     private const int FixedPerEntryOverheadBytes = 96;
 
-    /// <summary>
-    /// Conservative fallback when no cheap payload size is derived for typed values.
-    /// </summary>
+    /// <summary>Conservative fallback when no cheap payload size is derived for typed values.</summary>
     private const int UnknownTypedPayloadFallbackBytes = 128;
 
     /// <inheritdoc />

@@ -13,9 +13,7 @@ namespace Squirix.Server.TestKit.Networking;
 /// </summary>
 public sealed class PortAllocator : IDisposable
 {
-    /// <summary>
-    /// Process-wide reservation to avoid duplicates between allocators inside one process.
-    /// </summary>
+    /// <summary>Process-wide reservation to avoid duplicates between allocators inside one process.</summary>
     private static readonly ConcurrentDictionary<int, byte> Reserved = new();
 
     private readonly List<int> _allocatedPorts = [];
@@ -23,9 +21,7 @@ public sealed class PortAllocator : IDisposable
     private readonly int _start;
     private bool _disposed;
 
-    /// <summary>
-    /// Rolling cursor.
-    /// </summary>
+    /// <summary>Rolling cursor.</summary>
     private int _next;
 
     /// <summary>

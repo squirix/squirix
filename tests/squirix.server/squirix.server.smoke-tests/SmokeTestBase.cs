@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -59,24 +58,12 @@ public abstract class SmokeTestBase : IDisposable
     /// <returns>ServerPeer entries for host startup.</returns>
     internal ServerPeer[] BuildClusterPeers(ReadOnlySpan<(string NodeId, Uri Uri)> topology) => ClusterTls.CreatePeers(ref _mtls, topology);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, cancellationToken);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, cancellationToken);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default)
     {
         options ??= new SmokeNodeStartOptions();
@@ -236,10 +223,6 @@ public abstract class SmokeTestBase : IDisposable
     /// <param name="options">Optional startup knobs (security, gRPC, services, etc.).</param>
     /// <param name="cancellationToken">Cancellation token to stop startup.</param>
     /// <returns>A started <see cref="TestNodeHost" /> wrapper around the node.</returns>
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, SmokeNodeStartOptions? options = null, CancellationToken cancellationToken = default) =>
         StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, cancellationToken);
 }

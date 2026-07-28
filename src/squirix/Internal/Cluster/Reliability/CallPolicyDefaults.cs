@@ -10,19 +10,13 @@ namespace Squirix.Internal.Cluster.Reliability;
 /// </remarks>
 internal static class CallPolicyDefaults
 {
-    /// <summary>
-    /// Maximum number of transport-level retry attempts per RPC.
-    /// </summary>
+    /// <summary>Maximum number of transport-level retry attempts per RPC.</summary>
     private const int MaxAttempts = 3;
 
-    /// <summary>
-    /// Initial retry backoff before jitter is applied.
-    /// </summary>
+    /// <summary>Initial retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan BaseBackoff = TimeSpan.FromMilliseconds(60);
 
-    /// <summary>
-    /// Upper bound for retry backoff before jitter is applied.
-    /// </summary>
+    /// <summary>Upper bound for retry backoff before jitter is applied.</summary>
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMilliseconds(600);
 
     /// <summary>

@@ -7,9 +7,7 @@ namespace Squirix.Server.Storage.Journaling.Read;
 
 internal static class JournalFraming
 {
-    /// <summary>
-    /// Magic(4) + Version(1).
-    /// </summary>
+    /// <summary>Magic(4) + Version(1).</summary>
     internal const int FileHeaderSize = 4 + 1;
 
     internal const int FrameHeaderSize = JournalFrameEnvelope.HeaderSize;

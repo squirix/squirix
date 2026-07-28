@@ -5,9 +5,7 @@ namespace Squirix.Server.Core;
 /// <summary>Central validation for user cache entry keys.</summary>
 internal static class CacheKeyValidator
 {
-    /// <summary>
-    /// Maximum allowed length for a cache key (Unicode scalar values; .NET string length).
-    /// </summary>
+    /// <summary>Maximum allowed length for a cache key (Unicode scalar values; .NET string length).</summary>
     private const int MaxLength = 1024;
 
     private const string TooLongMessage = "Cache key exceeds the maximum length of 1024 characters.";

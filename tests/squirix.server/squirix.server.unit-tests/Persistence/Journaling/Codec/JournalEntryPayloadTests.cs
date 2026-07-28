@@ -1,9 +1,8 @@
 using System;
 using System.Buffers;
-using System.Collections.Frozen;
-using System.Collections.Generic;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Journaling;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -40,7 +39,7 @@ public sealed class JournalEntryPayloadTests : ServerUnitTestBase
             "segmented-value",
             1_234_567_890_123L,
             new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
-            tags: new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal));
+            tags: EntryTagsKit.RegionWest);
         var prepared = JournalEntryPayload.PrepareEncode(entry);
         var length = JournalEntryPayload.Encode(in prepared, out var bytes);
         try
