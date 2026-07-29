@@ -167,9 +167,9 @@ public class ReadPathBreakdownBenchmarks : IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static string FormatKey(int index) => InvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
+    private static string FormatKey(int index) => NodeInvariantIndexStrings.FormatPrefixedPadded("key", index, "D5", 5);
 
-    private static string FormatValue(int index) => InvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
+    private static string FormatValue(int index) => NodeInvariantIndexStrings.FormatPrefixedPadded("value", index, "D5", 5);
 
     private void SeedKeys()
     {

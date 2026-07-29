@@ -19,11 +19,11 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [InlineData("etc", true)]
     [InlineData("usr", false)]
     [InlineData("VAR", false)]
-    public void IsAllowlistedRootLinkNameMatches(string name, bool expected) => Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
+    public static void IsAllowlistedRootLinkNameMatches(string name, bool expected) => Assert.Equal(expected, MacOsCompatibilitySymlink.IsAllowlistedRootLinkName(name));
 
     /// <summary>Private-target comparison is case-insensitive.</summary>
     [Fact]
-    public void IsExpectedPrivateTargetIgnoresCase()
+    public static void IsExpectedPrivateTargetIgnoresCase()
     {
         Assert.True(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/PRIVATE/TMP"));
         Assert.False(MacOsCompatibilitySymlink.IsExpectedPrivateTarget("/private/tmp", "/private/var"));
@@ -31,7 +31,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Expected private paths are built under the volume root.</summary>
     [Fact]
-    public void TryBuildExpectedPrivatePathBuildsCanonicalPath()
+    public static void BuildExpectedPrivatePathBuildsCanonicalPath()
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         Assert.True(MacOsCompatibilitySymlink.TryBuildExpectedPrivatePath(root, "tmp", out var expected));
@@ -41,7 +41,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host follow of a volume-root candidate fails when the entry is not a resolvable link.</summary>
     [Fact]
-    public void TryFollowOnAppleHostFailsRootCandidateIsNotALink()
+    public static void FollowOnAppleHostFailsRootCandidateIsNotALink()
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, "tmp");
@@ -61,7 +61,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Apple-host flag still rejects ordinary nested directories.</summary>
     [Fact]
-    public void TryFollowReturnsFalseForNonRootChildOnAppleHost()
+    public static void FollowReturnsFalseForNonRootChildOnAppleHost()
     {
         using var root = new TempDirectory("squirix-macos-follow-nested");
         Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), true, out var resolved));
@@ -70,7 +70,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Non-Apple hosts always fail follow.</summary>
     [Fact]
-    public void TryFollowReturnsFalseWhenNotAppleHost()
+    public static void FollowReturnsFalseWhenNotAppleHost()
     {
         using var root = new TempDirectory("squirix-macos-follow-off");
         Assert.False(MacOsCompatibilitySymlink.TryFollow(new DirectoryInfo(root.Path), false, out var resolved));
@@ -83,7 +83,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
     [InlineData("var")]
     [InlineData("tmp")]
     [InlineData("etc")]
-    public void TryGetRootLinkIdentityAcceptsVolumeRootChildren(string name)
+    public static void GetRootLinkIdentityAcceptsVolumeRootChildren(string name)
     {
         var root = Path.GetPathRoot(Path.GetTempPath())!;
         var candidate = Path.Join(root, name);
@@ -94,7 +94,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Root-link identity rejects nested allowlisted names.</summary>
     [Fact]
-    public void TryGetRootLinkIdentityRejectsNestedAllowlistedName()
+    public static void GetRootLinkIdentityRejectsNestedAllowlistedName()
     {
         using var root = new TempDirectory("squirix-macos-identity-nested");
         var nested = Path.Join(root.Path, "var");
@@ -103,7 +103,7 @@ public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 
     /// <summary>Resolving a non-link directory returns false.</summary>
     [Fact]
-    public void TryResolveFinalTargetReturnsFalseOrdinaryDirectory()
+    public static void ResolveFinalTargetReturnsFalseOrdinaryDirectory()
     {
         using var root = new TempDirectory("squirix-macos-resolve");
         Assert.False(MacOsCompatibilitySymlink.TryResolveFinalTargetPath(new DirectoryInfo(root.Path), out var target));

@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Lease subsection of health-ready diagnostics.</summary>
 /// <param name="Enabled">Whether lease coordination is enabled.</param>

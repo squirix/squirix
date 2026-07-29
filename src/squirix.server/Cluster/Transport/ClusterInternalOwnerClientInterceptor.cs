@@ -2,6 +2,7 @@ using System;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Cluster.Transport;
 

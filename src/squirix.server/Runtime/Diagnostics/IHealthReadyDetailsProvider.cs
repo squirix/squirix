@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Builds health-ready diagnostics for `/health/ready/details`.</summary>
 internal interface IHealthReadyDetailsProvider

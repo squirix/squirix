@@ -11,6 +11,25 @@ namespace Squirix.Server.UnitTests.Persistence.Snapshot;
 /// </summary>
 public sealed class TriggerOptionsTests
 {
+    /// <summary>Verifies invalid scalar values fail during JSON binding.</summary>
+    /// <param name="propertyName">Property being validated.</param>
+    [Theory]
+    [InlineData(nameof(TriggerOptions.SnapshotInterval))]
+    [InlineData(nameof(TriggerOptions.SnapshotEveryNOps))]
+    [InlineData(nameof(TriggerOptions.SnapshotEveryNBytes))]
+    [InlineData(nameof(TriggerOptions.MinGapBetweenSnapshots))]
+    [InlineData(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
+    [InlineData(nameof(TriggerOptions.LatencySloMilliseconds))]
+    [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
+    public static void FieldBackedValidationRejectsInvalidScalars(string propertyName)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
+            propertyName,
+            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
+        Assert.Equal("value", ex.ParamName);
+        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies lower-bound scalar values remain accepted during JSON binding.</summary>
     [Fact]
     public void FieldBackedValidationAcceptsBoundaryScalars()
@@ -27,25 +46,6 @@ public sealed class TriggerOptionsTests
         Assert.Equal(0, options.JournalGrowthThrottleBytes);
         Assert.Equal(0, options.LatencySloMilliseconds);
         Assert.Equal(TimeSpan.Zero, options.LatencyThrottleDuration);
-    }
-
-    /// <summary>Verifies invalid scalar values fail during JSON binding.</summary>
-    /// <param name="propertyName">Property being validated.</param>
-    [Theory]
-    [InlineData(nameof(TriggerOptions.SnapshotInterval))]
-    [InlineData(nameof(TriggerOptions.SnapshotEveryNOps))]
-    [InlineData(nameof(TriggerOptions.SnapshotEveryNBytes))]
-    [InlineData(nameof(TriggerOptions.MinGapBetweenSnapshots))]
-    [InlineData(nameof(TriggerOptions.JournalGrowthThrottleBytes))]
-    [InlineData(nameof(TriggerOptions.LatencySloMilliseconds))]
-    [InlineData(nameof(TriggerOptions.LatencyThrottleDuration))]
-    public void FieldBackedValidationRejectsInvalidScalars(string propertyName)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentOutOfRangeException>().Throws(
-            propertyName,
-            static value => new ServerJsonSerializer().Deserialize<TriggerOptions>(CreateInvalidJson(value)));
-        Assert.Equal("value", ex.ParamName);
-        Assert.Contains(propertyName, ex.Message, StringComparison.Ordinal);
     }
 
     /// <summary>Verifies JSON binding still applies valid option values through init setters.</summary>

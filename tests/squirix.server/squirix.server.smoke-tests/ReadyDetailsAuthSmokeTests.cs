@@ -30,7 +30,7 @@ public sealed class ReadyDetailsAuthSmokeTests : SmokeTestBase
         var credentials = TestJwtHelper.CreateRandomCredentials();
         var (bindUrl, loopbackUrl) = GetNextAnyInterfaceListenUrls();
         var port = new Uri(bindUrl).Port;
-        var remoteDetailsUrl = InvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
+        var remoteDetailsUrl = NodeInvariantIndexStrings.FormatHttpsAbsolute(localIp, port, "/health/ready/details");
         var loopbackDetailsUrl = $"{loopbackUrl}/health/ready/details";
 
         await using var node = await StartNodeAsync(

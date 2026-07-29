@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Invocation;
 
 /// <summary>Stable remote-invocation transport markers shared by gRPC adapters and cluster client calls.</summary>
 internal static class RemoteInvocationContract

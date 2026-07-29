@@ -260,7 +260,7 @@ public abstract class NodeIntegrationTestBase : IDisposable
         if (!string.IsNullOrWhiteSpace(tfm))
             scope = $"{scope}__{tfm}";
 
-        return $"{scope}__pid{InvariantIndexStrings.Format(Environment.ProcessId)}";
+        return $"{scope}__pid{NodeInvariantIndexStrings.Format(Environment.ProcessId)}";
     }
 
     private static string? FindSelfNodeId(ServerPeer[] peers, Uri uri)

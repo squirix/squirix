@@ -117,11 +117,11 @@ public sealed class RetentionPolicyTests : ServerUnitTestBase, IAsyncLifetime
         base.Dispose(disposing);
     }
 
-    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{InvariantIndexStrings.Format(index)}");
+    private void CreateJournalSegment(int index) => FileKit.WriteAllText(JournalPath(index), $"journal-{NodeInvariantIndexStrings.Format(index)}");
 
-    private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{InvariantIndexStrings.Format(index)}");
+    private void CreateSnapshot(int index) => FileKit.WriteAllText(SnapshotPath(index), $"snapshot-{NodeInvariantIndexStrings.Format(index)}");
 
-    private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+    private string JournalPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
 
-    private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+    private string SnapshotPath(int index) => NodePathKit.Combine(false, Dir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 }

@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Journal compaction subsection of health-ready diagnostics.</summary>
 /// <param name="State">Current compaction state label.</param>

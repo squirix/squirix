@@ -443,7 +443,7 @@ public sealed class BackpressureGateTests : ServerUnitTestBase
 
     private static async Task RunClientAsync(IBackpressureGate gate, int clientIndex, int[] current, int[] observedMax, CancellationToken cancellationToken)
     {
-        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{InvariantIndexStrings.Format(clientIndex)}", cancellationToken);
+        var (decision, lease) = await gate.AcquireAsync("grpc", "insert", $"grpc:client-{NodeInvariantIndexStrings.Format(clientIndex)}", cancellationToken);
         if (!decision.IsAccepted)
             return;
 

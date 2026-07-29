@@ -124,7 +124,7 @@ public abstract class SmokeTestBase : IDisposable
     protected static (string BindUrl, string LoopbackUrl) GetNextAnyInterfaceListenUrls()
     {
         var port = ListenPortPool.SmokeTests.AllocatePort();
-        return (InvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
+        return (NodeInvariantIndexStrings.FormatHttpsOrigin("0.0.0.0", port), NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", port));
     }
 
     /// <summary>Allocates a unique loopback HTTPS listen URI for the next node using the shared port pool.</summary>

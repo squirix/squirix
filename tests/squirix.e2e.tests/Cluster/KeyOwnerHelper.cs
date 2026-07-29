@@ -47,7 +47,7 @@ internal sealed class KeyOwnerHelper
     {
         for (var i = 0; i < maxAttempts; i++)
         {
-            var candidate = InvariantIndexStrings.FormatPrefixed(prefix, i);
+            var candidate = NodeInvariantIndexStrings.FormatPrefixed(prefix, i);
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                 return candidate;
         }

@@ -25,7 +25,7 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
             });
 
         _ = await builder.AddSquirixServerAsync(
-            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
 
@@ -71,7 +71,7 @@ public sealed class PersistenceHostingTests : ServerUnitTestBase
 
         private void ApplyCore(SquirixServerOptions options)
         {
-            options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
+            options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
             options.UsePersistence(_dataDirectory);
         }
     }

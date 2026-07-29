@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Watch subsection of health-ready diagnostics.</summary>
 /// <param name="Enabled">Whether watch coordination is enabled.</param>

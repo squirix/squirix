@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Invocation;
 
 /// <summary>Async-local remote-invocation classification used by server endpoint handlers.</summary>
 internal static class RemoteInvocationContext

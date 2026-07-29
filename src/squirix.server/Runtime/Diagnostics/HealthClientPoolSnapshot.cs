@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Client pool subsection of health-ready diagnostics.</summary>
 /// <param name="Enabled">Whether the outbound client pool is active.</param>

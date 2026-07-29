@@ -26,7 +26,7 @@ internal static class StoreTestSupport
         DataDir = dataDir,
     };
 
-    internal static string ManifestDataFileName(int index) => $"{FilePrefixes.Manifest}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Manifest}";
+    internal static string ManifestDataFileName(int index) => $"{FilePrefixes.Manifest}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Manifest}";
 
     internal static async Task<int> ReadCurrentManifestIndexAsync(string dataDir, CancellationToken cancellationToken)
     {

@@ -26,6 +26,28 @@ public sealed class PressureOptionsTests
         Assert.Contains(nameof(PressureOptions.MaxEstimatedCacheBytes), ex.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Verifies invalid threshold combinations are rejected.</summary>
+    /// <param name="critical">Critical threshold value.</param>
+    /// <param name="high">High threshold value.</param>
+    /// <param name="expectedMessageFragment">Expected validation detail fragment.</param>
+    [Theory]
+    [InlineData(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
+    [InlineData(90, 90, "HighPressureThresholdPercent")]
+    [InlineData(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
+    public static void ValidateRejectsInvalidThresholdCombinations(int critical, int high, string expectedMessageFragment)
+    {
+        var options = new PressureOptions
+        {
+            MaxEstimatedCacheBytes = 1024,
+            HighPressureThresholdPercent = high,
+            CriticalPressureThresholdPercent = critical,
+        };
+
+        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
+
+        Assert.Contains(expectedMessageFragment, ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>Verifies default threshold values match the contract.</summary>
     [Fact]
     public void DefaultsMatchContract()
@@ -80,27 +102,5 @@ public sealed class PressureOptionsTests
         };
 
         options.Validate();
-    }
-
-    /// <summary>Verifies invalid threshold combinations are rejected.</summary>
-    /// <param name="critical">Critical threshold value.</param>
-    /// <param name="high">High threshold value.</param>
-    /// <param name="expectedMessageFragment">Expected validation detail fragment.</param>
-    [Theory]
-    [InlineData(101, 80, nameof(PressureOptions.CriticalPressureThresholdPercent))]
-    [InlineData(90, 90, "HighPressureThresholdPercent")]
-    [InlineData(90, 0, nameof(PressureOptions.HighPressureThresholdPercent))]
-    public void ValidateRejectsInvalidThresholdCombinations(int critical, int high, string expectedMessageFragment)
-    {
-        var options = new PressureOptions
-        {
-            MaxEstimatedCacheBytes = 1024,
-            HighPressureThresholdPercent = high,
-            CriticalPressureThresholdPercent = critical,
-        };
-
-        var ex = NodeExceptionAssert.For<InvalidOperationException>().Throws(options, static value => value.Validate());
-
-        Assert.Contains(expectedMessageFragment, ex.Message, StringComparison.Ordinal);
     }
 }

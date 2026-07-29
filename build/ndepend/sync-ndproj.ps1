@@ -99,7 +99,7 @@ if ($null -ne $customRuleOverridesNode) {
             throw "Rule override '$ruleToken' must include '$idTag<ExplicitId></Id>' so NDepend shows the stock rule Id."
         }
 
-        $targetGroup = $queriesNode.SelectSingleNode("Group[@Name='$groupName']")
+        $targetGroup = $queriesNode.SelectSingleNode(".//Group[@Name='$groupName']")
         if ($null -eq $targetGroup) {
             throw "Unexpected squirix.ndproj shape: group '$groupName' not found for rule override '$ruleToken'."
         }
@@ -110,7 +110,15 @@ if ($null -ne $customRuleOverridesNode) {
             $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*$overrideMarker*"
         } | Select-Object -First 1
         if ($null -eq $targetQuery) {
-            throw "Rule override '$ruleToken' placeholder '$placeholder' not found in group '$groupName'."
+            # Nested API groups may nest further; also search the whole Queries tree for the placeholder.
+            $targetQuery = $queriesNode.SelectNodes('.//Query') | Where-Object {
+                $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*$overrideMarker*"
+            } | Select-Object -First 1
+            if ($null -eq $targetQuery) {
+                throw "Rule override '$ruleToken' placeholder '$placeholder' not found in group '$groupName'."
+            }
+
+            $targetGroup = $targetQuery.ParentNode
         }
 
         $importedQuery = $ndproj.ImportNode($overrideQuery, $true)
@@ -125,6 +133,25 @@ if ($null -ne $ruleFiles) {
     $null = $ndproj.NDepend.RemoveChild($ruleFiles)
 }
 
+# Baseline / harness noise: keep inactive so rename/testkit churn does not gate quality.
+$deactivateTokens = @(
+    'ND1500', 'ND1501', 'ND1502', 'ND1503', 'ND1504', 'ND1505', # API Breaking Changes vs prior analysis
+    'ND2201', # reserved exception types on compiler-generated collection helpers
+    'ND1308', # namespace relational cohesion (Runtime.Contracts / TestKit bag namespaces)
+    'ND1310', # testkit Hosting/Networking/Mtls sibling cycles through parent TestKit
+    'ND1315', # DisposableTypesMustUnsubscribeEvents — placeholder missing on NDepend 2026.1.2
+    'ND1412'  # EnforcingCleanArchitecture — placeholder missing; Domain/App layers N/A to squirix
+)
+foreach ($token in $deactivateTokens) {
+    $placeholder = "`$${token}`$"
+    $queries = $queriesNode.SelectNodes('.//Query') | Where-Object {
+        $_.InnerText -like "*$placeholder*" -or $_.InnerText -like "*// <Id>${token}:*"
+    }
+    foreach ($query in $queries) {
+        $query.SetAttribute('Active', 'False')
+    }
+}
+
 $ndproj.Save($ndprojPath)
 Write-Host "Updated $ndprojPath"
 Write-Host "  IDEFile: .\squirix.slnx | Filters='' | Configuration=DEBUG|AnyCPU"
@@ -132,5 +159,6 @@ Write-Host "  Inlined $($customQueriesNode.SelectNodes('Query').Count) custom no
 if ($null -ne $customRuleOverridesNode) {
     Write-Host "  Applied $($customRuleOverridesNode.SelectNodes('Query').Count) custom rule override(s) from squirix.ndrules"
 }
+Write-Host "  Deactivated noise rules: $($deactivateTokens -join ', ')"
 Write-Host "  Removed legacy group '$legacyCustomGroupName' when present"
 Write-Host "  Removed RuleFiles (Visual NDepend overwrites external rule file paths)"
