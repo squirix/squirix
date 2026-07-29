@@ -87,7 +87,7 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
         try
         {
             var executor = new DurableMutationExecutor(journal);
-            var applyState = new ApplyCounter { ThrowOnApply = false };
+            var applyState = new ApplyCounter(false);
 
             var result = await executor.ExecuteAsync(
                 CacheKey.Default("skip-key"),
@@ -199,15 +199,20 @@ public sealed class DurableMutationExecutorDurabilityTests : ServerUnitTestBase
 
     private sealed class ApplyCounter
     {
-        internal int Calls { get; private set; }
+        private readonly bool _throwOnApply;
 
-        internal bool ThrowOnApply { get; init; } = true;
+        internal ApplyCounter(bool throwOnApply = true)
+        {
+            _throwOnApply = throwOnApply;
+        }
+
+        internal int Calls { get; private set; }
 
         internal ValueTask<int> ApplyAsync(CancellationToken cancellationToken)
         {
             _ = cancellationToken;
             Calls++;
-            if (ThrowOnApply)
+            if (_throwOnApply)
                 throw new InvalidOperationException("memory apply failed");
 
             return ValueTask.FromResult(1);

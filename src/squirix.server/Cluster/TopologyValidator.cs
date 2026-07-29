@@ -19,7 +19,7 @@ internal static class TopologyValidator
     private const string NodeIdRequired = "NodeId is required.";
     private const string NodeIdTooLong = "NodeId cannot exceed 128 characters.";
     private const string PeersDuplicateNodeId = "Peers contains duplicate NodeId.";
-    private const string PeersDuplicateUri = "Peers contains duplicate Uri.";
+    private const string PeersUriDuplicate = "Peers contains duplicate Uri.";
     private const string PeersMustIncludeLocalNodeId = "Peers must include the local NodeId.";
     private const string PeersNodeIdRequired = "Peers[].NodeId is required.";
     private const string PeersNodeIdTooLong = "Peers[].NodeId cannot exceed 128 characters.";
@@ -87,7 +87,7 @@ internal static class TopologyValidator
         if (peerNodeId is not null && !peerIds.Add(peerNodeId))
             failures.Add(PeersDuplicateNodeId);
         if (uri is { IsAbsoluteUri: true } && !peerUris.Add(uri.AbsoluteUri))
-            failures.Add(PeersDuplicateUri);
+            failures.Add(PeersUriDuplicate);
 
         if (peerNodeId is null || nodeId is null || !string.Equals(peerNodeId, nodeId, StringComparison.Ordinal))
             return false;

@@ -48,7 +48,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
         using var root = new TempDirectory("squirix-dirpath-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, InvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
+        var outside = Path.Join(parent.FullName, NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-dirpath-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(
             outside,
             root.Path,
@@ -73,7 +73,7 @@ public sealed class DirectoryPathValidatorTests : ServerUnitTestBase
 
     /// <summary>TryReadNextSegment skips separators and returns segments.</summary>
     [Fact]
-    public void TryReadNextSegmentReadsSegments()
+    public void ReadNextSegmentReadsSegments()
     {
         var path = "/a//b/".AsSpan();
         Assert.True(DirectoryPathValidator.TryReadNextSegment(ref path, out var first));

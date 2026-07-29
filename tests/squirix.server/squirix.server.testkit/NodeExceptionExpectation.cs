@@ -76,5 +76,5 @@ public readonly record struct NodeExceptionExpectation<TException>
         throw Missing();
     }
 
-    private static XunitException Missing() => new(MissingExceptionMessage.For<TException>());
+    private static XunitException Missing() => new(NodeMissingExceptionMessage.For<TException>());
 }

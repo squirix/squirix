@@ -124,5 +124,5 @@ public static class NodeAsyncAssert
     }
 
     private static XunitException Missing<TException>()
-        where TException : Exception => new(MissingExceptionMessage.For<TException>());
+        where TException : Exception => new(NodeMissingExceptionMessage.For<TException>());
 }

@@ -79,6 +79,6 @@ public class JournalAppendBenchmarks
         _host = await JournalBenchmarkHost.CreateAsync("journal-bench", options, CancellationToken.None).ConfigureAwait(false);
         _putPayload = new byte[PutPayloadBytes];
         Array.Fill(_putPayload, Convert.ToByte('x'));
-        _key = new CacheKey("bench", $"payload-{InvariantIndexStrings.Format(PutPayloadBytes)}");
+        _key = new CacheKey("bench", $"payload-{NodeInvariantIndexStrings.Format(PutPayloadBytes)}");
     }
 }

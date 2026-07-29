@@ -30,7 +30,7 @@ public sealed class CacheKeyValidatorTests : ServerUnitTestBase
 
     /// <summary>Accepts ordinary keys and returns stable required/control/too-long diagnostics.</summary>
     [Fact]
-    public void TryValidateCoversSuccessAndFailurePaths()
+    public void ValidateCoversSuccessAndFailurePaths()
     {
         Assert.True(CacheKeyValidator.TryValidate("ok", out var ok));
         Assert.Equal(default, ok);

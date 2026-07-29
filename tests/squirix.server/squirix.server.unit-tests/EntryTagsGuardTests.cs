@@ -11,14 +11,6 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Unit tests for <see cref="EntryTagsGuard" />.</summary>
 public sealed class EntryTagsGuardTests : ServerUnitTestBase
 {
-    /// <summary>Null or empty tags are allowed.</summary>
-    [Fact]
-    public void NullOrEmptyTagsDoNotThrow()
-    {
-        Assert.Null(Record.Exception(static () => EntryTagsGuard.EnsureWithinLimits(null)));
-        Assert.Null(Record.Exception(static () => EntryTagsGuard.EnsureWithinLimits(FrozenDictionary<string, string>.Empty)));
-    }
-
     /// <summary>Invalid tag shapes are rejected with deterministic contracts.</summary>
     /// <param name="caseName">Named invalid-tag scenario.</param>
     /// <param name="expectedDetailFragment">Expected detail fragment for that scenario.</param>
@@ -27,7 +19,7 @@ public sealed class EntryTagsGuardTests : ServerUnitTestBase
     [InlineData("count", "32")]
     [InlineData("key", "256")]
     [InlineData("value", "1024")]
-    public void InvalidTagsThrowInvalidEntryTags(string caseName, string expectedDetailFragment)
+    public static void InvalidTagsThrowInvalidEntryTags(string caseName, string expectedDetailFragment)
     {
         var tags = caseName switch
         {
@@ -41,6 +33,14 @@ public sealed class EntryTagsGuardTests : ServerUnitTestBase
 
         Assert.Equal(SquirixErrorCode.InvalidEntryTags, ex.Code);
         Assert.Contains(expectedDetailFragment, ex.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>Null or empty tags are allowed.</summary>
+    [Fact]
+    public void NullOrEmptyTagsDoNotThrow()
+    {
+        Assert.Null(Record.Exception(static () => EntryTagsGuard.EnsureWithinLimits(null)));
+        Assert.Null(Record.Exception(static () => EntryTagsGuard.EnsureWithinLimits(FrozenDictionary<string, string>.Empty)));
     }
 
     /// <summary>Tags within limits pass validation.</summary>

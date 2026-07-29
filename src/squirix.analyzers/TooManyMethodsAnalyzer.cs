@@ -39,14 +39,26 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeNamedType(SymbolAnalysisContext context)
     {
         var type = (INamedTypeSymbol)context.Symbol;
-        if (type.TypeKind == TypeKind.Interface)
+        if (type.TypeKind == TypeKind.Interface || AnalyzerHelpers.IsCompilerOrGenerated(type))
             return;
 
-        if (AnalyzerHelpers.IsCompilerOrGenerated(type))
+        if (!TryCountMethods(type, out var methodCount))
             return;
 
+        if (methodCount <= AnalyzerLimits.MaxMethodsPerType)
+            return;
+
+        var location = AnalyzerHelpers.GetBestLocation(type);
+        if (location is null)
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, methodCount, AnalyzerLimits.MaxMethodsPerType));
+    }
+
+    private static bool TryCountMethods(INamedTypeSymbol type, out int methodCount)
+    {
+        methodCount = 0;
         var hasNonLiteralField = false;
-        var methodCount = 0;
 
         foreach (var member in type.GetMembers())
         {
@@ -58,27 +70,11 @@ public sealed class TooManyMethodsAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            if (member is not IMethodSymbol method)
-                continue;
-
-            if (!ShouldCountMethod(method))
-                continue;
-
-            methodCount++;
+            if (member is IMethodSymbol method && ShouldCountMethod(method))
+                methodCount++;
         }
 
-        // Require at least one non-constant field (stateless utility types are allowed).
-        if (!hasNonLiteralField)
-            return;
-
-        if (methodCount <= AnalyzerLimits.MaxMethodsPerType)
-            return;
-
-        var location = AnalyzerHelpers.GetBestLocation(type);
-        if (location is null)
-            return;
-
-        context.ReportDiagnostic(Diagnostic.Create(Rule, location, type.Name, methodCount, AnalyzerLimits.MaxMethodsPerType));
+        return hasNonLiteralField;
     }
 
     private static bool ShouldCountMethod(IMethodSymbol method)

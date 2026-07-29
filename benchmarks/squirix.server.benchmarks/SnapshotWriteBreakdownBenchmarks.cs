@@ -109,11 +109,11 @@ public class SnapshotWriteBreakdownBenchmarks
             {
                 object? value = (i % 3) switch
                 {
-                    0 => $"value-{InvariantIndexStrings.Format(i)}",
+                    0 => $"value-{NodeInvariantIndexStrings.Format(i)}",
                     1 => i,
                     _ => i * 1.5d,
                 };
-                items.Add((CacheKey.Default($"key-{InvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
+                items.Add((CacheKey.Default($"key-{NodeInvariantIndexStrings.Format(i)}"), new NodeCacheEntry<object?> { Value = value, Version = 1 }));
             }
 
             var (_, maxRecordLength) = SnapshotFileEncoder.ComputeWriteMetrics(items, []);
@@ -168,9 +168,9 @@ public class SnapshotWriteBreakdownBenchmarks
             WriteFileBlocking(fs, totalFileSize);
         }
 
-        private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
+        private string BuildSnapshotPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Snapshot}");
 
-        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(index)}.tmp");
+        private string BuildTempPath(int index) => PathEx.Combine(_dataDir.Path, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(index)}.tmp");
 
         private void WriteFileBlocking(FileStream destination, long totalFileSize) =>
             SnapshotFileEncoder.WriteFileAsync(destination, _items, [], _encodeBuffer, totalFileSize, CancellationToken.None).GetAwaiter().GetResult();

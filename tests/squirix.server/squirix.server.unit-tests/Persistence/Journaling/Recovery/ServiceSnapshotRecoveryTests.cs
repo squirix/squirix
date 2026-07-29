@@ -69,7 +69,7 @@ public sealed class ServiceSnapshotRecoveryTests : ServerUnitTestBase
     public async Task MissingSnapshotPathFallsBackToJournalOnlyRecovery()
     {
         await using var scenario = RecoveryScenarioBuilder.Create("squirix-recovery-missing-snapshot");
-        var missingSnapshotPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Snapshot}{InvariantIndexStrings.FormatD6(1)}{FileExtensions.Snapshot}");
+        var missingSnapshotPath = NodePathKit.Combine(scenario.DataDir, $"{FilePrefixes.Snapshot}{NodeInvariantIndexStrings.FormatD6(1)}{FileExtensions.Snapshot}");
 
         var record = await BinaryJournalTestSegmentWriter.BuildPutRecordAsync(1UL, "recovered", "yes");
         await BinaryJournalTestSegmentWriter.WriteJournalSegmentAsync(scenario.DataDir, 1, record);

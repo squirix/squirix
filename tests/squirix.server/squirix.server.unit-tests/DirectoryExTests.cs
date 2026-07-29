@@ -13,6 +13,28 @@ namespace Squirix.Server.UnitTests;
 /// <summary>Unit tests for <see cref="DirectoryEx" /> path validation and creation behavior.</summary>
 public sealed class DirectoryExTests
 {
+    /// <summary>Rejects empty and whitespace paths.</summary>
+    /// <param name="path">Invalid path input.</param>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public static void CreateDirectoryRejectsEmptyOrWhitespace(string path)
+    {
+        using var root = new TempDirectory("squirix-directoryex-empty");
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
+    }
+
+    /// <summary>Rejects wildcard characters in the path.</summary>
+    /// <param name="path">Path containing wildcards.</param>
+    [Theory]
+    [InlineData("a*b")]
+    [InlineData("a?b")]
+    public static void CreateDirectoryRejectsWildcards(string path)
+    {
+        using var root = new TempDirectory("squirix-directoryex-wildcards");
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
+    }
+
     /// <summary>On macOS, <c>/tmp</c> may be used as a base despite being a Darwin compatibility symlink.</summary>
     [Fact]
     public void CreateDirectoryAcceptsMacOsTmpCompatibilityBase()
@@ -20,7 +42,7 @@ public sealed class DirectoryExTests
         if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
             return;
 
-        var name = InvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-macos-tmp-");
+        var name = NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-macos-tmp-");
         string? created = null;
         try
         {
@@ -79,19 +101,8 @@ public sealed class DirectoryExTests
         using var root = new TempDirectory("squirix-directoryex-escape");
         var parent = Directory.GetParent(root.Path);
         Assert.NotNull(parent);
-        var outside = Path.Join(parent.FullName, InvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-outside-"));
+        var outside = Path.Join(parent.FullName, NodeInvariantIndexStrings.FormatPrefixedGuidN("squirix-directoryex-outside-"));
         _ = NodeExceptionAssert.For<UnauthorizedAccessException>().Throws(outside, root.Path, static (path, basePath) => DirectoryEx.CreateDirectory(path, basePath));
-    }
-
-    /// <summary>Rejects empty and whitespace paths.</summary>
-    /// <param name="path">Invalid path input.</param>
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void CreateDirectoryRejectsEmptyOrWhitespace(string path)
-    {
-        using var root = new TempDirectory("squirix-directoryex-empty");
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
     }
 
     /// <summary>Throws when a regular file already exists at the target path.</summary>
@@ -118,17 +129,6 @@ public sealed class DirectoryExTests
             Assert.Skip("Directory symlink/junction creation is not available in this environment.");
 
         _ = NodeExceptionAssert.For<IOException>().Throws(root.Path, static basePath => DirectoryEx.CreateDirectory(Path.Join("link", "child"), basePath));
-    }
-
-    /// <summary>Rejects wildcard characters in the path.</summary>
-    /// <param name="path">Path containing wildcards.</param>
-    [Theory]
-    [InlineData("a*b")]
-    [InlineData("a?b")]
-    public void CreateDirectoryRejectsWildcards(string path)
-    {
-        using var root = new TempDirectory("squirix-directoryex-wildcards");
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, root.Path, static (value, basePath) => DirectoryEx.CreateDirectory(value, basePath));
     }
 
     /// <summary>On Windows, reserved device names such as CON are rejected.</summary>
@@ -197,7 +197,7 @@ public sealed class DirectoryExTests
             var processStartInfo = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = InvariantIndexStrings.FormatMklinkJunctionArguments(linkPath, targetPath),
+                Arguments = NodeInvariantIndexStrings.FormatMklinkJunctionArguments(linkPath, targetPath),
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,

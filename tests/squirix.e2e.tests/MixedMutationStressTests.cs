@@ -86,7 +86,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
     {
         var keys = new string[keyCount];
         for (var k = 0; k < keyCount; k++)
-            keys[k] = InvariantIndexStrings.FormatPrefixed("mixed", k);
+            keys[k] = NodeInvariantIndexStrings.FormatPrefixed("mixed", k);
 
         return keys;
     }
@@ -95,7 +95,7 @@ public sealed class MixedMutationStressTests : LoadTestBase
     {
         var values = new string[32];
         for (var w = 0; w < values.Length; w++)
-            values[w] = $"w{InvariantIndexStrings.Format(w)}{suffix}";
+            values[w] = $"w{NodeInvariantIndexStrings.Format(w)}{suffix}";
 
         return values;
     }

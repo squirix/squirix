@@ -8,8 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
-using Squirix.Server.Errors;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
 
@@ -36,64 +36,6 @@ internal static class FrameworkServiceRegistration
         _ = services.AddSingleton<ResourceExhaustedExceptionInterceptor>();
 
         return services;
-    }
-
-    internal sealed class ResourceExhaustedExceptionInterceptor : Interceptor
-    {
-        public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
-            TRequest request,
-            IServerStreamWriter<TResponse> responseStream,
-            ServerCallContext context,
-            ServerStreamingServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                await continuation(request, responseStream, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
-            }
-        }
-
-        public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
-            TRequest request,
-            ServerCallContext context,
-            UnaryServerMethod<TRequest, TResponse> continuation)
-        {
-            try
-            {
-                return await continuation(request, context).ConfigureAwait(false);
-            }
-            catch (ResourceExhaustedException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (JournalCapacityExceededException ex)
-            {
-                throw ex.ToRpcException();
-            }
-            catch (ServerOpIdMismatchException)
-            {
-                throw ServerOpContract.OperationIdReuseMismatch().ToRpcException();
-            }
-            catch (SquirixException ex)
-            {
-                throw ex.ToRpcException();
-            }
-        }
     }
 
     private sealed class InvocationContextInterceptor : Interceptor

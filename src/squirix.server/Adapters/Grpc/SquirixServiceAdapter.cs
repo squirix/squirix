@@ -11,6 +11,7 @@ using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.Runtime;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.Utils;
 using Squirix.Transport.Grpc.Cache;
 using Squirix.Transport.Grpc.Mappers;

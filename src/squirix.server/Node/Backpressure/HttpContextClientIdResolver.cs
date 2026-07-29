@@ -50,7 +50,7 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
 
     private static string ResolveCore(HttpContext context)
     {
-        var principalId = TryGetAuthenticatedPrincipalId(context.User);
+        var principalId = GetAuthenticatedPrincipalId(context.User);
         if (principalId is not null)
             return CreatePrefixed(JwtPrefix, principalId);
 
@@ -61,7 +61,7 @@ internal sealed class HttpContextClientIdResolver : IBackpressureClientIdResolve
         return MissingHttpContextClientId;
     }
 
-    private static string? TryGetAuthenticatedPrincipalId(ClaimsPrincipal? user)
+    private static string? GetAuthenticatedPrincipalId(ClaimsPrincipal? user)
     {
         if (user?.Identity?.IsAuthenticated is not true)
             return null;

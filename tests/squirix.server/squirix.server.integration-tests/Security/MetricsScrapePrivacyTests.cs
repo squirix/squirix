@@ -23,7 +23,7 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
     {
         const string secretCacheName = "privacy-integration-cache-7f3a";
         var mainPort = AllocateDedicatedPort();
-        var uri = InvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", mainPort);
+        var uri = NodeInvariantIndexStrings.FormatHttpsOrigin("127.0.0.1", mainPort);
 
         var credentials = TestJwtHelper.CreateRandomCredentials();
         await using var node = await StartNodeAsync(uri, NodeId, new NodeStartOptions { Security = TestJwtHelper.ToSecurityOptions(credentials) });
@@ -31,7 +31,7 @@ public sealed class MetricsScrapePrivacyTests : NodeIntegrationTestBase
         var cache = node.Services.GetRequiredService<ICacheRuntime>().GetCache<object?>(secretCacheName);
         await cache.SetEntryAsync(IntegrationMutationOpIds.Default, secretCacheName, "k", new NodeCacheEntry<object?> { Value = "v", Version = 1 }, DefaultCancellationToken);
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, InvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics"));
+        using var req = new HttpRequestMessage(HttpMethod.Get, NodeInvariantIndexStrings.FormatHttpsAbsolute("127.0.0.1", mainPort, "/metrics"));
         req.Version = HttpVersion.Version20;
         req.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", TestJwtHelper.CreateBearerToken(credentials));

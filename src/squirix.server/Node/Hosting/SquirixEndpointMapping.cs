@@ -12,6 +12,7 @@ using Squirix.Server.Adapters.Rest;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Node.Observability.Metrics;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Diagnostics;
 
 namespace Squirix.Server.Node.Hosting;
 

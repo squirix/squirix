@@ -1,6 +1,6 @@
 using System;
 
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Retention cleanup subsection of health-ready diagnostics.</summary>
 /// <param name="Degraded">Whether retention cleanup is in a degraded state.</param>

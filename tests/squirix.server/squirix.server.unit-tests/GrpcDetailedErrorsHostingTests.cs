@@ -42,7 +42,7 @@ public sealed class GrpcDetailedErrorsHostingTests : ServerUnitTestBase
         var builder = WebApplication.CreateBuilder(applicationOptions);
 
         _ = await builder.AddSquirixServerAsync(
-            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             cancellationToken: cancellationToken);
 

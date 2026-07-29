@@ -15,7 +15,7 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
     [Fact]
     public async Task StreamingMapsJournalCapacityToRpcResourceExhausted()
     {
-        var interceptor = new FrameworkServiceRegistration.ResourceExhaustedExceptionInterceptor();
+        var interceptor = new ResourceExhaustedExceptionInterceptor();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             interceptor.ServerStreamingServerHandler(
                 "request",
@@ -31,7 +31,7 @@ public sealed class DomainErrorInterceptorTests : ServerUnitTestBase
     [Fact]
     public async Task UnaryMapsJournalCapacityToRpcResourceExhausted()
     {
-        var interceptor = new FrameworkServiceRegistration.ResourceExhaustedExceptionInterceptor();
+        var interceptor = new ResourceExhaustedExceptionInterceptor();
         var ex = await NodeAsyncAssert.ThrowsAsync<RpcException>(
             interceptor.UnaryServerHandler("request", new TestServerCallContext(), static (_, _) => Task.FromException<string>(new JournalCapacityExceededException())));
 

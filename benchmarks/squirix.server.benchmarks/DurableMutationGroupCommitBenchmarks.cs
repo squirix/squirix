@@ -56,7 +56,7 @@ public class DurableMutationGroupCommitBenchmarks
             async (_, cancellationToken) =>
             {
                 var writerId = Interlocked.Increment(ref _nextWriterId);
-                var key = new CacheKey("bench", $"m{InvariantIndexStrings.Format(writerId)}");
+                var key = new CacheKey("bench", $"m{NodeInvariantIndexStrings.Format(writerId)}");
                 var coordinator = host.Coordinator;
                 for (var i = 0; i < operationsPerWriter; i++)
                 {

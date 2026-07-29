@@ -18,12 +18,12 @@ internal enum HostPortRegion
     /// <summary>In-process server pipeline benchmarks.</summary>
     ServerBenchmarks = 4,
 
-    /// <summary>In-process mock OIDC authority.</summary>
+    /// <summary>In-process mock OIDC authority listeners.</summary>
     MockOidcAuthority = 5,
 
-    /// <summary>Cluster mTLS internal listeners.</summary>
+    /// <summary>Inter-node mTLS internal listener ports.</summary>
     MtlsInternal = 6,
 
-    /// <summary>Server unit test hosts that bind loopback HTTPS listeners.</summary>
+    /// <summary>Server unit tests that bind HTTPS listeners.</summary>
     ServerUnitTests = 7,
 }

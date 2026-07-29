@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Invocation;
 
 /// <summary>Reads the current async-local remote-invocation classification for endpoint routing decisions.</summary>
 internal interface IRemoteInvocationState

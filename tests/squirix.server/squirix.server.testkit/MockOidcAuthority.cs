@@ -9,10 +9,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
-using Squirix.Server.TestKit.Hosting;
 using Squirix.Server.TestKit.Networking;
 
-namespace Squirix.Server.TestKit;
+namespace Squirix.Server.TestKit.Hosting;
 
 /// <summary>In-process OIDC authority that serves discovery metadata and JWKS for JWT bearer tests.</summary>
 public sealed class MockOidcAuthority : IAsyncDisposable
@@ -47,7 +46,7 @@ public sealed class MockOidcAuthority : IAsyncDisposable
     public static async Task<MockOidcAuthority> StartAsync(CancellationToken cancellationToken = default)
     {
         var port = PortPool.Allocate();
-        var authorityUrl = InvariantIndexStrings.FormatOrigin("http", "127.0.0.1", port);
+        var authorityUrl = NodeInvariantIndexStrings.FormatOrigin("http", "127.0.0.1", port);
         var signingKey = RSA.Create(2048);
         const string keyId = "mock-oidc-key";
 
