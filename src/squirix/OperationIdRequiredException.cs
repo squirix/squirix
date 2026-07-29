@@ -9,9 +9,7 @@ namespace Squirix;
 [PublicAPI]
 public sealed class OperationIdRequiredException : Exception
 {
-    /// <summary>
-    /// Stable detail shared with the server gRPC contract.
-    /// </summary>
+    /// <summary>Stable detail shared with the server gRPC contract.</summary>
     internal const string StableDetail = "operation_id is required for mutating cache RPCs.";
 
     /// <summary>

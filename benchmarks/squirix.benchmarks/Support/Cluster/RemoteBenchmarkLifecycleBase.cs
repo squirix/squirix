@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -50,7 +49,6 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// Starts the in-process benchmark node. Safe to call from workload methods before class <c>[GlobalSetup]</c> runs.
     /// </summary>
     /// <returns>A task that completes after the node is started.</returns>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _node which StopNode disposes.")]
     protected async Task StartNodeAsync()
     {
         if (_node is not null)
@@ -62,7 +60,6 @@ public abstract class RemoteBenchmarkLifecycleBase
     /// <summary>Opens a long-lived client and cache session on the benchmark node.</summary>
     /// <param name="cacheName">Cache name.</param>
     /// <returns>A task that completes after the shared cache session is opened.</returns>
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to _cacheSession which StopSharedCache disposes.")]
     protected async Task StartSharedCacheAsync(string cacheName)
     {
         await StartNodeAsync().ConfigureAwait(false);
@@ -93,7 +90,6 @@ public abstract class RemoteBenchmarkLifecycleBase
             await session.DisposeAsync().ConfigureAwait(false);
     }
 
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Caller disposes the returned lease.")]
     private Task<BenchmarkClientLease> OpenClientLeaseAsync() => RequireNode().OpenClientAsync(CancellationToken.None);
 
     private BenchmarkNodeScope RequireNode() => _node ?? throw new InvalidOperationException("Benchmark node was not started. Global setup did not run.");

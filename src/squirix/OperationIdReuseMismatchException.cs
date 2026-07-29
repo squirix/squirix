@@ -9,9 +9,7 @@ namespace Squirix;
 [PublicAPI]
 public sealed class OperationIdReuseMismatchException : Exception
 {
-    /// <summary>
-    /// Stable detail shared with the server gRPC contract.
-    /// </summary>
+    /// <summary>Stable detail shared with the server gRPC contract.</summary>
     internal const string StableDetail = "operation_id was reused with a different mutation fingerprint.";
 
     /// <summary>

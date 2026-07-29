@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -120,24 +119,12 @@ public abstract class NodeIntegrationTestBase : IDisposable
             : TestCertificates.CreateMtlsHandler(material.NodeCertificate!, material.TrustAnchor!, targetPeerNodeId);
     }
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(string uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, new Uri(uri, UriKind.Absolute)), options, testName);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal ValueTask<TestNodeHost> StartNodeAsync(Uri uri, string nodeId, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
         StartNodeAsync(uri, BuildClusterPeer(nodeId, uri), options, testName);
 
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     internal async ValueTask<TestNodeHost> StartNodeAsync(Uri uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null)
     {
         options ??= new NodeStartOptions();
@@ -348,10 +335,6 @@ public abstract class NodeIntegrationTestBase : IDisposable
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="peers" /> does not contain an entry for <paramref name="uri" /> (the self node).
     /// </exception>
-    [SuppressMessage(
-        "Reliability",
-        "CA2000:Dispose objects before losing scope",
-        Justification = "The node host client pool owns the handler for the process lifetime of the test node.")]
     private ValueTask<TestNodeHost> StartNodeAsync(string uri, ServerPeer[] peers, NodeStartOptions? options = null, [CallerMemberName] string? testName = null) =>
         StartNodeAsync(new Uri(uri, UriKind.Absolute), peers, options, testName);
 }

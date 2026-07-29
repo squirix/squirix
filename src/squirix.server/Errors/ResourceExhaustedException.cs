@@ -9,9 +9,7 @@ namespace Squirix.Server.Errors;
 /// </summary>
 public sealed class ResourceExhaustedException : Exception
 {
-    /// <summary>
-    /// Stable, bounded detail text shared with gRPC and health/metrics HTTP error mappings (no raw keys, values, or cache names).
-    /// </summary>
+    /// <summary>Stable, bounded detail text shared with gRPC and health/metrics HTTP error mappings (no raw keys, values, or cache names).</summary>
     internal const string StableDetail = "The cache rejected this operation because estimated cache memory usage is critical.";
 
     /// <summary>

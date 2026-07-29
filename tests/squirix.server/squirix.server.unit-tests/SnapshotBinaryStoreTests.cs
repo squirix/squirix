@@ -81,11 +81,7 @@ public sealed class SnapshotBinaryStoreTests : ServerUnitTestBase
         (CacheKey.Default("alpha"), new NodeCacheEntry<object?> { Value = "text", Version = 2 }),
         (CacheKey.Default("beta"), new NodeCacheEntry<object?> { Value = 42L, Version = 3, Expiration = TimeSpan.FromMinutes(1) }),
         (CacheKey.Default("gamma"), new NodeCacheEntry<object?> { Value = 3.5d, Version = 1, ExpiresUtc = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc) }),
-        (new CacheKey("ns", "bytes"),
-            new NodeCacheEntry<object?>(
-                SampleBytes,
-                4,
-                tags: new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal))),
+        (new CacheKey("ns", "bytes"), new NodeCacheEntry<object?>(SampleBytes, 4, tags: EntryTagsKit.RegionWest)),
     ];
 
     private static bool EntryEquals(NodeCacheEntry<object?> left, NodeCacheEntry<object?> right)

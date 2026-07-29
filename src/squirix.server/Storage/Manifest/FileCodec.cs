@@ -116,7 +116,7 @@ internal static class FileCodec
             // Snapshot path follows the fixed snapshot metadata when present.
             if (pathByteCount > 0)
             {
-                _ = Encoding.UTF8.GetBytes(path!, destination[offset..]);
+                _ = Encoding.UTF8.GetBytes(path, destination[offset..]);
                 offset += pathByteCount;
             }
         }

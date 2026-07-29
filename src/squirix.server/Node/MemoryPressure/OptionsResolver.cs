@@ -6,9 +6,7 @@ namespace Squirix.Server.Node.MemoryPressure;
 /// <summary>Resolves loaded memory pressure settings against the process RAM budget.</summary>
 internal static class OptionsResolver
 {
-    /// <summary>
-    /// Hard-coded fraction of available process memory used as the default cache limit and maximum configurable limit.
-    /// </summary>
+    /// <summary>Hard-coded fraction of available process memory used as the default cache limit and maximum configurable limit.</summary>
     internal const int RamBudgetPercent = 80;
 
     /// <summary>
