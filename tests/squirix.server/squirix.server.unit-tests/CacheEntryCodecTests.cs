@@ -1,9 +1,8 @@
 using System;
-using System.Collections.Frozen;
-using System.Collections.Generic;
 using System.Text.Json;
 using Squirix.Server.Core;
 using Squirix.Server.Storage.Entries.Binary;
+using Squirix.Server.TestKit;
 using Squirix.Server.UnitTests.Support;
 using Xunit;
 
@@ -63,12 +62,7 @@ public sealed class CacheEntryCodecTests : ServerUnitTestBase
     [Fact]
     public void RoundTripsMetadataAndTags()
     {
-        var entry = new NodeCacheEntry<object?>(
-            "payload",
-            3,
-            new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc),
-            TimeSpan.FromMinutes(5),
-            new Dictionary<string, string>(StringComparer.Ordinal) { ["region"] = "west" }.ToFrozenDictionary(StringComparer.Ordinal));
+        var entry = new NodeCacheEntry<object?>("payload", 3, new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc), TimeSpan.FromMinutes(5), EntryTagsKit.RegionWest);
         var length = CacheEntryCodec.ComputeEncodedLength(entry);
         BufferKit.WithBuffer(
             length,

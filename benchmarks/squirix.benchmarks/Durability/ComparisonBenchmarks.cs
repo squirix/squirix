@@ -57,7 +57,6 @@ public class ComparisonBenchmarks
     /// <summary>Starts the benchmark node and opens a shared cache session.</summary>
     /// <returns>A task that completes after benchmark resources are ready.</returns>
     [GlobalSetup]
-    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership transfers to fields disposed in GlobalCleanup.")]
     public async Task GlobalSetupAsync()
     {
         _node = await BenchmarkNodeScope.StartAsync(CancellationToken.None, DurabilityMode).ConfigureAwait(false);

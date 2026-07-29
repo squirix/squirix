@@ -124,11 +124,5 @@ public static class NodeAsyncAssert
     }
 
     private static XunitException Missing<TException>()
-        where TException : Exception => new(MissingCache<TException>.Message);
-
-    private static class MissingCache<TException>
-        where TException : Exception
-    {
-        internal static readonly string Message = $"Expected {typeof(TException).FullName} to be thrown, but the operation completed successfully.";
-    }
+        where TException : Exception => new(MissingExceptionMessage.For<TException>());
 }

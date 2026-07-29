@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Frozen;
-using System.Collections.Generic;
 using Squirix.Server.Core;
 using Squirix.Server.Errors;
 using Squirix.Server.TestKit;
@@ -57,21 +56,14 @@ public sealed class EntryTagsGuardTests : ServerUnitTestBase
     private static FrozenDictionary<string, string> CreateOversizedKeyTags()
     {
         var key = new string('k', EntryLimits.MaxEntryTagKeyUtf8Bytes + 1);
-        return new Dictionary<string, string>(StringComparer.Ordinal) { [key] = "v" }.ToFrozenDictionary(StringComparer.Ordinal);
+        return EntryTagsKit.One(key, "v");
     }
 
     private static FrozenDictionary<string, string> CreateOversizedValueTags()
     {
         var value = new string('v', EntryLimits.MaxEntryTagValueUtf8Bytes + 1);
-        return new Dictionary<string, string>(StringComparer.Ordinal) { ["k"] = value }.ToFrozenDictionary(StringComparer.Ordinal);
+        return EntryTagsKit.One("k", value);
     }
 
-    private static FrozenDictionary<string, string> CreateTags(int count)
-    {
-        var tags = new Dictionary<string, string>(count, StringComparer.Ordinal);
-        for (var i = 0; i < count; i++)
-            tags[InvariantIndexStrings.Format(i)] = "v";
-
-        return tags.ToFrozenDictionary(StringComparer.Ordinal);
-    }
+    private static FrozenDictionary<string, string> CreateTags(int count) => EntryTagsKit.CreateCount(count);
 }

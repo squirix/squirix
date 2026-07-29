@@ -15,9 +15,7 @@ namespace Squirix.E2EBenchmarks.Cache;
 /// <summary>Shared setup and cleanup for parameterized E2E benchmark classes.</summary>
 public abstract class BenchmarkBase
 {
-    /// <summary>
-    /// Number of cache operations performed per benchmark invocation.
-    /// </summary>
+    /// <summary>Number of cache operations performed per benchmark invocation.</summary>
     private protected const int BatchSize = 32;
 
     private int _addOffset;

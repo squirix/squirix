@@ -26,7 +26,6 @@ internal sealed class ServerClientPool : IServerClientPool
     private readonly ConcurrentDictionary<string, IServerCallPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
     private int _disposed;
 
-    [SuppressMessage("Microsoft.Reliability", "CA2000:Dispose objects before losing scope", Justification = "GrpcChannel disposes HttpHandler when the channel is disposed.")]
     internal ServerClientPool(IReadOnlyList<ServerPeer> peers, ServerClientPoolArgs args)
     {
         ArgumentNullException.ThrowIfNull(args);

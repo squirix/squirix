@@ -73,19 +73,19 @@ internal sealed record MtlsOptions
 
         if (hasPfx)
         {
-            if (!File.Exists(CertPfxPath!))
+            if (!File.Exists(CertPfxPath))
                 failures.Add("Cluster mTLS PFX file was not found.");
             return;
         }
 
         if (!hasPemCert)
             failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_CERT_PATH when PEM mode is used.");
-        else if (!File.Exists(CertPath!))
+        else if (!File.Exists(CertPath))
             failures.Add("Cluster mTLS certificate file was not found.");
 
         if (!hasPemKey)
             failures.Add("Cluster mTLS requires SQUIRIX_CLUSTER_MTLS_KEY_PATH when PEM mode is used.");
-        else if (!File.Exists(KeyPath!))
+        else if (!File.Exists(KeyPath))
             failures.Add("Cluster mTLS private key file was not found.");
     }
 
