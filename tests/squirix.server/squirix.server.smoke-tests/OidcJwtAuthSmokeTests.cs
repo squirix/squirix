@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Grpc.Core;
 using Squirix.Server.TestKit;
+using Squirix.Server.TestKit.Hosting;
 using Squirix.Transport.Grpc.Cache;
 using Xunit;
 

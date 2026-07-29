@@ -54,7 +54,7 @@ public sealed class TempSettingsFile : IDisposable
 
     private static async Task<TempSettingsFile> WriteCoreAsync(string prefix, string json, CancellationToken cancellationToken)
     {
-        var path = System.IO.Path.Join(System.IO.Path.GetTempPath(), InvariantIndexStrings.FormatPrefixedMiddleSuffix(prefix, System.IO.Path.GetRandomFileName(), ".json"));
+        var path = System.IO.Path.Join(System.IO.Path.GetTempPath(), NodeInvariantIndexStrings.FormatPrefixedMiddleSuffix(prefix, System.IO.Path.GetRandomFileName(), ".json"));
         await File.WriteAllTextAsync(path, json, cancellationToken).ConfigureAwait(false);
         return new TempSettingsFile(path);
     }

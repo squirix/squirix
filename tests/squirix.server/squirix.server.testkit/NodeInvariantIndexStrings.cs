@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Squirix.Server.TestKit;
 
 /// <summary>Cached and single-allocation invariant index/string helpers for tests and benchmarks.</summary>
-public static class InvariantIndexStrings
+public static class NodeInvariantIndexStrings
 {
     private const int CachedNonNegativeCount = 1024;
     private static readonly string[] CachedNonNegative = CreateCachedNonNegative();

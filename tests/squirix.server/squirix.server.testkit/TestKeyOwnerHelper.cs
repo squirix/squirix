@@ -58,7 +58,7 @@ public sealed class TestKeyOwnerHelper
     {
         for (var i = 0; i < 200_000; i++)
         {
-            var candidate = InvariantIndexStrings.FormatPrefixed(prefix, i);
+            var candidate = NodeInvariantIndexStrings.FormatPrefixed(prefix, i);
             if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                 return candidate;
         }

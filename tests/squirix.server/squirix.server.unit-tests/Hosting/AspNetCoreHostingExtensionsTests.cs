@@ -46,7 +46,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
             static options =>
             {
                 options.NodeId = "aspnet-test";
-                options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
+                options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort()));
             },
             loadDiscoveredSettings: false,
             cancellationToken: DefaultCancellationToken);
@@ -88,7 +88,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
     public async Task MapSquirixServerMapsJournalCapacityToHttp429()
     {
         var port = ListenPortPool.ServerUnitTests.AllocatePort();
-        var uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", port));
+        var uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", port));
         var builder = WebApplication.CreateBuilder(
             new WebApplicationOptions
             {
@@ -151,7 +151,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
         var extensionsConfigurer = new MarkerExtensionsConfigurer(marker);
 
         _ = await builder.AddSquirixServerAsync(
-            static options => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
+            static options => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", ListenPortPool.ServerUnitTests.AllocatePort())),
             loadDiscoveredSettings: false,
             configureExtensions: extensionsConfigurer.Apply,
             cancellationToken: DefaultCancellationToken);
@@ -315,7 +315,7 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 
         private void ApplyCore(SquirixServerOptions options)
         {
-            options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
+            options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
             options.UsePersistence(_dataDirectory);
         }
     }
@@ -332,6 +332,6 @@ public sealed class AspNetCoreHostingExtensionsTests : ServerUnitTestBase
 
         internal Action<SquirixServerOptions> Apply { get; }
 
-        private void ApplyCore(SquirixServerOptions options) => options.Uri = new Uri(InvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
+        private void ApplyCore(SquirixServerOptions options) => options.Uri = new Uri(NodeInvariantIndexStrings.FormatHttpsOrigin("localhost", _port));
     }
 }

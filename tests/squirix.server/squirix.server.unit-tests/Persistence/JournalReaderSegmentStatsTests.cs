@@ -41,7 +41,7 @@ public sealed class JournalReaderSegmentStatsTests : ServerUnitTestBase
     }
 
     private static Task WriteSegmentAsync(string dir, int index, int byteCount) => File.WriteAllBytesAsync(
-        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}"),
+        NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}"),
         new byte[byteCount],
         DefaultCancellationToken);
 }

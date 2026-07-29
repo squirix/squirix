@@ -127,7 +127,7 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
         if (!File.Exists(path))
             return false;
 
-        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{InvariantIndexStrings.Format(segmentIndex)}");
+        var isolatedDataDir = NodePathKit.Combine(dataDir, $"segment-reader-{NodeInvariantIndexStrings.Format(segmentIndex)}");
         _ = Directory.CreateDirectory(isolatedDataDir);
         File.Copy(path, JournalReadPath.BuildSegmentPath(isolatedDataDir, segmentIndex), true);
 
@@ -200,5 +200,5 @@ public sealed class JournalSegmentRollTests : ServerUnitTestBase
 
     private static string SegmentPath(string dataDir, int segmentIndex) => NodePathKit.Combine(
         dataDir,
-        $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
+        $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(segmentIndex)}{FileExtensions.Journal}");
 }

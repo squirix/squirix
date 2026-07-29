@@ -31,23 +31,23 @@ public sealed class KeyInputValidatorTests : UnitTestBase
     [InlineData("emoji:🔑")]
     public static void ValidateAcceptsSeparatorsAndUnicode(string key) => KeyInputValidator.Validate(key, nameof(key));
 
-    /// <summary>Verifies max length key is accepted.</summary>
-    [Fact]
-    public void ValidateAcceptsMaxLengthKey()
-    {
-        var key = new string('x', KeyInputValidator.MaxLength);
-        KeyInputValidator.Validate(key, nameof(key));
-    }
-
     /// <summary>Verifies invalid keys fail with deterministic messages.</summary>
     /// <param name="key">The key to validate.</param>
     /// <param name="expectedMessage">The expected canonical message.</param>
     [Theory]
     [MemberData(nameof(InvalidKeys))]
-    public void ValidateRejectsInvalidKeys(string? key, string expectedMessage)
+    public static void ValidateRejectsInvalidKeys(string? key, string expectedMessage)
     {
         var ex = ExceptionAssert.For<ArgumentException>().Throws(key, static value => KeyInputValidator.Validate(value, nameof(value)));
 
         Assert.StartsWith(expectedMessage, ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Verifies max length key is accepted.</summary>
+    [Fact]
+    public static void ValidateAcceptsMaxLengthKey()
+    {
+        var key = new string('x', KeyInputValidator.MaxLength);
+        KeyInputValidator.Validate(key, nameof(key));
     }
 }

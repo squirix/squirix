@@ -11,6 +11,39 @@ namespace Squirix.Server.UnitTests.Utils;
 /// <summary>Covers operator path validation used before file I/O.</summary>
 public sealed class FilePathValidatorTests : ServerUnitTestBase
 {
+    /// <summary>Rejects parent-directory segments in operator paths.</summary>
+    /// <param name="path">Path containing <c>.</c> or <c>..</c> segments.</param>
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../Squirix.settings.json")]
+    [InlineData("foo/../bar.json")]
+    [InlineData("foo/./bar.json")]
+    public static void ResolveValidatedFilePathRejectsDotSegments(string path)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
+        Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Rejects empty and whitespace paths.</summary>
+    /// <param name="path">Empty or whitespace path.</param>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public static void ResolveValidatedFilePathRejectsEmpty(string? path) =>
+        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
+
+    /// <summary>Rejects wildcards in operator paths.</summary>
+    /// <param name="path">Path containing wildcards.</param>
+    [Theory]
+    [InlineData("*.json")]
+    [InlineData("settings?.json")]
+    public static void ResolveValidatedFilePathRejectsWildcards(string path)
+    {
+        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
+        Assert.Contains("wildcard", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>FileEx.TryDeleteFile treats traversal paths as skipped successes.</summary>
     [Fact]
     public void FileExTryDeleteFileSkipsTraversalPaths() => Assert.True(FileEx.TryDeleteFile("../nope.txt"));
@@ -52,38 +85,5 @@ public sealed class FilePathValidatorTests : ServerUnitTestBase
         var full = FilePathValidator.ResolveValidatedFilePath("Squirix.settings.json");
         Assert.True(Path.IsPathRooted(full));
         Assert.EndsWith("Squirix.settings.json", full, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Rejects parent-directory segments in operator paths.</summary>
-    /// <param name="path">Path containing <c>.</c> or <c>..</c> segments.</param>
-    [Theory]
-    [InlineData("..")]
-    [InlineData("../Squirix.settings.json")]
-    [InlineData("foo/../bar.json")]
-    [InlineData("foo/./bar.json")]
-    public void ResolveValidatedFilePathRejectsDotSegments(string path)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
-        Assert.Contains("'.' or '..'", ex.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Rejects empty and whitespace paths.</summary>
-    /// <param name="path">Empty or whitespace path.</param>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void ResolveValidatedFilePathRejectsEmpty(string? path) =>
-        _ = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value!));
-
-    /// <summary>Rejects wildcards in operator paths.</summary>
-    /// <param name="path">Path containing wildcards.</param>
-    [Theory]
-    [InlineData("*.json")]
-    [InlineData("settings?.json")]
-    public void ResolveValidatedFilePathRejectsWildcards(string path)
-    {
-        var ex = NodeExceptionAssert.For<ArgumentException>().Throws(path, static value => FilePathValidator.ResolveValidatedFilePath(value));
-        Assert.Contains("wildcard", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

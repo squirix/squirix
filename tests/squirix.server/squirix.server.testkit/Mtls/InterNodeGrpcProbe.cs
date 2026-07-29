@@ -5,6 +5,7 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Squirix.Server.Core;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Invocation;
 using Squirix.Server.TestKit.Networking;
 using Squirix.Transport.Grpc.Cache;
 

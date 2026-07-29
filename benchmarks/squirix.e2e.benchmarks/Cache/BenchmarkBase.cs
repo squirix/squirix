@@ -83,7 +83,7 @@ public abstract class BenchmarkBase
 
     /// <summary>Gets the next globally unique add key for benchmark paths that require missing keys across all BenchmarkDotNet iterations.</summary>
     /// <returns>A key that has not been returned by this benchmark instance before.</returns>
-    protected string NextUniqueAddKey() => InvariantIndexStrings.FormatPrefixedPadded("unique:add", Interlocked.Increment(ref _uniqueAddOffset), "D10", 10);
+    protected string NextUniqueAddKey() => NodeInvariantIndexStrings.FormatPrefixedPadded("unique:add", Interlocked.Increment(ref _uniqueAddOffset), "D10", 10);
 
     /// <summary>Allows derived benchmark classes to seed state that is specific to their pure-operation benchmark methods.</summary>
     /// <param name="cancellationToken">A cancellation token.</param>

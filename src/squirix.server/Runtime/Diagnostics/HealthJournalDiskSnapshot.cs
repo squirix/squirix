@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>On-disk journal capacity subsection of health-ready diagnostics.</summary>
 /// <param name="State">Current journal disk pressure state label (<c>normal</c>, <c>high</c>, or <c>critical</c>).</param>

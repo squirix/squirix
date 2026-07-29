@@ -6,6 +6,7 @@ using Squirix.Server.Cluster;
 using Squirix.Server.Node.MemoryPressure;
 using Squirix.Server.Node.Services;
 using Squirix.Server.Runtime.Contracts;
+using Squirix.Server.Runtime.Diagnostics;
 using Squirix.Server.Storage;
 using Squirix.Server.Storage.Journaling;
 using Squirix.Server.Storage.Journaling.Abstractions;

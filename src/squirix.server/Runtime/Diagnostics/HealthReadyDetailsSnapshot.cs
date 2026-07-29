@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Health-ready diagnostics snapshot for `/health/ready/details`.</summary>
 internal sealed class HealthReadyDetailsSnapshot

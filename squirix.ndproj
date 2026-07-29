@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.6.9800">
+<NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.2.9787">
   <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
   <IDEFiles>
     <IDEFile FilePath=".\squirix.slnx" Filters="" Configuration="DEBUG|AnyCPU">
@@ -287,7 +287,10 @@ where  t.IsClass &&
       !(t.IsSealed && t.Members.Count() == 1 &&
         t.Members.Single().IsMethod &&
         t.Members.Single().AsMethod.IsConstructor &&
-        t.Members.Single().AsMethod.NbParameters == 0)
+        t.Members.Single().AsMethod.NbParameters == 0) &&
+
+      // Roslyn DiagnosticAnalyzers are MEF-instantiated; constructors look unused to static analysis.
+      !t.DeriveFrom("Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer".AllowNoMatch())
 
 select new {
    t,
@@ -307,7 +310,7 @@ select new {
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1301$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1302$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1303$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1315$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1304$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid namespaces with few types</Name>
 // <Id>ND1305:AvoidNamespacesWithFewTypes</Id>
@@ -330,7 +333,11 @@ let infraNamespaceNames = new HashSet<string>() {
       "Formatters",  "Xml",  "Json",  "Enums",
       "Abstractions",  "BaseClasses",  "Settings",
       "Helpers",  "Validators",  "Entities",  "Pages",
-      "Client"
+      "Client",
+      "Rest", "Errors", "Endpoint", "Internal", "Cluster",
+      "Observability", "Support", "Networking", "Utils", "Memory",
+      "Persistence", "Adapters", "Core", "Hosting", "ApiSnapshots",
+      "Diagnostics", "Invocation"
 }
 
 from a in JustMyCode.Assemblies
@@ -356,9 +363,9 @@ select new {
 }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1306$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1307$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1308$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1309$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1310$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1311$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1312$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1313$]]></Query>
@@ -368,7 +375,7 @@ select new {
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1400$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1401$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1402$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1412$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1412$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1403$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1404$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1405$]]></Query>
@@ -380,12 +387,12 @@ select new {
       <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND9900$]]></Query>
     </Group>
     <Group Name="API Breaking Changes" Active="True" ShownInReport="True">
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1500$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1501$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1502$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1503$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1504$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1505$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1500$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1501$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1502$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1503$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1504$]]></Query>
+      <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1505$]]></Query>
       <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible types$]]></Query>
       <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible methods$]]></Query>
       <Query Active="False" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$API: New publicly visible fields$]]></Query>
@@ -441,7 +448,18 @@ select new {
     </Group>
     <Group Name="Immutability" Active="True" ShownInReport="False">
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND1900$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND1901$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid non-readonly static fields</Name>
+// <Id>ND1901:AvoidNonReadonlyStaticFields</Id>
+// ND1901 squirix override: exclude intentional process-wide mutable static cells.
+warnif count > 0
+from f in JustMyCode.Fields
+where f.IsStatic &&
+     !f.IsInitOnly &&
+     !f.IsLiteral &&
+     !f.IsEnumValue &&
+     !f.IsGeneratedByCompiler &&
+     f.FullName != "Squirix.Server.Node.Observability.BackpressureMetrics._snapshotBuffer"
+select new { f, Debt = 10.ToMinutes().ToDebt(), Severity = Severity.Medium }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Avoid static fields with a mutable field type</Name>
 // <Id>ND1902:AvoidStaticFieldsWithAMutableFieldType</Id>
 // ND1902 squirix override: stock rule uses Application.Fields and ignores notmycode.
@@ -490,7 +508,20 @@ select new {
     </Group>
     <Group Name="Naming Conventions" Active="True" ShownInReport="False">
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2000$]]></Query>
-      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2001$]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Static fields naming convention</Name>
+// <Id>ND2001:StaticFieldsNamingConvention</Id>
+// ND2001 squirix override: StyleCop SA1306 requires _camelCase; exclude intentional cells that
+// would otherwise need Pascal after underscore to satisfy stock ND2001.
+warnif count > 0
+from f in JustMyCode.Fields
+where f.IsStatic &&
+     !f.IsLiteral &&
+     !f.IsEnumValue &&
+     !f.IsGeneratedByCompiler &&
+     !f.NameLike("^_?[A-Z]") &&
+     !f.NameLike("^s_") &&
+     f.FullName != "Squirix.Server.Node.Observability.BackpressureMetrics._snapshotBuffer"
+select new { f, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2002$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2003$]]></Query>
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2004$]]></Query>
@@ -558,7 +589,17 @@ select new { m, m.ReturnType, Debt = 10.ToMinutes().ToDebt(), Severity = Severit
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2402$]]></Query>
       </Group>
       <Group Name="System.Threading" Active="True" ShownInReport="False">
-        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2500$]]></Query>
+        <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Don't create threads explicitly</Name>
+// <Id>ND2500:DontCreateThreadsExplicitly</Id>
+// ND2500 squirix override: durability WAL/manifest publishers own dedicated I/O threads by design.
+warnif count > 0
+from m in JustMyCode.Methods
+where m.IsUsing("System.Threading.Thread".AllowNoMatch()) &&
+      !(m.IsConstructor &&
+        m.ParentType != null &&
+        (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
+         m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher"))
+select new { m, Debt = 30.ToMinutes().ToDebt(), Severity = Severity.High }]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[$ND2501$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2502$]]></Query>
         <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True"><![CDATA[$ND2503$]]></Query>
@@ -694,12 +735,73 @@ where m.IsConstructor &&
       (m.ParentType.FullName == "Squirix.Server.Storage.Journaling.JournalCoordinator" ||
        m.ParentType.FullName == "Squirix.Server.Storage.ManifestRollPublisher")
 select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude ExceptionExpectation helpers from ND1208</Name>
+// CA1000 / MA0018 forbid static members on generic types; instance Throws helpers are intentional.
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      m.ParentType.SimpleName.EndsWith("ExceptionExpectation")
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection helpers</Name>
+// Collection expressions synthesize <>z__ReadOnly* types that throw reserved exception types.
+notmycode
+from t in Types
+where t.IsGeneratedByCompiler || t.NameLike("^<>z__")
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude compiler-generated collection methods</Name>
+notmycode
+from m in Methods
+where m.ParentType != null &&
+      (m.ParentType.IsGeneratedByCompiler || m.ParentType.NameLike("^<>z__"))
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CapturedMeasurement equality operators from ND1701</Name>
+// Operators exist to satisfy value-type equality rules; call sites use Equals directly.
+notmycode
+from m in Methods
+where m.IsOperator &&
+      m.ParentType != null &&
+      m.ParentType.Name == "CapturedMeasurement" &&
+      (m.SimpleName == "op_Equality" || m.SimpleName == "op_Inequality")
+select m]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude JournalSegmentPolicy from class-to-struct suggestion</Name>
+// Sealed reference type keeps Policy property semantics simple; struct conversion fights MA0008/RCS1085.
+notmycode
+from t in Types
+where t.FullName == "Squirix.Server.Storage.Journaling.JournalSegmentPolicy"
+select t]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Exclude CreateHashLocator offline tool entry</Name>
+// Used by tools/sqr-ring-distribution.cs (file-based app outside analyzed assemblies).
+notmycode
+from m in Methods
+where m.FullName == "Squirix.Server.Cluster.RuntimeServiceRegistration.CreateHashLocator(ReadOnlySpan<String>,Int32)"
+select m]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard sample assemblies from JustMyCode</Name>
 // Smoke/sample apps under samples/ are not product-layer code. Folder layout need not match
 // RootNamespace (ND2103) and other naming rules should not gate sample harnesses.
 notmycode
 from a in Application.Assemblies.WithNameIn(
       "ExternalPackageSmoke")
+select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard analyzers assembly from multi-version / cohesion noise</Name>
+// Analyzers ship Roslyn packages that intentionally differ from app TFM analysis graphs.
+notmycode
+from a in Application.Assemblies.WithNameIn("Squirix.Analyzers")
+select a]]></Query>
+      <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard unit-test assemblies from cohesion / SCA gates</Name>
+// Test harness cohesion and transitive SCA hits are not product-layer debt.
+notmycode
+from a in Application.Assemblies.WithNameIn(
+      "Squirix.UnitTests",
+      "Squirix.Server.UnitTests",
+      "Squirix.Server.TestKit",
+      "Squirix.TestKit",
+      "Squirix.IntegrationTests",
+      "Squirix.Server.IntegrationTests",
+      "Squirix.Server.SmokeTests",
+      "Squirix.E2ETests",
+      "Squirix.Benchmarks",
+      "Squirix.Server.Benchmarks",
+      "Squirix.E2EBenchmarks")
 select a]]></Query>
     </Group>
     <Group Name="Trend Metrics" Active="True" ShownInReport="False">

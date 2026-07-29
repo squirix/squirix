@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Diagnostics;
 
 /// <summary>Memory-pressure subsection of health-ready diagnostics.</summary>
 /// <param name="State">Current memory-pressure state label.</param>

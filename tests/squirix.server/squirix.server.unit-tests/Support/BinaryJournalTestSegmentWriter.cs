@@ -30,13 +30,13 @@ internal static class BinaryJournalTestSegmentWriter
 
     internal static Task WriteJournalSegmentAsync(string dir, int index, JournalRecord record)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         return WriteSegmentAsync(path, record);
     }
 
     internal static Task WriteJournalSegmentAsync(string dir, int index, IReadOnlyList<JournalRecord> records)
     {
-        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{InvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
+        var path = NodePathKit.Combine(dir, $"{FilePrefixes.Journal}{NodeInvariantIndexStrings.FormatD6(index)}{FileExtensions.Journal}");
         return WriteSegmentAsync(path, records);
     }
 

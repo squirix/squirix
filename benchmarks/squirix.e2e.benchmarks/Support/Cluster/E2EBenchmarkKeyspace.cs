@@ -62,7 +62,7 @@ internal sealed class E2EBenchmarkKeyspace
     {
         var keys = new string[count];
         for (var i = 0; i < keys.Length; i++)
-            keys[i] = InvariantIndexStrings.FormatPrefixedPadded(prefix, i, "D6", 6);
+            keys[i] = NodeInvariantIndexStrings.FormatPrefixedPadded(prefix, i, "D6", 6);
         return keys;
     }
 
@@ -152,7 +152,7 @@ internal sealed class E2EBenchmarkKeyspace
             var found = 0;
             for (var i = 0; i < 200_000 && found < count; i++)
             {
-                var candidate = InvariantIndexStrings.FormatPrefixed(prefix, i);
+                var candidate = NodeInvariantIndexStrings.FormatPrefixed(prefix, i);
                 if (string.Equals(GetOwner(cacheName, candidate), ownerId, StringComparison.Ordinal))
                     keys[found++] = candidate;
             }

@@ -37,7 +37,7 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
         var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromHours(1) }, "test-node");
 
         for (var i = 0; i < cap * 3; i++)
-            store.RecordSuccess($"op-{InvariantIndexStrings.FormatD4(i)}", $"fp-{InvariantIndexStrings.FormatD4(i)}", ResponseBytes);
+            store.RecordSuccess($"op-{NodeInvariantIndexStrings.FormatD4(i)}", $"fp-{NodeInvariantIndexStrings.FormatD4(i)}", ResponseBytes);
 
         Assert.Equal(cap, store.RecordCount);
     }

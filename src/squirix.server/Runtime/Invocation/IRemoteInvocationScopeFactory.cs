@@ -1,4 +1,4 @@
-namespace Squirix.Server.Runtime.Contracts;
+namespace Squirix.Server.Runtime.Invocation;
 
 /// <summary>Enters an async-local remote-invocation scope for server endpoint handlers and interceptors.</summary>
 internal interface IRemoteInvocationScopeFactory

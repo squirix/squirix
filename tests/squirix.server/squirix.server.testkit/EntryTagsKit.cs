@@ -16,7 +16,7 @@ public static class EntryTagsKit
     /// <returns>A frozen dictionary containing only <paramref name="key" />.</returns>
     public static FrozenDictionary<string, string> One(string key, string value)
     {
-        KeyValuePair<string, string>[] pairs = [new KeyValuePair<string, string>(key, value)];
+        KeyValuePair<string, string>[] pairs = [new(key, value)];
         return pairs.ToFrozenDictionary(StringComparer.Ordinal);
     }
 
@@ -31,7 +31,7 @@ public static class EntryTagsKit
 
         var pairs = new KeyValuePair<string, string>[count];
         for (var i = 0; i < count; i++)
-            pairs[i] = new KeyValuePair<string, string>(InvariantIndexStrings.Format(i), "v");
+            pairs[i] = new KeyValuePair<string, string>(NodeInvariantIndexStrings.Format(i), "v");
 
         return pairs.ToFrozenDictionary(StringComparer.Ordinal);
     }
