@@ -47,6 +47,8 @@ jobs:
                           - 'examples/**'
                           - 'benchmarks/**'
                           - 'samples/**'
+                          - '.github/workflows/**'
+                          - '.github/actions/**'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'
                           - 'global.json'
