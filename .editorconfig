@@ -134,6 +134,11 @@ dotnet_diagnostic.SA1600.severity = none
 dotnet_diagnostic.IDE0160.severity = none
 # Use file-scoped namespaces
 dotnet_diagnostic.IDE0161.severity = error
+# Namespace must match folder structure (RootNamespace + relative path)
+dotnet_style_namespace_match_folder = true
+dotnet_diagnostic.IDE0130.severity = error
+# Remove unused using directives (fails build via EnforceCodeStyleInBuild)
+dotnet_diagnostic.IDE0005.severity = error
 # Use primary constructor
 dotnet_diagnostic.IDE0290.severity = none
 # Enforce formatting, including single-line expression members when they fit the line width
