@@ -43,6 +43,8 @@ jobs:
                           - 'examples/**'
                           - 'benchmarks/**'
                           - 'samples/**'
+                          - '.github/workflows/**'
+                          - '.github/actions/**'
                           - '.github/codeql/**'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'

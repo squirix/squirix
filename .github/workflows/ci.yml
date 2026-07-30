@@ -1,9 +1,10 @@
 name: CI
 
 on:
-    # develop push/PR: ubuntu-only matrix (fast path) + fast e2e wire-alloc benchmarks.
-    # main push and PRs targeting main: full ubuntu/windows/macos matrix (release integration gate).
+    # develop and main push/PR: full ubuntu/windows/macos matrix during preview.8.
+    # Fast e2e wire-alloc benchmarks remain develop-only.
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
+    # After preview.8 ships, restore develop ubuntu-only fast-path if daily full matrix is no longer needed.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     push:
@@ -46,6 +47,8 @@ jobs:
                           - 'examples/**'
                           - 'benchmarks/**'
                           - 'samples/**'
+                          - '.github/workflows/**'
+                          - '.github/actions/**'
                           - 'Directory.Build.props'
                           - 'Directory.Packages.props'
                           - 'global.json'
@@ -216,7 +219,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
@@ -492,9 +495,9 @@ jobs:
         needs: [ build, smoke-fast-fail ]
         strategy:
             fail-fast: false
-            max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && 8 || 7 }}
+            max-parallel: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && 8 || 7 }}
             matrix:
-                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
+                os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
                 suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
         env:
