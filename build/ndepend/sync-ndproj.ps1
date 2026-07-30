@@ -134,13 +134,13 @@ if ($null -ne $ruleFiles) {
 }
 
 # Baseline / harness noise: keep inactive so rename/testkit churn does not gate quality.
+# ND1412 is activated via squirix.ndrules CustomRuleOverrides (preview.8 DAG gate).
 $deactivateTokens = @(
     'ND1500', 'ND1501', 'ND1502', 'ND1503', 'ND1504', 'ND1505', # API Breaking Changes vs prior analysis
     'ND2201', # reserved exception types on compiler-generated collection helpers
     'ND1308', # namespace relational cohesion (Runtime.Contracts / TestKit bag namespaces)
     'ND1310', # testkit Hosting/Networking/Mtls sibling cycles through parent TestKit
-    'ND1315', # DisposableTypesMustUnsubscribeEvents — placeholder missing on NDepend 2026.1.2
-    'ND1412'  # EnforcingCleanArchitecture — placeholder missing; Domain/App layers N/A to squirix
+    'ND1315'  # DisposableTypesMustUnsubscribeEvents - placeholder missing on NDepend 2026.1.2
 )
 foreach ($token in $deactivateTokens) {
     $placeholder = "`$${token}`$"

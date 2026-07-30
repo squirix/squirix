@@ -453,6 +453,60 @@ where f.IsStatic &&
      !f.NameLike("^s_") &&
      f.FullName != "Squirix.Server.Node.Observability.BackpressureMetrics._snapshotBuffer"
 select new { f, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Query>
+      <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True" RuleToken="ND1412" Group="Architecture"><![CDATA[// <Name>Enforcing Clean Architecture</Name>
+// <Id>ND1412:EnforcingCleanArchitecture</Id>
+// ND1412 squirix override: stock Domain/App Clean Architecture is N/A.
+// Enforce the preview.8 namespace dependency DAG forbidden edges from
+// private-docs milestones/v0.1.0-preview.8 (allowed edges for Cluster.Replication /
+// Storage.Replication are checked when those namespaces exist).
+warnif count > 0
+from n in Application.Namespaces
+where !n.NameLike("^System.") && !n.NameLike("^Microsoft.")
+from nUsed in n.NamespacesUsed
+where !nUsed.IsThirdParty &&
+      n.Name != nUsed.Name &&
+      (
+        // Client must never depend on server packages.
+        (n.NameLike("^Squirix.Client") && nUsed.NameLike("^Squirix.Server")) ||
+        // Broad Cluster -> Storage ban except the sole Cluster.Replication -> Storage.Replication edge.
+        (n.NameLike("^Squirix.Server.Cluster") &&
+         !n.NameLike("^Squirix.Server.Cluster.Replication") &&
+         nUsed.NameLike("^Squirix.Server.Storage")) ||
+        (n.NameLike("^Squirix.Server.Cluster.Replication") &&
+         nUsed.NameLike("^Squirix.Server.Storage") &&
+         !nUsed.NameLike("^Squirix.Server.Storage.Replication")) ||
+        // Storage.Replication must not depend on Cluster.* (no reverse edge).
+        (n.NameLike("^Squirix.Server.Storage.Replication") &&
+         nUsed.NameLike("^Squirix.Server.Cluster")) ||
+        // Cluster.Replication must not depend on adapters, hosting, Node.App, route transport,
+        // LocalCache, Errors, Utils, or Runtime.Invocation.
+        (n.NameLike("^Squirix.Server.Cluster.Replication") &&
+         (nUsed.NameLike("^Squirix.Server.Adapters") ||
+          nUsed.NameLike("^Squirix.Server.Node.Hosting") ||
+          nUsed.NameLike("^Squirix.Server.Node.App") ||
+          nUsed.NameLike("^Squirix.Server.Cluster.Transport") ||
+          nUsed.NameLike("^Squirix.Server.LocalCache") ||
+          nUsed.NameLike("^Squirix.Server.Errors") ||
+          nUsed.NameLike("^Squirix.Server.Utils") ||
+          nUsed.NameLike("^Squirix.Server.Runtime.Invocation") ||
+          nUsed.Name == "Squirix.Server.Runtime")) ||
+        // Adapters.Endpoint must not own Cluster.Replication.
+        (n.NameLike("^Squirix.Server.Adapters.Endpoint") &&
+         nUsed.NameLike("^Squirix.Server.Cluster.Replication")) ||
+        // Node.App must not bypass the protocol port into Storage.Replication.
+        (n.NameLike("^Squirix.Server.Node.App") &&
+         nUsed.NameLike("^Squirix.Server.Storage.Replication")) ||
+        // Product must not reference the protocol-model tool namespaces.
+        (n.NameLike("^Squirix") &&
+         !n.NameLike("^Squirix.ProtocolModel") &&
+         nUsed.NameLike("^Squirix.ProtocolModel"))
+      )
+select new {
+  From = n,
+  To = nUsed,
+  Debt = 30.ToMinutes().ToDebt(),
+  Severity = Severity.High
+}]]></Query>
     </CustomRuleOverrides>
   </Queries>
 </NDepend>
