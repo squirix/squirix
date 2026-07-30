@@ -8,7 +8,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Squirix.Server.Cluster;
 using Squirix.Server.Cluster.Transport;
 using Squirix.Server.Core;
-using Squirix.Server.Runtime.Contracts;
 using Squirix.Server.Runtime.Invocation;
 
 namespace Squirix.Server.Adapters.Endpoint;
