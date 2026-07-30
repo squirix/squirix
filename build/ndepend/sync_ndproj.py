@@ -26,9 +26,9 @@ def main() -> int:
         print("pwsh/powershell is required for CDATA-safe ndproj sync.", file=sys.stderr)
         return 1
 
-    # sync-ndproj.ps1 resolves repo from its own location; run from repo root for clarity.
+    # sync-ndproj.ps1 resolves ndrules from its own location; pass RepoRoot explicitly.
     completed = subprocess.run(
-        [shell, "-NoProfile", "-File", str(ps1)],
+        [shell, "-NoProfile", "-File", str(ps1), "-RepoRoot", str(repo)],
         cwd=str(repo),
         check=False,
     )

@@ -101,9 +101,49 @@ def main() -> int:
     if not report.get("failures"):
         raise RuntimeError("dirty candidate produced no failures")
 
+    # Improvement (matched count decrease) must not fail.
+    improved = out / "improved"
+    if improved.exists():
+        shutil.rmtree(improved)
+    shutil.copytree(dirty, improved)
+    improved_xml = """<?xml version="1.0" encoding="utf-8"?>
+<RuleResult NbRules="2" NbErrors="0" NbWarns="1" NbWarnsCritical="0">
+  <Group Name="Architecture" FullName="Architecture">
+    <Query Status="Ok" Name="Enforcing Clean Architecture" RuleId="ND1412" FullName="Project Rules \\ Architecture \\ Enforcing Clean Architecture" NbNodeMatched="0" />
+    <Query Status="RuleWarn" Name="Avoid namespaces dependency cycles" RuleId="ND1400" FullName="Project Rules \\ Architecture \\ Avoid namespaces dependency cycles" NbNodeMatched="1" />
+  </Group>
+  <Group Name="Design" FullName="Design">
+    <Query Status="RuleWarn" Name="Types with too many methods" RuleId="ND1201" FullName="Project Rules \\ Design \\ Types with too many methods" NbNodeMatched="1" />
+  </Group>
+  <Group Name="Visibility" FullName="Visibility">
+    <Query Status="RuleWarn" Name="API breaking" RuleId="ND1800" FullName="Project Rules \\ Visibility \\ Potentially dead types" NbNodeMatched="1" />
+  </Group>
+</RuleResult>
+"""
+    (improved / "XmlFilesUsedToBuildReport" / "CodeRuleResult.xml").write_text(
+        improved_xml, encoding="utf-8"
+    )
+    better = run(
+        [
+            sys.executable,
+            str(verify),
+            "--baseline",
+            str(dirty),
+            "--candidate",
+            str(improved),
+            "--output",
+            str(out / "dirty-vs-improved.json"),
+        ]
+    )
+    if better.returncode != 0:
+        print(better.stdout)
+        print(better.stderr, file=sys.stderr)
+        raise RuntimeError("matched-count improvement unexpectedly failed")
+
     evidence = {
         "cleanVsCleanExit": ok.returncode,
         "cleanVsDirtyExit": bad.returncode,
+        "dirtyVsImprovedExit": better.returncode,
         "failures": report["failures"],
         "ndependConsole": str(args.ndepend_console),
     }

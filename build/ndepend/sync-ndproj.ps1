@@ -4,12 +4,21 @@
 #
 # Usage:
 #   pwsh build/ndepend/sync-ndproj.ps1
+#   pwsh build/ndepend/sync-ndproj.ps1 -RepoRoot C:\path\to\squirix
 #
 # Close Visual NDepend before running; reopen squirix.ndproj after.
 # Prerequisite: dotnet build squirix.slnx -c Debug
 
+param(
+    [string]$RepoRoot = ''
+)
+
 $ErrorActionPreference = 'Stop'
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+} else {
+    $repoRoot = Resolve-Path $RepoRoot
+}
 $ndprojPath = Join-Path $repoRoot 'squirix.ndproj'
 $ndrulesPath = Join-Path $PSScriptRoot 'squirix.ndrules'
 $justMyCodeGroupName = 'Defining JustMyCode'

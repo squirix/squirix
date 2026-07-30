@@ -82,15 +82,19 @@ def extract_nd1412_cdata(ndrules: Path) -> str:
     return match.group(1)
 
 
+def resolve_console_exe(console: Path) -> Path:
+    if console.suffix.lower() == ".exe":
+        cmd_wrapper = console.with_suffix(".cmd")
+        if cmd_wrapper.is_file():
+            return cmd_wrapper
+    return console
+
+
 def create_ndproj(console: Path, path: Path, dlls: list[Path], rule_body: str) -> None:
     """Create a valid .ndproj via NDepend.Console, then inject the ND1412 rule body."""
     if path.exists():
         path.unlink()
-    exe = console
-    if console.suffix.lower() == ".exe":
-        cmd_wrapper = console.with_suffix(".cmd")
-        if cmd_wrapper.is_file():
-            exe = cmd_wrapper
+    exe = resolve_console_exe(console)
     cmd = [str(exe), "/CreateProject", str(path), *[str(d.resolve()) for d in dlls]]
     run(cmd)
     text = path.read_text(encoding="utf-8")
@@ -112,11 +116,7 @@ def run_ndepend(console: Path, ndproj: Path, out_dir: Path) -> Path:
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     # Prefer the .cmd wrapper so ILRewriter license hooks are applied.
-    exe = console
-    if console.suffix.lower() == ".exe":
-        cmd_wrapper = console.with_suffix(".cmd")
-        if cmd_wrapper.is_file():
-            exe = cmd_wrapper
+    exe = resolve_console_exe(console)
     cmd = [
         str(exe),
         str(ndproj),
