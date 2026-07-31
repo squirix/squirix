@@ -103,11 +103,7 @@ internal sealed class JournalCoordinatorDurabilityPipeline
         }
     }
 
-    internal ValueTask EnqueueShutdownAsync()
-    {
-        var shutdownItem = new JournalWorkItem(JournalWorkKind.Shutdown);
-        return _owner.Ring.EnqueueAsync(shutdownItem, CancellationToken.None);
-    }
+    internal ValueTask EnqueueShutdownAsync() => _owner.Ring.EnqueueAsync(new JournalWorkItem(JournalWorkKind.Shutdown), CancellationToken.None);
 
     internal void FailJournalPipeline(Exception reason)
     {

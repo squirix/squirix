@@ -67,7 +67,7 @@ foreach (var file in files)
     if (proc is not null)
         await proc.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
-    if (proc is null || proc.ExitCode is not 0)
+    if (proc?.ExitCode is not 0)
         return proc?.ExitCode ?? 1;
 }
 
@@ -88,11 +88,10 @@ static string? ResolveDotnetPath()
     if (!string.IsNullOrWhiteSpace(processPath))
     {
         var processFileName = Path.GetFileName(processPath);
-        if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-        {
+        var dotnet = string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase);
+        var dotnetExe = string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase);
+        if (dotnet || dotnetExe)
             return Path.GetFullPath(processPath);
-        }
     }
 
     var pathValue = Environment.GetEnvironmentVariable("PATH");

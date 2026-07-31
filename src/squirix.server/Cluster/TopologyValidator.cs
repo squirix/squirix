@@ -19,11 +19,11 @@ internal static class TopologyValidator
     private const string NodeIdRequired = "NodeId is required.";
     private const string NodeIdTooLong = "NodeId cannot exceed 128 characters.";
     private const string PeersDuplicateNodeId = "Peers contains duplicate NodeId.";
-    private const string PeersUriDuplicate = "Peers contains duplicate Uri.";
     private const string PeersMustIncludeLocalNodeId = "Peers must include the local NodeId.";
     private const string PeersNodeIdRequired = "Peers[].NodeId is required.";
     private const string PeersNodeIdTooLong = "Peers[].NodeId cannot exceed 128 characters.";
     private const string PeersTooMany = "Peers cannot contain more than 1024 entries.";
+    private const string PeersUriDuplicate = "Peers contains duplicate Uri.";
     private const string PeersUriHostRequired = "Peers[].Uri must include a host.";
     private const string PeersUriHttpsRequired = "Peers[].Uri must be an absolute https URI.";
     private const string PeersUriOriginRequired = "Peers[].Uri must be an origin URI without credentials, path, query, or fragment.";
@@ -94,9 +94,7 @@ internal static class TopologyValidator
 
         // The self peer entry must advertise the same origin Uri as the local listener configuration.
         if (nodeUri is { IsAbsoluteUri: true } && uri is { IsAbsoluteUri: true } && !string.Equals(uri.AbsoluteUri, nodeUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
-        {
             failures.Add(LocalPeerUriMismatch);
-        }
 
         return true;
     }
@@ -164,11 +162,9 @@ internal static class TopologyValidator
             failures.Add(tooLongMessage);
         if (string.IsNullOrWhiteSpace(value.Host))
             failures.Add(hostRequiredMessage);
-        if (!string.IsNullOrEmpty(value.UserInfo) || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) ||
-            !string.IsNullOrEmpty(value.Fragment))
-        {
+        var userInfo = !string.IsNullOrEmpty(value.UserInfo);
+        if (userInfo || !string.Equals(value.AbsolutePath, "/", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(value.Query) || !string.IsNullOrEmpty(value.Fragment))
             failures.Add(originRequiredMessage);
-        }
     }
 
     private sealed class TopologyValidationArgs
