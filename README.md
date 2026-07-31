@@ -11,6 +11,8 @@ cache state, routing, durability, and ops endpoints.
 
 **0.1.0-preview.7** — early preview, not production-ready. [Release notes](docs/release-notes/v0.1.0.md)
 
+[![Powered by NDepend](docs/assets/powered-by-ndepend.png)](https://www.ndepend.com/)
+
 ## NuGet packages
 
 All packages are published under the [squirix NuGet profile](https://www.nuget.org/profiles/squirix):
@@ -66,5 +68,3 @@ Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
-
-[![Powered by NDepend](docs/assets/powered-by-ndepend.png)](https://www.ndepend.com/)
