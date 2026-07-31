@@ -32,6 +32,13 @@ public sealed class ProtocolModelSurfaceTests
     public void ExploreProfileForCliRejectsUnknownName() => Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForCli("tiny", true));
 
     [Fact]
+    public void ExploreProfileForReplicaCountRejectsOutOfRange()
+    {
+        _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(0, 2, 1, 2, 0, false, true));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(static () => ExploreProfile.ForReplicaCount(33, 2, 1, 2, 0, false, true));
+    }
+
+    [Fact]
     public void LogEntryEqualityMatchesTermAndIndex()
     {
         var a = new LogEntry(1, 2);

@@ -18,8 +18,13 @@ internal static class SafetyChecker
     internal static string FormatCounterexampleJson(SafetyViolation violation, ClusterState state, IReadOnlyList<string>? counterexamplePath)
     {
         var sb = new StringBuilder(512);
-        _ = sb.Append('{').Append("\"invariant\":\"").Append(Escape(violation.Invariant)).Append('"').Append(",\"detail\":\"").Append(Escape(violation.Detail)).Append('"')
-              .Append(",\"fingerprint\":\"").Append(Escape(violation.StateFingerprint)).Append('"').Append(",\"path\":[");
+        _ = sb.Append('{').Append("\"invariant\":");
+        JsonText.AppendString(sb, violation.Invariant);
+        _ = sb.Append(",\"detail\":");
+        JsonText.AppendString(sb, violation.Detail);
+        _ = sb.Append(",\"fingerprint\":");
+        JsonText.AppendString(sb, violation.StateFingerprint);
+        _ = sb.Append(",\"path\":[");
         if (counterexamplePath is not null)
         {
             for (var p = 0; p < counterexamplePath.Count; p++)
@@ -27,7 +32,7 @@ internal static class SafetyChecker
                 if (p > 0)
                     _ = sb.Append(',');
 
-                _ = sb.Append('"').Append(Escape(counterexamplePath[p])).Append('"');
+                JsonText.AppendString(sb, counterexamplePath[p]);
             }
         }
 
@@ -46,8 +51,10 @@ internal static class SafetyChecker
 
     private static void AppendNodeJson(StringBuilder sb, NodeState n)
     {
-        _ = sb.Append('{').Append("\"id\":").Append(n.Id.ToString(CultureInfo.InvariantCulture)).Append(",\"role\":\"").Append(FormatRole(n.Role)).Append('"').Append(",\"term\":")
-              .Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture)).Append(",\"votedFor\":").Append(n.VotedFor.ToString(CultureInfo.InvariantCulture))
+        _ = sb.Append('{').Append("\"id\":").Append(n.Id.ToString(CultureInfo.InvariantCulture)).Append(",\"role\":");
+        JsonText.AppendString(sb, FormatRole(n.Role));
+        _ = sb.Append(",\"term\":").Append(n.CurrentTerm.ToString(CultureInfo.InvariantCulture))
+              .Append(",\"votedFor\":").Append(n.VotedFor.ToString(CultureInfo.InvariantCulture))
               .Append(",\"commitIndex\":").Append(n.CommitIndex.ToString(CultureInfo.InvariantCulture)).Append(",\"appliedIndex\":")
               .Append(n.AppliedIndex.ToString(CultureInfo.InvariantCulture)).Append(",\"readIndex\":").Append(n.ReadIndex.ToString(CultureInfo.InvariantCulture))
               .Append(",\"readAcks\":").Append(n.ReadAcks.ToString(CultureInfo.InvariantCulture)).Append(",\"readReady\":").Append(n.ReadReady ? "true" : "false")
@@ -219,8 +226,6 @@ internal static class SafetyChecker
 
         return false;
     }
-
-    private static string Escape(string value) => value.Replace("\\", @"\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static LogEntry? FindEntry(IReadOnlyList<LogEntry> log, int index)
     {

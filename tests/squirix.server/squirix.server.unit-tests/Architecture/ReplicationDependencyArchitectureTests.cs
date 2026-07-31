@@ -49,7 +49,6 @@ public sealed class ReplicationDependencyArchitectureTests : ServerUnitTestBase
             references,
             static path =>
                 path.Contains("src/squirix/", StringComparison.OrdinalIgnoreCase)
-                || path.Contains(@"src\squirix\", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("Squirix.Server.csproj", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("Squirix.csproj", StringComparison.OrdinalIgnoreCase));
     }

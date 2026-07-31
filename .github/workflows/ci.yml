@@ -697,7 +697,14 @@ jobs:
                       local code=$?
                       set -e
                       echo "::endgroup::"
-                      if [[ "$code" -ne 0 ]]; then
+                      if [[ -z "$expect_invariant" ]]; then
+                        # 0 = fixed point; 4 = MaxStates truncation without violation (documented residual risk).
+                        if [[ "$code" -ne 0 && "$code" -ne 4 ]]; then
+                          echo "Explorer exited $code for --broken $broken (expected 0 or 4)." >&2
+                          cat "$out/summary.json" 2>/dev/null || true
+                          exit 1
+                        fi
+                      elif [[ "$code" -ne 0 ]]; then
                         echo "Explorer exited $code for --broken $broken (expected 0)." >&2
                         cat "$out/summary.json" 2>/dev/null || true
                         exit 1
@@ -709,7 +716,7 @@ jobs:
                       cat "$out/summary.json"
                       if [[ -z "$expect_invariant" ]]; then
                         if grep -Eq '"violation"[[:space:]]*:[[:space:]]*null' "$out/summary.json"; then
-                          echo "OK safe full profile: no violation"
+                          echo "OK safe full profile: no violation (exit=$code)"
                           return 0
                         fi
                         echo "Safe full profile expected violation:null." >&2

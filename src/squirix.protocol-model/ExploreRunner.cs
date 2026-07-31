@@ -26,7 +26,14 @@ internal static class ExploreRunner
            .ConfigureAwait(false);
 
         if (firstViolation is null || firstState is null)
+        {
+            var staleCounterexample = Path.Join(outputDir, "counterexample.json");
+            if (File.Exists(staleCounterexample))
+                File.Delete(staleCounterexample);
+
             return ExitCode(broken, firstViolation, allFixedPoint);
+        }
+
         var path = FindPath(results, firstViolation);
         var json = SafetyChecker.FormatCounterexampleJson(firstViolation, firstState, path);
         await File.WriteAllTextAsync(Path.Join(outputDir, "counterexample.json"), json, Encoding.UTF8, CancellationToken.None).ConfigureAwait(false);
@@ -93,8 +100,8 @@ internal static class ExploreRunner
 
     private static string ComputeModelVersionHash()
     {
-        // Manual semantic fingerprint — bump when transitions/invariants change.
-        const string semantic = "squirix-protocol-model-v1-raft-safety-match-entry-aware-commit";
+        // Manual semantics fingerprint (Assembly/MVID banned by RS0030). Bump when transitions or invariants change.
+        const string semantic = "squirix-protocol-model-v1-raft-safety-match-entry-aware-commit-json";
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(semantic));
         var sb = new StringBuilder(16);
         for (var i = 0; i < 8; i++)
@@ -103,8 +110,6 @@ internal static class ExploreRunner
         return sb.ToString();
     }
 
-    private static string Escape(string value) => value.Replace("\\", @"\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-
     private static int ExitCode(BrokenMode broken, SafetyViolation? firstViolation, bool allFixedPoint)
     {
         if (broken is not BrokenMode.None)
@@ -112,10 +117,8 @@ internal static class ExploreRunner
         if (firstViolation is not null)
             return 2;
 
-        // Truncation at documented MaxStates without a violation is success (residual risk inside bounds).
-        // allFixedPoint is reported in summary.json for evidence; it does not fail the CLI.
-        _ = allFixedPoint;
-        return 0;
+        // 0 = exhausted without violation; 4 = hit documented MaxStates (residual risk, not a counterexample).
+        return allFixedPoint ? 0 : 4;
     }
 
     private static IReadOnlyList<string>? FindPath(List<(ExploreProfile Profile, ExploreResult Result)> results, SafetyViolation violation)
@@ -148,12 +151,27 @@ internal static class ExploreRunner
     private static Task WriteSummaryAsync(string outputDir, SummaryContent content, CancellationToken cancellationToken)
     {
         var sb = new StringBuilder(256);
-        _ = sb.Append('{').Append("\"modelVersionHash\":\"").Append(ModelVersionHash).Append('"').Append(",\"profile\":\"").Append(Escape(content.ProfileName)).Append('"')
-              .Append(",\"broken\":\"").Append(FormatBrokenMode(content.Broken)).Append('"').Append(",\"statesVisited\":")
-              .Append(content.States.ToString(CultureInfo.InvariantCulture)).Append(",\"transitionsApplied\":").Append(content.Transitions.ToString(CultureInfo.InvariantCulture))
+        _ = sb.Append('{').Append("\"modelVersionHash\":");
+        JsonText.AppendString(sb, ModelVersionHash);
+        _ = sb.Append(",\"profile\":");
+        JsonText.AppendString(sb, content.ProfileName);
+        _ = sb.Append(",\"broken\":");
+        JsonText.AppendString(sb, FormatBrokenMode(content.Broken));
+        _ = sb.Append(",\"statesVisited\":").Append(content.States.ToString(CultureInfo.InvariantCulture))
+              .Append(",\"transitionsApplied\":").Append(content.Transitions.ToString(CultureInfo.InvariantCulture))
               .Append(",\"fixedPointReached\":").Append(content.FixedPointReached ? "true" : "false").Append(",\"violation\":");
-        _ = content.Violation is null ? sb.Append("null") : sb.Append('{').Append("\"invariant\":\"").Append(Escape(content.Violation.Invariant)).Append('"')
-                                                              .Append(",\"detail\":\"").Append(Escape(content.Violation.Detail)).Append('"').Append('}');
+        if (content.Violation is null)
+        {
+            _ = sb.Append("null");
+        }
+        else
+        {
+            _ = sb.Append('{').Append("\"invariant\":");
+            JsonText.AppendString(sb, content.Violation.Invariant);
+            _ = sb.Append(",\"detail\":");
+            JsonText.AppendString(sb, content.Violation.Detail);
+            _ = sb.Append('}');
+        }
 
         _ = sb.Append('}');
         return File.WriteAllTextAsync(Path.Join(outputDir, "summary.json"), sb.ToString(), Encoding.UTF8, cancellationToken);
@@ -333,6 +351,7 @@ internal static class ExploreRunner
             if (state.Nodes.Count < 2)
                 return;
 
+            // M8-01 bound: only single-node isolation and full heal (see ADR search bounds).
             var parts = state.Partitions;
             var allSame = true;
             for (var i = 1; i < parts.Count; i++)

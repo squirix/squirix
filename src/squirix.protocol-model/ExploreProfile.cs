@@ -55,6 +55,10 @@ internal sealed class ExploreProfile
 
     internal static ExploreProfile ForReplicaCount(int replicaCount, int maxTerm, int maxLogEntries, int maxInFlight, int maxPendingReads, bool allowCrash, bool symmetryReduce)
     {
+        // Vote/read ack bits are packed in Int32 masks (node id 0..31).
+        if (replicaCount is < 1 or > 32)
+            throw new ArgumentOutOfRangeException(nameof(replicaCount), replicaCount, "Replica count must be between 1 and 32.");
+
         var bounds = new ExploreBounds(replicaCount, maxTerm, maxLogEntries, maxInFlight, maxPendingReads, 50_000);
         var flags = new ExploreFlags(allowCrash, replicaCount >= 3 && allowCrash, symmetryReduce);
         return new ExploreProfile("rf-" + replicaCount.ToString(CultureInfo.InvariantCulture), bounds, flags);
