@@ -99,7 +99,7 @@ version fingerprints must stay aligned.
 
 ### Namespace DAG
 
-Forbidden edges enforced by active NDepend ND1412 (see `build/ndepend/squirix.ndrules`):
+Forbidden dependency edges (product architecture):
 
 - Client must not depend on Server.
 - Cluster → Storage only via the allowed `Cluster.Replication` → `Storage.Replication` edge (no reverse edge).
@@ -109,7 +109,8 @@ Forbidden edges enforced by active NDepend ND1412 (see `build/ndepend/squirix.nd
 - `Node.App` must not bypass into `Storage.Replication`.
 - Product must not reference `Squirix.ProtocolModel`.
 
-New edges require CodeGraph impact analysis, ADR/DAG update, and a clean NDepend report before merge.
+New edges require an ADR/DAG update before merge. Enforcement lives outside this document (compile-time namespace
+policy and architecture tests).
 
 ### MaxReplicaCount = 5 budget
 
