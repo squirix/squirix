@@ -6,6 +6,7 @@
     </Configurations>
     <Folder Name="/src/">
         <Project Path="src/squirix.analyzers/Squirix.Analyzers.csproj"/>
+        <Project Path="src/squirix.protocol-model/Squirix.ProtocolModel.csproj"/>
         <Project Path="src/squirix.server.host/Squirix.Server.Host.csproj"/>
         <Project Path="src/squirix.server/Squirix.Server.csproj"/>
         <Project Path="src/squirix/Squirix.csproj"/>
@@ -31,6 +32,9 @@
     </Folder>
     <Folder Name="/samples/">
         <Project Path="samples/external-package-smoke/ExternalPackageSmoke.csproj"/>
+    </Folder>
+    <Folder Name="/tests/squirix.protocol-model/">
+        <Project Path="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"/>
     </Folder>
 </Solution>
 

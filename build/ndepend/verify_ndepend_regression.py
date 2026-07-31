@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Compare two NDepend analyses (.ndar + CodeRuleResult.xml) for regression."""
+"""Compare two NDepend analyses (.ndar + CodeRuleResult.xml) for regression.
+
+Any new or worsened (higher NbNodeMatched) active-rule issue vs baseline fails the gate.
+"""
 
 from __future__ import annotations
 
@@ -8,18 +11,6 @@ import json
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
-DESIGN_ARCH_GROUPS = {"Design", "Architecture"}
-EXPLICIT_RULES = {
-    "ND1800",
-    "ND1807",
-    "ND2008",
-    "ND2012",
-    "ND2013",
-    "ND2016",
-    "ND2206",
-}
-HIGH_SEVERITIES = {"Blocker", "Critical", "High"}
 
 
 def find_code_rule_result(analysis_dir: Path) -> Path:
@@ -98,20 +89,12 @@ def compare(baseline_dir: Path, candidate_dir: Path) -> dict:
         group = issue.get("group") or ""
         rule_id = issue.get("ruleId") or ""
         status = issue.get("status") or ""
-        full = issue.get("fullName") or ""
         name = issue.get("name") or ""
         kind = "worsened" if key in worsened_key_set else "new"
+        matched = issue.get("matched")
 
-        if any(g in full or g == group for g in DESIGN_ARCH_GROUPS):
-            failures.append(f"{kind} Design/Architecture issue: {rule_id} {name} ({status})")
-        if rule_id in EXPLICIT_RULES:
-            failures.append(f"{kind} explicit rule issue: {rule_id} {name}")
-        if "RuleWarnCritical" in status or "Critical" in status:
-            failures.append(f"{kind} critical/high-status issue: {rule_id} {name} ({status})")
-        # Cycles / mutual dependencies often named explicitly
-        lowered = f"{name} {full}".lower()
-        if "cycle" in lowered or "mutual" in lowered:
-            failures.append(f"{kind} cycle/mutual dependency issue: {rule_id} {name}")
+        # Any new or worsened rule match is a regression vs develop.
+        failures.append(f"{kind} issue: {rule_id} {name} ({status}, matched={matched}, group={group})")
 
     return {
         "baselineNdar": str(baseline_ndar),

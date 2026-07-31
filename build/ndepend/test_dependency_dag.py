@@ -33,12 +33,16 @@ def create_classlib(root: Path, name: str, namespace: str, refs: list[Path] | No
     run(["dotnet", "new", "classlib", "-n", name, "-o", str(proj_dir), "-f", "net10.0", "--force"])
     csproj = proj_dir / f"{name}.csproj"
     # Disable implicit usings / nullable noise for tiny fixtures.
+    # Replace template ImplicitUsings=enable (do not append a second property).
     text = csproj.read_text(encoding="utf-8")
     text = text.replace(
+        "<ImplicitUsings>enable</ImplicitUsings>",
+        "<ImplicitUsings>disable</ImplicitUsings>",
+        1,
+    )
+    text = text.replace(
         "</PropertyGroup>",
-        "  <ImplicitUsings>disable</ImplicitUsings>\n"
-        "    <Nullable>enable</Nullable>\n"
-        "    <GenerateDocumentationFile>false</GenerateDocumentationFile>\n"
+        "  <GenerateDocumentationFile>false</GenerateDocumentationFile>\n"
         "    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>\n"
         "    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>\n"
         "    <EnableNETAnalyzers>false</EnableNETAnalyzers>\n"
