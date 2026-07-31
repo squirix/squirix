@@ -66,3 +66,5 @@ Docker, JWT, and ASP.NET Core embedding: [getting started](docs/getting-started.
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
+
+[![Powered by NDepend](docs/assets/powered-by-ndepend.png)](https://www.ndepend.com/)
