@@ -32,9 +32,7 @@ public sealed class MetricsAuthOrLoopbackFilterTests
         };
 
         if (authenticated)
-        {
             http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "scraper")], "Bearer"));
-        }
 
         return http;
     }

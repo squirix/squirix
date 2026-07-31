@@ -161,9 +161,7 @@ static bool HasClientPackage(string directory)
         var name = Path.GetFileName(path);
         if (name.StartsWith("squirix.", StringComparison.Ordinal)
             && !name.StartsWith("squirix.server.", StringComparison.Ordinal))
-        {
             return true;
-        }
     }
 
     return false;
@@ -191,9 +189,7 @@ static string? ResolveDotnetPath()
         var processFileName = Path.GetFileName(processPath);
         if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-        {
             return Path.GetFullPath(processPath);
-        }
     }
 
     var pathValue = Environment.GetEnvironmentVariable("PATH");

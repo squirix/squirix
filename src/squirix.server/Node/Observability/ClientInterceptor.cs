@@ -45,11 +45,9 @@ internal sealed class ClientInterceptor : Interceptor
             ownedActivity = activity;
         }
 
+        // No trace headers to attach — keep caller headers untouched (including null).
         if (activity is null)
-        {
-            // No trace headers to attach — keep caller headers untouched (including null).
             return options;
-        }
 
         Metadata metadata;
         if (options.Headers is null)

@@ -6,9 +6,9 @@
         <LangVersion>12.0</LangVersion>
         <IsRoslynComponent>true</IsRoslynComponent>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <IsPackable>false</IsPackable>
-        <NoWarn>$(NoWarn);RS1038;RS2008</NoWarn>
+        <NoWarn>$(NoWarn);RS1038;RS2008;CS1591</NoWarn>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>
 
