@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <NDepend AppName="squirix" Platform="DotNet" FileWrittenByProductVersion="2026.1.2.9787">
   <OutputDir KeepXmlFiles="False">.\NDependOut</OutputDir>
   <IDEFiles>
@@ -317,7 +317,7 @@ select new {
 // ND1305 squirix override: stock infra list plus "Client" for the intentional
 // exported Squirix.Client entry surface (ISquirixClient / SquirixClient / Options).
 // Merging that namespace would break the public API golden contract.
-// Also skip *Benchmarks* namespaces — BDN folders intentionally stay small.
+// Also skip *Benchmarks* namespaces вЂ” BDN folders intentionally stay small.
 warnif count > 0
 
 let infraNamespaceNames = new HashSet<string>() {
@@ -720,7 +720,7 @@ select f]]></Query>
       <Query Active="True" DisplayList="False" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="False"><![CDATA[// <Name>Discard generated source types from JustMyCode</Name>
 // Exclude Roslyn/tooling *.g.cs, protobuf compiler outputs (Grpc.Tools), and common generated folders.
 // Examples: obj/**/SquirixCacheGrpc.cs, obj/**/SquirixCache.cs, **/*.g.cs, **/Generated/**.
-// Shared path predicate is duplicated per element kind — NDepend notmycode requires Types, Methods, and Fields separately.
+// Shared path predicate is duplicated per element kind вЂ” NDepend notmycode requires Types, Methods, and Fields separately.
 notmycode
 let IsGeneratedSourceFile = new Func<string, bool>(filePath =>
     filePath.ToLower().Replace('/', '\\').EndsWith(".g.cs") ||

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>disable</ImplicitUsings>
+        <RootNamespace>Squirix.ProtocolModel</RootNamespace>
+        <AssemblyName>Squirix.ProtocolModel</AssemblyName>
+        <StartupObject>Squirix.ProtocolModel.Program</StartupObject>
+        <IsPackable>false</IsPackable>
+        <!-- Exe entry type stays public for Rider SWA / entry-point discovery (CA1515). -->
+        <NoWarn>$(NoWarn);CA1515</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Squirix.ProtocolModel.Tests"/>
+    </ItemGroup>
+</Project>

@@ -98,3 +98,8 @@ snapshots, recovery, and server-owned metrics belong in `Squirix.Server`. They m
 
 Production clients use `ConnectAsync(...)` against external server endpoints, the shared `SquirixCache.proto` contract,
 and server-only dependencies kept out of `Squirix.csproj`.
+
+## Replica sets
+
+Consensus, quorum reads, and the executable protocol model are specified in
+[replication-consensus.md](architecture/replication-consensus.md).
