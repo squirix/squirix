@@ -156,8 +156,41 @@
   <!-- Cluster must not reference cache decorator implementations (today: ClusterRuntimeServiceRegistration → Node.App.Decorators). -->
   <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Node.App.*" />
 
-  <!-- Cluster transport must not depend on persistence (routing stays separate from WAL). -->
-  <Disallowed From="Squirix.Server.Cluster.*" To="Squirix.Server.Storage.*" />
+  <!-- Cluster → Storage: only Cluster.Replication → Storage.Replication is allowed (ADR Namespace DAG). -->
+  <Disallowed
+      From="/^Squirix\.Server\.Cluster(?:\.(?!Replication(?:\.|$)).*)?$/"
+      To="/^Squirix\.Server\.Storage(?:\..*)?$/" />
+  <Disallowed
+      From="/^Squirix\.Server\.Cluster\.Replication(?:\..*)?$/"
+      To="/^Squirix\.Server\.Storage(?:$|\.(?!Replication(?:\.|$)).*)$/" />
+
+  <!-- ═══ Replication DAG (mirrors docs/architecture/replication-consensus.md) ═══ -->
+
+  <!-- Cluster.Replication must stay free of adapters, hosting, Node.App, routing transport, and kernel leftovers. -->
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Node.Hosting.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Node.App.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Cluster.Transport.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.LocalCache.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Errors.*" />
+  <Disallowed From="Squirix.Server.Cluster.Replication.*" To="Squirix.Server.Utils.*" />
+  <Disallowed
+      From="/^Squirix\.Server\.Cluster\.Replication(?:\..*)?$/"
+      To="/^Squirix\.Server\.Runtime(?:$|\.(?!Contracts(?:\.|$)).*)$/" />
+
+  <!-- Storage.Replication must not depend upward on Node, Hosting, Adapters, or Cluster. -->
+  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Node.*" />
+  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Adapters.*" />
+  <Disallowed From="Squirix.Server.Storage.Replication.*" To="Squirix.Server.Cluster.*" />
+
+  <!-- Endpoint / mTLS surface must not own the protocol automaton. -->
+  <Disallowed From="Squirix.Server.Adapters.Endpoint.*" To="Squirix.Server.Cluster.Replication.*" />
+
+  <!-- Node.App must not bypass Cluster.Replication into Storage.Replication. -->
+  <Disallowed From="Squirix.Server.Node.App.*" To="Squirix.Server.Storage.Replication.*" />
+
+  <!-- Product must not reference the isolated protocol-model assembly. -->
+  <DisallowedAssembly From="Squirix.Server" To="Squirix.ProtocolModel" />
 
   <!-- ═══ Node subsystems ═══ -->
 

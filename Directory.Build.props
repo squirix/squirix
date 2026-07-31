@@ -32,6 +32,7 @@
         <IsSquirixBenchmarkProject>false</IsSquirixBenchmarkProject>
         <IsSquirixProductionProject>false</IsSquirixProductionProject>
         <IsSquirixAnalyzerProject>false</IsSquirixAnalyzerProject>
+        <IsSquirixProtocolModelProject>false</IsSquirixProtocolModelProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.analyzers'))">
         <IsSquirixAnalyzerProject>true</IsSquirixAnalyzerProject>
@@ -43,7 +44,11 @@
         <!-- Avoid MSB3491 on AssemblyInfoInputs.cache when many ProjectReferences build this project in parallel. -->
         <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     </PropertyGroup>
-    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true'">
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/squirix.protocol-model'))">
+        <!-- Design-time Raft safety explorer; not a shipped product package. -->
+        <IsSquirixProtocolModelProject>true</IsSquirixProtocolModelProject>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/src/')) And '$(IsSquirixAnalyzerProject)' != 'true' And '$(IsSquirixProtocolModelProject)' != 'true'">
         <IsSquirixProductionProject>true</IsSquirixProductionProject>
     </PropertyGroup>
     <PropertyGroup Condition="$(_NormalizedProjectDir.Contains('/tests/'))">

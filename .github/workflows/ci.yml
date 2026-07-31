@@ -1,10 +1,10 @@
 name: CI
 
 on:
-    # develop and main push/PR: full ubuntu/windows/macos matrix during preview.8.
+    # develop and main push/PR: temporary full ubuntu/windows/macos matrix on develop.
     # Fast e2e wire-alloc benchmarks remain develop-only.
     # Weekly schedule and manual dispatch also run the full cross-OS matrix.
-    # After preview.8 ships, restore develop ubuntu-only fast-path if daily full matrix is no longer needed.
+    # Restore develop ubuntu-only fast-path later if the daily full matrix is no longer needed.
     # Weekly schedule also runs stability-stress (resiliency repeat + E2E Suite=Stress).
     # SonarCloud (OSS): same-repo code changes; requires secrets.SONAR_TOKEN + SonarCloud project.
     push:
@@ -501,7 +501,7 @@ jobs:
             matrix:
                 os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.ref == 'refs/heads/develop' || github.base_ref == 'develop') && fromJSON('["ubuntu-latest","windows-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
                 framework: [ net10.0 ]
-                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node ]
+                suite: [ unit, client-integration, server-unit, server-integration, e2e-single-node, e2e-multi-node, protocol-model ]
         env:
             ASPNETCORE_ENVIRONMENT: Production
             DOTNET_ENVIRONMENT: Production
@@ -547,6 +547,7 @@ jobs:
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/${{ matrix.framework }}/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/${{ matrix.framework }}/Squirix.E2ETests || true
+                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/${{ matrix.framework }}/Squirix.ProtocolModel.Tests || true
 
             -   name: Ensure Dev HTTPS Certificate
                 shell: bash
@@ -578,6 +579,9 @@ jobs:
                       e2e-multi-node)
                         PROJECT="tests/squirix.e2e.tests/Squirix.E2ETests.csproj"
                         FILTER_ARGS=(--filter "(FullyQualifiedName~Cache.MultiNode|FullyQualifiedName~Security)&Suite!=Stress")
+                        ;;
+                      protocol-model)
+                        PROJECT="tests/squirix.protocol-model/squirix.protocol-model.tests/Squirix.ProtocolModel.Tests.csproj"
                         ;;
                       *)
                         echo "Unsupported suite: ${{ matrix.suite }}" >&2
@@ -642,6 +646,104 @@ jobs:
                       echo "No gRPC cancellation errors detected."
                     fi
 
+    # Full-profile explorer (~15s): safe run + three required broken-rule counterexamples.
+    protocol-model-explorer:
+        name: Protocol Model Explorer (Ubuntu / Full)
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: [ build, smoke-fast-fail ]
+        steps:
+            -   name: Set Git Options
+                run: |
+                    git config --global core.autocrlf false
+                    git config --global core.eol lf
+
+            -   name: Checkout
+                uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+                with:
+                    persist-credentials: false
+
+            -   name: Setup .NET
+                uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+                with:
+                    global-json-file: global.json
+
+            -   name: Download Build Outputs
+                uses: actions/download-artifact@v7
+                with:
+                    name: build-output-ubuntu-latest-net10.0
+                    path: .
+
+            -   name: Restore Executable Bits For Protocol Model (Unix)
+                shell: bash
+                run: chmod +x src/squirix.protocol-model/bin/Release/net10.0/Squirix.ProtocolModel || true
+
+            -   name: Run Full-Profile Explorer
+                shell: bash
+                run: |
+                    set -euo pipefail
+                    EXE="src/squirix.protocol-model/bin/Release/net10.0/Squirix.ProtocolModel.dll"
+                    OUT_ROOT="artifacts/protocol-model-explorer"
+                    mkdir -p "$OUT_ROOT"
+
+                    run_case() {
+                      local broken="$1"
+                      local expect_invariant="$2"
+                      local out="$OUT_ROOT/$broken"
+                      mkdir -p "$out"
+                      echo "::group::explorer broken=$broken"
+                      set +e
+                      dotnet "$EXE" --profile full --output "$out" --broken "$broken"
+                      local code=$?
+                      set -e
+                      echo "::endgroup::"
+                      if [[ -z "$expect_invariant" ]]; then
+                        # 0 = fixed point; 4 = MaxStates truncation without violation (documented residual risk).
+                        if [[ "$code" -ne 0 && "$code" -ne 4 ]]; then
+                          echo "Explorer exited $code for --broken $broken (expected 0 or 4)." >&2
+                          cat "$out/summary.json" 2>/dev/null || true
+                          exit 1
+                        fi
+                      elif [[ "$code" -ne 0 ]]; then
+                        echo "Explorer exited $code for --broken $broken (expected 0)." >&2
+                        cat "$out/summary.json" 2>/dev/null || true
+                        exit 1
+                      fi
+                      if [[ ! -f "$out/summary.json" ]]; then
+                        echo "Missing summary.json for --broken $broken." >&2
+                        exit 1
+                      fi
+                      cat "$out/summary.json"
+                      if [[ -z "$expect_invariant" ]]; then
+                        if grep -Eq '"violation"[[:space:]]*:[[:space:]]*null' "$out/summary.json"; then
+                          echo "OK safe full profile: no violation (exit=$code)"
+                          return 0
+                        fi
+                        echo "Safe full profile expected violation:null." >&2
+                        exit 1
+                      fi
+                      if grep -Fq "\"invariant\":\"$expect_invariant\"" "$out/summary.json"; then
+                        echo "OK broken=$broken invariant=$expect_invariant"
+                        return 0
+                      fi
+                      echo "Broken mode $broken expected invariant $expect_invariant." >&2
+                      exit 1
+                    }
+
+                    run_case none ""
+                    run_case vote ElectionSafety
+                    run_case current-term-commit CurrentTermCommit
+                    run_case read-index ReadIndex
+
+            -   name: Upload Explorer Summaries
+                if: always()
+                uses: actions/upload-artifact@v7
+                with:
+                    name: protocol-model-explorer-summaries
+                    retention-days: 7
+                    path: artifacts/protocol-model-explorer/**
+                    if-no-files-found: warn
+
     verify-test-discovery:
         name: Verify Test Discovery (Ubuntu / Net10.0)
         runs-on: ubuntu-latest
@@ -687,6 +789,7 @@ jobs:
                     chmod +x tests/squirix/squirix.*-tests/bin/Release/net10.0/Squirix.*Tests || true
                     chmod +x tests/squirix.server/squirix.server.*-tests/bin/Release/net10.0/Squirix.*Tests || true
                     chmod +x tests/squirix.e2e.tests/bin/Release/net10.0/Squirix.E2ETests || true
+                    chmod +x tests/squirix.protocol-model/squirix.protocol-model.tests/bin/Release/net10.0/Squirix.ProtocolModel.Tests || true
 
             -   name: Verify Test Discovery Per Project (Fail On Zero Tests)
                 shell: bash
@@ -722,7 +825,16 @@ jobs:
                         exit 1
                       fi
 
-                      count="$(echo "$output" | sed -n '/The following Tests are available:/,$p' | tail -n +2 | grep -E '^[[:space:]]+[^[:space:]]' | wc -l | tr -d '[:space:]')"
+                      count="$(
+                        set +e
+                        echo "$output" \
+                          | sed -n '/The following Tests are available:/,$p' \
+                          | tail -n +2 \
+                          | grep -E '^[[:space:]]*[^[:space:]]' \
+                          | grep -cvE '^[[:space:]]*$'
+                        true
+                      )"
+                      count="$(echo "${count:-0}" | tr -d '[:space:]')"
                       if [ "${count:-0}" -le 0 ]; then
                         echo "$output"
                         echo "No test names were listed for $proj" >&2
@@ -1055,7 +1167,7 @@ jobs:
                       "/d:sonar.host.url=https://sonarcloud.io"
                       "/d:sonar.qualitygate.wait=false"
                       "/d:sonar.exclusions=**/bin/**,**/obj/**,**/.sonar/**,**/src/squirix.analyzers/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
-                      "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
+                      "/d:sonar.coverage.exclusions=**/src/squirix.server.host/**,**/src/squirix.protocol-model/Program.cs,**/tools/**,**/samples/**,**/build/**,**/benchmarks/**"
                       "/d:sonar.cs.opencover.reportsPaths=${GITHUB_WORKSPACE}/coverage/**/coverage.opencover.xml"
                     )
 
@@ -1088,6 +1200,7 @@ jobs:
             - smoke-fast-fail
             - benchmarks-fast
             - test-suites
+            - protocol-model-explorer
             - verify-test-discovery
             - coverage
             - sonarcloud
@@ -1118,6 +1231,7 @@ jobs:
                     RESULT_SMOKE: ${{ needs.smoke-fast-fail.result }}
                     RESULT_BENCHMARKS: ${{ needs.benchmarks-fast.result }}
                     RESULT_TEST: ${{ needs.test-suites.result }}
+                    RESULT_PROTOCOL_MODEL_EXPLORER: ${{ needs.protocol-model-explorer.result }}
                     RESULT_DISCOVERY: ${{ needs.verify-test-discovery.result }}
                     RESULT_COVERAGE: ${{ needs.coverage.result }}
                     RESULT_SONAR: ${{ needs.sonarcloud.result }}
@@ -1174,6 +1288,7 @@ jobs:
                     assert_success "smoke-fast-fail" "$require_code" "$RESULT_SMOKE"
                     assert_success "benchmarks-fast" "$require_benchmarks" "$RESULT_BENCHMARKS"
                     assert_success "test-suites" "$require_code" "$RESULT_TEST"
+                    assert_success "protocol-model-explorer" "$require_code" "$RESULT_PROTOCOL_MODEL_EXPLORER"
                     assert_success "verify-test-discovery" "$require_code" "$RESULT_DISCOVERY"
                     assert_success "coverage" "$require_code" "$RESULT_COVERAGE"
                     assert_success "sonarcloud" "$require_sonar" "$RESULT_SONAR"

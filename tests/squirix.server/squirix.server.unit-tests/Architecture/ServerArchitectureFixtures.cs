@@ -255,7 +255,12 @@ internal static class ServerArchitectureFixtures
         var normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
         var objMarker = $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}";
         var binMarker = $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}";
-        return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase) || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase);
+        var artifactsMarker = $"{Path.DirectorySeparatorChar}artifacts{Path.DirectorySeparatorChar}";
+        var ndependOutMarker = $"{Path.DirectorySeparatorChar}NDependOut{Path.DirectorySeparatorChar}";
+        return normalized.Contains(objMarker, StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains(binMarker, StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains(artifactsMarker, StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains(ndependOutMarker, StringComparison.OrdinalIgnoreCase);
     }
 
     private static XDocument LoadServerProject()
