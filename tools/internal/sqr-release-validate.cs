@@ -330,9 +330,7 @@ static string? ResolveDotnetPath()
         var processFileName = Path.GetFileName(processPath);
         if (string.Equals(processFileName, "dotnet", StringComparison.OrdinalIgnoreCase)
             || string.Equals(processFileName, "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-        {
             return Path.GetFullPath(processPath);
-        }
     }
 
     var pathValue = Environment.GetEnvironmentVariable("PATH");

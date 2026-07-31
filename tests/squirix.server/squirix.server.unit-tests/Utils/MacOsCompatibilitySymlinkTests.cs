@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using JetBrains.Annotations;
 using Squirix.Server.TestKit.IO;
 using Squirix.Server.UnitTests.Support;
 using Squirix.Server.Utils;
@@ -8,6 +9,7 @@ using Xunit;
 namespace Squirix.Server.UnitTests.Utils;
 
 /// <summary>Covers Darwin compatibility symlink helpers without requiring a macOS host.</summary>
+[UsedImplicitly]
 public sealed class MacOsCompatibilitySymlinkTests : ServerUnitTestBase
 {
     /// <summary>Allowlisted root link names are recognized.</summary>

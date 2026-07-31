@@ -456,8 +456,8 @@ select new { f, Debt = 5.ToMinutes().ToDebt(), Severity = Severity.Low }]]></Que
       <Query Active="True" DisplayList="True" DisplayStat="False" DisplaySelectionView="False" IsCriticalRule="True" RuleToken="ND1412" Group="Architecture"><![CDATA[// <Name>Enforcing Clean Architecture</Name>
 // <Id>ND1412:EnforcingCleanArchitecture</Id>
 // ND1412 squirix override: stock Domain/App Clean Architecture is N/A.
-// Enforce the preview.8 namespace dependency DAG forbidden edges from
-// private-docs milestones/v0.1.0-preview.8 (allowed edges for Cluster.Replication /
+// Enforce the replication namespace dependency DAG forbidden edges from
+// private-docs replication milestones (allowed edges for Cluster.Replication /
 // Storage.Replication are checked when those namespaces exist).
 warnif count > 0
 from n in Application.Namespaces

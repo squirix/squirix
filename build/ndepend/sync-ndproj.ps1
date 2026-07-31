@@ -143,7 +143,7 @@ if ($null -ne $ruleFiles) {
 }
 
 # Baseline / harness noise: keep inactive so rename/testkit churn does not gate quality.
-# ND1412 is activated via squirix.ndrules CustomRuleOverrides (preview.8 DAG gate).
+# ND1412 is activated via squirix.ndrules CustomRuleOverrides (replication DAG gate).
 $deactivateTokens = @(
     'ND1500', 'ND1501', 'ND1502', 'ND1503', 'ND1504', 'ND1505', # API Breaking Changes vs prior analysis
     'ND2201', # reserved exception types on compiler-generated collection helpers
