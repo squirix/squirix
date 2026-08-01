@@ -136,7 +136,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -244,7 +244,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -315,7 +315,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -440,7 +440,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -523,7 +523,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -766,7 +766,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -1087,7 +1087,7 @@ jobs:
                     global-json-file: global.json
 
             -   name: Cache NuGet Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.nuget/packages
                     key: ${{ runner.os }}-dotnet10-nuget-${{ hashFiles('**/global.json', '**/Directory.Packages.props', '**/Directory.Build.props', '**/*.csproj', '**/packages.lock.json') }}
@@ -1095,7 +1095,7 @@ jobs:
                         ${{ runner.os }}-dotnet10-nuget-
 
             -   name: Cache SonarCloud Packages
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: ~/.sonar/cache
                     key: ${{ runner.os }}-sonar
@@ -1104,7 +1104,7 @@ jobs:
 
             -   name: Cache SonarCloud Scanner
                 id: cache-sonar-scanner
-                uses: actions/cache@v5
+                uses: actions/cache@v6
                 with:
                     path: .sonar/scanner
                     key: ${{ runner.os }}-sonar-scanner
