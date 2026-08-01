@@ -48,4 +48,18 @@ internal static class StoreTestSupport
             await Task.Delay(25, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    internal static async Task WaitUntilAsync<T>(T state, Func<T, CancellationToken, ValueTask<bool>> condition, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+
+        var deadline = Environment.TickCount64 + Convert.ToInt64(timeout.TotalMilliseconds);
+        while (!await condition(state, cancellationToken).ConfigureAwait(false))
+        {
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException("Timed out waiting for manifest retention side effects.");
+
+            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+        }
+    }
 }

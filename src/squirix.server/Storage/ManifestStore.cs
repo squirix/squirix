@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,14 +11,6 @@ using Index = Squirix.Server.Storage.Manifest.Index;
 namespace Squirix.Server.Storage;
 
 /// <summary>Manifest store (<c>.bmqx</c> files and fixed-size <c>man-current</c> pointer).</summary>
-[SuppressMessage(
-    "AsyncUsage",
-    "MA0045:Use await instead of GetResult()",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
-[SuppressMessage(
-    "Usage",
-    "VSTHRD002:Avoid problematic synchronous waits",
-    Justification = "Blocking APIs run on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class ManifestStore : IDisposable
 {
     private readonly IndexAllocator _allocator;
@@ -92,8 +83,6 @@ internal sealed class ManifestStore : IDisposable
             _ = _gate.Release();
         }
     }
-
-    internal State ReadCurrentOrDefaultBlocking() => ReadCurrentOrDefaultAsync(CancellationToken.None).GetAwaiter().GetResult();
 
     internal async Task WriteAsync(State manifest, CancellationToken cancellationToken = default)
     {

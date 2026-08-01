@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -8,10 +7,6 @@ using Squirix.Server.Storage.Journaling.Abstractions;
 namespace Squirix.Server.Storage.Manifest;
 
 /// <summary>Owns and resolves the next numbered manifest file index from cache, disk scan, or CURRENT pointer.</summary>
-[SuppressMessage(
-    "AsyncUsage",
-    "MA0045:Do not use blocking calls in a sync method",
-    Justification = "Blocking manifest file I/O runs on the dedicated journal I/O thread without a synchronization context.")]
 internal sealed class IndexAllocator
 {
     private readonly string _currentPath;
