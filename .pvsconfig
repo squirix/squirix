@@ -1,10 +1,18 @@
-// PVS-Studio diagnostic configuration for CI (pvs-studio-dotnet -C).
+// PVS-Studio diagnostic configuration for CI and IDE (pvs-studio-dotnet -C / solution .pvsconfig).
 // Exclude generated and build artifacts from analysis.
 //V_EXCLUDE_PATH **/bin/**
 //V_EXCLUDE_PATH **/obj/**
 //V_EXCLUDE_PATH **/*.g.cs
 //V_EXCLUDE_PATH **/*.AssemblyInfo.cs
 //V_EXCLUDE_PATH **/AssemblyInfo.cs
+// Keep analysis aligned with the production CI project set (tests/samples/benchmarks out of scope).
+//V_EXCLUDE_PATH **/tests/**
+//V_EXCLUDE_PATH **/samples/**
+//V_EXCLUDE_PATH **/benchmarks/**
 //
-// Reports include all analyzer groups/levels. CI fails only on GA:1,2 (see ci.yml).
-
+// Empty best-effort catch blocks (dispose/drain/cleanup) are intentional and comment-documented.
+// V3163 = GA; V5606 = OWASP twin of the same pattern.
+//-V3163
+//-V5606
+//
+// Reports include remaining groups/levels. CI fails only on GA:1,2 (see .github/workflows/ci.yml).
