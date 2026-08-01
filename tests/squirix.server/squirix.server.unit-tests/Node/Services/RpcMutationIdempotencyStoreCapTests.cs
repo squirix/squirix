@@ -17,10 +17,10 @@ public sealed class RpcMutationIdempotencyStoreCapTests : ServerUnitTestBase
     public void ExpiredRecordsAreRemovedBeforeCapacityEnforcement()
     {
         const int cap = 2;
-        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMilliseconds(50) }, "test-node");
+        var store = new RpcMutationIdempotencyStore(new IdempotencyOptions { MaxInFlightRecords = cap, Retention = TimeSpan.FromMinutes(15) }, "test-node");
         store.RecordSuccess("op-1", "fp-1", ResponseBytes);
         store.RecordSuccess("op-2", "fp-2", ResponseBytes);
-        store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-1));
+        store.RestoreRecord("op-stale", "fp-stale", ResponseBytes, DateTime.UtcNow.AddMinutes(-20));
 
         store.RecordSuccess("op-3", "fp-3", ResponseBytes);
 
